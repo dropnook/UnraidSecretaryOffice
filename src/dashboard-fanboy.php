@@ -482,7 +482,7 @@ function officeFanboyDashRing(array $s, ?float $level, string $unit, bool $full,
  *
  * @return array{who:string, tone:string, mood:string, banners:list<array{0:string,1:string}>, stale:?int, zones:list<array>,
  *               more:int, watch:list<array{0:string,1:string}>, watch_art:list<?array>, before:?string, setup:bool, steers:bool,
- *               history:bool, no_curve:bool, art:bool}
+ *               history:bool, no_curve:bool, art:bool, stopped:?array{back:bool, unknown:int}}
  */
 function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $lang, int $now, ?array $hist = null): array
 {

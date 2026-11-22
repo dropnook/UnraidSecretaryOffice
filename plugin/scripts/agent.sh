@@ -18,12 +18,14 @@
 #                      back (backup.sh --unmount / --recover, engine 2.25); a partner's
 #                      transfer through the door ends at the stop (partner_release)
 #   agent.sh release   everything the office holds let go (the .plg's remove, before the code goes): the agent
-#                      stopped, then what "array stopping" releases - no night shift after it (the USO network
-#                      stays: the .plg's remove takes it with scripts/usonet.sh leave)
+#                      stopped, Fanboy's control with it (every fan back), then what "array stopping" releases -
+#                      no night shift after it (the USO network stays: the .plg's remove takes it with
+#                      scripts/usonet.sh leave)
 #   agent.sh nightshift  the night shift alone (php agent.php nightshift: RAM and
-#                      flash only - nothing under /mnt; it ends by itself without
-#                      the night watchman's mirror, when the array is started or
-#                      the agent runs)
+#                      flash only - nothing under /mnt; it ends by itself when the
+#                      array is started or the agent runs, and when neither the night
+#                      watchman has a mirror nor a desk asks it to stay - Fanboy does
+#                      while he steers: it looks after his control meanwhile)
 #
 # "start" leaves a small supervisor behind (its own session, so "stop" can end
 # everything the agent started - a du measuring a share would keep the pool

@@ -1011,10 +1011,11 @@ the last 60 history lines only for a source the file has none for. **The file
   written last; `fanboyGiveBack()` puts exactly the state before back and reads it back. **Who gives back:** the holder itself
   (every way it ends); the agent's tick every 5 s and the guard's cron line every minute (`agent/fanboy-guard.php watch`,
   in its own `fanboy-guard.cron` on the flash — there only while he is armed: written at «Take over», gone at «Hand back», put right at every agent start (`fanboyGuardCron()`); only when the journal names a holder — it needs only util.php and the write helper) for a holder
-  gone or hung; `agent.sh stop` (stop, restart, update) and `release` (removal, the array stopping) through
-  `fanboy_release` → `fanboy-guard.php release`. The control (`php agent.php ramjob fanboy-control`, `fanboy-control.php`) runs
-  in a session of its own (`setsid -f`): an agent restarting in place never touches it. It steers only while the array is
-  started, he is hired, shown, set up and armed («take over»), and no known controller runs (FanCtrl Plus, its fork,
+  gone or hung; `agent.sh stop` (stop, restart, update) and `release` (removal) through
+  `fanboy_release` → `fanboy-guard.php release`; at the array's stop only `release-steps` (the control steers on: «Always
+  on» below). The control (`php agent.php ramjob fanboy-control`, `fanboy-control.php`) runs
+  in a session of its own (`setsid -f`): an agent restarting in place never touches it. It steers while
+  he is hired, shown, set up and armed («take over») — whatever the array does —, and no known controller runs (FanCtrl Plus, its fork,
   Dynamix System Autofan, PWM Fan — WAZ Cooling Control steers shelf and IPMI fans: named as a hint only, `'hint_only'`, `fanboyBlocking()`); outputs looked up anew at every start through the identity;
   zones (fans + heat sources: disks only from disks.ini — asleep is asleep, never cold —, hwmon sensors) with a goal per
   kind of heat source (quiet/normal/cool from one table per kind, `FANBOY_SOURCE_DEFAULTS`, or the owner's own points;
@@ -1140,9 +1141,9 @@ the last 60 history lines only for a source the file has none for. **The file
   follow as measured» only after a fan stayed off its table at one value for `FANBOY_DRIFT_FOR` (a fan running down from
   the board's speed after a start is no drift). His guard's cron line is the office's own to the Night Watchman through
   his desk's `cron` (`desk(…, ['cron' => …])`, util.php) — the watchman never names him.
-  **Always on** (2026-11-22, the owner's concept «immer da»: he is to keep steering while the array stops and is stopped,
-  without ever holding the stop; built so far are the steps that change no behaviour at a stop — **he still ends at the
-  array's stop**). The control runs **without the data folder**: a RAM job (`agent/lib/ramjob.php`, `php agent.php ramjob
+  **Always on** (2026-11-22, the owner's concept «immer da»: «taken over» means he steers for as long as the server runs —
+  while the array runs, stops, is stopped and starts, and after a reboot before the array starts — without ever holding
+  an array stop; the BIOS stays the net in every path). The control runs **without the data folder**: a RAM job (`agent/lib/ramjob.php`, `php agent.php ramjob
   <name>`, a desk's `ram_jobs` — in such a process `DATA_DIR` is a place that can never be there, `OFFICE_NO_DATA`, its
   `logLine()`s go to `RUN_DIR/ramjob-<name>.log` and the agent takes them into agent.log, `ramLogFold()`), started with
   nothing open that the agent has open (`fanboyLaunchCommand()`). All it knows of the data folder is **his mirror**
@@ -1159,12 +1160,39 @@ the last 60 history lines only for a source the file has none for. **The file
   loop devices (every mount under /mnt that is no RAM filesystem; a loop mount whose image lies under /mnt: /etc/libvirt,
   /var/lib/docker), by mount point AND device, its mount namespace must be init's; a look that can't be made counts as
   held. Then **the brake** (`fanboyBrake()`): it ends, every fan back its usual way, `brake.json` in RAM keeps the agent
-  from starting it again until the agent starts anew, «Take over» or «Look now», one warning. At a release
-  (`fanboy_release`) the guard hears why (`release array_stopping` → the status says `array_stopped`) and leaves one look
-  behind (`check-back`: did the mainboard take the fans back? — RAM and /sys only, never `logLine()`; the agent tells what
-  it found at its next start). The suite's own mount namespace on a server is exactly what the look finds: tests of the
-  RAM mode name their own look (`$GLOBALS['fanboyHoldCheck']`), one runs the real one. Tests: tests/always-on-tests.php
-  (part `alwayson`).
+  from starting it again until the agent starts anew, «Take over» or «Look now», one warning. After every release
+  (`fanboy_release`) the guard leaves one look behind (`check-back`: did the mainboard take the fans back? — RAM and /sys
+  only, never `logLine()`; the agent tells what it found at its next start). The suite's own mount namespace on a server
+  is exactly what the look finds: tests of the RAM mode name their own look (`$GLOBALS['fanboyHoldCheck']`), one runs the
+  real one. **Through the array's stop:** `fanboyHoldReason()` knows no array state for a control without the data
+  folder; `agent.sh array stopping` calls `fanboy-guard.php release-steps` — every holder but the control (a setup step,
+  «show me this fan»: they work in the data folder) is asked to end, ended for good after 3 s, its outputs given back; a
+  holder gone or hung likewise; then the control is looked at from outside with the same look, and one that holds
+  something there (or can't be looked at) is ended like a full release, `brake.json` (`by: stop`) set, the agent's next
+  start tells it. Every other stop of the office (`stop`, `restart`, the plugin's update and removal) still gives every
+  output back, and so does the control on a TERM (Unraid's shutdown: TERM, 5 s, KILL). **Who looks after it:** the
+  agent's tick while the array runs, the night shift while it doesn't (`fanboy-night.php`, a desk's `'night'` in
+  `desk()` — `nightShift()` calls it every pass, stays on while a desk answers true, looks at itself every minute; in
+  the night shift `fanboyRamMode()` holds and `FANBOY_DIR` names a place that can never be there), the guard's cron line
+  under both; the control's deaths are counted in RAM for both (`crashes.json`); what is said in the night shift waits in
+  `ramjob-night.log`, the guard's lines while the array isn't started in `ramjob-fanboy-guard.log`, for the agent's log.
+  **Disks of unknown temperature** (`fanboyDisksUnknown()`: the array not started — Unraid 7.4 rewrites disks.ini for the
+  last time about two minutes after a stop and never again, and the stop spins every drive up —, the file missing, or not
+  rewritten for twice `poll_attributes` and 10 minutes): no value, not asleep, no alarm; the zone keeps its level (30
+  minutes stopped, as long as it lasts while running), never lets a fan stand, keeps each fan's floor; the status says
+  `disks_unknown` and `zones[].unknown`. **The one wish heard without the agent:** «give the fans back to the mainboard» —
+  the mark `RUN_DIR/fanboy/handback.json` (the web side's `src/fanboy-stopped.php` writes it for the button on his
+  Dashboard tile, only while the array isn't started and no agent runs): the control ends within a round, nobody starts
+  it, the night shift copies the mark to the flash, the agent's next start makes it true in his store and takes both
+  away. **After a boot** (`fanboy-mirror.php` «the copy on the flash»): while hired and armed the agent keeps
+  `<flash>/fanboy-mirror.json` (what the control reads, the states before him, the modules he loaded, Unraid version and
+  kernel; made and removed at once, other changes at most once a minute); the night shift puts it into RAM as his
+  mirror only when there is none, it is this board's in its shape, version and kernel are the same and emhttpd runs —
+  else the BIOS keeps the fans until the array starts. The history from before the boot is handed to a control that
+  started before the agent (`history-before.json`, once per boot). `fanboyInitialKeep()` never keeps a fixed value found
+  at a boot's first take where the chip's automatic stood before him. The plugin's removal takes both flash files.
+  **Not built:** maintenance mode (the control steers there too; nobody restarts it after a death). Tests:
+  tests/always-on-tests.php (part `alwayson`).
 * **`caretaker` — The Team Lead** (id stays `caretaker`). Hires, fires (no «Hire» while a needed colleague can't come),
   suggests, collects all checks, reports new red findings once. «I know, thanks» puts aside recommended findings and hints —
   **never musts**; his notification history (`notify-log.json`) shows a counted decision's `times` and, for a run's very same

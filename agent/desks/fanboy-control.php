@@ -2016,7 +2016,12 @@ function fanboyHistoryLoad(string $board, ?int $wall = null, ?array &$curves = n
     return [];
 }
 
-/** One history file read: this board's zones with their points (thinned and bounded as kept) and each curve's line — null: not this board's, not a history */
+/**
+ * One history file read: this board's zones with their points (thinned and bounded as kept) and each curve's line — null:
+ * not this board's, not a history
+ *
+ * @param-out array<string, array{kinds: list<string>, rows: array<int, list<?int>>}> $curves  each curve's line (fanboyHistoryCurvesUnpack())
+ */
 function fanboyHistoryRead(string $file, string $board, ?int $wall = null, ?array &$curves = null): ?array
 {
     $curves = [];
