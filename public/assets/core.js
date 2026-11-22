@@ -2770,7 +2770,10 @@ Office.reportDialog = function reportDialog(deskId, opts) {
   const draft = Office.storeJson('report.draft') || {};
   const desks = [['office', t('office.report_desk_office')]].concat(Office.staffInOrder().map((d) => [d.id, t(`${d.id}.name`)]));
   const want = deskId || draft.desk || 'office';
-  const state = { kind: REPORT_KINDS.includes(draft.kind) ? draft.kind : 'bug', preview: null, sent: false, cap: null, closed: false, inbox: null, images: [], imagesOk: null };
+  const state = { kind: REPORT_KINDS.includes(draft.kind) ? draft.kind : 'bug', preview: null, sent: false, cap: null, closed: false, inbox: null, images: [], imagesOk: null,
+    // what was put into the text for the user (2026-11-22, uso-inbox #20: a wish with not one word of his own): a draft this
+    // dialog didn't keep itself (a desk filled it in — Fanboy's «Send to the developers…») is pre-filled; kept with the draft
+    prefill: typeof draft.prefill === 'string' ? draft.prefill : draft.mine === true || typeof draft.text !== 'string' ? '' : draft.text, askedOwn: false };
   const box = el('div', 'sso-report');
 
   // the head: the team lead's line, the other ways, the cap
@@ -2834,7 +2837,11 @@ Office.reportDialog = function reportDialog(deskId, opts) {
   text.rows = 6;
   text.value = typeof draft.text === 'string' ? draft.text : '';
   const count = el('small', 'sso-report-count');
-  field(t('office.report_text'), text, count);
+  const textField = field(t('office.report_text'), text, count);
+  // no word of the user's own (empty, or only what was filled in): asked once, inline — back to the text, or send anyway
+  const ownAsk = el('div', 'callout sso-report-own');
+  ownAsk.hidden = true;
+  textField.appendChild(ownAsk);
   // the pictures: chosen, pasted (anywhere in the dialog) or dropped here
   const pics = el('div', 'sso-report-pics');
   const picList = el('div', 'sso-report-pic-list');
@@ -2887,7 +2894,26 @@ Office.reportDialog = function reportDialog(deskId, opts) {
   box.appendChild(yours);
 
   const words = () => ({ kind: state.kind, desk: desk.value, title: title.value.trim(), text: text.value.trim() });
-  const keep = () => { if (!state.sent) Office.storeJson('report.draft', words()); };
+  const keep = () => { if (!state.sent) Office.storeJson('report.draft', { ...words(), mine: true, ...(state.prefill ? { prefill: state.prefill } : {}) }); };
+  /** Words of the user's own: a line of the text that isn't one of the pre-filled ones (spaces aside) — none in an empty text */
+  const ownWords = () => {
+    const lines = (s) => String(s || '').split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    const given = new Set(lines(state.prefill));
+    return lines(text.value).some((l) => !given.has(l));
+  };
+  function askOwn() {
+    state.askedOwn = true;
+    ownAsk.innerHTML = '';
+    const back = el('button', 'btn small', t('office.report_own_back'));
+    back.type = 'button';
+    back.onclick = () => { ownAsk.hidden = true; text.focus(); };
+    const anyway = el('button', 'btn small', t('office.report_own_send'));
+    anyway.type = 'button';
+    anyway.onclick = () => { ownAsk.hidden = true; if (send && !send.disabled && send.onclick) send.onclick(); };
+    ownAsk.append(el('p', '', t(`office.report_own_${state.kind}`)), back, ' ', anyway);
+    ownAsk.hidden = false;
+    if (ownAsk.scrollIntoView) ownAsk.scrollIntoView({ block: 'nearest' });
+  }
   const say = (s) => { msg.textContent = s || ''; msg.hidden = !s; };
   let send = null;
   // a picture ticked: only with the tick «I've looked at the pictures»
@@ -2932,6 +2958,7 @@ Office.reportDialog = function reportDialog(deskId, opts) {
   }
   function changed() {
     keep();
+    if (ownWords()) ownAsk.hidden = true;
     counter();
     if (state.preview) {
       dropDiag();
@@ -3250,6 +3277,7 @@ Office.reportDialog = function reportDialog(deskId, opts) {
 
   async function doSend() {
     if (!state.preview) return false;
+    if (!state.askedOwn && !ownWords()) { askOwn(); return false; }        // asked once; «Send anyway» goes on
     const parts = (state.boxes || []).filter((b) => b.checked && !b.disabled && (REPORT_PARTS.includes(b.dataset.part) || REPORT_IMAGE_PARTS.includes(b.dataset.part) || b.dataset.part === REPORT_DIAG_PART))
       .map((b) => b.dataset.part);
     const withPics = parts.some((p) => REPORT_IMAGE_PARTS.includes(p));

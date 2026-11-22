@@ -301,6 +301,8 @@
   "adopt.share_public": "«Weiss ich, danke»: Gäste auf diesem Share sind normal.",
   "check.quiet": "Das Wachbuch des Nachtwächters hat nichts Offenes",
   "check.quiet_how": "Was er anders findet als sonst, erscheint hier, bis du es auf seiner Seite zur Kenntnis nimmst.",
+  "check.open": {"one": "Der Nachtwächter hat einen offenen Vorfall", "other": "Der Nachtwächter hat {n} offene Vorfälle"},
+  "check.open_how": "Sie stehen auf seiner Liste, jeder mit was er ist und was zu tun ist — dort abhaken. «Weiss ich, danke» hier hakt alle ab; ein neuer bringt diese Zeile zurück.",
   "check.posture": {"one": "Der Nachtwächter hat einen Sicherheitshinweis", "other": "Der Nachtwächter hat {n} Sicherheitshinweise"},
   "check.posture_how": "Auf seiner Seite unter «Wie sicher steht es?» — jeweils mit Grund und wo in Unraid. Ein Rat, keine Pflicht.",
   "check.login_new_ip": {"one": "Anmeldung von einer neuen Adresse: {user} von {ip} ({service})", "other": "{n} Anmeldungen von neuen Adressen, die neuste: {user} von {ip} ({service})"},

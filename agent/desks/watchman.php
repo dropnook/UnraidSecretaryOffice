@@ -9468,8 +9468,13 @@ function watchmanTeamLeadNotes(array &$b, array &$book, array $seen, int $now, ?
     if (!$acks) {
         return;
     }
+    // a line per kind (WATCH_TEAMLEAD_OWN; before 2026-11-22 every kind — a note given then still counts while kept) and
+    // the one line for the rest (2026-11-22): its note stands for every entry it counted
+    $open = watchmanOpenFinding($book);
+    $all = $open !== null && isset($acks[caretakerAckSig('watchman', $open)]);
     foreach (watchmanFindings($book) as $f) {
-        if (!isset($acks[caretakerAckSig('watchman', $f)])) {
+        $own = isset($acks[caretakerAckSig('watchman', $f)]);
+        if (!$own && !($all && !in_array($f['id'], WATCH_TEAMLEAD_OWN, true))) {
             continue;
         }
         foreach ($book as $i => $e) {
@@ -9698,8 +9703,32 @@ function watchmanFindings(array $book): array
 }
 
 /**
- * For the team lead: his findings (one per kind with open entries, or "quiet"), and — good to know, never
- * a finding — how many of his security advice (posture tips you haven't noted) there are.
+ * What stays a line of its own at the team lead: what he needs to watch at all (the router's log gone silent) — every
+ * other kind is on his own list and comes to the team lead as one line (watchmanOpenFinding(), 2026-11-22)
+ */
+const WATCH_TEAMLEAD_OWN = ['net_log_silent'];
+
+/**
+ * The team lead's one line for the incidents on his list (2026-11-22, the owner: «solche Meldungen beim Teamchef vom
+ * Nachtwächter sollen nicht doppelt sein, denn der Nachtwächter gibt diese ja aus»): «The night watchman has n open
+ * incidents» (recommended, the way to him) — n the open entries of every kind but WATCH_TEAMLEAD_OWN, `newest` the newest
+ * of them (its sig: a new one makes it another finding, his «I know, thanks» counts for what he saw); null: none open
+ */
+function watchmanOpenFinding(array $book): ?array
+{
+    $open = array_values(array_filter($book, fn ($e) => watchmanOpen($e) && !in_array($e['kind'], WATCH_TEAMLEAD_OWN, true)));
+    if (!$open) {
+        return null;
+    }
+    usort($open, fn ($a, $b) => [(int) $a['last'], $a['id']] <=> [(int) $b['last'], $b['id']]);
+    return finding('open', 'recommended', false, ['n' => count($open), 'newest' => (string) end($open)['id']], '#/watchman');
+}
+
+/**
+ * For the team lead: what he needs to watch (WATCH_TEAMLEAD_OWN, a line per kind), the incidents on his list as ONE line
+ * (watchmanOpenFinding()) — or "quiet" —, and — good to know, never a finding — how many of his security advice (posture
+ * tips you haven't noted) there are. Before 2026-11-22 a line per kind: a note given to one of those still notes its
+ * entries here (watchmanTeamLeadNotes()) while it is kept; the team lead forgets it after CARETAKER_ACK_KEEP.
  */
 function watchmanChecks(?string $dir = null): array
 {
@@ -9708,7 +9737,12 @@ function watchmanChecks(?string $dir = null): array
     if (!is_array($d['baseline'])) {
         return [];                  // his first round is still to come
     }
-    $out = watchmanFindings($d['book']) ?: [finding('quiet', 'recommended', true, [], '#/watchman')];
+    $out = array_values(array_filter(watchmanFindings($d['book']), fn ($f) => in_array($f['id'], WATCH_TEAMLEAD_OWN, true)));
+    $open = watchmanOpenFinding($d['book']);
+    if ($open !== null) {
+        $out[] = $open;
+    }
+    $out = $out ?: [finding('quiet', 'recommended', true, [], '#/watchman')];
     $posture = watchmanPosturePage($d['state']['posture'] ?? null, readJson("$dir/posture.json"));
     if ($posture !== null && $posture['open'] > 0) {
         $out[] = finding('posture', 'hint', null, ['n' => $posture['open']], '#/watchman');

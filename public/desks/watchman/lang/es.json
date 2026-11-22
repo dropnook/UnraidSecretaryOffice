@@ -301,6 +301,8 @@
   "adopt.share_public": "«Ya lo sé, gracias»: invitados en este recurso compartido son normales.",
   "check.quiet": "El libro de guardia del sereno no tiene nada abierto",
   "check.quiet_how": "Lo que encuentra distinto de lo normal aparece aquí hasta que lo anotes en su página.",
+  "check.open": {"one": "El vigilante nocturno tiene un incidente abierto", "other": "El vigilante nocturno tiene {n} incidentes abiertos"},
+  "check.open_how": "Están en su lista, cada uno con qué es y qué hacer — márcalos allí. «Ya lo sé, gracias» aquí los marca todos; uno nuevo trae esta línea de vuelta.",
   "check.posture": {"one": "El sereno tiene un consejo de seguridad", "other": "El sereno tiene {n} consejos de seguridad"},
   "check.posture_how": "En su página en «¿Qué tan seguro está?» — cada uno con el porqué y dónde en Unraid. Un consejo, no una obligación.",
   "check.login_new_ip": {"one": "Acceso desde una dirección nueva: {user} desde {ip} ({service})", "other": "{n} accesos desde direcciones nuevas, el más reciente: {user} desde {ip} ({service})"},
