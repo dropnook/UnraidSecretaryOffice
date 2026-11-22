@@ -1957,6 +1957,36 @@ Office.stat = function stat(o) {
   tileMark(b, o, o.pressed === true);
   return b;
 };
+/**
+ * A light tile (the Night Watchman's areas, 1.96): one line — a traffic light and a name, smaller than a number tile.
+ * level: danger (waits for your answer) | warn (something to look at) | note (fine, with a tip: «!») | ok | none (grey:
+ * nothing to watch here, or off) — anything else is «not known yet» (–). Never colour alone: each level has its own
+ * shape (■ ▲ ●! ● ○, .light-<level>) and the tile says it in its aria-label (common.light.<level>). tip: a few lines of
+ * plain text shown on hover — data-own keeps a tap the tile's (a phone has no hover: the section's head says the same).
+ * The rest as Office.stat: on, pressed, controls, filters, id, place, mark, cls.
+ */
+Office.LIGHTS = ['danger', 'warn', 'note', 'ok', 'none'];
+Office.light = function light(o) {
+  const lv = Office.LIGHTS.includes(o.level) ? o.level : '';
+  const b = el(o.on ? 'button' : 'div', 'light-tile ' + (lv ? `light-${lv}` : 'light-unknown') + (o.cls ? ' ' + o.cls : ''));
+  if (o.on) {
+    b.type = 'button';
+    b.addEventListener('click', o.on);
+    if (o.pressed !== undefined && o.pressed !== null) b.setAttribute('aria-pressed', o.pressed ? 'true' : 'false');
+  }
+  tileAttrs(b, { ...o, tip: null });
+  const dot = el('span', 'light-dot', lv === 'note' ? '!' : lv ? '' : '–');
+  dot.setAttribute('aria-hidden', 'true');
+  const name = putInto(el('span', 'light-name'), o.label);
+  b.append(dot, name);
+  b.setAttribute('aria-label', `${name.textContent}: ${t(`common.light.${lv || 'unknown'}`)}`);
+  if (o.tip) {
+    b.dataset.tip = String(o.tip);
+    b.dataset.own = '1';                 // the tip on hover only: a click or tap stays the tile's
+  }
+  tileMark(b, o, o.pressed === true);
+  return b;
+};
 function tileAttrs(b, o) {
   if (o.controls) b.setAttribute('aria-controls', o.controls);
   if (o.filters) b.dataset.filters = o.filters;
@@ -1978,8 +2008,10 @@ function tileMark(b, o, on) {
   m.setAttribute('aria-hidden', 'true');
   const label = b.querySelector(':scope > .stat-label');
   const head = label ? null : b.querySelector(':scope > .card-head');
+  const name = label || head ? null : b.querySelector(':scope > .light-name');
   if (label) label.prepend(m);
   else if (head) head.appendChild(m);
+  else if (name) name.after(m);           // a light tile: on its line, after the name
   else b.appendChild(m);
 }
 
@@ -2039,8 +2071,15 @@ Office.tile = function tile(o) {
  *                                   //   clear (the bar's chip, «Show all») — the desk sets its filter state before
  *                                   //   anything is drawn
  *     wants: (sub) => bool,         // optional: a sub-route naming a tile the list may only have later (a partner's)
+ *     filter: {                     // optional: a filter over the row (1.96, the Night Watchman's 24 tiles) — an
+ *       label: T('…'),              //   Office.filterBar above the tiles: its words, and «only …» (only: {text, hint});
+ *       only: { text, hint },       //   a tile stays in the row when its words fit (words(x): its name, what it holds)
+ *       words: (x) => [ … ],        //   and, with «only …», it has a finding (finding(x)). The chosen tile always stays;
+ *       finding: (x) => bool },     //   nothing chosen, the page shows the sections of the tiles in the row. Never kept:
+ *                                   //   a new visit (mount) starts with the whole row. The bar's note line says it.
  *   });
- *   sw.el        <div class="sections">: the row (sw.grid) and the body (sw.body, [data-sections-body])
+ *   sw.el        <div class="sections">: the row (sw.grid) and the body (sw.body, [data-sections-body]); with `filter` its
+ *                bar first (sw.bar)
  *   sw.render()  row and body anew (a new state, every answer of the agent) — the choice stays; in keepInPlace(sw.grid)
  *   sw.pick(id[, how])   like a click: the active one again → nothing; stores a section tile, never a filter tile
  *   sw.active()  the active tile's id, or '' (also while the chosen one isn't in the list)
@@ -2071,7 +2110,12 @@ Office.sections = function sections(opts) {
   const body = el('div', 'sections-body');
   body.id = o.bodyId || `${desk}-sections`;
   body.dataset.sectionsBody = '1';
-  box.append(grid, body);
+  // the row's filter (o.filter): a bar above the tiles, shown whatever the row's length (min 0), its note line the one place
+  // that says the row is narrowed; its onChange runs inside keepInPlace already
+  const fo = o.filter || null;
+  const fbar = fo ? Office.filterBar({ label: fo.label, only: fo.only, min: 0, onChange: () => draw() }) : null;
+  if (fbar) fbar.el.classList.add('sections-filter');
+  box.append(...(fbar ? [fbar.el] : []), grid, body);
   const ids = new Map();          // section name -> the id its element had when last drawn (data-filters points there)
   const nodes = new Map();        // tile id -> its node as last drawn
   let chosen = null;              // the choice; null: not read yet (the store, else the default)
@@ -2084,6 +2128,15 @@ Office.sections = function sections(opts) {
   const current = () => {
     if (chosen === null) chosen = fromStore();
     return tileOf(chosen) ? chosen : '';
+  };
+  /** The tiles the row shows: all, or those the filter lets through (the chosen one always) */
+  const shownList = (cur = current()) => {
+    const all = list();
+    if (!fbar) return all;
+    const f = fbar.read();
+    if (!f.words.length && !f.only) return all;
+    return all.filter((x) => x.id === cur || ((!f.words.length || Office.fits(f.words, fo.words ? fo.words(x) : [x.id]))
+      && (!f.only || !!(fo.finding && fo.finding(x)))));
   };
 
   function sectionNode(name) {
@@ -2150,7 +2203,7 @@ Office.sections = function sections(opts) {
       return node;
     };
     if (cur) stickyHead(add(nameOf(tileOf(cur))));
-    else list().forEach((x) => add(nameOf(x)));
+    else shownList(cur).forEach((x) => add(nameOf(x)));
     body.dataset.active = cur;
     body.dataset.sections = drawn.join(' ');
     drawRow(cur, had);
@@ -2164,12 +2217,14 @@ Office.sections = function sections(opts) {
     }
     nodes.clear();
     grid.replaceChildren();
-    list().forEach((x) => {
+    const shown = shownList(cur);
+    shown.forEach((x) => {
       const n = tileNode(x, cur);
       if (!n) return;
       nodes.set(x.id, n);
       grid.appendChild(n);
     });
+    if (fbar) fbar.done(shown.length, list().length, { onlyAvail: true });
     if (had && nodes.has(had) && document.activeElement !== nodes.get(had)) nodes.get(had).focus({ preventScroll: true });
   }
 
@@ -2217,7 +2272,7 @@ Office.sections = function sections(opts) {
   }
 
   const sw = {
-    el: box, grid, body,
+    el: box, grid, body, bar: fbar,
     render() { if (grid.isConnected) Office.keepInPlace(grid, draw); else draw(); return sw; },
     /** only the tiles anew, at once — for a switch inside a section whose tile line changes with it (CLAUDE.md «Tiles») */
     row() { if (grid.isConnected) Office.keepInPlace(grid, () => drawRow()); else drawRow(); return sw; },
@@ -2225,6 +2280,7 @@ Office.sections = function sections(opts) {
     active: () => current(),
     mount(sub) {
       chosen = null;                                        // a new visit: the stored choice (never a filter tile)
+      if (fbar) fbar.reset();                               // … and the whole row: the row's filter is never kept
       const s = String(sub || '');
       if (s && (tileOf(s) || (o.wants && o.wants(s)))) {
         chosen = s;
