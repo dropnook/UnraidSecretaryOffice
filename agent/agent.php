@@ -198,6 +198,9 @@ function runningAgent(): ?int
  * the fan desk's control is looked after) — called every pass, RAM and flash only like everything here. A desk that
  * answers true keeps the night shift on: then it stays without the night watchman's mirror too (no rounds of his), and
  * ends once no desk asks any more.
+ *
+ * It looks at itself before its first round and every minute (lib/holdsnothing.php) and ends when it finds itself holding
+ * something on the array or a pool — exit 0: the supervisor doesn't start it again.
  */
 function nightShift(): int
 {
@@ -227,6 +230,8 @@ function nightShift(): int
     $nextNotify = -INF;
     $zoneSeen = null;
     $watch = true;              // the night watchman's rounds: until he has no mirror
+    $nextSelf = -INF;           // its look at itself: before its first round and every minute
+    $noLook = false;
     while (!$stop) {
         clearstatcache();
         $agent = runningAgent();
@@ -237,6 +242,23 @@ function nightShift(): int
         if (arrayRunning()) {
             $why = 'the array is started — the agent takes over';
             break;
+        }
+        // 2026-11-22: it is at work while the array stops and starts, and stays on longer since a desk can ask — it must
+        // never be what keeps the array from stopping. Found holding something on the array or a pool (a working
+        // directory, an open file, a mapped file, a mount namespace of its own — lib/holdsnothing.php): it says so and ends;
+        // what it looked after has nets of its own. A look that can't be made ends nothing (it opens nothing there by
+        // itself, and its end would help nobody): said once.
+        if (agentClock() >= $nextSelf) {
+            $nextSelf = agentClock() + 60;
+            $held = officeHoldsNothing();
+            if ($held !== null && ($held['why'] ?? '') !== 'no_look') {
+                $why = 'it must never keep the array from stopping, and ' . officeHoldSay($held);
+                break;
+            }
+            if ($held !== null && !$noLook) {
+                $noLook = true;
+                nightLog('The look at itself could not be made (' . officeHoldSay($held) . ') — it goes on');
+            }
         }
         if (agentClock() >= $nextNotify) {
             $nextNotify = agentClock() + 60;

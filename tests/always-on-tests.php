@@ -1408,6 +1408,11 @@ function testAlwaysOnNight(): void
             (bool) preg_match('/foreach \(desks\(\) as \$id => \$desk\) \{\n\s+if \(isset\(\$desk\[\'night\'\]\)\) \{\n\s+try \{\n\s+if \(\$desk\[\'night\'\]\(\) === true\) \{\n\s+\$wanted\[\] = \$id;/', $night)
             && str_contains($night, "if (!\$watch && !\$wanted) {") && str_contains($night, "if (!\$wanted) {\n                        \$why = 'no mirror of his baseline")
             && is_callable($GLOBALS['desks']['fanboy']['night'] ?? fn () => false));
+        // (step S5e) the night shift looks at itself too: found holding something on the array or a pool it ends (exit 0: not
+        // started again); a look that can't be made is said once and ends nothing
+        check('always on S5e: the night shift looks at itself before its first round and every minute — a finding ends it, «no look» is said once and ends nothing',
+            (bool) preg_match('/if \(agentClock\(\) >= \$nextSelf\) \{\n\s+\$nextSelf = agentClock\(\) \+ 60;\n\s+\$held = officeHoldsNothing\(\);\n\s+if \(\$held !== null && \(\$held\[\'why\'\] \?\? \'\'\) !== \'no_look\'\) \{\n\s+\$why = [^\n]+\n\s+break;/', $night)
+            && strpos($night, '$nextSelf = -INF;') < strpos($night, 'watchmanNightRound(watchmanNightPaths())') && strpos($night, 'if (agentClock() >= $nextSelf) {') < strpos($night, "foreach (desks() as \$id => \$desk) {\n            if (isset(\$desk['night']))"));
         $guard = $src('fanboy-guard.php');
         check('always on S5b: the guard writes the agent\'s log in the data folder only while the array is plainly started — else its line waits in RAM',
             (bool) preg_match('/function fanboyGuardLog\(string \$line\): void\n\{\n\s+try \{\n\s+if \(\(readCfg\(fanboySysRoot\(\) \. \'\/var\/local\/emhttp\/var\.ini\'\)\[\'fsState\'\] \?\? \'\'\) === \'Started\'\) \{\n\s+logLine\(\$line\);\n\s+\} else \{\n\s+ramLogLine\(\$line, \'fanboy-guard\'\);/', $guard)
@@ -1454,6 +1459,9 @@ function testAlwaysOnNight(): void
             $log = (string) @file_get_contents(TESTS_RUN_DIR . '/nightshift/nightshift.log');
             same('always on S5b: the real night shift stays on for him without the night watchman\'s mirror, and gives a dead holder\'s output back',
                 [true, null, true], [(bool) proc_get_status($shift)['running'], fanboyJournal()['outputs'][fanboyTId(4)]['owner'] ?? null, str_contains($log, 'the night shift stays for fanboy')], $log . @file_get_contents("{$t['tmp']}/night.out"));
+            if (!is_dir('/proc/self')) {
+                same('always on S5e: … on a machine without /proc its look at itself can\'t be made: said once, and it goes on', 1, substr_count($log, 'The look at itself could not be made'));
+            }
             check('always on S5b: … what it says of him waits in RAM for the agent\'s log; the data folder was never made or touched',
                 str_contains((string) @file_get_contents(ramLogFile('night')), 'a holder was gone') && !file_exists($data), (string) @file_get_contents(ramLogFile('night')));
             // nothing left to look after: it ends by itself
