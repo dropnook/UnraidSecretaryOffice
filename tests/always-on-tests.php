@@ -1143,7 +1143,7 @@ function testAlwaysOnLaunch(): void
         $big['note'] = str_repeat('x', FANBOY_MIRROR_MAX);
         fanboyTStore($big);
         $GLOBALS['fanboyLaunched'] = [];
-        $GLOBALS['fanboyLaunchedAt'] = -INF;
+        fanboyCrashKeep(['launched' => null]);
         $log0 = substr_count((string) @file_get_contents(AGENT_LOG), 'no mirror of his settings in RAM for this board');
         fanboyEnsureControl(100.0);
         fanboyEnsureControl(200.0);
@@ -1152,7 +1152,7 @@ function testAlwaysOnLaunch(): void
             [[], 'bios', 'no_mirror', 1], [$GLOBALS['fanboyLaunched'], $control['who'], $control['why'], substr_count((string) @file_get_contents(AGENT_LOG), 'no mirror of his settings in RAM for this board') - $log0]);
         same('always on S4d: … the page words it: who «the BIOS», why «no_mirror» (never «starting»)', ['bios', 'no_mirror'], array_values(array_intersect_key(fanboyWhoBase(['who' => ['who' => 'bios', 'why' => 'not_set_up']], $control, $big), ['who' => 1, 'why' => 1])));
         fanboyTStore($settings);
-        $GLOBALS['fanboyLaunchedAt'] = -INF;
+        fanboyCrashKeep(['launched' => null]);
         fanboyEnsureControl(300.0);
         same('always on S4d: … small again: mirrored and started', ['fanboy-control'], $GLOBALS['fanboyLaunched']);
     } finally {
@@ -1280,6 +1280,197 @@ function testAlwaysOnReleaseSteps(): void
         foreach ($procs as $p) {
             alwaysOnTEnd($p);
         }
+        fanboyTEnd();
+    }
+}
+
+// ===================================================================== step S5b: looked after without the data folder (the night shift)
+
+/** The real night shift in a process of its own: the fake board, the tests' RAM folder, $data as the data folder setting (never to be touched) */
+function alwaysOnTNightShift(array $t, string $data)
+{
+    return proc_open([PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'nightshift'], [0 => ['file', '/dev/null', 'r'], 1 => ['file', "{$t['tmp']}/night.out", 'a'], 2 => ['file', "{$t['tmp']}/night.out", 'a']],
+        $pipes, '/', ['OFFICE_DATA_DIR' => $data, 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'OFFICE_FANBOY_ROOT' => $t['root'], 'OFFICE_WEB' => OFFICE_WEB, 'OFFICE_NOTIFY_BIN' => "{$t['tmp']}/notify",
+            'OFFICE_NOTIFY_STAMP' => "{$t['tmp']}/notify.second", 'PATH' => (string) getenv('PATH'), 'TZ' => 'UTC']);
+}
+
+/**
+ * Step S5b: his control is looked after without the data folder. What the agent's tick knows of the control's deaths lies
+ * in RAM (this boot's), so the night shift goes on where the agent stopped and the other way round; in the night shift
+ * («RAM mode») everything he knows comes from his mirror — the data folder is never read or written; the night shift
+ * calls every desk's 'night' and stays on for a desk that asks, without the night watchman's mirror too. In this step the
+ * array's stop still ends the control (fanboyHoldReason()): the night shift gives back for holders gone, starts nothing.
+ */
+function testAlwaysOnNight(): void
+{
+    $t = fanboyT('ao-night');
+    $keep = alwaysOnTHire($t, true);
+    $procs = [];
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $settings = fanboyTSettings();
+        fanboyTStore($settings);
+        // 1. the deaths' memory in RAM
+        same('always on S5b: nothing counted yet', ['deaths' => [], 'seen' => null, 'launched' => null], fanboyCrashRead());
+        fanboyCrashKeep(['deaths' => [10.5, 20], 'seen' => 4242]);
+        fanboyCrashKeep(['launched' => 30.25, 'other' => 1]);
+        same('always on S5b: kept in RAM (0600), a change keeps the rest, nothing unknown gets in', [['deaths' => [10.5, 20.0], 'seen' => 4242, 'launched' => 30.25], 0600, ['v', 'boot', 'deaths', 'seen', 'launched']],
+            [fanboyCrashRead(), fileperms(fanboyCrashFile()) & 0777, array_keys(readJson(fanboyCrashFile()) ?? [])]);
+        $raw = readJson(fanboyCrashFile());
+        file_put_contents(fanboyCrashFile(), json_encode(['boot' => 'another-boot-0000'] + $raw));
+        same('always on S5b: another boot\'s memory is none (the clock it counts on started anew)', ['deaths' => [], 'seen' => null, 'launched' => null], fanboyCrashRead());
+        file_put_contents(fanboyCrashFile(), '{"v":1,"boot"');
+        same('always on S5b: a broken one neither', [], fanboyCrashRead()['deaths']);
+        @unlink(fanboyCrashFile());
+
+        // 2. the agent counts a death, the night shift sees it — and the other way round
+        same('always on S5b: (the agent mirrors: hired, armed, two zones)', 'written', fanboyMirrorKeep(true));
+        $dead = fn (int $pid) => fanboyStatusWrite(['v' => 1, 'pid' => $pid, 'who' => 'fanboy', 'why' => null, 'phase' => 'run', 'time' => time()]);
+        $GLOBALS['fanboyLaunched'] = [];
+        $dead(900001);
+        fanboyEnsureControl(1000.0);            // the agent's tick: a control died without ending
+        fanboyEnsureControl(1005.0);
+        same('always on S5b: the agent counts a control that died once, and waits before a new start', [1, 900001, []], [count(fanboyCrashRead()['deaths']), fanboyCrashRead()['seen'], $GLOBALS['fanboyLaunched']]);
+        $GLOBALS['fanboyRamMode'] = true;       // … now the night shift looks (another process: nothing in memory but RAM's files)
+        fanboyEnsureControl(1010.0);
+        same('always on S5b: the night shift knows that death and its pause (30 s) — no start yet', [1, []], [fanboyRestarts(1010.0)['deaths'], $GLOBALS['fanboyLaunched']]);
+        fanboyEnsureControl(1031.0);
+        same('always on S5b: … after the pause it starts the control', ['fanboy-control'], $GLOBALS['fanboyLaunched']);
+        $dead(900002);
+        fanboyEnsureControl(1100.0);
+        $dead(900003);
+        fanboyEnsureControl(1200.0);
+        $GLOBALS['fanboyLaunched'] = [];
+        fanboyEnsureControl(1300.0);
+        unset($GLOBALS['fanboyRamMode']);
+        fanboyEnsureControl(1400.0);            // the agent again
+        same('always on S5b: three deaths within the window, whoever counted them: given up — neither starts it again by itself', [3, true, []],
+            [fanboyRestarts(1400.0)['deaths'], fanboyRestarts(1400.0)['given_up'], $GLOBALS['fanboyLaunched']]);
+        fanboyStart();
+        same('always on S5b: the agent\'s start counts anew (as when the deaths were its own memory)', ['deaths' => [], 'seen' => null, 'launched' => null], fanboyCrashRead());
+        fanboyStatusWrite(['v' => 1, 'pid' => 900003, 'who' => 'bios', 'why' => 'stopped', 'phase' => 'ended', 'time' => time()]);
+
+        // 3. in the night shift everything comes from the mirror — the data folder says something else and is not touched
+        fanboyTStore(['armed' => false, 'zones' => []] + $settings);
+        file_put_contents("{$t['tmp']}/staff.json", json_encode(['hired' => new stdClass()]));
+        $tree = alwaysOnTTree(FANBOY_DIR);
+        $mirror = @lstat(fanboyMirrorFile());
+        $GLOBALS['fanboyLaunched'] = [];
+        fanboyEnsureControl(2000.0);
+        same('always on S5b: the agent reads the data folder: not armed, not hired — no control', [], $GLOBALS['fanboyLaunched']);
+        // (the agent's look above mirrored nothing: it starts nothing, so it never got to the mirror — the mirror still says «armed»)
+        $GLOBALS['fanboyRamMode'] = true;
+        same('always on S5b: the night shift reads his mirror: he would steer — it stays on for him', true, fanboyNightWanted());
+        unset($GLOBALS['fanboyNightNext'], $GLOBALS['fanboyNightWanted']);
+        $w1 = fanboyNight(3000.0);
+        same('always on S5b: … and its look starts the control from the mirror (the array runs in this test)', [true, ['fanboy-control']], [$w1, $GLOBALS['fanboyLaunched']]);
+        $GLOBALS['fanboyLaunched'] = [];
+        fanboyCrashKeep(['launched' => null]);
+        fanboyNight(3001.0);
+        fanboyNight(3004.9);
+        same('always on S5b: … paced: a look every ' . (int) FANBOY_TICK_EVERY . ' s, whatever the loop does', [], $GLOBALS['fanboyLaunched']);
+        fanboyNight(3005.0);
+        same('always on S5b: … the next one after that', ['fanboy-control'], $GLOBALS['fanboyLaunched']);
+        clearstatcache();
+        $m2 = @lstat(fanboyMirrorFile());
+        same('always on S5b: the night shift wrote nothing into the data folder and never the mirror (the agent\'s alone)', [$tree, $mirror['ino'] ?? null, $mirror['mtime'] ?? null],
+            [alwaysOnTTree(FANBOY_DIR), $m2['ino'] ?? null, $m2['mtime'] ?? null]);
+        // the array not started: in this step nobody starts a control then (it would end at once)
+        file_put_contents("{$t['root']}/var/local/emhttp/var.ini", "fsState=\"Stopped\"\n");
+        $GLOBALS['fanboyLaunched'] = [];
+        fanboyCrashKeep(['launched' => null]);
+        fanboyNight(4000.0);
+        same('always on S5b: the array stopped — in this step the night shift starts no control (it still ends at the stop)', [], $GLOBALS['fanboyLaunched']);
+        file_put_contents("{$t['root']}/var/local/emhttp/var.ini", "fsState=\"Started\"\n");
+        // a mirror that says «not armed», nothing held: nothing to look after
+        alwaysOnTMirror(fn ($m) => ['hired' => true, 'settings' => ['armed' => false] + $settings] + $m);
+        same('always on S5b: his mirror says «not armed», nothing holds an output — the night shift need not stay for him', false, fanboyNightWanted());
+        $procs[] = alwaysOnTHold($t, 4, 'step');
+        same('always on S5b: … but while something holds an output it stays (a holder that dies is given back within seconds)', true, fanboyNightWanted());
+        @unlink(fanboyMirrorFile());
+        same('always on S5b: no mirror at all: he steers nothing, «no_mirror» — and no look under the data folder for it', [null, false, 'no_mirror'], [fanboyBoardRaw(), fanboyHiredNow(), fanboyHoldReason(null)]);
+        unset($GLOBALS['fanboyRamMode']);
+
+        // 4. the code: who is in «RAM mode», where his folder lies in the night, what the night shift's loop does
+        $src = fn (string $f) => (string) file_get_contents(OFFICE_DIR . "/agent/$f");
+        check('always on S5b: in the night shift he is in RAM mode, and his folder of the data folder names a place that can never be there',
+            str_contains($src('desks/fanboy-control.php'), "return \$GLOBALS['fanboyRamMode'] ?? ((defined('RAM_JOB') && RAM_JOB !== '') || (defined('NIGHT_MODE') && NIGHT_MODE));")
+            && str_contains($src('desks/fanboy.php'), "define('FANBOY_DIR', (defined('NIGHT_MODE') && NIGHT_MODE ? OFFICE_NO_DATA : DATA_DIR) . '/fanboy');"));
+        check('always on S5b: the give-back seen to work goes into his store by the agent only; the mirror is made sure of by the agent only',
+            (bool) preg_match('/if \(!fanboyRamMode\(\)\) \{\n\s+fanboyAutoSeenKeep\(\);/', $src('desks/fanboy.php'))
+            && (bool) preg_match('/if \(!\$ram\) \{\n\s+fanboyMirrorKeep\(true\);\n\s+\}/', $src('desks/fanboy.php')));
+        check('always on S5b: what a desk says in the night shift goes to RAM — never a look for the data folder under /mnt',
+            (bool) preg_match('/if \(defined\(\'NIGHT_MODE\'\) && NIGHT_MODE && function_exists\(\'ramLogLine\'\)\) \{\n\s+ramLogLine\(\$text, \'night\'\);\n\s+return;\n\s+\}\n\s+logAppend\(/', $src('lib/util.php')));
+        $night = $src('agent.php');
+        check('always on S5b: the night shift\'s loop calls every desk\'s night work each pass, a failing one never ends it, and it stays while a desk asks',
+            (bool) preg_match('/foreach \(desks\(\) as \$id => \$desk\) \{\n\s+if \(isset\(\$desk\[\'night\'\]\)\) \{\n\s+try \{\n\s+if \(\$desk\[\'night\'\]\(\) === true\) \{\n\s+\$wanted\[\] = \$id;/', $night)
+            && str_contains($night, "if (!\$watch && !\$wanted) {") && str_contains($night, "if (!\$wanted) {\n                        \$why = 'no mirror of his baseline")
+            && is_callable($GLOBALS['desks']['fanboy']['night'] ?? fn () => false));
+        $guard = $src('fanboy-guard.php');
+        check('always on S5b: the guard writes the agent\'s log in the data folder only while the array is plainly started — else its line waits in RAM',
+            (bool) preg_match('/function fanboyGuardLog\(string \$line\): void\n\{\n\s+try \{\n\s+if \(\(readCfg\(fanboySysRoot\(\) \. \'\/var\/local\/emhttp\/var\.ini\'\)\[\'fsState\'\] \?\? \'\'\) === \'Started\'\) \{\n\s+logLine\(\$line\);\n\s+\} else \{\n\s+ramLogLine\(\$line, \'fanboy-guard\'\);/', $guard)
+            && substr_count($guard, 'logLine(') - substr_count($guard, 'ramLogLine(') - substr_count($guard, 'Never logLine()') === 1);
+
+        // 5. the guard's cron look with the array stopped: its line waits in RAM, the data folder is not touched
+        $data = "{$t['tmp']}/data";
+        @mkdir($data, 0700, true);
+        foreach ($procs as $p) {
+            alwaysOnTEnd($p);
+        }
+        $procs = [];
+        usleep(200000);
+        file_put_contents("{$t['root']}/var/local/emhttp/var.ini", "fsState=\"Stopped\"\n");
+        $before = alwaysOnTTree($data);
+        @unlink(ramLogFile('fanboy-guard'));
+        $out = fanboyTGuard($t, $data, 'watch');
+        same('always on S5b: the guard\'s look with the array stopped gives the dead holder\'s output back, says it in RAM, and leaves the data folder alone',
+            [null, true, $before], [fanboyJournal()['outputs'][fanboyTId(4)]['owner'] ?? null, str_contains((string) @file_get_contents(ramLogFile('fanboy-guard')), 'a holder was gone'), alwaysOnTTree($data)], $out);
+        file_put_contents("{$t['root']}/var/local/emhttp/var.ini", "fsState=\"Started\"\n");
+        $procs[] = alwaysOnTHold($t, 4, 'step');
+        alwaysOnTEnd(array_pop($procs));
+        usleep(200000);
+        fanboyTGuard($t, $data, 'watch');
+        check('always on S5b: … with the array started it writes the agent\'s log as before', str_contains((string) @file_get_contents("$data/agent.log"), 'a holder was gone'));
+
+        // 6. the real night shift, where this machine has no array of its own to be «started» (a server's own var.ini would end it at once)
+        if (!is_file('/var/local/emhttp/var.ini')) {
+            file_put_contents("{$t['root']}/var/local/emhttp/var.ini", "fsState=\"Stopped\"\n");
+            $GLOBALS['fanboyRamMode'] = false;
+            fanboyTStore($settings);
+            alwaysOnTHire($t, true);
+            fanboyMirrorKeep(true);
+            unset($GLOBALS['fanboyRamMode']);
+            exec('rm -rf ' . escapeshellarg($data) . ' ' . escapeshellarg(TESTS_RUN_DIR . '/nightshift') . ' ' . escapeshellarg(TESTS_RUN_DIR . '/nightshift.lock'));
+            @unlink(ramLogFile('night'));
+            $gone = alwaysOnTHold($t, 4, 'control');
+            alwaysOnTEnd($gone);                // its holder is gone: nobody but the night shift is there to give it back
+            $shift = alwaysOnTNightShift($t, $data);
+            $procs[] = $shift;
+            for ($i = 0; $i < 100 && (fanboyJournal()['outputs'][fanboyTId(4)]['owner'] ?? null) !== null; $i++) {
+                usleep(100000);
+            }
+            $log = (string) @file_get_contents(TESTS_RUN_DIR . '/nightshift/nightshift.log');
+            same('always on S5b: the real night shift stays on for him without the night watchman\'s mirror, and gives a dead holder\'s output back',
+                [true, null, true], [(bool) proc_get_status($shift)['running'], fanboyJournal()['outputs'][fanboyTId(4)]['owner'] ?? null, str_contains($log, 'the night shift stays for fanboy')], $log . @file_get_contents("{$t['tmp']}/night.out"));
+            check('always on S5b: … what it says of him waits in RAM for the agent\'s log; the data folder was never made or touched',
+                str_contains((string) @file_get_contents(ramLogFile('night')), 'a holder was gone') && !file_exists($data), (string) @file_get_contents(ramLogFile('night')));
+            // nothing left to look after: it ends by itself
+            @unlink(fanboyMirrorFile());
+            for ($i = 0; $i < 120 && proc_get_status($shift)['running']; $i++) {
+                usleep(100000);
+            }
+            check('always on S5b: … with nothing left to look after (no mirror, nothing held) it ends by itself',
+                !proc_get_status($shift)['running'] && str_contains((string) @file_get_contents(TESTS_RUN_DIR . '/nightshift/nightshift.log'), 'nothing left to look after'));
+        }
+    } finally {
+        unset($GLOBALS['fanboyRamMode']);
+        foreach ($procs as $p) {
+            alwaysOnTEnd($p);
+        }
+        exec('rm -rf ' . escapeshellarg(TESTS_RUN_DIR . '/nightshift') . ' ' . escapeshellarg(TESTS_RUN_DIR . '/nightshift.lock'));
+        @unlink(ramLogFile('night'));
+        @unlink(ramLogFile('fanboy-guard'));
+        alwaysOnTHireEnd($keep);
         fanboyTEnd();
     }
 }

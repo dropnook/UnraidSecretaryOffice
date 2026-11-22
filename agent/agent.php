@@ -193,6 +193,11 @@ function runningAgent(): ?int
  * Ends when the array is started or the agent runs (never two of them: WATCH_NIGHT_LOCK), at SIGTERM
  * (agent.sh stops it before the agent starts), and at once without a mirror (he isn't hired, or had no
  * round yet): exit 0 — the supervisor in agent.sh doesn't start it again then.
+ *
+ * Other desks may have work of their own while the array isn't started (desk(…, ['night' => fn (): bool]), 2026-11-22:
+ * the fan desk's control is looked after) — called every pass, RAM and flash only like everything here. A desk that
+ * answers true keeps the night shift on: then it stays without the night watchman's mirror too (no rounds of his), and
+ * ends once no desk asks any more.
  */
 function nightShift(): int
 {
@@ -221,6 +226,7 @@ function nightShift(): int
     $GLOBALS['officeNotifySender'] = true;     // the night shift sends the Team Lead's summaries meanwhile (RAM only)
     $nextNotify = -INF;
     $zoneSeen = null;
+    $watch = true;              // the night watchman's rounds: until he has no mirror
     while (!$stop) {
         clearstatcache();
         $agent = runningAgent();
@@ -244,13 +250,35 @@ function nightShift(): int
                 nightLog('Notifications: ' . $e->getMessage());
             }
         }
-        if (agentClock() >= $next) {
+        // the desks' own work while the array isn't started; one that answers true keeps the night shift on
+        $wanted = [];
+        foreach (desks() as $id => $desk) {
+            if (isset($desk['night'])) {
+                try {
+                    if ($desk['night']() === true) {
+                        $wanted[] = $id;
+                    }
+                } catch (Throwable $e) {
+                    nightLog("$id: " . $e->getMessage() . ' (' . basename($e->getFile()) . ':' . $e->getLine() . ')');
+                }
+            }
+        }
+        if (!$watch && !$wanted) {
+            $why = 'nothing left to look after';
+            break;
+        }
+        if ($watch && agentClock() >= $next) {
             $next = agentClock() + WATCH_EVERY;
             try {
                 $r = watchmanNightRound(watchmanNightPaths());
                 if ($r === null) {
-                    $why = 'no mirror of his baseline (the night watchman isn\'t hired, or had no round yet) — no night shift';
-                    break;
+                    if (!$wanted) {
+                        $why = 'no mirror of his baseline (the night watchman isn\'t hired, or had no round yet) — no night shift';
+                        break;
+                    }
+                    $watch = false;
+                    nightLog('No mirror of the night watchman\'s baseline (he isn\'t hired, or had no round yet): no rounds of his — the night shift stays for ' . implode(', ', $wanted));
+                    continue;
                 }
                 $rounds++;
                 if ($r['begun'] ?? null) {

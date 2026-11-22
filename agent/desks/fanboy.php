@@ -38,7 +38,10 @@ declare(strict_types=1);
  * (fanboyStoreRead(), fanboyResolve()): what fits nothing stays where it is, Fanboy says what is missing.
  */
 
-define('FANBOY_DIR', DATA_DIR . '/fanboy');
+// In the night shift (the array isn't started; «always on», 2026-11-22) his folder is a place that can never be there —
+// as in a job without the data folder (lib/ramjob.php): whatever of his runs then reads his mirror in RAM, and a path of
+// the data folder reached by mistake names nothing under /mnt.
+define('FANBOY_DIR', (defined('NIGHT_MODE') && NIGHT_MODE ? OFFICE_NO_DATA : DATA_DIR) . '/fanboy');
 const FANBOY_STORE = 'settings.json';
 const FANBOY_REPORT_MAX = 3500;                  // bytes: the wish form's text takes 4096, the user's words go above it
 const FANBOY_IPMI_FANS_MAX = 24;
@@ -62,6 +65,8 @@ desk('fanboy', [
     'ram_jobs' => [
         'fanboy-control' => fn (array $a): int => fanboyControlMain(),
     ],
+    // while the array isn't started the night shift looks after him (fanboy-night.php): RAM only; true: «stay on for me»
+    'night'   => fn (): bool => fanboyNight(),
     'actions' => [
         'refresh' => fn (array $r) => ['ok' => true, 'state' => fanboyScan()],
         // the text for the wish form: shown to the user in the form before anything goes (read only, like refresh)
@@ -420,6 +425,7 @@ function fanboyStart(): void
         fanboyTellOnce('holds', 'holds', [], 'warning');
     }
     @unlink(fanboyBrakeFile());     // a control that stopped itself (fanboyBrake()) may be started again: the agent starts anew
+    @unlink(fanboyCrashFile());     // … and its deaths are counted anew (as when they were the agent's own memory)
     fanboyHistorySync(true);        // after a boot: the data folder's history into RAM, for the control and the page (fanboy-mirror.php)
     fanboyMirrorKeep(true);         // his mirror in RAM says what the data folder says (fanboy-mirror.php)
     fanboyDriversBoot();
@@ -497,7 +503,9 @@ function fanboyTick(?float $now = null): void
 function fanboyBackCheck(?int $wall = null): array
 {
     $full = fanboyGivenCheck($wall);
-    fanboyAutoSeenKeep();
+    if (!fanboyRamMode()) {
+        fanboyAutoSeenKeep();       // into his store — the agent's part (the journal keeps what the night shift saw until then)
+    }
     // 2026-11-22: what the guard found while no agent ran (its look after a release — the array's stop —, its cron line):
     // the journal says so (`given.full`, still at full: fanboySafetyFull()); told here, once per output and boot like his own
     $found = array_filter(fanboySafetyFull(), fn ($x) => $x['why'] === 'not_back');
@@ -620,30 +628,65 @@ function fanboySettingsCached(): ?array
     return $settings;
 }
 
-/** Should the control run and doesn't? Then it starts — after a death only after a pause, and not after too many */
+/** The control's deaths and starts as the agent and the night shift count them, one after the other: in RAM, this boot's */
+function fanboyCrashFile(): string
+{
+    return fanboyRunDir() . '/crashes.json';
+}
+
+/**
+ * {deaths: [seconds on the monotonic clock — the same for every process of this boot], seen: the pid of the dead control
+ * counted last (never twice), launched: when a start was tried last} — another boot's file, a broken one: nothing yet
+ *
+ * @return array{deaths: list<float>, seen: ?int, launched: ?float}
+ */
+function fanboyCrashRead(): array
+{
+    $j = readJson(fanboyCrashFile());
+    $ok = is_array($j) && ($j['v'] ?? null) === 1 && ($j['boot'] ?? null) === fanboyBootId();
+    $num = fn ($t) => is_float($t) || is_int($t);
+    return ['deaths' => $ok && is_array($j['deaths'] ?? null) ? array_map('floatval', array_values(array_filter($j['deaths'], $num))) : [],
+            'seen' => $ok && is_int($j['seen'] ?? null) ? $j['seen'] : null,
+            'launched' => $ok && $num($j['launched'] ?? null) ? (float) $j['launched'] : null];
+}
+
+function fanboyCrashKeep(array $change): array
+{
+    $m = array_merge(fanboyCrashRead(), array_intersect_key($change, ['deaths' => 1, 'seen' => 1, 'launched' => 1]));
+    @mkdir(fanboyRunDir(), 0700, true);
+    writeAtomic(fanboyRunDir() . '/crashes.json', jsonEncode(['v' => 1, 'boot' => fanboyBootId()] + $m), 0600, 0, 0);       // fanboyCrashFile(), spelled out: RAM
+    return $m;
+}
+
+/**
+ * Should the control run and doesn't? Then it starts — after a death only after a pause, and not after too many. The
+ * agent's tick while the array runs, the night shift's while it doesn't (fanboy-night.php: then everything from his mirror
+ * in RAM, never the data folder); what they know of its deaths lies in RAM for both (fanboyCrashRead()).
+ */
 function fanboyEnsureControl(float $now): void
 {
+    $m = fanboyCrashRead();
     // steering again for half an hour without a death: a next death is told again
-    $last = $GLOBALS['fanboyCrashes'] ?? [];
-    if ($last && $now - end($last) > FANBOY_CRASH_WINDOW) {
-        $GLOBALS['fanboyCrashes'] = [];
+    if ($m['deaths'] && $now - end($m['deaths']) > FANBOY_CRASH_WINDOW) {
+        $m = fanboyCrashKeep(['deaths' => []]);
         fanboyUntellOnce('crashed');
     }
-    $settings = fanboySettingsCached();
+    $ram = fanboyRamMode();
+    $settings = $ram ? fanboyBoardRaw() : fanboySettingsCached();
     if ($settings === null || ($settings['armed'] ?? false) !== true || !fanboyControlNew($settings, '', ['pid' => 0])['zones']
-        || !arrayRunning(fanboyVarIni()) || !in_array('fanboy', staffHired($GLOBALS['agentStaffFile'] ?? null), true) || fanboyStepRunning() || fanboyControlPid() !== null
+        || !arrayRunning(fanboyVarIni()) || !($ram ? fanboyHiredNow() : in_array('fanboy', staffHired($GLOBALS['agentStaffFile'] ?? null), true))
+        || fanboyStepRunning() || fanboyControlPid() !== null
         || is_file(fanboyBrakeFile())) {        // it stopped itself (fanboyBrake()): not again by itself
         return;
     }
     $status = readJson(fanboyStatusFile());
-    $crashes = &$GLOBALS['fanboyCrashes'];
-    $crashes ??= [];
+    $crashes = $m['deaths'];
     // it died without ending (killed hard, a PHP error) — or the guard's cron look found it so first (why «crashed»): its
     // outputs were given back already; counted once per process, said once per run of deaths
     if (is_array($status) && (($status['phase'] ?? '') !== 'ended' || ($status['why'] ?? '') === 'crashed') && is_int($status['pid'] ?? null)
-        && ($GLOBALS['fanboySeenDead'] ?? null) !== $status['pid']) {
-        $GLOBALS['fanboySeenDead'] = $status['pid'];
+        && $m['seen'] !== $status['pid']) {
         $crashes[] = $now;
+        $m = fanboyCrashKeep(['deaths' => $crashes, 'seen' => $status['pid']]);
         logLine("Fanboy: the control (PID {$status['pid']}) ended without giving back — the BIOS steers; started again in " . (int) FANBOY_CRASH_PAUSE . ' s');
         $status['who'] = 'bios';
         $status['why'] = 'crashed';
@@ -653,14 +696,16 @@ function fanboyEnsureControl(float $now): void
     }
     $crashes = array_values(array_filter($crashes, fn ($t) => $now - $t < FANBOY_CRASH_WINDOW));
     if (count($crashes) >= FANBOY_CRASH_MAX || ($crashes && $now - end($crashes) < FANBOY_CRASH_PAUSE)
-        || $now - ($GLOBALS['fanboyLaunchedAt'] ?? -INF) < FANBOY_CRASH_PAUSE) {
+        || $now - ($m['launched'] ?? -INF) < FANBOY_CRASH_PAUSE) {
         return;
     }
-    $GLOBALS['fanboyLaunchedAt'] = $now;
+    fanboyCrashKeep(['deaths' => $crashes, 'launched' => $now]);
     // the control reads only his mirror in RAM (2026-11-22): made sure of right before a start (never more often than a
     // start is tried) — none for this board (his settings too large to mirror): no control, and the page says why
-    // instead of «about to take over»
-    fanboyMirrorKeep(true);
+    // instead of «about to take over». Only the agent writes the mirror: the night shift takes what is there.
+    if (!$ram) {
+        fanboyMirrorKeep(true);
+    }
     if (fanboyMirrorRead(fanboyBoardKey(fanboyBoard(fanboyPaths(fanboySysRoot() ?: null)['dmi']))) === null) {
         if ((readJson(fanboyStatusFile())['why'] ?? null) !== 'no_mirror') {
             fanboyStatusWrite(['v' => 1, 'pid' => null, 'who' => 'bios', 'why' => 'no_mirror', 'phase' => 'ended', 'time' => time()]);
@@ -691,13 +736,13 @@ function fanboyTimes(): array
 }
 
 /**
- * The control's deaths within FANBOY_CRASH_WINDOW as the agent counts them (fanboyEnsureControl()): {deaths, max, window,
+ * The control's deaths within FANBOY_CRASH_WINDOW as the agent and the night shift count them (fanboyEnsureControl()): {deaths, max, window,
  * given_up} — given_up: FANBOY_CRASH_MAX reached, the agent doesn't start it again by itself (the BIOS keeps the fans)
  */
 function fanboyRestarts(?float $now = null): array
 {
     $now ??= fanboyMono();
-    $deaths = count(array_filter($GLOBALS['fanboyCrashes'] ?? [], fn ($t) => is_float($t) || is_int($t) ? $now - $t < FANBOY_CRASH_WINDOW : false));
+    $deaths = count(array_filter(fanboyCrashRead()['deaths'], fn ($t) => $now - $t < FANBOY_CRASH_WINDOW));
     return ['deaths' => $deaths, 'max' => FANBOY_CRASH_MAX, 'window' => (int) FANBOY_CRASH_WINDOW, 'given_up' => $deaths >= FANBOY_CRASH_MAX];
 }
 
@@ -800,7 +845,7 @@ function fanboyLookNow(): array
     @mkdir(fanboyRunDir(), 0700, true);
     writeAtomic(fanboyRunDir() . '/look-now', (string) time(), 0600, 0, 0);
     @unlink(fanboyBrakeFile());                 // a control that stopped itself may try again on the user's click
-    $GLOBALS['fanboyLaunchedAt'] = -INF;        // and the control started at the next tick when it should run
+    fanboyCrashKeep(['launched' => null]);      // and the control started at the next tick when it should run
     return ['ok' => true, 'state' => fanboyScan()];
 }
 

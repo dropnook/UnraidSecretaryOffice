@@ -39,6 +39,10 @@ final class Problem extends RuntimeException
  *   ram_jobs name => fn(array $args): int         jobs that run WITHOUT the data folder, whatever the
  *                                                 array does (`php agent.php ramjob <name>`,
  *                                                 lib/ramjob.php): RAM and flash only
+ *   night    fn(): bool                           what it does while the array isn't started, from the night
+ *                                                 shift's loop (every second: keep it cheap, pace itself) —
+ *                                                 RAM and flash only, NEVER anything under /mnt; true:
+ *                                                 «keep the night shift on for me»
  *   cron     fn(): array<string, list<string>>    the cron files it writes itself into the
  *                                                 plugin's flash folder (beside the schedules'
  *                                                 file), each with exactly its job lines: the
@@ -452,6 +456,12 @@ function logLine(string $text): void
     // a job without the data folder (`agent.php ramjob`, lib/ramjob.php): its own log in RAM, which the agent takes into this one
     if (defined('RAM_JOB') && RAM_JOB !== '') {
         ramLogLine($text);
+        return;
+    }
+    // the night shift (the array isn't started) never looks under /mnt, not even for «is the data folder there?»: what a
+    // desk has to say meanwhile waits in RAM like a RAM job's lines, the agent takes it into this log when it is back
+    if (defined('NIGHT_MODE') && NIGHT_MODE && function_exists('ramLogLine')) {
+        ramLogLine($text, 'night');
         return;
     }
     logAppend(date('Y-m-d H:i:s') . '  ' . str_replace(["\r", "\n"], ['', ' | '], trim($text)) . "\n");

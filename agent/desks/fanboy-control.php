@@ -2015,13 +2015,14 @@ function fanboyBoardRaw(?array $board = null): ?array
 const FANBOY_HOLD_CHECK_EVERY = 60.0;       // seconds between the control's looks at itself: does it hold anything on the array or a pool?
 
 /**
- * Does this process run without the data folder — a RAM job (`php agent.php ramjob fanboy-control`, lib/ramjob.php)? Then
- * everything he reads of the data folder comes from his mirror in RAM (fanboy-mirror.php), his log lines go to the job's
- * log in RAM, and what he used to write there (the history's copy, the outputs' states before him) the agent carries over.
+ * Does this process run without the data folder — a RAM job (`php agent.php ramjob fanboy-control`, lib/ramjob.php), or
+ * the night shift supervising him while the array isn't started (fanboy-night.php)? Then everything he reads of the data
+ * folder comes from his mirror in RAM (fanboy-mirror.php), his log lines go to a log in RAM, and what he used to write
+ * there (the history's copy, the outputs' states before him) the agent carries over.
  */
 function fanboyRamMode(): bool
 {
-    return $GLOBALS['fanboyRamMode'] ?? (defined('RAM_JOB') && RAM_JOB !== '');
+    return $GLOBALS['fanboyRamMode'] ?? ((defined('RAM_JOB') && RAM_JOB !== '') || (defined('NIGHT_MODE') && NIGHT_MODE));
 }
 
 /** Is he hired? The staff list — in a RAM job the mirror's word */

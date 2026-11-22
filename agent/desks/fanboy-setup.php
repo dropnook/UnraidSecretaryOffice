@@ -2186,7 +2186,7 @@ function fanboyTakeOver(array $r = []): array
         return $e;
     }, $scan['board']);
     fanboyGuardCron(true);
-    $GLOBALS['fanboyCrashes'] = [];
+    fanboyCrashKeep(['deaths' => []]);
     @unlink(fanboyBrakeFile());         // a control that stopped itself (fanboyBrake()) may try again on the user's click
     fanboyLaunch('fanboy-control');
     logLine('Fanboy: taken over on the user\'s click');

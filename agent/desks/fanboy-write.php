@@ -598,6 +598,9 @@ function fanboyForeign(array $owner): array
 /** The data folder's copy of what the outputs had before Fanboy (only where DATA_DIR is known — never from the guard) */
 function fanboyInitialFile(): ?string
 {
+    if (defined('NIGHT_MODE') && NIGHT_MODE) {
+        return null;                    // the night shift never looks under /mnt (the array isn't started)
+    }
     return defined('DATA_DIR') && is_dir(DATA_DIR) ? DATA_DIR . '/fanboy/initial.json' : null;
 }
 

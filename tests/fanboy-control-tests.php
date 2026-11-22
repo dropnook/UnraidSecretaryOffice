@@ -55,7 +55,7 @@ function fanboyTEnd(): void
     [$bin, $stamp] = $GLOBALS['fanboyTEnv'] ?? [false, false];
     putenv($bin === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$bin");
     putenv($stamp === false ? 'OFFICE_NOTIFY_STAMP' : "OFFICE_NOTIFY_STAMP=$stamp");
-    unset($GLOBALS['fanboyLauncher'], $GLOBALS['fanboyCrashes'], $GLOBALS['fanboySeenDead'], $GLOBALS['fanboyTEnv'], $GLOBALS['fanboyLaunched'], $GLOBALS['fanboyLaunchedAt'], $GLOBALS['fanboyMirrorSeen'], $GLOBALS['fanboyInitialDone'], $GLOBALS['fanboyHistorySyncNext']);
+    unset($GLOBALS['fanboyLauncher'], $GLOBALS['fanboyNightNext'], $GLOBALS['fanboyNightWanted'], $GLOBALS['fanboyTEnv'], $GLOBALS['fanboyLaunched'], $GLOBALS['fanboyLaunchedAt'], $GLOBALS['fanboyMirrorSeen'], $GLOBALS['fanboyInitialDone'], $GLOBALS['fanboyHistorySyncNext']);
     exec('rm -rf ' . escapeshellarg(TESTS_RUN_DIR . '/fanboy') . ' ' . escapeshellarg(FANBOY_DIR));
     $data = dirname(FANBOY_DIR);
     if (is_dir("$data/fanboy.tests-aside")) {

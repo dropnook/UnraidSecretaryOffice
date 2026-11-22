@@ -45,22 +45,38 @@ const FILE_GID = 100;
 const LOG_MAX = 512 * 1024;         // as agent.php's: logLine() rotates the log there
 define('DATA_DIR', rtrim(getenv('OFFICE_DATA_DIR') ?: officePluginDataDir(), '/'));
 define('AGENT_LOG', DATA_DIR . '/agent.log');
+require __DIR__ . '/lib/ramjob.php';             // a log in RAM for what it says while the array isn't started (fanboyGuardLog())
 require __DIR__ . '/lib/util.php';
 require __DIR__ . '/desks/fanboy-write.php';
 require __DIR__ . '/lib/holdsnothing.php';      // plain PHP: «does it hold anything on the array or a pool?» (release-steps)
 date_default_timezone_set(fanboyZone());        // the agent's zone (agent.php: agentZone()) — one zone in agent.log
 
-/** A line for the agent's log (only while its folder is there) and the guard's own note in RAM for the agent to pick up */
+/**
+ * A line of the guard's for the agent's log. Into the data folder only while the array is plainly started: since the
+ * control steers through the array's stop (2026-11-22) the cron line runs while the array stops and is stopped too, and
+ * nothing of the office looks under /mnt then, not even for «is the folder there?» — the line waits in RAM
+ * (ramjob-fanboy-guard.log) and the agent takes it into its log when it is back (ramLogFold()).
+ */
+function fanboyGuardLog(string $line): void
+{
+    try {
+        if ((readCfg(fanboySysRoot() . '/var/local/emhttp/var.ini')['fsState'] ?? '') === 'Started') {
+            logLine($line);
+        } else {
+            ramLogLine($line, 'fanboy-guard');
+        }
+    } catch (Throwable) {       // never in the way of what follows
+    }
+}
+
+/** A line for the agent's log (fanboyGuardLog()) and the guard's own note in RAM for the agent to pick up */
 function fanboyGuardSay(string $what, array $back, ?string $why = null, bool $log = true): void
 {
     $bad = array_keys(array_filter($back, fn ($x) => !$x['ok'] && $x['why'] !== 'gone'));
     $line = "Fanboy: $what — " . count($back) . ' outputs back with the BIOS' . ($bad ? ', NOT read back as before: ' . implode(', ', $bad) : '');
     echo date('Y-m-d H:i:s') . " $line\n";
-    try {
-        if ($log) {
-            logLine($line);         // the agent's log in the data folder — never in the way of what follows
-        }
-    } catch (Throwable) {
+    if ($log) {
+        fanboyGuardLog($line);
     }
     $note = ['v' => 1, 'what' => $what, 'time' => time(), 'outputs' => array_keys($back), 'failed' => $bad,
              'holders' => array_values(array_unique(array_map(fn ($x) => ($x['owner']['kind'] ?? '?') . ':' . ($x['owner']['pid'] ?? '?'), $back)))];
@@ -243,7 +259,7 @@ function fanboyGuardMain(string $cmd, string $reason = ''): int
     if ($cmd === 'watch') {
         // round 5: a give-back the mainboard didn't take: full speed (the agent tells it when it is there)
         foreach (fanboyGivenCheck() as $id => $x) {
-            logLine("Fanboy: $id not taken back by the mainboard ({$x['rpm']} rpm, {$x['before']} before Fanboy) — set to full speed (the guard's look)");
+            fanboyGuardLog("Fanboy: $id not taken back by the mainboard ({$x['rpm']} rpm, {$x['before']} before Fanboy) — set to full speed (the guard's look)");
         }
         // round 12: while an output stands at 0 (a CPU cooler may) the guard looks again every FANBOY_GUARD_AGAIN s within
         // its minute — with the agent gone too, a dead or hung holder's standing fan is back within about 20 s, not 60
