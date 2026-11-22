@@ -124,6 +124,7 @@ require_once __DIR__ . '/../lib/watchnet.php';
 require_once __DIR__ . '/../lib/paritywhy.php';
 require_once __DIR__ . '/../lib/arrayhold.php';     // «What holds the array?» (his page, on demand)
 require_once __DIR__ . '/watchman-diskwakes.php';    // «Who woke my disks?» (data/watchman/wakes.json): the sampler in his tick
+require_once __DIR__ . '/watchman-cats.php';         // his areas (1.96): every kind and tip in one, the lights of his page (state.cats)
 
 const WATCH_EVERY        = 300;              // a round every 5 minutes
 const WATCH_LOOK         = 20;               // the tick looks whether one is due this often (seconds)
@@ -10110,6 +10111,8 @@ function watchmanMetrics(?string $dir = null): array
          'help' => 'Bytes the server sent to clients per file service (SMB, NFS, SSH, WebGUI) since the night watchman watches the data flow', 'samples' => $sent],
         ['name' => 'uso_watchman_written_bytes_total', 'type' => 'counter',
          'help' => 'Bytes written into ZFS shares since the night watchman watches the data flow (the ' . WATCH_FLOW_TOP . ' shares with the most)', 'samples' => $written],
+        ['name' => 'uso_watchman_file_bytes', 'type' => 'gauge', 'help' => 'The size of the night watchman\'s files in his data folder (bytes)',
+         'samples' => array_map(fn (string $f, int $n): array => [['file' => $f], $n], WATCH_CAT_FILES, array_values(watchmanFileSizes($dir ?? watchmanDir())))],
         ['name' => 'uso_watchman_snapshot_automounts', 'type' => 'gauge',
          'help' => 'ZFS snapshots automounted (.zfs/snapshot) at his last round, on the host, inside containers and in other processes\' mount namespaces', 'samples' => $auto],
         ...watchnetMetrics($st, readJson(($dir ?? watchmanDir()) . '/net.json')),      // the network (agent/lib/watchnet.php)
@@ -10135,7 +10138,8 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
     $last = isset($st['round']['time']) ? (int) $st['round']['time'] : null;
     $book = [];
     foreach ($d['book'] as $e) {
-        $book[] = ['id' => $e['id'], 'kind' => $e['kind'], 'group' => WATCH_KINDS[$e['kind']][0] ?? 'watch', 'tell' => watchmanImportant($e),
+        $book[] = ['id' => $e['id'], 'kind' => $e['kind'], 'group' => WATCH_KINDS[$e['kind']][0] ?? 'watch', 'cat' => watchmanCatOf((string) $e['kind']),
+                   'tell' => watchmanImportant($e),
                    'attack' => WATCH_ATTACK[$e['kind']] ?? null, 'v' => watchmanEntryVariant($e),
                    'time' => (int) $e['time'], 'last' => (int) $e['last'], 'count' => (int) $e['count'],
                    'open' => watchmanOpen($e), 't' => watchmanText($e),
@@ -10167,6 +10171,10 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
             'skipped'     => (int) ($st['round']['skipped'] ?? 0),
             'docker'      => $st['round']['docker'] ?? null,
             'shares'      => $st['round']['shares'] ?? null,
+            'flow'        => $st['round']['flow'] ?? null,
+            'snaps'       => $st['round']['snaps'] ?? null,
+            // his files' sizes in bytes (data/watchman/: book, baseline, flow …) — how near each server is to the bounds
+            'sizes'       => watchmanFileSizes($dir),
             // the syslog's file system full ({free, total}): the syslog stops growing, logins and restarts go unseen (T30)
             'syslog_full' => is_array($st['round']['syslog_full'] ?? null) ? $st['round']['syslog_full'] : null,
             // the last round broke off (stopped after WATCH_MAX_RUN, or crashed) after the last one that ended: {at, why}
@@ -10196,6 +10204,10 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
         'limits'   => ['every' => WATCH_EVERY, 'burst' => WATCH_FAIL_BURST, 'window' => WATCH_FAIL_WINDOW,
                        'quiet' => WATCH_NOTIFY_QUIET, 'keep' => WATCH_BOOK_MAX, 'days' => WATCH_BOOK_DAYS],
     ];
+    // his areas' lights (watchman-cats.php), from what this state says; the watch book's and the schedule's light beside them
+    $lights = watchmanCats($state, is_array($st['parity'] ?? null) ? $st['parity'] : null);
+    $state['cats'] = $lights['areas'];
+    $state['cats_cross'] = ['book' => $lights['book'], 'schedule' => $lights['schedule']];
     if ($write && is_dir(DATA_DIR)) {
         writeAtomic(deskFile('watchman'), jsonEncode($state));
     }
