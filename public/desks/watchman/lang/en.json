@@ -301,6 +301,8 @@
   "adopt.share_public": "«I know, thanks»: guests on this share are normal.",
   "check.quiet": "The night watchman's watch book has nothing open",
   "check.quiet_how": "Whatever he finds different from normal shows up here until you note it on his page.",
+  "check.open": {"one": "The night watchman has one open incident", "other": "The night watchman has {n} open incidents"},
+  "check.open_how": "They are on his list, each with what it is and what to do — note them there. «I know, thanks» here notes every one of them; a new one brings this line back.",
   "check.posture": {"one": "The night watchman has one security recommendation", "other": "The night watchman has {n} security recommendations"},
   "check.posture_how": "On his page under «How secure does it stand?» — each with why and where in Unraid. Advice, not something to do.",
   "check.login_new_ip": {"one": "Login from a new address: {user} from {ip} ({service})", "other": "{n} logins from new addresses, the newest: {user} from {ip} ({service})"},

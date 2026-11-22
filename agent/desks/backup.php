@@ -283,7 +283,42 @@ function backupSilentTick(): bool
     if ($silent !== null) {
         backupSilentTell($silent);
     }
+    // 2026-11-22 (the owner's Dashboard at 07:55: «Mit Warnungen · gestern 02:03» after tonight's run): a run that ended is
+    // his state anew at once — Unraid's Dashboard (src/dashboard.php) reads backup.json, which only his start, his page
+    // and his actions wrote: a scheduled run showed there only once someone looked
+    static $done = null;
+    $ended = backupRunEnded(is_array($status) ? $status : null, $running, $GLOBALS['backup'] ?? null, $done);
+    if ($ended !== null && is_file(deskFile('backup'))) {
+        $done = $ended;
+        logLine("Backup: run {$ended[0]} ended ({$ended[1]}) - his look taken anew for the Dashboard");
+        backupScan();
+    }
     return true;
+}
+
+/**
+ * A run that ended since his state was written (backupSilentTick(), once a minute): the engine's status.json (its interface,
+ * never a log line) names a run and a result other than the state he keeps — [run, result], else null. Nothing while one
+ * runs, before his first look (no state yet: his page's first look does it), for an engine of an older interface, and
+ * never twice for the same end ($done: the last one taken — a state that can't follow, a sleeping home, never loops).
+ *
+ * @return array{0: string, 1: string}|null
+ */
+function backupRunEnded(?array $status, bool $running, ?array $known, ?array $done = null): ?array
+{
+    if ($running || $status === null || !is_array($known) || ($status['interface'] ?? 0) < BACKUP_INTERFACE) {
+        return null;
+    }
+    $run = $status['run'] ?? null;
+    $result = $status['result'] ?? null;
+    if (!is_string($run) || $run === '' || !is_string($result) || $result === '' || $result === 'running') {
+        return null;
+    }
+    $was = is_array($known['status'] ?? null) ? $known['status'] : [];
+    if ([$run, $result] === [$was['run'] ?? null, $was['result'] ?? null] || [$run, $result] === $done) {
+        return null;
+    }
+    return [$run, $result];
 }
 
 /** One warning per run (officeSilentFirst()); true when it went */

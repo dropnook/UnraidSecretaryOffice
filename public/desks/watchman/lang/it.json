@@ -301,6 +301,8 @@
   "adopt.share_public": "«Lo so, grazie»: gli ospiti su questa condivisione sono normali.",
   "check.quiet": "Il registro di guardia del guardiano notturno non ha nulla di aperto",
   "check.quiet_how": "Ciò che trova diverso dal solito compare qui finché non ne prendi atto sulla sua pagina.",
+  "check.open": {"one": "Il guardiano notturno ha un incidente aperto", "other": "Il guardiano notturno ha {n} incidenti aperti"},
+  "check.open_how": "Sono nella sua lista, ciascuno con cosa è e cosa fare — segnali lì. «Lo so, grazie» qui li segna tutti; uno nuovo riporta questa riga.",
   "check.posture": {"one": "Il guardiano notturno ha un consiglio di sicurezza", "other": "Il guardiano notturno ha {n} consigli di sicurezza"},
   "check.posture_how": "Sulla sua pagina in «Quanto è al sicuro?» — ognuno con il perché e dove in Unraid. Un consiglio, non un obbligo.",
   "check.login_new_ip": {"one": "Accesso da un indirizzo nuovo: {user} da {ip} ({service})", "other": "{n} accessi da indirizzi nuovi, il più recente: {user} da {ip} ({service})"},

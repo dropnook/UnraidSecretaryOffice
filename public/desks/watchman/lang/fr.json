@@ -301,6 +301,8 @@
   "adopt.share_public": "« Je sais, merci » : des invités sur ce partage, c'est normal.",
   "check.quiet": "La main courante du veilleur de nuit n'a rien d'ouvert",
   "check.quiet_how": "Ce qu'il trouve d'inhabituel apparaît ici jusqu'à ce que tu le notes sur sa page.",
+  "check.open": {"one": "Le veilleur de nuit a un incident ouvert", "other": "Le veilleur de nuit a {n} incidents ouverts"},
+  "check.open_how": "Ils sont dans sa liste, chacun avec ce que c’est et quoi faire — note-les là-bas. « Je sais, merci » ici les note tous ; un nouveau ramène cette ligne.",
   "check.posture": {"one": "Le veilleur de nuit a {n} recommandation de sécurité", "other": "Le veilleur de nuit a {n} recommandations de sécurité"},
   "check.posture_how": "Sur sa page sous « Est-ce bien protégé ? » — chacun avec le pourquoi et où dans Unraid. Un conseil, pas une obligation.",
   "check.login_new_ip": {"one": "Connexion depuis une nouvelle adresse : {user} depuis {ip} ({service})", "other": "{n} connexions depuis de nouvelles adresses, la plus récente : {user} depuis {ip} ({service})"},
