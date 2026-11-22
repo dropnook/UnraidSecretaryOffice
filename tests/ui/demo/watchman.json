@@ -80,7 +80,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w2b3c4d5e6f",
@@ -132,7 +133,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "wd5e04cb7da",
@@ -202,7 +204,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w8825237f13",
@@ -253,7 +256,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "wfe162b7c9a",
@@ -301,7 +305,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "we39e6da19f",
@@ -333,7 +338,8 @@
    "night": false,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wdc05fb1798",
@@ -377,7 +383,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w41acb2239b",
@@ -411,7 +418,8 @@
    "serious": true,
    "cat": "login",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "wa92b5cedfc",
@@ -451,7 +459,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w3bf6add5b4",
@@ -482,7 +491,8 @@
    "night": false,
    "cat": "partner",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w1236963b43",
@@ -517,7 +527,8 @@
    "night": false,
    "cat": null,
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   }
  ],
  "watch": {
@@ -2441,5 +2452,25 @@
    "hit": 1791559874
   }
  ],
- "off": {}
+ "off": {},
+ "known": [
+  {
+   "id": "k0123456789",
+   "kind": "login_new_ip",
+   "key": "login_new_ip:192.168.178.20",
+   "cat": "login",
+   "at": 1789749074,
+   "p": {
+    "ip": "192.168.178.20",
+    "users": [
+     "root"
+    ],
+    "services": [
+     "web"
+    ]
+   },
+   "t": []
+  }
+ ],
+ "known_full": false
 }

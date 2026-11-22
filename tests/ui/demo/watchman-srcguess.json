@@ -88,7 +88,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w8825237f13",
@@ -161,7 +162,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "wfe162b7c9a",
@@ -209,7 +211,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "we39e6da19f",
@@ -241,7 +244,8 @@
    "night": false,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wdc05fb1798",
@@ -285,7 +289,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w41acb2239b",
@@ -319,7 +324,8 @@
    "serious": true,
    "cat": "login",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "wa92b5cedfc",
@@ -359,7 +365,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w3bf6add5b4",
@@ -390,7 +397,8 @@
    "night": false,
    "cat": "partner",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w1236963b43",
@@ -425,7 +433,8 @@
    "night": false,
    "cat": null,
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   }
  ],
  "watch": {
@@ -1681,5 +1690,7 @@
   "schedule": "ok"
  },
  "rules": [],
- "off": {}
+ "off": {},
+ "known": [],
+ "known_full": false
 }

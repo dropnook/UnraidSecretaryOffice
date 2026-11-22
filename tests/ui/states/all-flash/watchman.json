@@ -91,7 +91,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w2b3c4d5e6f",
@@ -143,7 +144,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w54e6489316",
@@ -185,7 +187,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wbb38aac28c",
@@ -227,7 +230,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wda4a752ea7",
@@ -269,7 +273,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wd3e4169d75",
@@ -311,7 +316,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "we39e6da19f",
@@ -349,7 +355,8 @@
    "night": false,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w3b41b7080b",
@@ -393,7 +400,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w2a19a76ee8",
@@ -433,7 +441,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "wfd4fc19641",
@@ -474,7 +483,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w2dbba062ab",
@@ -514,7 +524,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "wa92b5cedfc",
@@ -554,7 +565,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "wb44b5c2f92",
@@ -598,7 +610,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w60263f57e5",
@@ -630,7 +643,8 @@
    "night": true,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w043a3dc3dc",
@@ -672,7 +686,8 @@
    "night": false,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w10eeb60ac4",
@@ -710,7 +725,8 @@
    "night": false,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w915f8925c3",
@@ -742,7 +758,8 @@
    "night": true,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w79d2e622c8",
@@ -786,7 +803,8 @@
    "night": false,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w39b1706544",
@@ -818,7 +836,8 @@
    "night": true,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wb2dda43023",
@@ -856,7 +875,8 @@
    "night": false,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w84677cd4de",
@@ -881,7 +901,8 @@
    "night": true,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wd5e04cb7da",
@@ -952,7 +973,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w3a580811c6",
@@ -990,7 +1012,8 @@
    "night": false,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w93a0d0d9ea",
@@ -1015,7 +1038,8 @@
    "night": true,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wfe162b7c9a",
@@ -1063,7 +1087,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w8023c95ba4",
@@ -1113,7 +1138,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w8825237f13",
@@ -1161,7 +1187,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "wf5ba8983a8",
@@ -1199,7 +1226,8 @@
    "night": false,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w63008f09e2",
@@ -1237,7 +1265,8 @@
    "night": true,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w5668eda953",
@@ -1275,7 +1304,8 @@
    "night": false,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wc063e8ad2d",
@@ -1304,7 +1334,8 @@
    "night": true,
    "cat": "sched",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w5a1e7f0c3b",
@@ -1338,7 +1369,8 @@
    "night": false,
    "cat": "sched",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w8e9e664fdb",
@@ -1376,7 +1408,8 @@
    "night": true,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wee17d287f0",
@@ -1414,7 +1447,8 @@
    "night": false,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w86a678e52c",
@@ -1446,7 +1480,8 @@
    "night": true,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wd3eabf582d",
@@ -1504,7 +1539,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w3bf6add5b4",
@@ -1535,7 +1571,8 @@
    "night": false,
    "cat": "partner",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w8b0797eaff",
@@ -1580,7 +1617,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w5a3ee8d94c",
@@ -1616,7 +1654,8 @@
    "night": false,
    "cat": "router",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w07568b1abf",
@@ -1664,7 +1703,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "waac5d29ba8",
@@ -1714,7 +1754,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w84833d7a59",
@@ -1764,7 +1805,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w41acb2239b",
@@ -1799,7 +1841,8 @@
    "serious": true,
    "cat": "login",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w57f8cbc78b",
@@ -1844,7 +1887,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w5083c20876",
@@ -1888,7 +1932,8 @@
    "night": false,
    "cat": "snap",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w4c7a66770e",
@@ -1926,7 +1971,8 @@
    "night": false,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w4446c99b98",
@@ -1958,7 +2004,8 @@
    "night": true,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wcb41de23c5",
@@ -1996,7 +2043,8 @@
    "night": false,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w31bf64e671",
@@ -2034,7 +2082,8 @@
    "night": true,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w967f303e44",
@@ -2066,7 +2115,8 @@
    "night": false,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wbddd76b648",
@@ -2098,7 +2148,8 @@
    "night": true,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wefd5a94556",
@@ -2133,7 +2184,8 @@
    "night": false,
    "cat": "sched",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w0ff91622ed",
@@ -2165,7 +2217,8 @@
    "night": false,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w2d6da8a8cd",
@@ -2197,7 +2250,8 @@
    "night": true,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w2dfd00c23e",
@@ -2235,7 +2289,8 @@
    "night": false,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w7c215ef4b8",
@@ -2267,7 +2322,8 @@
    "night": true,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w734cd95f15",
@@ -2305,7 +2361,8 @@
    "night": false,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w44d7b19c43",
@@ -2343,7 +2400,8 @@
    "night": true,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wdba5bdde33",
@@ -2375,7 +2433,8 @@
    "night": false,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w68f3698957",
@@ -2418,7 +2477,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "wcef47810c4",
@@ -2447,7 +2507,8 @@
    "night": false,
    "cat": "sched",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w3935c23946",
@@ -2485,7 +2546,8 @@
    "night": false,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w4b839bcde0",
@@ -2528,7 +2590,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "we2c751ce61",
@@ -2560,7 +2623,8 @@
    "night": true,
    "cat": "array",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w10bd9b6781",
@@ -2589,7 +2653,8 @@
    "night": false,
    "cat": "sched",
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "wdc05fb1798",
@@ -2633,7 +2698,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w6477d0ca59",
@@ -2703,7 +2769,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w5c519c4a94",
@@ -2747,7 +2814,8 @@
      "covers": 1
     }
    ],
-   "rule": null
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w1236963b43",
@@ -2782,7 +2850,8 @@
    "night": false,
    "cat": null,
    "offers": [],
-   "rule": null
+   "rule": null,
+   "lasts": false
   }
  ],
  "watch": {
@@ -4293,5 +4362,7 @@
   "schedule": "ok"
  },
  "rules": [],
- "off": {}
+ "off": {},
+ "known": [],
+ "known_full": false
 }

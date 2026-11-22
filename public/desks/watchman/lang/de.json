@@ -1558,5 +1558,17 @@
   "rule.lifted": "Ausnahme aufgehoben.",
   "rule.undone": "Rückgängig gemacht — die Einträge sind wieder offen.",
   "rule.cat_on": "Diesen Bereich wieder anschauen",
-  "rule.cat_on_done": "Er schaut diesen Bereich wieder an — ab jetzt."
+  "rule.cat_on_done": "Er schaut diesen Bereich wieder an — ab jetzt.",
+  "ack_once": "Weiss ich, danke (dieses Mal)",
+  "ack_lasts_title": "Gilt, bis du es unter «Zur Kenntnis genommen» in seinem Bereich zurücknimmst — ausser es ändert sich wirklich etwas.",
+  "noted.known": "Von selbst notiert am {when}: du kanntest es (deine Antwort vom {at}) — gleich wie damals, nichts zu melden.",
+  "known.changed": "Du kanntest es am {when}, so wie es damals war — seither hat sich etwas geändert.",
+  "known.list": {"one": "Zur Kenntnis genommen ({n})", "other": "Zur Kenntnis genommen ({n})"},
+  "known.since": "bekannt seit {when}",
+  "known.take_back": "Zurücknehmen",
+  "known.take_back_title": "Deine Antwort geht und mit ihr, was sie normal gemacht hat — ist es noch da, meldet es sein nächster Rundgang.",
+  "known.taken_back": "Zurückgenommen — sein nächster Rundgang meldet es, wenn es noch da ist.",
+  "known.full": "Deine Antworten füllen seine Liste (5000): neue behält er erst wieder dauerhaft, wenn du welche zurücknimmst.",
+  "book.full": {"one": "Das Wachbuch ist voll ({n} offen): die ältesten offenen Einträge fallen heraus, ohne übernommen zu sein — nimm welche zur Kenntnis; was noch da ist, kommt wieder.", "other": "Das Wachbuch ist voll ({n} offen): die ältesten offenen Einträge fallen heraus, ohne übernommen zu sein — nimm welche zur Kenntnis; was noch da ist, kommt wieder."},
+  "errors.watch_known_gone": "Diese Antwort steht nicht mehr in seiner Liste — vielleicht wurde sie in einem anderen Browser zurückgenommen."
 }

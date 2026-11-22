@@ -1558,5 +1558,17 @@
   "rule.lifted": "Excepción quitada.",
   "rule.undone": "Deshecho — las entradas vuelven a estar abiertas.",
   "rule.cat_on": "Volver a mirar esta área",
-  "rule.cat_on_done": "Vuelve a mirar esta área — desde ahora."
+  "rule.cat_on_done": "Vuelve a mirar esta área — desde ahora.",
+  "ack_once": "Lo sé, gracias (esta vez)",
+  "ack_lasts_title": "Vale hasta que lo retires en «Tomado en cuenta» de su área — salvo que algo cambie de verdad.",
+  "noted.known": "Anotado por sí mismo el {when}: ya lo conocías (tu respuesta del {at}) — igual que entonces, nada que avisar.",
+  "known.changed": "Lo conocías el {when}, tal como era entonces — algo ha cambiado desde entonces.",
+  "known.list": {"one": "Tomado en cuenta ({n})", "other": "Tomado en cuenta ({n})"},
+  "known.since": "conocido desde el {when}",
+  "known.take_back": "Retirar",
+  "known.take_back_title": "Tu respuesta se va y con ella lo que había hecho normal — si sigue ahí, su próxima ronda lo avisa.",
+  "known.taken_back": "Retirado — su próxima ronda lo avisa si sigue ahí.",
+  "known.full": "Tus respuestas llenan su lista (5000): las nuevas no se guardan de forma duradera hasta que retires alguna.",
+  "book.full": {"one": "El libro está lleno ({n} abiertas): las entradas abiertas más antiguas salen sin tomarse en cuenta — toma en cuenta algunas; lo que siga ahí vuelve.", "other": "El libro está lleno ({n} abiertas): las entradas abiertas más antiguas salen sin tomarse en cuenta — toma en cuenta algunas; lo que siga ahí vuelve."},
+  "errors.watch_known_gone": "Esa respuesta ya no está en su lista — quizá se retiró en otro navegador."
 }

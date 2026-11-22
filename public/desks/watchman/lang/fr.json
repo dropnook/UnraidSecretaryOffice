@@ -1558,5 +1558,17 @@
   "rule.lifted": "Exception levée.",
   "rule.undone": "Annulé — les entrées sont de nouveau ouvertes.",
   "rule.cat_on": "Regarder de nouveau cette zone",
-  "rule.cat_on_done": "Il regarde de nouveau cette zone — désormais."
+  "rule.cat_on_done": "Il regarde de nouveau cette zone — désormais.",
+  "ack_once": "Je sais, merci (cette fois)",
+  "ack_lasts_title": "Vaut jusqu'à ce que tu le reprennes sous «Pris note» dans sa zone — sauf si quelque chose change vraiment.",
+  "noted.known": "Noté de lui-même le {when} : tu le connaissais (ta réponse du {at}) — comme alors, rien à signaler.",
+  "known.changed": "Tu le connaissais le {when}, tel qu'il était alors — quelque chose a changé depuis.",
+  "known.list": {"one": "Pris note ({n})", "other": "Pris note ({n})"},
+  "known.since": "connu depuis le {when}",
+  "known.take_back": "Reprendre",
+  "known.take_back_title": "Ta réponse disparaît et avec elle ce qu'elle avait rendu normal — si c'est encore là, sa prochaine ronde le signale.",
+  "known.taken_back": "Repris — sa prochaine ronde le signale s'il est encore là.",
+  "known.full": "Tes réponses remplissent sa liste (5000) : les nouvelles ne sont gardées durablement que quand tu en reprends.",
+  "book.full": {"one": "Le registre est plein ({n} ouvertes) : les plus anciennes entrées ouvertes sortent sans être reprises — prends-en note de quelques-unes ; ce qui est encore là revient.", "other": "Le registre est plein ({n} ouvertes) : les plus anciennes entrées ouvertes sortent sans être reprises — prends-en note de quelques-unes ; ce qui est encore là revient."},
+  "errors.watch_known_gone": "Cette réponse n'est plus dans sa liste — peut-être a-t-elle été reprise dans un autre navigateur."
 }

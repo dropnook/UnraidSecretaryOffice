@@ -62,7 +62,7 @@ function watchmanRulesRaw(string $dir): array
 /**
  * What applies: the rules in exactly their shape (the first 300, each area's first 50), the areas switched off.
  *
- * @return array{rules: list<array>, off: array<string, int>}
+ * @return array{rules: list<array>, off: array<string, int>, known: list<array>}
  */
 function watchmanRules(array $raw): array
 {
@@ -84,7 +84,7 @@ function watchmanRules(array $raw): array
             $off[$cat] = $o['at'];
         }
     }
-    return ['rules' => $rules, 'off' => $off];
+    return ['rules' => $rules, 'off' => $off, 'known' => watchmanKnown($raw)];
 }
 
 /** A rule in exactly its shape (normalized), else null */
@@ -261,12 +261,13 @@ function watchmanRuleOffers(array $e, array $book): array
  * Never an entry with `again` older than the decision, never one of a chain forming. Hits counted in $st['rule_hits'].
  *
  * @param array<string, int> $incidents  serious incident id => when it was marked
- * @return array{noted: int, merged: int, off: int}
+ * @return array{noted: int, merged: int, off: int, known: int}
  */
 function watchmanRulesApply(array &$book, array $before, array &$b, array $seen, array $rules, array $incidents, array &$st, int $now): array
 {
-    $res = ['noted' => 0, 'merged' => 0, 'off' => 0];
-    if (!$rules['rules'] && !$rules['off']) {
+    $res = ['noted' => 0, 'merged' => 0, 'off' => 0, 'known' => 0];
+    $rules += ['known' => []];
+    if (!$rules['rules'] && !$rules['off'] && !$rules['known']) {
         return $res;
     }
     $chained = [];
@@ -292,6 +293,12 @@ function watchmanRulesApply(array &$book, array $before, array &$b, array $seen,
             continue;
         }
         if (isset($chained[$e['id']])) {
+            continue;
+        }
+        // an answer you gave to exactly this, as it is now (4b): noted again, no question
+        $mine = array_values(array_filter($rules['known'], fn ($k) => $newer($k['at'], $e)));
+        if ($mine && watchmanAckLasts((string) $e['kind']) && watchmanKnownMeet($book, $i, $b, $seen, $mine, $now)) {
+            $res['known']++;
             continue;
         }
         foreach ($rules['rules'] as $r) {
@@ -524,7 +531,9 @@ function watchmanRulesCopy(string $dir, string $ram = WATCH_RULES_RAM, ?string $
 {
     try {
         $r = watchmanRules(watchmanRulesRaw($dir));
-        $copy = jsonEncode(['v' => 1, 'rules' => array_map(fn ($x) => array_diff_key($x, ['note' => 1]), $r['rules']), 'off' => $r['off'] ?: new stdClass()]);
+        $copy = jsonEncode(['v' => 1, 'rules' => array_map(fn ($x) => array_diff_key($x, ['note' => 1]), $r['rules']), 'off' => $r['off'] ?: new stdClass(),
+            // your answers as short fingerprints (4b): the night tells nothing you already know
+            'known' => array_map(fn ($k) => array_intersect_key($k, ['id' => 1, 'kind' => 1, 'key' => 1, 'sig' => 1, 'at' => 1]), $r['known'])]);
         foreach ([$ram, $flash] as $f) {
             if ($f === null || !is_dir(dirname($f)) || @file_get_contents($f) === $copy) {
                 continue;
@@ -542,7 +551,8 @@ function watchmanRulesNight(string $night, string $ram = WATCH_RULES_RAM, ?strin
     foreach ([$ram, $flash] as $f) {
         $j = $f !== null ? readJson($f) : null;
         if (is_array($j) && ($j['v'] ?? null) === 1) {
-            writeAtomic("$night/" . WATCH_RULES_FILE, jsonEncode(['v' => 1, 'rules' => (array) ($j['rules'] ?? []), 'off' => $j['off'] ?? new stdClass()]), 0600, 0, 0);
+            writeAtomic("$night/" . WATCH_RULES_FILE, jsonEncode(['v' => 1, 'rules' => (array) ($j['rules'] ?? []), 'off' => $j['off'] ?? new stdClass(),
+                'known' => array_values((array) ($j['known'] ?? []))]), 0600, 0, 0);
             return;
         }
     }
@@ -553,7 +563,7 @@ function watchmanRulesNight(string $night, string $ram = WATCH_RULES_RAM, ?strin
  * For his page: the rules (each with its hits), the areas switched off, and per open entry what a click may offer
  * (watchmanRuleOffers(); covers counted on the book as it is now)
  *
- * @return array{rules: list<array>, off: array<string, int>, offers: array<string, list<array>>}
+ * @return array{rules: list<array>, off: array<string, int>, offers: array<string, list<array>>, known: list<array>, known_full: bool}
  */
 function watchmanRulesPage(string $dir, array $book, array $st): array
 {
@@ -567,5 +577,323 @@ function watchmanRulesPage(string $dir, array $book, array $st): array
             $offers[$e['id']] = $o;
         }
     }
-    return ['rules' => $rules, 'off' => $r['off'], 'offers' => $offers];
+    // the page never sees a fingerprint or an internal word (`_h`)
+    $known = array_map(fn ($k) => ['p' => array_filter($k['p'], fn ($x) => !str_starts_with((string) $x, '_'), ARRAY_FILTER_USE_KEY)] + array_diff_key($k, ['sig' => 1]),
+        $r['known']);
+    return ['rules' => $rules, 'off' => $r['off'], 'offers' => $offers, 'known' => $known, 'known_full' => is_int(watchmanRulesRaw($dir)['known_full'] ?? null)];
+}
+
+// ===================================================================== «I know, thanks» holds until taken back (1.96 step 4b)
+
+/*
+ * Concept 3.4: an answer to a STATE (an address, a container's rights, a plugin and its source, a file, a key, a port …)
+ * is kept a second time in rules.json `known` — the kind, the key, a fingerprint of the thing as it was when you answered
+ * (taken from what his round saw then, never from the entry's words: a password changed again is a new fingerprint), when.
+ * No 30 days, nothing dropped quietly: at WATCH_KNOWN_MAX he says it is full. When the same thing comes back new (it was
+ * gone over 30 days and forgotten, a list was full, a data flow's series went), with the same fingerprint, he notes it
+ * himself (`by: known`) and makes it normal again — he doesn't ask; with another fingerprint the entry says it differs
+ * from what you knew. An EVENT (a log emptied, refusals at the door, a hold released …) is «this time» only, as before.
+ * «Take back»: the answer goes and what it made normal comes out of the baseline again (watchmanUnadopt()) — still there,
+ * his next round tells it. An older office doesn't read `known`: it behaves as before.
+ */
+const WATCH_KNOWN_MAX  = 5000;
+const WATCH_KNOWN_ID   = '/^k[0-9a-f]{10}$/D';
+// what happens rather than is: «I know, thanks» there is for this time (and what he notes himself never asks)
+const WATCH_ACK_EVENTS = ['log_cleared', 'door_refused', 'snap_hold_released', 'kopia_emptied', 'net_firewall_change', 'net_link_down', 'net_outage',
+                          'net_router_reboot', 'net_log_silent', 'net_sender_new', 'net_new_device', 'net_router_config', 'array_stop', 'array_start',
+                          'server_boot', 'parity_check', 'drill_throwaway', 'partner_paired', 'at_userscript', 'at_plugin', 'smb_hour',
+                          // a fault in root's crontab (doubled lines, the office's own there): fixed and back is news again
+                          'cron_twice', 'cron_office'];
+// the words of an entry kept with its answer (what its line and «take back» need), nothing else
+const WATCH_KNOWN_KEEP = ['ip', 'name', 'file', 'user', 'fp', 'share', 'proto', 'series', 'id', 'job', 'key', 'mac', 'what', 'admin', 'sig', 'dir',
+                          'source', 'tokens', 'users', 'services', 'machine', 'peak', 'line', '_h', 'device'];
+
+/** Is this kind's answer a lasting one? (a state — else an event: this time only) */
+function watchmanAckLasts(string $kind): bool
+{
+    return isset(WATCH_KINDS[$kind]) && !in_array($kind, WATCH_ACK_EVENTS, true) && !($kind === 'net_ips_server');
+}
+
+/**
+ * The fingerprint of the thing an entry tells of, as his round sees it now ($seen): the state that, changed, makes it
+ * news again. '' for a thing its key names whole (an address, a port, a cron line by its hash); null: an event.
+ */
+function watchmanKnownSig(array $e, array $seen): ?string
+{
+    $kind = (string) ($e['kind'] ?? '');
+    if (!watchmanAckLasts($kind)) {
+        return null;
+    }
+    $p = (array) ($e['p'] ?? []);
+    $v = match ($kind) {
+        'container_new', 'container_privileged', 'container_host', 'container_ports', 'container_rights'
+            => (function () use ($seen, $p) { $t = (array) ($seen['containers'][(string) ($p['name'] ?? '')]['tokens'] ?? []); sort($t); return $t; })(),
+        'plugin_new', 'plugin_source' => $seen['plugins'][(string) ($p['name'] ?? '')]['source'] ?? null,
+        'flash_go'                    => $seen['flash']['go'] ?? null,
+        'flash_extra'                 => $seen['flash']['extra'][(string) ($p['file'] ?? '')] ?? null,
+        'flash_user', 'flash_password' => [in_array((string) ($p['user'] ?? ''), (array) ($seen['flash']['users'] ?? []), true), $seen['flash']['pw'][(string) ($p['user'] ?? '')] ?? null],
+        'flash_ssh_key'               => $seen['flash']['keys'][(string) ($p['user'] ?? '')][(string) ($p['fp'] ?? '')] ?? null,
+        'share_public'                => $seen['shares'][(string) ($p['share'] ?? '')][($p['proto'] ?? '') === 'nfs' ? 'nfs' : 'smb'] ?? null,
+        'user_ram'                    => $seen['host']['users'][(string) ($p['user'] ?? '')] ?? null,
+        'door_new'                    => $seen['host']['doors'][(string) ($p['key'] ?? '')] ?? null,
+        'api_key_new', 'api_key_changed' => $seen['host']['api'][(string) ($p['id'] ?? '')] ?? null,
+        'door_changed'                => $seen['partner']['lines'][(string) ($p['id'] ?? '')] ?? null,
+        'cron_file', 'cron_file_foreign' => $seen['sched']['files'][(string) ($p['file'] ?? '')]['h'] ?? null,
+        'script_new', 'script_changed' => $seen['sched']['scripts'][(string) ($p['name'] ?? '')]['h'] ?? null,
+        'notify_agent'                => $seen['sched']['agents'][(string) ($p['name'] ?? '')]['h'] ?? null,
+        // the series that went: another series on the same dataset is another thing
+        'snap_gone'                   => (function () use ($p) { $x = array_map('strval', (array) ($p['series'] ?? [])); sort($x); return $x; })(),
+        default                       => '',
+    };
+    return $v === '' ? '' : substr(hash('sha256', (string) json_encode($v)), 0, 16);
+}
+
+/** The answers kept (`known` in rules.json), in exactly their shape */
+function watchmanKnown(array $raw): array
+{
+    $out = [];
+    foreach (is_array($raw['known'] ?? null) && array_is_list($raw['known']) ? array_slice($raw['known'], 0, WATCH_KNOWN_MAX) : [] as $k) {
+        if (is_array($k) && is_string($k['id'] ?? null) && preg_match(WATCH_KNOWN_ID, $k['id']) && is_string($k['kind'] ?? null) && watchmanAckLasts($k['kind'])
+            && is_string($k['key'] ?? null) && is_string($k['sig'] ?? null) && is_int($k['at'] ?? null)) {
+            $out[] = ['id' => $k['id'], 'kind' => $k['kind'], 'key' => $k['key'], 'sig' => $k['sig'], 'at' => $k['at'],
+                      'cat' => (string) watchmanCatOf($k['kind']), 'p' => is_array($k['p'] ?? null) ? $k['p'] : [], 't' => is_array($k['t'] ?? null) ? $k['t'] : []];
+        }
+    }
+    return $out;
+}
+
+/**
+ * The answers just given ($book's entries noted at $now by the page or the team lead, lasting kinds) into `known` —
+ * one per kind and key (a newer answer replaces the older's fingerprint); called inside his book's lock. Full: none
+ * added, `known_full` in the file says so.
+ */
+function watchmanKnownNote(string $dir, array $book, array $seen, int $now): void
+{
+    $raw = watchmanRulesRaw($dir);
+    $list = is_array($raw['known'] ?? null) && array_is_list($raw['known']) ? $raw['known'] : [];
+    $at = [];
+    foreach ($list as $i => $k) {
+        if (is_array($k)) {
+            $at[($k['kind'] ?? '') . '|' . ($k['key'] ?? '')] = $i;
+        }
+    }
+    $changed = false;
+    foreach ($book as $e) {
+        if ((int) ($e['noted'] ?? 0) !== $now || !in_array($e['by'] ?? null, ['page', 'teamlead'], true) || !empty($e['serious'])
+            || !is_string($e['key'] ?? null) || ($sig = watchmanKnownSig($e, $seen)) === null) {
+            continue;
+        }
+        $p = array_intersect_key((array) ($e['p'] ?? []), array_flip(WATCH_KNOWN_KEEP));
+        if (strlen(jsonEncode($p)) > 600) {
+            $p = array_intersect_key($p, array_flip(['ip', 'name', 'file', 'user', 'fp', 'share', 'proto', 'id', 'job', 'key', '_h']));
+        }
+        $rec = ['kind' => $e['kind'], 'key' => $e['key'], 'sig' => $sig, 'at' => $now, 'p' => $p, 't' => watchmanText($e)];
+        if (($e['kind'] ?? '') !== '' && str_starts_with((string) $e['kind'], 'flow_')) {
+            $rec['bytes'] = (int) ($e['p']['peak'] ?? 0);
+        }
+        $k = $e['kind'] . '|' . $e['key'];
+        if (isset($at[$k])) {
+            $list[$at[$k]] = ['id' => (string) ($list[$at[$k]]['id'] ?? watchmanKnownNewId($list))] + $rec;
+        } elseif (count($list) < WATCH_KNOWN_MAX) {
+            $list[] = ['id' => watchmanKnownNewId($list)] + $rec;
+            $at[$k] = count($list) - 1;
+        } else {
+            $raw['known_full'] = $now;
+        }
+        $changed = true;
+    }
+    if ($changed) {
+        $raw['v'] = 1;
+        $raw['known'] = $list;
+        writeAtomic("$dir/" . WATCH_RULES_FILE, jsonEncode($raw));
+    }
+}
+
+/** A known answer's id: k + 10 hex, not one of the list's */
+function watchmanKnownNewId(array $list): string
+{
+    $taken = array_flip(array_map(fn ($k) => is_array($k) ? (string) ($k['id'] ?? '') : '', $list));
+    do {
+        $id = 'k' . bin2hex(random_bytes(5));
+    } while (isset($taken[$id]));
+    return $id;
+}
+
+/**
+ * Recognition in the pass (watchmanRulesApply()): a new entry of a lasting kind whose kind and key you answered — with
+ * the same fingerprint now: made normal again and noted (`by: known`, `known`: the answer's id, when you knew it); a data
+ * flow only while it stays within what you answered (WATCH_FLOW_FACTOR times its peak then). Another fingerprint: the
+ * entry stays open and says when you knew it as it was then (`p.known_at`). Returns true when noted.
+ */
+function watchmanKnownMeet(array &$book, int $i, array &$b, array $seen, array $known, int $now): bool
+{
+    $e = $book[$i];
+    foreach ($known as $k) {
+        if ($k['kind'] !== $e['kind'] || $k['key'] !== ($e['key'] ?? null)) {
+            continue;
+        }
+        $sig = watchmanKnownSig($e, $seen);
+        $within = !isset($k['bytes']) || (int) ($e['p']['peak'] ?? 0) <= max(1, (int) $k['bytes']) * WATCH_FLOW_FACTOR;
+        if ($sig !== null && $sig === $k['sig'] && $within) {
+            watchmanAdopt($b, $e, $seen, $now);
+            $book[$i]['noted'] = $now;
+            $book[$i]['by'] = 'known';
+            $book[$i]['known'] = $k['id'];
+            $book[$i]['p']['known_at'] = $k['at'];
+            return true;
+        }
+        $book[$i]['p']['known_at'] = $k['at'];        // you knew it — as it was then: it says so
+        return false;
+    }
+    return false;
+}
+
+/**
+ * The counterpart of watchmanAdopt(): what an answer made normal comes out of the baseline again — per kind, only what
+ * that answer put there. Still there, the next round tells it; gone, nothing. Events change nothing.
+ */
+function watchmanUnadopt(array &$b, string $kind, array $p): void
+{
+    $str = fn (string $k): string => is_scalar($p[$k] ?? null) ? (string) $p[$k] : '';
+    switch ($kind) {
+        case 'login_new_ip':
+            unset($b['ips'][$str('ip')]);
+            break;
+        case 'login_failures':
+            unset($b['fail_ips'][$str('ip')]);
+            break;
+        case 'container_new':
+        case 'container_privileged':
+        case 'container_host':
+        case 'container_ports':
+        case 'container_rights':
+            unset($b['containers'][$str('name')]);
+            break;
+        case 'plugin_new':
+        case 'plugin_source':
+            unset($b['plugins'][$str('name')]);
+            break;
+        case 'flash_go':
+            $b['flash']['go'] = null;
+            break;
+        case 'flash_extra':
+            unset($b['flash']['extra'][$str('file')]);
+            break;
+        case 'flash_user':
+        case 'flash_password':
+            $b['flash']['users'] = array_values(array_diff((array) ($b['flash']['users'] ?? []), [$str('user')]));
+            unset($b['flash']['pw'][$str('user')]);
+            break;
+        case 'flash_ssh_key':
+            unset($b['flash']['keys'][$str('user')][$str('fp')]);
+            break;
+        case 'share_public':
+            if (isset($b['shares'][$str('share')])) {
+                $b['shares'][$str('share')][$str('proto') === 'nfs' ? 'nfs' : 'smb'] = 0;
+            }
+            break;
+        case 'flow_client':
+        case 'flow_container':
+        case 'flow_written':
+        case 'flow_gone':
+            unset($b['flow']['ack'][$str('key')]);
+            break;
+        case 'smb_user':
+            unset($b['flow']['smb_users'][$str('user')]);
+            break;
+        case 'smb_client':
+            unset($b['flow']['smb_clients'][$str('ip')]);
+            break;
+        case 'snap_gone':
+            foreach ((array) ($p['series'] ?? []) as $s) {
+                unset($b['snaps']['series'][(string) $s]);
+            }
+            break;
+        case 'user_ram':
+            unset($b['host']['users'][$str('user')]);
+            break;
+        case 'door_new':
+            unset($b['host']['doors'][$str('key')]);
+            break;
+        case 'api_key_new':
+        case 'api_key_changed':
+            unset($b['host']['api'][$str('id')]);
+            break;
+        case 'door_changed':
+            unset($b['partner']['lines'][$str('id')]);
+            break;
+        case 'door_key_moved':
+            unset($b['partner']['logins'][$str('ip') . '|' . $str('fp')]);
+            break;
+        case 'listen_new':
+        case 'proc_odd':
+            unset($b['host'][$kind === 'listen_new' ? 'listen' : 'procs'][$str('key')]);
+            break;
+        case 'cron_new':
+        case 'cron_twice':
+        case 'cron_office':
+            $field = ['cron_new' => 'lines', 'cron_twice' => 'twice', 'cron_office' => 'office'][$kind];
+            foreach ((array) ($p['_h'] ?? []) as $h) {
+                unset($b['sched']['crontab'][$field][(string) $h]);
+            }
+            break;
+        case 'cron_file':
+        case 'cron_file_foreign':
+            unset($b['sched']['files'][$str('file')]);
+            break;
+        case 'script_new':
+        case 'script_changed':
+            unset($b['sched']['scripts'][$str('name')]);
+            break;
+        case 'at_job':
+            unset($b['sched']['at'][$str('job')]);
+            break;
+        case 'notify_agent':
+            unset($b['sched']['agents'][$str('name')]);
+            break;
+        case 'net_spoof':
+            $key = $str('what') === 'name' ? 'name:' . $str('name') : 'address:' . $str('ip');
+            unset($b['net']['self'][$key][$str('mac')]);
+            break;
+        case 'net_router_login':
+            unset($b['net']['admins'][$str('admin')]['ips'][$str('ip')]);
+            break;
+        case 'net_vpn_login':
+            unset($b['net']['vpn'][$str('user')]);
+            break;
+        case 'net_blocked_from_server':
+            unset($b['net']['blocked'][$str('key')]);
+            break;
+        case 'net_router_login_failures':
+            unset($b['net']['fail_ips'][$str('ip') !== '' ? $str('ip') : 'local']);
+            break;
+    }
+}
+
+/** «Take back» an answer (its area's list «Noted»): it goes, and what it made normal comes out of the baseline */
+function watchmanKnownRemove(string $kid, ?string $dir = null, bool $page = true): array
+{
+    if (!preg_match(WATCH_KNOWN_ID, $kid)) {
+        throw new Problem('bad_request');
+    }
+    $dir ??= watchmanDir();
+    $k = watchmanRulesChange($dir, function (array $raw, array $d) use ($kid): array {
+        $list = is_array($raw['known'] ?? null) && array_is_list($raw['known']) ? $raw['known'] : [];
+        $gone = array_values(array_filter($list, fn ($k) => is_array($k) && ($k['id'] ?? null) === $kid));
+        if (!$gone) {
+            throw new Problem('watch_known_gone');
+        }
+        $raw['known'] = array_values(array_filter($list, fn ($k) => !is_array($k) || ($k['id'] ?? null) !== $kid));
+        unset($raw['known_full']);
+        $b = $d['baseline'];
+        watchmanUnadopt($b, (string) ($gone[0]['kind'] ?? ''), (array) ($gone[0]['p'] ?? []) + ['key' => (string) ($gone[0]['key'] ?? '')]);
+        $d['baseline'] = $b;
+        return [$raw, $d, $gone[0]];
+    });
+    logLine(sprintf('Night watchman: an answer taken back — %s', (string) ($k['kind'] ?? '')));
+    if (!$page) {
+        return ['ok' => true];
+    }
+    watchmanMirrorKeep($dir);
+    return ['ok' => true, 'state' => watchmanPageState()];
 }

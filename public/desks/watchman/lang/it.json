@@ -1558,5 +1558,17 @@
   "rule.lifted": "Eccezione tolta.",
   "rule.undone": "Annullato — le voci sono di nuovo aperte.",
   "rule.cat_on": "Guarda di nuovo quest'area",
-  "rule.cat_on_done": "Guarda di nuovo quest'area — da ora in poi."
+  "rule.cat_on_done": "Guarda di nuovo quest'area — da ora in poi.",
+  "ack_once": "Lo so, grazie (questa volta)",
+  "ack_lasts_title": "Vale finché non lo ritiri sotto «Preso atto» nella sua area — a meno che qualcosa cambi davvero.",
+  "noted.known": "Annotato da solo il {when}: lo conoscevi (la tua risposta del {at}) — uguale ad allora, niente da segnalare.",
+  "known.changed": "Lo conoscevi il {when}, com'era allora — da allora qualcosa è cambiato.",
+  "known.list": {"one": "Preso atto ({n})", "other": "Preso atto ({n})"},
+  "known.since": "noto dal {when}",
+  "known.take_back": "Ritira",
+  "known.take_back_title": "La tua risposta se ne va e con essa ciò che aveva reso normale — se c'è ancora, il prossimo giro lo segnala.",
+  "known.taken_back": "Ritirato — il prossimo giro lo segnala se c'è ancora.",
+  "known.full": "Le tue risposte riempiono la sua lista (5000): le nuove non restano finché non ne ritiri qualcuna.",
+  "book.full": {"one": "Il registro è pieno ({n} aperte): le voci aperte più vecchie escono senza essere prese in carico — prendine atto di alcune; ciò che c'è ancora torna.", "other": "Il registro è pieno ({n} aperte): le voci aperte più vecchie escono senza essere prese in carico — prendine atto di alcune; ciò che c'è ancora torna."},
+  "errors.watch_known_gone": "Questa risposta non è più nella sua lista — forse è stata ritirata in un altro browser."
 }

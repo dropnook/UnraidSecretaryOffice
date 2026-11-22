@@ -312,6 +312,14 @@ async function rules() {
   same('exceptions: the area lists its exceptions — what, since when, how often, «Lift»',
     [list && tx(list.querySelector('.row-name')), !!(list && list.querySelectorAll('button').some((b) => tx(b) === T('rule.lift')))],
     [T('rule.offer.net', { net: '192.168.178.0/24' }), true]);
+  // 4b: your lasting answers in the area, folded; unfolded each with «Take back»
+  const head = r.all().find((n) => n.classList && n.classList.contains('wm-known-head'));
+  same('answers: «Noted (n)» in the area, folded', [head && tx(head).includes(T('known.list', { n: 1 })), head && head.getAttribute('aria-expanded')], [true, 'false']);
+  head.click();
+  await tick();
+  const known = r.all().find((n) => n.classList && n.classList.contains('wm-known'));
+  same('answers: unfolded — the address, known since, «Take back»', [!!(known && known.querySelectorAll('.row-name').length === 1),
+    !!(known && known.querySelectorAll('button').some((b) => tx(b) === T('known.take_back')))], [true, true]);
   void sec;
   wm.unmount();
 }

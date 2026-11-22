@@ -1558,5 +1558,17 @@
   "rule.lifted": "Exception lifted.",
   "rule.undone": "Undone — the entries are open again.",
   "rule.cat_on": "Look at this area again",
-  "rule.cat_on_done": "He looks at this area again — from now on."
+  "rule.cat_on_done": "He looks at this area again — from now on.",
+  "ack_once": "I know, thanks (this time)",
+  "ack_lasts_title": "It holds until you take it back under «Noted» in its area — unless something really changes.",
+  "noted.known": "Noted by himself on {when}: you knew it (your answer of {at}) — the same as then, nothing to tell.",
+  "known.changed": "You knew it on {when}, as it was then — something has changed since.",
+  "known.list": {"one": "Noted ({n})", "other": "Noted ({n})"},
+  "known.since": "known since {when}",
+  "known.take_back": "Take back",
+  "known.take_back_title": "Your answer goes and what it made normal with it — still there, his next round tells it.",
+  "known.taken_back": "Taken back — his next round tells it if it is still there.",
+  "known.full": "Your answers fill his list (5000): new ones aren't kept as lasting until you take some back.",
+  "book.full": {"one": "The watch book is full ({n} open): the oldest open entries drop out without being taken over — note some, and they come back if still there.", "other": "The watch book is full ({n} open): the oldest open entries drop out without being taken over — note some, and they come back if still there."},
+  "errors.watch_known_gone": "That answer isn't in his list any more — perhaps it was taken back in another browser."
 }

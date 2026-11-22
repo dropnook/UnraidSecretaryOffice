@@ -363,6 +363,7 @@ desk('watchman', [
         'rule_add'    => fn (array $r) => watchmanRuleAdd(textField($r, 'id'), textField($r, 'type'), optBool($r, 'sure')),
         'rule_remove' => fn (array $r) => watchmanRuleRemove(textField($r, 'rule'), optBool($r, 'undo')),
         'cat_set'     => fn (array $r) => watchmanCatSet(textField($r, 'cat'), boolField($r, 'on'), optBool($r, 'sure')),
+        'known_remove' => fn (array $r) => watchmanKnownRemove(textField($r, 'id')),       // «Take back» a lasting answer
         // «Who woke my disks?»: his switch (on unless switched off), kept on the server
         'wakes_watch' => fn (array $r) => watchmanWakeWatchSet(boolField($r, 'on')) + ['state' => watchmanPageState()],
     ],
@@ -1527,6 +1528,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             $b['sched'] = is_array($b['sched'] ?? null) ? $b['sched'] : null;
             $b['snaps'] = is_array($b['snaps'] ?? null) ? $b['snaps'] : ['series' => []];
             watchmanTeamLeadNotes($b, $book, is_array($old['seen']) ? $old['seen'] : $observed, $now, $acks);
+            watchmanKnownNote($dir, $book, is_array($old['seen']) ? $old['seen'] : $observed, $now);       // his notes hold too (1.96)
             // partner doors: the office's own new line is noted (and its key known) before the flash watch looks at the keys
             $b['partner'] = watchmanPartnerBase($b['partner'] ?? null);
             watchmanPartnerAdopt($b, $seen['partner'], $book, $now, (array) ($seen['flash']['keys']['root'] ?? []));
@@ -4245,18 +4247,18 @@ function watchmanPosture(array $f, array $seen, array $prev = []): array
 }
 
 /**
- * His «I know, thanks» on posture tips (posture.json), kept only for tips that are still there — one
- * that went is forgotten, so it is told again when it comes back. Each with what the tip said then (`text`,
+ * His «I know, thanks» on posture tips (posture.json) — kept while a tip is away for a while (1.96: it held only while
+ * the tip was there, and one round without it lost it); it goes when you take it back («Show again») or when what the
+ * tip says changes (its signature). Each with what the tip said then (`text`,
  * watchmanPostureText()): a note from before 1.44 has none — it gets today's (taken over as given for what the tip
  * says now: nothing comes back by this change itself). Null: no file and nothing to keep. $texts for the tests.
  */
 function watchmanPostureKnown(?array $file, array $tips, ?callable $texts = null): ?array
 {
     $texts ??= 'watchmanPostureText';
-    $ids = array_column($tips, 'id');
     $acks = [];
     foreach ((array) ($file['acks'] ?? []) as $id => $a) {
-        if (in_array((string) $id, $ids, true) && is_array($a) && is_string($a['sig'] ?? null)) {
+        if (isset(WATCH_POSTURE[(string) $id]) && is_array($a) && is_string($a['sig'] ?? null)) {      // 1.96: kept while the tip is away
             $acks[(string) $id] = ['sig' => $a['sig'], 'time' => (int) ($a['time'] ?? 0),
                                    'text' => is_string($a['text'] ?? null) ? $a['text'] : $texts((string) $id)];
         }
@@ -9282,6 +9284,7 @@ function watchmanAck(mixed $id, ?string $dir = null, ?int $now = null, bool $pag
         if (!$noted && !$all) {
             throw new Problem('watch_gone');
         }
+        watchmanKnownNote($dir, $book, $seen, $now);        // 1.96: a lasting answer holds until you take it back (watchman-rules.php)
         $st = $d['state'];
         $st['open'] = watchmanOpenCounts($book);
         watchmanSave($dir, $d, ['baseline' => $b, 'book' => $book, 'state' => $st]);
@@ -9399,6 +9402,7 @@ function watchmanSeriousUndo(string $id, ?string $dir = null, ?int $now = null, 
         if (!$own) {
             watchmanAdopt($b, $x, $seen, $now);
         }
+        watchmanKnownNote($dir, $book, $seen, $now);        // the entries settled with it hold as answers (1.96)
         $st = $d['state'];
         $st['open'] = watchmanOpenCounts($book);
         watchmanSave($dir, $d, ['baseline' => $b, 'book' => $book, 'state' => $st]);
@@ -10163,7 +10167,8 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
                    'p' => array_filter((array) ($e['p'] ?? []), fn ($k) => !str_starts_with((string) $k, '_'), ARRAY_FILTER_USE_KEY),
                    'noted' => $e['noted'] ?? null, 'by' => $e['by'] ?? null, 'told' => $e['told'] ?? null, 'muted' => $e['muted'] ?? null,
                    'night' => !empty($e['night']), 'serious' => isset($e['serious']), 'again' => isset($e['again']),
-                   'rule' => is_string($e['rule'] ?? null) ? $e['rule'] : null];
+                   'rule' => is_string($e['rule'] ?? null) ? $e['rule'] : null, 'lasts' => watchmanAckLasts((string) $e['kind']),
+                   'known' => is_string($e['known'] ?? null) ? $e['known'] : null];
     }
     // his history of serious incidents, newest first: the entry as it was, the note; each makes the same louder while it is
     // there (`louder` and `until` stay for a page of 1.94 still open after the update)
@@ -10228,6 +10233,8 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
         $state['book'][$i]['offers'] = $rules['offers'][$e['id']] ?? [];
     }
     $state['rules'] = $rules['rules'];
+    $state['known'] = $rules['known'];             // your lasting answers (4b), each with its words for its line
+    $state['known_full'] = $rules['known_full'];
     $state['off'] = $rules['off'] ?: new stdClass();
     // his areas' lights (watchman-cats.php), from what this state says; the watch book's and the schedule's light beside them
     $lights = watchmanCats($state, is_array($st['parity'] ?? null) ? $st['parity'] : null);

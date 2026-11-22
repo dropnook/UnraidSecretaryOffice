@@ -194,6 +194,58 @@ async function catOn(id, b) {
   renderAt('.wm-cat');
   Office.toast(T('rule.cat_on_done'));
 }
+/**
+ * «Noted (n)»: your lasting answers in an area (1.96, concept 3.4) — folded until opened on this visit; each with when,
+ * and «Take back» (it comes out of what is normal: still there, his next round tells it)
+ */
+const knownOpen = new Set();      // areas whose list is unfolded on this visit
+function catKnown(id) {
+  const list = ((state && state.known) || []).filter((k) => k && k.cat === id);
+  if (!list.length) return null;
+  const box = el('div', 'wm-known');
+  const head = el('button', 'btn small plain wm-known-head', `${knownOpen.has(id) ? '▾' : '▸'} ${T('known.list', { n: list.length })}`);
+  head.type = 'button';
+  head.setAttribute('aria-expanded', knownOpen.has(id) ? 'true' : 'false');
+  head.onclick = () => { if (knownOpen.has(id)) knownOpen.delete(id); else knownOpen.add(id); Office.keepInPlace(head, () => sw.render()); };
+  box.appendChild(head);
+  if (!knownOpen.has(id)) return box;
+  const rows = el('div', 'box');
+  list.slice().sort((a, b) => b.at - a.at).slice(0, 200).forEach((k) => {
+    const row = el('div', 'row nocheck wm-rule');
+    const main = el('div', 'row-main');
+    main.appendChild(el('div', 'row-name text', entryName({ kind: k.kind, p: k.p || {}, t: k.t || {}, v: null })));
+    const meta = el('div', 'row-meta');
+    meta.appendChild(el('span', '', T('known.since', { when: fmt.date(k.at) })));
+    main.appendChild(meta);
+    row.appendChild(main);
+    const acts = el('div', 'wm-entry-acts');
+    const b = el('button', 'btn small plain', T('known.take_back'));
+    b.type = 'button';
+    b.title = T('known.take_back_title');
+    b.disabled = !Office.agent.running || !hired();
+    b.onclick = () => knownRemove(k, b);
+    acts.appendChild(b);
+    row.appendChild(acts);
+    rows.appendChild(row);
+  });
+  box.appendChild(rows);
+  return box;
+}
+async function knownRemove(k, b) {
+  if (!(await Office.freshState(ID))) return;
+  b.disabled = true;
+  const j = await Office.api.post(`${ID}.known_remove`, { id: k.id });
+  if (!j.ok) {
+    Office.toast(Office.errorText(j.error, ID), true);
+    if (j.error && j.error.key === 'watch_known_gone') await load(true);
+    else b.disabled = false;
+    return;
+  }
+  if (j.state) state = j.state;
+  renderAt('.wm-known');
+  Office.toast(T('known.taken_back'));
+}
+
 /** An area's exceptions: what each lets through, since when, how often it did, «Lift» (and «Undo» right after) */
 function catRules(id) {
   const list = ((state && state.rules) || []).filter((r) => r && r.cat === id);
@@ -1021,6 +1073,10 @@ function bookSection() {
   const bar = bookBarGet();
   s.appendChild(bar.el);
 
+  // what the book can't hold is said, never dropped quietly (concept 3.4, cases 6 and the answers' list)
+  const keep = Number(state.limits && state.limits.keep) || 500;
+  if (openCount() >= keep) s.appendChild(el('p', 'callout warn', T('book.full', { n: keep })));
+  if (state.known_full) s.appendChild(el('p', 'callout warn', T('known.full')));
   const box = el('div', 'box wm-book');
   const onlyOpen = bar.read().only;                // «Not noted yet»: the bar's switch (a tile up to 1.95)
   const look = (asked) => {
@@ -1124,6 +1180,7 @@ function catSection(id) {
     s.appendChild(on);
   }
   const rules = catRules(id);
+  const known = catKnown(id);
   const all = catEntries(id);
   if (sw.active() !== id) {
     // the whole page (nothing chosen): no entries again under the book — how many, a click shows this area alone
@@ -1138,6 +1195,7 @@ function catSection(id) {
     const advice = catAdvice(id);
     if (advice) s.appendChild(advice);
     if (rules) s.appendChild(rules);
+    if (known) s.appendChild(known);
     return s;
   }
   const bar = catBarGet(id);
@@ -1157,6 +1215,7 @@ function catSection(id) {
   const advice = catAdvice(id);
   if (advice) s.appendChild(advice);
   if (rules) s.appendChild(rules);
+  if (known) s.appendChild(known);
   return s;
 }
 
@@ -1343,9 +1402,11 @@ function entryRow(e, owner) {
   r.appendChild(main);
   if (e.open) {
     const acts = el('div', 'wm-entry-acts');
-    const b = el('button', 'btn small plain', T('ack'));
+    // 1.96: a state's answer holds until you take it back; an event's is for this time (the messenger says which: lasts)
+    const once = e.lasts === false;
+    const b = el('button', 'btn small plain', T(once ? 'ack_once' : 'ack'));
     b.type = 'button';
-    b.title = T('ack_title');
+    b.title = e.lasts === true ? `${T('ack_title')} ${T('ack_lasts_title')}` : T('ack_title');
     b.disabled = !Office.agent.running;
     b.onclick = () => ack(e, b);
     acts.appendChild(b);
@@ -1861,7 +1922,10 @@ function details(e) {
   if (e.open) notes.push(T('adopt.' + (e.v === 'net_ips_server_list' ? e.v : e.kind)));     // a block list: its own words (the whole list)
   const by = e.by === 'office' && e.kind === 'partner_paired' ? 'office_partner' : e.by === 'office' && e.kind === 'drill_throwaway' ? 'office_drill' : e.by;
   if (e.noted && by === 'plugin' && e.kind === 'at_plugin' && p.left) notes.push(T('noted.plugin_left', { when: fmt.date(p.left) }));     // agent: watchmanAtLeftNote()
-  else if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office', 'office_partner', 'office_drill', 'office_cron', 'schedule', 'array', 'unraid', 'plugin', 'back', 'router', 'parity', 'rule'].includes(by) ? by : 'page'), { when: fmt.date(e.noted) }));
+  else if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office', 'office_partner', 'office_drill', 'office_cron', 'schedule', 'array', 'unraid', 'plugin', 'back', 'router', 'parity', 'rule', 'known'].includes(by) ? by : 'page'),
+    { when: fmt.date(e.noted), at: fmt.date(Number(e.p && e.p.known_at) || e.noted) }));
+  // you knew it — as it was then: something has changed since (1.96, the answer's fingerprint differs)
+  if (e.open && e.p && Number(e.p.known_at) > 0) notes.push(T('known.changed', { when: fmt.date(Number(e.p.known_at)) }));
   if (e.told) notes.push(T('detail.told', { when: fmt.date(e.told) }));
   else if (e.muted && e.tell) notes.push(T('detail.muted'));
   else if (e.open) notes.push(T(e.tell ? 'detail.not_told' : 'detail.book_only'));
