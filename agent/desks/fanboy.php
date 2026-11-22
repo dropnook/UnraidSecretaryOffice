@@ -473,14 +473,24 @@ function fanboyBackCheck(?int $wall = null): array
 {
     $full = fanboyGivenCheck($wall);
     fanboyAutoSeenKeep();
-    if (!$full) {
+    // 2026-11-22: what the guard found while no agent ran (its look after a release — the array's stop —, its cron line):
+    // the journal says so (`given.full`, still at full: fanboySafetyFull()); told here, once per output and boot like his own
+    $found = array_filter(fanboySafetyFull(), fn ($x) => $x['why'] === 'not_back');
+    $told = $found ? (readJson(fanboyRunDir() . '/told.json') ?? []) : [];
+    $late = array_filter($found, fn ($id) => !isset($full[$id]) && !isset($told["not_back:$id"]), ARRAY_FILTER_USE_KEY);
+    if (!$full && !$late) {
         return [];
     }
     $fans = (fanboyBoardRaw() ?? [])['fans'] ?? [];
+    $name = fn (string $id, mixed $output) => is_string($fans[$id]['name'] ?? null) && $fans[$id]['name'] !== '' ? $fans[$id]['name']
+        : officeNotifyText('fanboy', 'out.name', ['n' => is_int($output) ? $output : (int) preg_replace('/^.*:pwm/', '', $id)], officeNotifyLang());
     foreach ($full as $id => $x) {
-        $name = is_string($fans[$id]['name'] ?? null) && $fans[$id]['name'] !== '' ? $fans[$id]['name'] : officeNotifyText('fanboy', 'out.name', ['n' => $x['output']], officeNotifyLang());
         logLine("Fanboy: $id not taken back by the mainboard ({$x['rpm']} rpm, {$x['before']} before Fanboy) — set to full speed" . ($x['ok'] ? '' : ' — NOT written'));
-        fanboyTellOnce("not_back:$id", 'not_back', ['fan' => $name], 'alert');
+        fanboyTellOnce("not_back:$id", 'not_back', ['fan' => $name($id, $x['output'])], 'alert');
+    }
+    foreach ($late as $id => $x) {
+        logLine("Fanboy: $id not taken back by the mainboard — the guard set it to full speed while the agent was away" . ($x['at'] !== null ? ' (' . date('Y-m-d H:i:s', $x['at']) . ')' : ''));
+        fanboyTellOnce("not_back:$id", 'not_back', ['fan' => $name($id, null)], 'alert');
     }
     return $full;
 }

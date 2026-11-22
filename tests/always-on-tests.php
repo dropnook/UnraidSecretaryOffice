@@ -69,3 +69,100 @@ function testAlwaysOnStopWhy(): void
         fanboyTEnd();
     }
 }
+
+/** The journal's give-backs made $seconds older (the tests never wait the 10 s a look comes after) */
+function alwaysOnTAgeGiven(int $seconds): void
+{
+    fanboyLocked(function (array $j) use ($seconds): array {
+        foreach ($j['outputs'] as $id => $o) {
+            if (is_array($o['given'] ?? null) && is_int($o['given']['at'] ?? null)) {
+                $j['outputs'][$id]['given']['at'] -= $seconds;
+            }
+        }
+        return [$j, null];
+    });
+}
+
+/**
+ * Step S1c: after a release nobody asked «did the mainboard take the fans back?» — the agent is gone (the array's stop) and
+ * the guard's cron line looks only while the journal names a holder. `fanboy-guard.php check-back` (agent.sh's
+ * fanboy_release starts it in a session of its own) waits for the moment and looks once: a fan clearly slower than before
+ * Fanboy and not rising goes to full speed; the agent tells it at its next start, once.
+ */
+function testAlwaysOnBackCheck(): void
+{
+    $t = fanboyT('ao-back');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $settings = fanboyTSettings();
+        unset($settings['fans'][fanboyTId(4)]['back']);
+        fanboyTStore($settings);
+        $data = "{$t['tmp']}/data";
+        @mkdir($data, 0700, true);
+        // a control steers the disk fan, then everything is released (the array's stop); the mainboard's answer: $after
+        $case = function (array $after, int $age) use ($t, $settings, $data): array {
+            @unlink(TESTS_RUN_DIR . '/fanboy/journal.json');
+            @unlink(fanboyRunDir() . '/told.json');
+            file_put_contents("{$t['hw']}/pwm4", "30\n");             // the mainboard's own curve, its register low
+            file_put_contents("{$t['hw']}/pwm4_enable", "2\n");
+            $before = fanboyTSpec(10, [4 => ['auto' => 1100]]);
+            fanboyTSettle($t, $before, 20);
+            // the holder: a process of the test's that only waits (the release asks the holder to end — never the suite itself)
+            $sleeper = proc_open(['sleep', '60'], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
+            $spid = proc_get_status($sleeper)['pid'];
+            fanboyBeat($spid);
+            $c = fanboyControlNew($settings, FANBOY_T_KEY, ['kind' => 'control', 'pid' => $spid, 'start' => fanboyProcStart($spid), 'since' => time()]);
+            $now = 1000.0;
+            fanboyTRounds($c, $now, $t, $before, 10);
+            $rel = fanboyTGuard($t, $data, 'release', 'array_stopping');
+            alwaysOnTEnd($sleeper);
+            fanboyTSettle($t, $after, 12);
+            alwaysOnTAgeGiven($age);
+            $t0 = hrtime(true);
+            $out = fanboyTGuard($t, $data, 'check-back');
+            $o = fanboyJournal()['outputs'][fanboyTId(4)];
+            return ['released' => str_contains($rel, 'released — '), 'out' => fanboyTOut($t, 4), 'checked' => isset($o['given']['checked']), 'full' => $o['given']['full']['before'] ?? null,
+                    'said' => str_contains($out, 'not taken back by the mainboard'), 'secs' => (hrtime(true) - $t0) / 1e9, 'log' => is_file("$data/agent.log") ? (string) file_get_contents("$data/agent.log") : ''];
+        };
+        $r = $case(fanboyTSpec(10, [4 => ['auto' => 1100]]), FANBOY_BACK_CHECK + 1);
+        same('always on S1c: the mainboard took the fan back — looked at once, left as given back (30, automatic), nothing said',
+            [true, [30, 2], true, null, false], [$r['released'], $r['out'], $r['checked'], $r['full'], $r['said']]);
+        $n0 = count(fanboyTNotified($t));
+        $r = $case(fanboyTSpec(10, [4 => ['auto' => 1100, 'auto_dead' => true]]), FANBOY_BACK_CHECK + 1);
+        same('always on S1c: a chip that ignores its own mode — after the release the fan stops: the guard\'s look sets it to full speed, fixed, noted in the journal, a line for agent.sh\'s log',
+            [true, [255, 1], true, 1100, true], [$r['released'], $r['out'], $r['checked'], $r['full'], $r['said']]);
+        check('always on S1c: … the look writes nothing into the data folder (the array may be unmounting): no line of it in agent.log', !str_contains($r['log'], 'not taken back'));
+        same('always on S1c: … the guard itself tells nobody', $n0, count(fanboyTNotified($t)));
+        // the agent at its next start: told once (an alert naming the fan), in its log; the next ticks say nothing more
+        fanboyBackCheck();
+        fanboyBackCheck();
+        $alerts = array_values(array_filter(array_slice(fanboyTNotified($t), $n0), fn ($l) => str_contains($l, '-i alert')));
+        check('always on S1c: … the agent tells it at its next start — one alert naming the fan (' . ($alerts[0] ?? '') . ')', count($alerts) === 1 && str_contains($alerts[0], "didn't take Cage back"));
+        check('always on S1c: … and says in its log that the guard found it', str_contains((string) @file_get_contents(AGENT_LOG), 'the guard set it to full speed while the agent was away'));
+        same('always on S1c: … the page\'s state: at full for safety, with the way back', ['not_back'], array_values(array_column(fanboySafetyFull(), 'why')));
+        // too early by 2 s: it waits for the moment, then looks (never a look that says nothing because it came too soon)
+        $r = $case(fanboyTSpec(10, [4 => ['auto' => 1100, 'auto_dead' => true]]), FANBOY_BACK_CHECK - 2);
+        check('always on S1c: 2 s before the moment — it waits, then looks: full speed (' . round($r['secs'], 1) . ' s)', $r['out'] === [255, 1] && $r['checked'] && $r['secs'] >= 1.0 && $r['secs'] < 15);
+        // nothing given back (or all looked at already): ends at once, changes nothing
+        $t0 = hrtime(true);
+        $out = fanboyTGuard($t, $data, 'check-back');
+        check('always on S1c: nothing to look at — it ends at once without a word', trim($out) === '' && (hrtime(true) - $t0) / 1e9 < 3 && fanboyTOut($t, 4) === [255, 1]);
+        @unlink(TESTS_RUN_DIR . '/fanboy/journal.json');
+        same('always on S1c: no journal — nothing', '', trim(fanboyTGuard($t, $data, 'check-back')));
+        // an output somebody holds again (the control took it back after an update's restart) is never touched
+        $sleeper = alwaysOnTHold($t);
+        alwaysOnTAgeGiven(60);
+        fanboyTGuard($t, $data, 'check-back');
+        same('always on S1c: an output held again (a restart after an update) — left alone', [[250, 1], [fanboyTId(4)]], [fanboyTOut($t, 4), fanboyHeld()]);
+        alwaysOnTEnd($sleeper);
+        // agent.sh: every release ends with the look, in a session of its own, never waited for
+        $sh = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/agent.sh');
+        check('always on S1c: agent.sh — fanboy_release ends with fanboy_back_check: its own session, cwd /, not waited for, bounded',
+            (bool) preg_match('/^fanboy_release\(\) \{\n(?:.*\n)*?    timeout -k 1 15 php "\$DIR\/agent\/fanboy-guard\.php" release "\$\{why\[@\]\}" <\/dev\/null >>"\$LOG" 2>&1\n    fanboy_back_check\n    return 0\n\}/m', $sh)
+            && str_contains($sh, '( cd / && setsid "${CLEAN_ENV[@]}" timeout -k 1 60 php "$DIR/agent/fanboy-guard.php" check-back </dev/null >>"$LOG" 2>&1 & )'));
+        check('always on S1c: the guard\'s check-back never writes the agent\'s log (no logLine in it)',
+            (bool) preg_match('/function fanboyGuardCheckBack\(\): array\n\{(?:(?!\n\}\n).)*\n\}\n/s', (string) file_get_contents(OFFICE_DIR . '/agent/fanboy-guard.php'), $m) && !str_contains($m[0], 'logLine('));
+    } finally {
+        fanboyTEnd();
+    }
+}

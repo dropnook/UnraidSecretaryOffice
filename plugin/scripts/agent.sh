@@ -203,6 +203,18 @@ fanboy_release() {
     [[ -f "$DIR/agent/fanboy-guard.php" && -s "$FANBOY_JOURNAL" ]] || return 0
     [[ "${STOP_WHY:-}" == array_stopping ]] && why=(array_stopping)
     timeout -k 1 15 php "$DIR/agent/fanboy-guard.php" release "${why[@]}" </dev/null >>"$LOG" 2>&1
+    fanboy_back_check
+    return 0
+}
+
+# Did the mainboard take the fans back? The agent's tick asks that 10 s after every give-back (a fan clearly slower than
+# before Fanboy and not rising is set to full speed) - but after a stop there is no agent, and the guard's cron line
+# looks only while the journal names a holder: nobody asked after an array stop. So one look of the guard's own
+# (fanboy-guard.php check-back: it waits for that moment, at most 30 s, then looks once), in a session of its own, cwd /,
+# RAM and /sys only - never the data folder: it never holds up a stop, and this function returns at once.
+fanboy_back_check() {
+    [[ -f "$DIR/agent/fanboy-guard.php" && -s "$FANBOY_JOURNAL" ]] || return 0
+    ( cd / && setsid "${CLEAN_ENV[@]}" timeout -k 1 60 php "$DIR/agent/fanboy-guard.php" check-back </dev/null >>"$LOG" 2>&1 & )
     return 0
 }
 

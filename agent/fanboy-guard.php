@@ -13,6 +13,13 @@ declare(strict_types=1);
  *                                  `release array_stopping` (agent.sh at the array's stop, 2026-11-22): the same, and the
  *                                  status the page and the Dashboard tile read says why — «the array is stopped», not
  *                                  «the office stopped».
+ *   php fanboy-guard.php check-back   after a release (agent.sh starts it in a session of its own, 2026-11-22): did the
+ *                                  mainboard take the fans back? The agent's tick asks that FANBOY_BACK_CHECK s after every
+ *                                  give-back — after a stop there is no agent, and the cron line below looks only while
+ *                                  the journal names a holder. Waits for that moment (at most FANBOY_GUARD_BACK_WAIT s),
+ *                                  then fanboyGivenCheck() once: a fan clearly slower than before Fanboy and not rising
+ *                                  is set to full speed, noted in the journal — the agent tells it at its next start.
+ *                                  RAM and /sys only: never the data folder (the array may be unmounting).
  *   php fanboy-guard.php watch     the cron line (agent-watch.cron, every minute — only when the journal names a holder):
  *                                  the outputs of a holder that is gone (killed hard) or hung (no beat for 30 s; ended
  *                                  for good first) given back. The agent's tick does the same every 5 s while it runs —
@@ -59,12 +66,57 @@ function fanboyGuardSay(string $what, array $back, ?string $why = null): void
     }
 }
 
+const FANBOY_GUARD_BACK_WAIT = 30;     // check-back: seconds it waits at most for the give-backs' moment (FANBOY_BACK_CHECK after each)
+
+/** The give-backs nobody looked at yet (no holder, no `checked`): [id => given.at] */
+function fanboyGuardUnchecked(): array
+{
+    $out = [];
+    foreach (fanboyJournal()['outputs'] as $id => $o) {
+        $g = $o['given'] ?? null;
+        if (!is_array($o['owner'] ?? null) && is_array($g) && !isset($g['checked']) && is_int($g['at'] ?? null)) {
+            $out[$id] = $g['at'];
+        }
+    }
+    return $out;
+}
+
+/**
+ * check-back: one look once the newest give-back is FANBOY_BACK_CHECK s old (a look every half second meanwhile) — or,
+ * the wall clock saying «too early» for FANBOY_GUARD_BACK_WAIT s on the monotonic clock (it was set back): then all the
+ * same, that long has really passed. Nothing to look at: ends at once. Never logLine() (the data folder may be
+ * unmounting) — only its line for agent.sh's log in RAM. Returns the outputs set to full.
+ */
+function fanboyGuardCheckBack(): array
+{
+    $start = fanboyMono();
+    // the give-backs of this release, as found now: only those are waited for (a journal made anew meanwhile — a boot id,
+    // another release — is not this look's)
+    $mine = fanboyGuardUnchecked();
+    while (($open = array_intersect_assoc(fanboyGuardUnchecked(), $mine))) {
+        if (time() - max($open) >= FANBOY_BACK_CHECK || fanboyMono() - $start >= FANBOY_GUARD_BACK_WAIT) {
+            $full = fanboyGivenCheck(max(time(), max($open) + FANBOY_BACK_CHECK));
+            foreach ($full as $id => $x) {
+                echo date('Y-m-d H:i:s') . " Fanboy: $id not taken back by the mainboard ({$x['rpm']} rpm, {$x['before']} before Fanboy) — set to full speed"
+                    . ($x['ok'] ? '' : ' — NOT written') . " (the guard's look after the release)\n";
+            }
+            return $full;
+        }
+        usleep(500000);
+    }
+    return [];
+}
+
 const FANBOY_GUARD_LOOKS = 3;          // round 12: looks per cron run while an output stands at 0 (0, 20 and 40 s) …
 const FANBOY_GUARD_AGAIN = 20;         // … seconds apart
 
 function fanboyGuardMain(string $cmd, string $reason = ''): int
 {
     if (!is_file(fanboyRunDir() . '/journal.json')) {
+        return 0;
+    }
+    if ($cmd === 'check-back') {
+        fanboyGuardCheckBack();
         return 0;
     }
     if ($cmd === 'watch') {
@@ -113,7 +165,7 @@ function fanboyGuardMain(string $cmd, string $reason = ''): int
         fanboyGuardSay('released', $back, $reason === 'array_stopping' ? 'array_stopped' : null);
         return 0;
     }
-    fwrite(STDERR, "Usage: php fanboy-guard.php release [array_stopping]|watch\n");
+    fwrite(STDERR, "Usage: php fanboy-guard.php release [array_stopping]|check-back|watch\n");
     return 2;
 }
 
