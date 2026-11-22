@@ -320,6 +320,7 @@ const WATCH_POSTURE = [
     'privileged'      => 'info',
     'partner_friend'  => 'info',       // plain copies going to a partner marked «a friend»
     'unraid_eol'      => 'advice',     // known vulnerabilities (1.96): this Unraid version gets no security updates (eol, superseded)
+    'software_eol'    => 'advice',     // … software in a container whose release line is past its end (endoflife.date)
     'mitigations_on'  => 'info',
 ];
 /** The office's dashboard in Grafana (monitoring/grafana-dashboard.json): the panel of a data flow group (tests check the ids) */
@@ -1520,8 +1521,12 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
     $office = watchmanOfficeLook($paths, $now);
     $facts = watchmanPostureLook($paths);
     // known vulnerabilities: switched on, the day's rounds (the night has no lists) — the lists against what is here
-    $vuln = ($snap['state']['vuln_on'] ?? false) === true && isset($paths['unraid_version'])
-        ? watchmanVulnJudge($dir, watchmanVulnInventory($paths), $now) : null;
+    $vulnOn = ($snap['state']['vuln_on'] ?? false) === true && isset($paths['unraid_version']);
+    // step 16: the containers' software by their images' own ENV (at most hourly; the tests hand in docker's answer)
+    [$vulnImages, $vulnImagesCache] = $vulnOn ? watchmanVulnImages(is_array($containers) ? $containers : null,
+        is_array($snap['state']['vuln_images'] ?? null) ? $snap['state']['vuln_images'] : null, $now,
+        isset($paths['vuln_inspect']) && is_callable($paths['vuln_inspect']) ? $paths['vuln_inspect'] : null) : [[], null];
+    $vuln = $vulnOn ? watchmanVulnJudge($dir, watchmanVulnInventory($paths + ['vuln_images' => $vulnImages]), $now, $vulnImages) : null;
     $facts['vuln'] = $vuln;
     $vulnSet = watchmanVulnSettings($dir);
     // snapshots that vanish: only rounds write snaps.json (one at a time), so it is read out here
@@ -1536,7 +1541,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
 
     return watchmanLocked($dir, function () use ($dir, $hired, $now, $fresh, $events, $pos, $read, $seen, $notify, $acks, $t0, $look, $facts, $snapKnown, $snapRes,
                                                $office, $paths, $boot, $btime, $netLook, $netServer, $parity, $kopiaLook, $netContainers, $automounts,
-                                               $vuln, $vulnSet): array {
+                                               $vuln, $vulnSet, $vulnImagesCache): array {
         $old = watchmanLoad($dir);
         $old['seen'] = readJson("$dir/seen.json");
         $old['flow'] = readJson("$dir/flow.json");
@@ -1640,7 +1645,10 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         if ($vuln !== null) {
             $added = array_merge($added, watchmanVulnCompare($book, $vuln['found'], $vulnSet['maybe'], $now));
             $st['vuln_look'] = ['time' => $now, 'kev' => $vuln['kev'], 'fresh' => $vuln['fresh'], 'checked' => $vuln['checked'], 'found' => array_map(
-                fn ($x) => ['verdict' => $x['verdict']], $vuln['found'])];
+                fn ($x) => ['verdict' => $x['verdict']], $vuln['found']), 'software' => $vuln['software'], 'unknown' => $vuln['unknown']];
+            if ($vulnImagesCache !== null) {
+                $st['vuln_images'] = $vulnImagesCache;
+            }
         }
         // the logins of the last half hour (for the array's lines); an array stopped or started since the last round: a plain line
         $st['logins'] = watchmanRecentLogins((array) ($st['logins'] ?? []), $events, $now);

@@ -45,7 +45,14 @@ const WATCH_VULN_URLS    = [
     'kev'    => 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json',
     'cve'    => 'https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/',
     'unraid' => 'https://releases.unraid.net/json',
+    'eol'    => 'https://endoflife.date/api/v1/products/',      // step 16: <slug> of a fixed list (WATCH_VULN_PRODUCTS' eol)
 ];
+// step 16: the only names read from a container image's environment — the official images set them (their Dockerfiles);
+// never any other value of an image's or a container's environment (passwords live there)
+const WATCH_VULN_ENV = ['PHP_VERSION', 'NGINX_VERSION', 'MARIADB_VERSION', 'PG_VERSION', 'REDIS_VERSION', 'NODE_VERSION', 'PYTHON_VERSION',
+                        'GOLANG_VERSION', 'JAVA_VERSION'];
+const WATCH_VULN_IMAGES_EVERY = 3600;      // the images' versions looked at anew at most this often (or when the images change)
+const WATCH_VULN_IMAGES_MAX   = 100;       // images asked at most
 const WATCH_VULN_MAX     = ['kev' => 8 << 20, 'cve' => 2 << 20, 'unraid' => 1 << 20, 'eol' => 1 << 20];     // bytes of an answer at most
 const WATCH_VULN_TIMEOUT = 60;             // seconds a fetch may take
 const WATCH_VULN_DESC    = 300;            // characters of a description kept
@@ -58,7 +65,8 @@ const WATCH_VULN_DESC    = 300;            // characters of a description kept
 const WATCH_VULN_PRODUCTS = [
     'unraid'   => ['label' => 'Unraid', 'kev' => ['unraid|unraid'], 'cna' => ['unraid|unraid', 'lime technology|unraid'], 'host' => 'unraid'],
     'kernel'   => ['label' => 'Linux kernel', 'kev' => ['linux|kernel'], 'cna' => ['linux|linux', 'linux|linux kernel'], 'host' => 'kernel'],
-    'php'      => ['label' => 'PHP', 'kev' => ['php group|php', 'php|php', 'php|fastcgi process manager (fpm)'], 'cna' => ['php group|php', 'php|php'], 'host' => 'php'],
+    'php'      => ['label' => 'PHP', 'kev' => ['php group|php', 'php|php', 'php|fastcgi process manager (fpm)'], 'cna' => ['php group|php', 'php|php'], 'host' => 'php',
+                   'env' => 'PHP_VERSION', 'eol' => 'php'],
     'openssh'  => ['label' => 'OpenSSH', 'kev' => ['openbsd|openssh'], 'cna' => ['openbsd|openssh', '|openssh'], 'pkg' => 'openssh'],
     'openssl'  => ['label' => 'OpenSSL', 'kev' => ['openssl|openssl'], 'cna' => ['openssl|openssl'], 'pkg' => 'openssl'],
     'samba'    => ['label' => 'Samba', 'kev' => ['samba|samba'], 'cna' => ['samba|samba'], 'pkg' => 'samba'],
@@ -66,7 +74,16 @@ const WATCH_VULN_PRODUCTS = [
     'bash'     => ['label' => 'Bash', 'kev' => ['gnu|gnu bash', 'gnu|bourne-again shell (bash)', 'gnu|bash'], 'cna' => ['gnu|bash'], 'pkg' => 'bash'],
     'polkit'   => ['label' => 'polkit', 'kev' => ['red hat|polkit'], 'cna' => ['polkit|polkit', 'freedesktop|polkit'], 'pkg' => 'polkit'],
     'inetutils' => ['label' => 'GNU Inetutils', 'kev' => ['gnu|inetutils'], 'cna' => ['gnu|inetutils'], 'pkg' => 'inetutils'],
-    'nginx'    => ['label' => 'nginx', 'kev' => ['f5|nginx', 'nginx|nginx'], 'cna' => ['f5|nginx', 'f5|nginx open source', 'nginx|nginx'], 'pkg' => 'nginx'],
+    'nginx'    => ['label' => 'nginx', 'kev' => ['f5|nginx', 'nginx|nginx'], 'cna' => ['f5|nginx', 'f5|nginx open source', 'nginx|nginx'], 'pkg' => 'nginx',
+                   'env' => 'NGINX_VERSION', 'eol' => 'nginx'],
+    // step 16: software inside containers, by the official images' own ENV (WATCH_VULN_ENV)
+    'mariadb'  => ['label' => 'MariaDB', 'kev' => [], 'cna' => ['mariadb|mariadb', 'mariadb|mariadb server'], 'env' => 'MARIADB_VERSION', 'eol' => 'mariadb'],
+    'postgresql' => ['label' => 'PostgreSQL', 'kev' => ['postgresql|postgresql'], 'cna' => ['postgresql|postgresql'], 'env' => 'PG_VERSION', 'eol' => 'postgresql'],
+    'redis'    => ['label' => 'Redis', 'kev' => ['redis|redis'], 'cna' => ['redis|redis'], 'env' => 'REDIS_VERSION', 'eol' => 'redis'],
+    'nodejs'   => ['label' => 'Node.js', 'kev' => ['nodejs|node.js', 'node.js|node.js'], 'cna' => ['nodejs|node', 'nodejs|node.js'], 'env' => 'NODE_VERSION', 'eol' => 'nodejs'],
+    'python'   => ['label' => 'Python', 'kev' => ['python software foundation|python'], 'cna' => ['python software foundation|cpython'], 'env' => 'PYTHON_VERSION', 'eol' => 'python'],
+    'go'       => ['label' => 'Go', 'kev' => ['golang|go'], 'cna' => ['go standard library|crypto/tls', 'golang|go'], 'env' => 'GOLANG_VERSION', 'eol' => 'go'],
+    'java'     => ['label' => 'Java', 'kev' => [], 'cna' => [], 'env' => 'JAVA_VERSION'],
 ];
 // the places an entry names: the server itself, or (step 16) a container
 const WATCH_VULN_HOST = 'host';
@@ -332,6 +349,21 @@ function watchmanVulnInventory(array $paths): array
             $pkgs[$p['pkg']] = $id;
         }
     }
+    // step 16: the containers' software, by their images' own ENV ($paths['vuln_images']: container => [name => value],
+    // watchmanVulnImages() — never another value of an environment)
+    $envProduct = [];
+    foreach (WATCH_VULN_PRODUCTS as $id => $p) {
+        if (isset($p['env'])) {
+            $envProduct[$p['env']] = $id;
+        }
+    }
+    foreach (is_array($paths['vuln_images'] ?? null) ? $paths['vuln_images'] : [] as $ct => $env) {
+        foreach (is_array($env) ? $env : [] as $name => $value) {
+            if (isset($envProduct[$name]) && is_string($value) && strlen($value) <= 64) {
+                $out[] = ['product' => $envProduct[$name], 'version' => $value, 'clean' => watchmanVulnClean($value, 'env'), 'where' => (string) $ct];
+            }
+        }
+    }
     if (isset($paths['packages']) && is_dir((string) $paths['packages'])) {
         // Slackware: <name>-<version>-<arch>-<build>, the version without a dash
         foreach (scandir((string) $paths['packages']) ?: [] as $f) {
@@ -560,6 +592,30 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
         $res['unraid'] = $u['err'] ?? 'shape';
         $mark('unraid', $res['unraid']);
     }
+    // endoflife.date (step 16): each slug of the fixed list — the same for every office
+    if (!is_dir("$f/eol")) {
+        @mkdir("$f/eol", 0700, true);
+    }
+    $eolErr = 0;
+    foreach (array_unique(array_filter(array_column(WATCH_VULN_PRODUCTS, 'eol'))) as $slug) {
+        $e = watchmanVulnGet(WATCH_VULN_URLS['eol'] . $slug, WATCH_VULN_MAX['eol'], null, $ctx);
+        $j = $e['code'] === 200 ? json_decode($e['body'], true, 16) : null;
+        $cycles = [];
+        foreach (is_array($j['result']['releases'] ?? null) ? $j['result']['releases'] : [] as $r) {
+            if (is_array($r) && is_string($r['name'] ?? null) && preg_match('/^\d{1,4}(?:\.\d{1,4}){0,2}$/D', $r['name'])) {
+                $latest = is_array($r['latest'] ?? null) ? ($r['latest']['name'] ?? null) : null;
+                $cycles[] = ['name' => $r['name'], 'eol' => is_bool($r['isEol'] ?? null) ? $r['isEol'] : null,
+                             'eol_from' => is_string($r['eolFrom'] ?? null) && preg_match('/^\d{4}-\d\d-\d\d$/D', $r['eolFrom']) ? $r['eolFrom'] : null,
+                             'latest' => is_string($latest) && watchmanVulnParse($latest) !== null ? $latest : null];
+            }
+        }
+        if ($cycles) {
+            writeAtomic("$f/eol/$slug.json", jsonEncode(['v' => 1, 'fetched' => $now, 'cycles' => array_slice($cycles, 0, 200)]), 0600, 0, 0);
+        } else {
+            $eolErr++;
+        }
+    }
+    $mark('eol', $eolErr ? "$eolErr failed" : null);
     writeAtomic("$f/status.json", jsonEncode($status), 0600, 0, 0);
     return $res;
 }
@@ -654,16 +710,20 @@ function watchmanVulnSet(mixed $on, ?string $dir = null, bool $page = true): arr
  * (verdict yes or maybe: {cve, product, where, verdict, have, fixed, name, ransom, added}), how many were checked and
  * not affected, whether the lists are there and fresh, Unraid's support status. Reads feeds/ only.
  *
- * @return array{found: list<array>, checked: int, fresh: bool, kev: ?int, unraid: ?array{version: string, status: string, newest: ?string}}
+ * Step 16: the containers' software against endoflife.date (watchmanVulnEol(); $images: container => its versions).
+ *
+ * @return array{found: list<array>, checked: int, fresh: bool, kev: ?int, unraid: ?array{version: string, status: string, newest: ?string},
+ *               software: list<array>, unknown: list<string>}
  */
-function watchmanVulnJudge(string $dir, array $inv, int $now): array
+function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []): array
 {
     $f = watchmanVulnDir($dir);
     $kev = readJson("$f/kev.json");
     $fetched = is_array($kev) && is_int($kev['fetched'] ?? null) ? $kev['fetched'] : null;
     $status = readJson("$f/status.json") ?? [];
     $ok = is_int($status['kev']['ok'] ?? null) ? $status['kev']['ok'] : $fetched;
-    $out = ['found' => [], 'checked' => 0, 'fresh' => $ok !== null && $now - $ok <= WATCH_VULN_OLD && $ok <= $now + 300, 'kev' => $ok, 'unraid' => null];
+    $out = ['found' => [], 'checked' => 0, 'fresh' => $ok !== null && $now - $ok <= WATCH_VULN_OLD && $ok <= $now + 300, 'kev' => $ok, 'unraid' => null]
+        + watchmanVulnEol($dir, $inv, $images);
     $byProduct = [];
     foreach ($inv as $x) {
         $byProduct[$x['product']][] = $x;
@@ -769,9 +829,17 @@ function watchmanVulnSettings(string $dir): array
     return ['maybe' => ($set['maybe'] ?? false) === true];
 }
 
-/** The advice for Unraid without security updates (posture tip unraid_eol): its version, its status, the newest supported */
+/**
+ * The advice: Unraid without security updates (posture tip unraid_eol: its version, its status, the newest supported);
+ * step 16: software in containers whose release line is past its end (software_eol: «PHP 8.1 (nextcloud)» …)
+ */
 function watchmanVulnTips(?array $judged, callable $add): void
 {
+    $old = array_values(array_filter((array) ($judged['software'] ?? []), fn ($x) => is_array($x) && ($x['eol'] ?? null) === true));
+    if ($old) {
+        $names = array_map(fn ($x) => (WATCH_VULN_PRODUCTS[$x['product']]['label'] ?? $x['product']) . " {$x['cycle']} ({$x['where']})", $old);
+        $add('software_eol', ['names' => watchmanNames($names), 'n' => count($old)], implode(',', $names), ['to' => 'docker', 'path' => '/Docker']);
+    }
     $u = is_array($judged['unraid'] ?? null) ? $judged['unraid'] : null;
     if ($u !== null && in_array($u['status'], ['eol', 'superseded'], true)) {
         $add('unraid_eol', ['version' => $u['version'], 'status' => $u['status'], 'newest' => (string) ($u['newest'] ?? '') ?: '–'],
@@ -787,7 +855,10 @@ function watchmanVulnPage(array $st, ?array $judged): array
     return ['on' => $on, 'since' => is_int($st['vuln_since'] ?? null) ? $st['vuln_since'] : null, 'checked_at' => $j['kev'] ?? null,
             'fresh' => !empty($j['fresh']), 'checked' => (int) ($j['checked'] ?? 0),
             'affected' => count(array_filter((array) ($j['found'] ?? []), fn ($x) => ($x['verdict'] ?? '') === 'yes')),
-            'maybe' => count(array_filter((array) ($j['found'] ?? []), fn ($x) => ($x['verdict'] ?? '') === 'maybe'))];
+            'maybe' => count(array_filter((array) ($j['found'] ?? []), fn ($x) => ($x['verdict'] ?? '') === 'maybe')),
+            // step 16: the containers' software — past its end, or a newer release of its line; images that name no version
+            'software' => array_values(array_filter((array) ($j['software'] ?? []), fn ($x) => is_array($x) && (($x['eol'] ?? null) === true || ($x['latest'] ?? null) !== null))),
+            'unknown' => array_values(array_filter((array) ($j['unknown'] ?? []), 'is_string'))];
 }
 
 /** An entry's words */
@@ -811,4 +882,117 @@ function watchmanVulnVariant(array $e): ?string
     $ct = ($p['where'] ?? WATCH_VULN_HOST) !== WATCH_VULN_HOST;
     $fixed = $kind === 'vuln_known' && is_string($p['fixed'] ?? null) && $p['fixed'] !== '';
     return $ct || $fixed ? $kind . ($ct ? '_ct' : '') . ($fixed ? '_fixed' : '') : null;
+}
+
+// ===================================================================== step 16: software inside containers
+
+/**
+ * docker's format for the images' versions: the image's id, then only the WATCH_VULN_ENV names with their values — docker
+ * itself leaves every other variable out, so no other value of an environment ever reaches the office
+ */
+function watchmanVulnImagesFormat(): string
+{
+    $names = implode(' ', array_map(fn ($n) => '"' . $n . '"', WATCH_VULN_ENV));
+    return '{{.Id}}{{range .Config.Env}}{{$k := index (split . "=") 0}}{{if eq $k ' . $names . '}} {{.}}{{end}}{{end}}';
+}
+
+/**
+ * docker's answer (one line an image, in the order asked: «sha256:… PHP_VERSION=8.4.28 …») → image => [name => value];
+ * only the WATCH_VULN_ENV names, only values in a version's shape — anything else on a line is dropped, never kept
+ *
+ * @param list<string> $images
+ * @return array<string, array<string, string>>
+ */
+function watchmanVulnImagesParse(string $out, array $images): array
+{
+    $lines = array_values(array_filter(explode("\n", $out), fn ($l) => str_starts_with($l, 'sha256:')));
+    $res = [];
+    foreach ($images as $i => $img) {
+        $env = [];
+        foreach (array_slice(explode(' ', (string) ($lines[$i] ?? '')), 1) as $tok) {
+            [$k, $v] = array_pad(explode('=', $tok, 2), 2, '');
+            if (in_array($k, WATCH_VULN_ENV, true) && preg_match('/^[0-9A-Za-z.:+~_-]{1,64}$/D', $v)) {
+                $env[$k] = $v;
+            }
+        }
+        $res[$img] = $env;
+    }
+    return $res;
+}
+
+/**
+ * The containers' versions ($containers: the round's look, name => {image}): asked of docker at most once an hour, or when
+ * the images changed — one `docker image inspect` for all, WATCH_VULN_IMAGES_MAX at most; $cache: the last answer
+ * (state.json vuln_images). $inspect: the tests' stand-in for docker.
+ *
+ * @return array{0: array<string, array<string, string>>, 1: ?array}  container => [name => value], the cache to keep
+ */
+function watchmanVulnImages(?array $containers, ?array $cache, int $now, ?callable $inspect = null): array
+{
+    if ($containers === null) {
+        return [[], $cache];          // Docker didn't answer: nothing judged in containers this round
+    }
+    $images = [];
+    foreach ($containers as $name => $c) {
+        $img = (string) ($c['image'] ?? '');
+        if (preg_match('/^[a-z0-9][a-z0-9._\/:@-]{0,254}$/Di', $img)) {
+            $images[(string) $name] = $img;
+        }
+    }
+    $refs = array_slice(array_values(array_unique($images)), 0, WATCH_VULN_IMAGES_MAX);
+    sort($refs);
+    $byImage = is_array($cache['images'] ?? null) ? $cache['images'] : null;
+    $fresh = $byImage !== null && is_int($cache['time'] ?? null) && $now - $cache['time'] < WATCH_VULN_IMAGES_EVERY && $now >= $cache['time']
+        && array_keys($byImage) === $refs;
+    if (!$fresh) {
+        $byImage = [];
+        if ($refs) {
+            $out = $inspect !== null ? $inspect($refs) : (function () use ($refs): string {
+                [$exit, $text] = run(array_merge(['docker', 'image', 'inspect', '--format', watchmanVulnImagesFormat()], $refs), 30);
+                return $exit === 0 ? $text : '';
+            })();
+            $byImage = watchmanVulnImagesParse((string) $out, $refs);
+        }
+        ksort($byImage);
+        $cache = ['time' => $now, 'images' => $byImage];
+    }
+    $byContainer = [];
+    foreach ($images as $name => $img) {
+        if (isset($byImage[$img])) {
+            $byContainer[$name] = $byImage[$img];
+        }
+    }
+    return [$byContainer, $cache];
+}
+
+/**
+ * The containers' software against endoflife.date (feeds/eol/<slug>.json): each with its release line (the longest
+ * name that is a prefix of its version: «8.4» for 8.4.28, «17» for PostgreSQL 17.12), whether that line is past its end,
+ * and the newest release of the line — and the containers that name none of WATCH_VULN_ENV («version unknown»)
+ *
+ * @return array{software: list<array>, unknown: list<string>}
+ */
+function watchmanVulnEol(string $dir, array $inv, array $images): array
+{
+    $f = watchmanVulnDir($dir);
+    $rows = [];
+    foreach ($inv as $x) {
+        $slug = WATCH_VULN_PRODUCTS[$x['product']]['eol'] ?? null;
+        if ($x['where'] === WATCH_VULN_HOST || $x['clean'] === null) {
+            continue;
+        }
+        $line = null;
+        foreach ($slug === null ? [] : (array) (readJson("$f/eol/$slug.json")['cycles'] ?? []) as $c) {
+            $n = (string) ($c['name'] ?? '');
+            if ($n !== '' && ($x['clean'] === $n || str_starts_with($x['clean'], "$n.")) && ($line === null || strlen($n) > strlen((string) $line['name']))) {
+                $line = $c;
+            }
+        }
+        $newer = $line !== null && is_string($line['latest'] ?? null) && watchmanVulnCmp(watchmanVulnParse($x['clean']), watchmanVulnParse($line['latest'])) < 0;
+        $rows[] = ['product' => $x['product'], 'where' => $x['where'], 'version' => $x['clean'], 'cycle' => $line['name'] ?? null,
+                   'eol' => $line === null ? null : ($line['eol'] ?? null), 'eol_from' => $line['eol_from'] ?? null, 'latest' => $newer ? $line['latest'] : null];
+    }
+    $unknown = array_keys(array_filter($images, fn ($env) => !$env));
+    sort($unknown);
+    return ['software' => $rows, 'unknown' => $unknown];
 }
