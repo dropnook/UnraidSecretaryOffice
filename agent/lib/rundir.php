@@ -70,7 +70,7 @@ const RUNDIR_FILES = [
     'report-inbox\.json|home\.json|caretaker\.rescan' => ['max' => 65536, 'bound' => 'a few fields; the welcome\'s list of shares', 'gone' => 'rewritten / taken'],
     'claim\.[0-9a-f]{12}\.curl'    => ['max' => 4096, 'bound' => 'curl\'s config with the supporter claim (a secret)', 'gone' => 'right after curl; runDirSweep() after 10 min', 'age' => RUNDIR_TMP_AGE],
     // locks and small state of the desks
-    'look-[a-z0-9_.-]+\.lock|snapshot-plans\.lock|backup-wait\.lock|movers-start\.lock|jack-[a-z]+-wait\.(?:lock|json)|watchman-(?:round|book)-[0-9a-f]{8}\.lock'
+    'look-[a-z0-9_.-]+\.lock|snapshot-plans\.lock|backup-wait\.lock|movers-start\.lock|jack-[a-z]+-wait\.(?:lock|json)|watchman-(?:round|book)-[0-9a-f]{8}\.lock|watchman-feeds\.lock'
         => ['max' => 4096, 'bound' => 'empty, or a pid', 'gone' => 'stay (locks); the wait record at its end'],
     'cleanup-tour\.due|logs-tour\.due' => ['max' => 64, 'bound' => 'a time', 'gone' => 'read and removed'],
     'backup-(?:silent|partner-rate|upload|rough|queued|abort)\.json|backup-queued\.cancel|moverelli-silent\.json'

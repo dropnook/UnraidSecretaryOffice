@@ -46,7 +46,7 @@ const WATCH_CATS = [
                                 'net_vpn_login', 'net_log_silent', 'net_link_down', 'net_outage', 'net_router_reboot'], 'tips' => ['router_clock']],
     'lan'       => ['kinds' => ['net_new_device', 'net_spoof', 'net_ips_server', 'net_blocked_from_server', 'net_gateway', 'net_dns'], 'tips' => []],
     'array'     => ['kinds' => ['array_stop', 'array_start', 'server_boot', 'parity_check'], 'tips' => []],
-    'vuln'      => ['kinds' => [], 'tips' => []],          // «Known vulnerabilities» (concept 11 A): its kinds come with its step
+    'vuln'      => ['kinds' => ['vuln_known', 'vuln_maybe'], 'tips' => ['unraid_eol', 'software_eol']],   // «Known vulnerabilities» (concept 11 A, watchman-vuln.php)
     'hw'        => ['kinds' => ['hw_mce', 'hw_ecc', 'hw_aer', 'hw_throttle', 'hw_kernel', 'hw_wear', 'hw_hot', 'hw_io'],
                     'tips' => ['cpu_fault', 'old_microcode']],    // «Hardware» (concept 11 B–E, H): watchman-hw.php (B, C, E), hw_hot (D), hw_io (H)
     'hold'      => ['kinds' => [], 'tips' => []],          // «What holds the array?» (agent/lib/arrayhold.php): no entries, its own look
@@ -261,7 +261,15 @@ function watchmanCats(array $s, ?array $parity = null): array
     } elseif (is_array($w['hdds'] ?? null) && !$w['hdds'] && !($w['wakes'] ?? [])) {
         $add('wakes', 'none', 'no_hdd');
     }
-    $add('vuln', 'none', 'not_yet');
+    // known vulnerabilities: off (until switched on) grey; on but the lists never fetched, or older than WATCH_VULN_OLD: «!»
+    $v = is_array($s['vuln'] ?? null) ? $s['vuln'] : null;
+    if ($v === null || empty($v['on'])) {
+        $add('vuln', 'none', 'vuln_off');
+    } elseif (($v['checked_at'] ?? null) === null) {
+        $add('vuln', 'note', 'vuln_never');
+    } elseif (empty($v['fresh'])) {
+        $add('vuln', 'note', 'vuln_old');
+    }
     // the hardware (watchman-hw.php): grey before his first look at it; a look over an hour old (rounds failing): yellow;
     // a server without ECC counters says so with «!» (concept 2.2) — never «0 memory errors»
     $hw = is_array($s['hw'] ?? null) ? $s['hw'] : null;

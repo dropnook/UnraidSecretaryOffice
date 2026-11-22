@@ -124,6 +124,7 @@ require_once __DIR__ . '/../lib/watchnet.php';
 require_once __DIR__ . '/../lib/paritywhy.php';
 require_once __DIR__ . '/../lib/arrayhold.php';     // «What holds the array?» (his page, on demand)
 require_once __DIR__ . '/watchman-diskwakes.php';    // «Who woke my disks?» (data/watchman/wakes.json): the sampler in his tick
+require_once __DIR__ . '/watchman-vuln.php';         // «Known vulnerabilities» (1.96, concept 11.3 A): off until switched on
 require_once __DIR__ . '/watchman-cats.php';         // his areas (1.96): every kind and tip in one, the lights of his page (state.cats)
 require_once __DIR__ . '/watchman-heat.php';         // «too warm for hours» (1.96, concept 11.3 D): hw_hot
 require_once __DIR__ . '/../lib/logsigns.php';       // signs in the log: the shared patterns (1.96, concept 11.3 H)
@@ -260,6 +261,9 @@ const WATCH_KINDS = [
     // the server's own router and DNS, without any router log (agent/lib/watchnet.php, 1.96)
     'net_gateway'             => ['net', true],     // the default gateway's address answers with another MAC, two rounds in a row: a new router, or someone posing as it
     'net_dns'                 => ['net', false],    // the server asks other DNS servers (resolv.conf)
+    // known vulnerabilities (1.96, watchman-vuln.php): only while switched on
+    'vuln_known'              => ['vuln', true],    // an actively exploited vulnerability, and the version here lies in its affected range (compared cleanly)
+    'vuln_maybe'              => ['vuln', false],   // the product is here, its record can't be compared: maybe (told only with set.vuln.maybe)
 ];
 
 /**
@@ -272,6 +276,7 @@ const WATCH_KINDS_MORE = [
     'hw_hot', 'hw_io', 'host_oom', 'host_crash', 'host_flood',     // too warm for hours (D), signs in the log (H)
     'hw_mce', 'hw_ecc', 'hw_aer', 'hw_throttle', 'hw_kernel', 'hw_wear',     // the hardware (watchman-hw.php, steps 9–11)
     'flash_boot', 'ld_preload', 'net_gateway', 'net_dns',     // step 13: what runs at the start (watchman-boot.php), the router and DNS (watchnet.php)
+    'vuln_known', 'vuln_maybe',     // known vulnerabilities (watchman-vuln.php, steps 15–16)
 ];
 
 /**
@@ -296,6 +301,8 @@ const WATCH_ATTACK = [
     'snap_gone' => 'T1490', 'snap_hold_released' => 'T1490',
     // the offsite copy emptied: backups deleted so nothing comes back — Inhibit System Recovery, like snapshots that vanish
     'kopia_emptied' => 'T1490',
+    // known vulnerabilities (1.96): what an attacker exploits from outside, nearest
+    'vuln_known' => 'T1190', 'vuln_maybe' => 'T1190',
     'log_cleared' => 'T1070.002', 'user_ram' => 'T1136.001', 'listen_new' => 'T1133', 'proc_odd' => 'T1105', 'door_new' => 'T1133',
     // signs in the log (1.96): denial of service, nearest — the memory exhausted, a service crashed, a SYN flood
     'host_oom' => 'T1499', 'host_crash' => 'T1499.004', 'host_flood' => 'T1499.001',
@@ -351,6 +358,8 @@ const WATCH_POSTURE = [
     'remote_access'   => 'info',
     'privileged'      => 'info',
     'partner_friend'  => 'info',       // plain copies going to a partner marked «a friend»
+    'unraid_eol'      => 'advice',     // known vulnerabilities (1.96): this Unraid version gets no security updates (eol, superseded)
+    'software_eol'    => 'advice',     // … software in a container whose release line is past its end (endoflife.date)
     'mitigations_on'  => 'info',
 ];
 /** The office's dashboard in Grafana (monitoring/grafana-dashboard.json): the panel of a data flow group (tests check the ids) */
@@ -403,11 +412,13 @@ desk('watchman', [
         'syslog_set' => fn (array $r) => watchmanSyslogSet($r['on'] ?? null),
         'posture_ack' => fn (array $r) => watchmanPostureAck($r['id'] ?? null, $r['on'] ?? null),
         'net_lan_set' => fn (array $r) => watchmanNetLanSet($r['on'] ?? null),
+        // «Known vulnerabilities» (1.96): off until switched on — on, the public lists once a day (watchman-vuln.php)
+        'vuln_set' => fn (array $r) => watchmanVulnSet($r['on'] ?? null),
         // «Who woke my disks?»: his switch (on unless switched off), kept on the server
         'wakes_watch' => fn (array $r) => watchmanWakeWatchSet(boolField($r, 'on')) + ['state' => watchmanPageState()],
     ],
     'jobs'    => ['watchman-round' => fn (array $args) => watchmanRun(), 'watchman-hold' => fn (array $args) => watchmanHoldRun(),
-                  'watchman-wake-name' => fn (array $args) => watchmanWakeNameRun()],
+                  'watchman-wake-name' => fn (array $args) => watchmanWakeNameRun(), 'watchman-feeds' => fn (array $args) => watchmanVulnFetchRun()],
     'checks'  => fn (): array => watchmanChecks(),
     'metrics' => fn (): array => array_merge(watchmanMetrics(), watchmanWakeMetrics()),
 ]);
@@ -477,6 +488,9 @@ function watchmanPaths(): array
         // signs in the log (watchman-signs.php): this server's name — a syslog line of another host isn't his
         'host_name'  => watchmanHostName(),
         'hot_disks'  => '/var/local/emhttp/disks.ini',
+        // known vulnerabilities (watchman-vuln.php): Unraid's version, Slackware's packages — the day's rounds only
+        'unraid_version' => '/etc/unraid-version',
+        'packages'   => '/var/log/packages',
         'libvirt_sock' => '/var/run/libvirt/libvirt-sock',
         'virsh'      => 'virsh',
         // the host itself (watchmanHost())
@@ -744,6 +758,7 @@ function watchmanTick(): void
     }
     $GLOBALS['wmMirrorGone'] = false;
     $st = readJson(watchmanDir() . '/state.json') ?? [];
+    watchmanVulnTick($st, $now);        // known vulnerabilities: the day's fetch, when switched on and due
     $started = (int) ($GLOBALS['wmStarted'] ?? 0);
     $last = max((int) ($st['round']['time'] ?? 0), $started);
     $due = $now < $last || $now - $last >= WATCH_EVERY;         // a clock stepped back behind his last round: one now
@@ -965,7 +980,7 @@ function watchmanNightPaths(): array
         'sec', 'sec_nfs', 'share_cfg', 'libvirt_sock', 'virsh', 'partner_pairs', 'partner_tickets', 'partner_data',
         'rsyslog_cfg', 'shares_ini', 'parity_log', 'parity_cron', 'pct_dir', 'boot_logs', 'domain_cfg', 'docker_cfg',
         'docker_autostart', 'compose_cfg', 'compose_projects', 'office_runs', 'jack_settings', 'gather_settings', 'mover_pid',
-        'moverelli_status', 'jack_progress', 'hot_disks', 'hw_file']));
+        'moverelli_status', 'jack_progress', 'hot_disks', 'hw_file', 'unraid_version', 'packages']));
 }
 
 /** This server's name as the syslog writes it (short, lower case; '' — not known: every line counts) */
@@ -1574,6 +1589,15 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
     $seen['lan'] = watchnetGateway($paths);
     $office = watchmanOfficeLook($paths, $now);
     $facts = watchmanPostureLook($paths);
+    // known vulnerabilities: switched on, the day's rounds (the night has no lists) — the lists against what is here
+    $vulnOn = ($snap['state']['vuln_on'] ?? false) === true && isset($paths['unraid_version']);
+    // step 16: the containers' software by their images' own ENV (at most hourly; the tests hand in docker's answer)
+    [$vulnImages, $vulnImagesCache] = $vulnOn ? watchmanVulnImages(is_array($containers) ? $containers : null,
+        is_array($snap['state']['vuln_images'] ?? null) ? $snap['state']['vuln_images'] : null, $now,
+        isset($paths['vuln_inspect']) && is_callable($paths['vuln_inspect']) ? $paths['vuln_inspect'] : null) : [[], null];
+    $vuln = $vulnOn ? watchmanVulnJudge($dir, watchmanVulnInventory($paths + ['vuln_images' => $vulnImages]), $now, $vulnImages) : null;
+    $facts['vuln'] = $vuln;
+    $vulnSet = watchmanVulnSettings($dir);
     // snapshots that vanish: only rounds write snaps.json (one at a time), so it is read out here
     $snapKnown = $snaps ? readJson("$dir/snaps.json") : null;
     $snapRes = $snaps ? watchmanSnaps($paths, $fresh ? null : $snapKnown, $fresh ? [] : (array) ($snap['baseline']['snaps']['series'] ?? []), $now) : null;
@@ -1594,7 +1618,8 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
 
     return watchmanLocked($dir, function () use ($dir, $hired, $now, $fresh, $events, $pos, $read, $seen, $notify, $acks, $t0, $look, $facts, $snapKnown, $snapRes,
                                                $office, $paths, $boot, $btime, $netLook, $netServer, $parity, $kopiaLook, $netContainers, $automounts,
-                                               $hotLook, $hotSet, $signHost, $signDisks, $hwLook): array {
+                                               $hotLook, $hotSet, $signHost, $signDisks, $hwLook,
+                                               $vuln, $vulnSet, $vulnImagesCache): array {
         $old = watchmanLoad($dir);
         $old['seen'] = readJson("$dir/seen.json");
         $old['flow'] = readJson("$dir/flow.json");
@@ -1702,6 +1727,15 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         }
         // too warm for hours: the minutes over per sensor; taken over anew, only counted
         $added = array_merge($added, watchmanHotCompare($book, $st, $hotLook, $hotSet, $now, $fresh));
+        // known vulnerabilities: the verdicts into his book (taken over anew too: an affected one is never «normal»); what the page says
+        if ($vuln !== null) {
+            $added = array_merge($added, watchmanVulnCompare($book, $vuln['found'], $vulnSet['maybe'], $now));
+            $st['vuln_look'] = ['time' => $now, 'kev' => $vuln['kev'], 'fresh' => $vuln['fresh'], 'checked' => $vuln['checked'], 'found' => array_map(
+                fn ($x) => ['verdict' => $x['verdict']], $vuln['found']), 'software' => $vuln['software'], 'unknown' => $vuln['unknown']];
+            if ($vulnImagesCache !== null) {
+                $st['vuln_images'] = $vulnImagesCache;
+            }
+        }
         // the logins of the last half hour (for the array's lines); an array stopped or started since the last round: a plain line
         $st['logins'] = watchmanRecentLogins((array) ($st['logins'] ?? []), $events, $now);
         // the server started since the last round (a reboot leaves no array line: WATCH_ARRAY_EVENTS lies in RAM) — never at his first
@@ -4383,6 +4417,8 @@ function watchmanPosture(array $f, array $seen, array $prev = []): array
         $add('router_clock', ['router' => (string) $c['router'], 'minutes' => abs((int) $c['minutes']), 'zone' => !empty($c['zone']) ? 1 : 0, 'n' => count($clock)],
             implode(',', array_map(fn ($x) => $x['sender'] . ':' . (int) round($x['minutes'] / 15), $clock)), ['to' => 'advisor', 'path' => '#/advisor']);
     }
+    // known vulnerabilities (watchman-vuln.php): Unraid without security updates
+    watchmanVulnTips(is_array($f['vuln'] ?? null) ? $f['vuln'] : null, $add);
     return array_values(array_filter(array_map(fn ($id) => $tips[$id] ?? null, array_keys(WATCH_POSTURE))));
 }
 
@@ -9733,6 +9769,7 @@ function watchmanText(array $e, ?string $lang = null): array
         'door_refused'   => ['name' => (string) ($p['name'] ?? '')],
         'hw_hot'         => watchmanHotText($p),
         'hw_io', 'host_oom', 'host_crash', 'host_flood' => watchmanSignText($e),
+        'vuln_known', 'vuln_maybe' => watchmanVulnText($e),
         'watch'          => isset($p['too_much']) ? watchnetText(['kind' => 'net_too_much', 'p' => $p])
                               : ($lang === null ? array_map('intval', $p) : watchmanCountWords($p, $lang)),     // the page words the numbers itself
         default          => str_starts_with((string) $e['kind'], 'hw_') ? watchmanHwText($e)     // the hardware (watchman-hw.php)
@@ -9755,7 +9792,7 @@ function watchmanEntryVariant(array $e): ?string
     }
     $shape = watchmanFlowShape($e);
     // watchmanHwVariant(): memory or PCIe errors not corrected, the kernel's worst flag, a disk's thing (watchman-hw.php; null for the others)
-    return watchmanHwVariant($e) ?? watchmanHotVariant($e) ?? watchmanSignVariant($e) ?? watchmanBootVariant($e) ?? watchnetEntryVariant($e) ?? ($shape === null ? null : $e['kind'] . '_' . $shape);
+    return watchmanHwVariant($e) ?? watchmanHotVariant($e) ?? watchmanSignVariant($e) ?? watchmanBootVariant($e) ?? watchmanVulnVariant($e) ?? watchnetEntryVariant($e) ?? ($shape === null ? null : $e['kind'] . '_' . $shape);
 }
 
 /** A way in, in words: in $lang (notifications, the team lead), or '' — the page writes it itself (door.<what>) */
@@ -10357,6 +10394,8 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
         // the network (agent/lib/watchnet.php): Unraid's syslog server, the senders, counts — never another client's address
         'net'      => $onWatch ? watchnetSummary(is_array($b['net'] ?? null) ? $b['net'] : null, readJson("$dir/net.json"), !empty($st['net_lan']), $now) : null,
         'net_lan'  => !empty($st['net_lan']),
+        // known vulnerabilities: the switch (off until switched on), the lists' freshness, the counts
+        'vuln'     => watchmanVulnPage($st, is_array($st['vuln_look'] ?? null) ? $st['vuln_look'] : null),
         'posture'  => $onWatch ? watchmanPosturePage($st['posture'] ?? null, readJson("$dir/posture.json")) : null,
         // the hardware (watchman-hw.php): when he looked, what this server counts (null: not available — never «0 errors»), since the start
         'hw'       => $onWatch ? watchmanHwPage($st['hw'] ?? null) : null,
