@@ -1053,7 +1053,17 @@ function dialogFit() {
   }
   const dlg = $('#sso-dialog');
   dlg.style.maxHeight = '';
-  const css = typeof getComputedStyle === 'function' ? parseFloat(getComputedStyle(dlg).maxHeight) : NaN;   // (the tests' DOM has none)
+  // the style's own limit in px — a percentage (the report on a phone: 100 %) of the backdrop's inside, never read as px
+  // (2026-11-22: «100%» became 100 → the 160-px floor: a scroll in the report shrank it to a strip on a phone)
+  const css = (() => {
+    if (typeof getComputedStyle !== 'function') return NaN;     // (the tests' DOM has none)
+    const raw = String(getComputedStyle(dlg).maxHeight || '');
+    if (/^[\d.]+px$/.test(raw)) return parseFloat(raw);
+    if (!/^[\d.]+%$/.test(raw)) return NaN;
+    const b = getComputedStyle(backdrop);
+    const inside = (st.height ? v.h : height) - (parseFloat(b.paddingTop) || 0) - (parseFloat(b.paddingBottom) || 0);
+    return parseFloat(raw) / 100 * inside;
+  })();
   // below its top, and never taller than what is seen (a centred dialog taller than a zoomed view would stick out both ends)
   const room = Math.min(v.top + v.h - dlg.getBoundingClientRect().top / s.k - 16, v.h - 32);
   dlg.style.maxHeight = `${Math.max(160, Math.floor(Number.isFinite(css) ? Math.min(css, room) : room))}px`;
@@ -2717,6 +2727,7 @@ const REPORT_DIAG_POLL = 2000;     // ms between asking how far Unraid's diagnos
 // «Your reports»: where one stands (agent/lib/report.php reportStatusAnswer()) and the only public issues linked
 const REPORT_STATUS_CHIP = { received: 'quiet', seen: 'accent', done: 'ok' };
 const REPORT_PUBLIC_RE = /^https:\/\/github\.com\/dropnook\/UnraidSecretaryOffice\/issues\/(\d{1,9})$/;
+const REPORT_YOURS_SHOWN = 3;      // «Your reports»: the newest few, the rest behind «Show all n» (2026-11-22)
 const utf8Bytes = (s) => (typeof TextEncoder === 'function' ? new TextEncoder().encode(s).length : unescape(encodeURIComponent(s)).length);
 
 /** The page's last error of a desk as the agent takes it: a key, at most 8 plain params, a time */
@@ -3078,14 +3089,18 @@ Office.reportDialog = function reportDialog(deskId, opts) {
     capLine.className = 'sso-report-cap' + (state.closed || inboxClosed || (c && c.left <= 0) ? ' callout warn' : '');     // the makers' inbox: a quiet line
     capLine.hidden = !c && !state.closed && !inboxDown && !inboxClosed;
   }
+  /** «Your reports»: one list in the dialog's own scroll (2026-11-22, the owner: no scroll inside the scroll) — the
+      newest REPORT_YOURS_SHOWN, the rest behind «Show all n» (never remembered); the button stays where it was clicked */
   function paintYours(list) {
     yours.innerHTML = '';
     yours.hidden = !list.length;
     if (!list.length) return;
     yours.appendChild(el('div', 'sso-report-yours-head', t('office.report_yours', { n: list.length })));
-    const ul = el('ul', 'shortlist');
+    const ul = el('ul', 'sso-report-yours-list');
+    const rows = [];
     list.forEach((r) => {
       const li = el('li');
+      rows.push(li);
       const head = el('span', 'sso-report-yours-title', r.title);     // no inbox number: the inbox is private (2026-10-10)
       li.appendChild(head);
       li.appendChild(el('span', 'sso-report-yours-meta', t('office.report_yours_row', { kind: t(`office.report_kind_${r.kind}`),
@@ -3104,6 +3119,24 @@ Office.reportDialog = function reportDialog(deskId, opts) {
       ul.appendChild(li);
     });
     yours.appendChild(ul);
+    if (list.length <= REPORT_YOURS_SHOWN) return;
+    const more = el('button', 'btn small plain sso-report-yours-more');
+    more.type = 'button';
+    const fold = () => {
+      rows.forEach((li, i) => { li.hidden = !state.yoursAll && i >= REPORT_YOURS_SHOWN; });
+      more.textContent = state.yoursAll ? t('office.report_yours_fewer') : t('office.report_yours_all', { n: list.length });
+      more.setAttribute('aria-expanded', String(!!state.yoursAll));
+    };
+    more.onclick = () => {
+      const scroller = $('#sso-dialog-body');
+      const before = more.getBoundingClientRect().top;
+      state.yoursAll = !state.yoursAll;
+      fold();
+      const diff = more.getBoundingClientRect().top - before;
+      if (scroller && Math.abs(diff) > 1) scroller.scrollTop += diff;
+    };
+    fold();
+    yours.appendChild(more);
   }
   function takeCap(j) {
     if (typeof j.left === 'number') state.cap = { n: j.n, left: j.left, cap: j.cap || 25, next: j.next || null };
@@ -3377,6 +3410,7 @@ Office.reportDialog = function reportDialog(deskId, opts) {
   });
   $('#sso-dialog').classList.add('sso-report-dialog');           // a phone: the dialog takes the screen (office.css)
   $('#sso-dialog-backdrop').classList.add('sso-report-backdrop');
+  dialogFit();                     // fitted again with them (Office.dialog() fitted it without: a phone's report then grew at the first scroll)
   send = dlg.buttons[1];
   $('#sso-dialog-foot').prepend(why);
   paintSend();

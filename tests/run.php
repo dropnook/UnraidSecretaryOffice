@@ -48175,6 +48175,15 @@ const why = () => { const w = walk(byId['sso-dialog-foot'], (n) => typeof n.clas
     rows: walk(one((n) => n.className === 'sso-report-yours'), (n) => n.tag === 'li').map((li) => ({ title: text(li.children[0]), meta: text(li.children[1]),
       chips: walk(li, (n) => /(^| )chip( |$)/.test(n.className)).map((c) => [c.className, text(c)]),
       links: walk(li, (n) => n.tag === 'a').map((a) => [a.href, text(a), a.target, a.rel]) })) };
+  // «Your reports» in the dialog's one scroll (2026-11-22): the newest three, «Show all 5», and back
+  const yoursBox = one((n) => n.className === 'sso-report-yours');
+  const more = walk(yoursBox, (n) => n.tag === 'button' && n.className.includes('sso-report-yours-more'))[0] || { attrs: {}, onclick() {} };
+  const shownRows = () => walk(yoursBox, (n) => n.tag === 'li').map((li) => !li.hidden);
+  out.fold = { lists: walk(yoursBox, (n) => n.tag === 'ul').map((u) => u.className), first: [shownRows(), more.textContent, more.attrs['aria-expanded']] };
+  more.onclick();
+  out.fold.all = [shownRows(), more.textContent, more.attrs['aria-expanded']];
+  more.onclick();
+  out.fold.back = shownRows();
   const [title] = walk(body(), (n) => n.tag === 'input' && n.className === 'input');
   const area = one((n) => n.tag === 'textarea');
   area.value = 'It ran twice at 03:00, see the log.'; area.oninput();
@@ -48289,6 +48298,9 @@ JS);
         ['title' => 'Odd', 'chips' => [], 'links' => []]],
         array_map(fn ($row) => ['title' => $row['title'], 'chips' => $row['chips'], 'links' => $row['links']], $o['rows']));
     same('report dialog: … the row\'s kind · desk · day stays second', array_fill(0, 5, 'office.report_yours_row'), array_column($o['rows'], 'meta'));   // no strings loaded: the key
+    same('report dialog: … «Your reports» no box that scrolls of its own (no .shortlist): the newest three, «Show all 5» (not open), a click shows all and «Show fewer», another the three again',
+        [['sso-report-yours-list'], [[true, true, true, false, false], 'office.report_yours_all', 'false'], [[true, true, true, true, true], 'office.report_yours_fewer', 'true'], [true, true, true, false, false]],
+        [$r['fold']['lists'] ?? null, $r['fold']['first'] ?? null, $r['fold']['all'] ?? null, $r['fold']['back'] ?? null]);
     same('report dialog: the draft kept while typing (2026-11-22: marked as the user\'s own — testReportDialogOwnWords)', ['kind' => 'bug', 'desk' => 'snapshot', 'title' => 'Her plan ran twice', 'text' => 'It ran twice at 03:00, see the log.', 'mine' => true, 'title_own' => true], $r['draft']);
     same('report dialog: the counter in bytes', 'office.report_count', $r['counter']);   // no strings loaded: the key
     $p = $r['preview'];

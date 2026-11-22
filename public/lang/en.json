@@ -268,6 +268,8 @@
   "office.report_sent_note": {"one": "This office can send {n} more today.", "other": "This office can send {n} more today."},
   "office.report_yours": {"one": "Your reports ({n})", "other": "Your reports ({n})"},
   "office.report_yours_row": "{kind} · {desk} · {day}",
+  "office.report_yours_all": {"one": "Show all {n}", "other": "Show all {n}"},
+  "office.report_yours_fewer": "Show fewer",
   "office.report_status.received": "Received",
   "office.report_status.seen": "Looked at",
   "office.report_status.done": "Done",

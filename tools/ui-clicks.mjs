@@ -1204,6 +1204,8 @@ async function dialogStack(browser, harness) {
 // asking for a title; «Show what will be sent…» without one says so and puts the cursor in it; a title typed: the line
 // asks for the preview. Closed, the ⋯ menu at the reception opens it about the office, empty — none of Fanboy's draft in
 // it, his left as it was; on his page again (⋯ menu, then the search's item) his draft is back with the title typed.
+// «Your reports» with seven: the newest three in the dialog's one scroll — no box in it that scrolls of its own —,
+// «Show all 7» shows them all (the button stays in view), «Show fewer» the three again.
 // Both themes at 1440 and 375 px: nothing scrolls sideways, no page error.
 async function reportDesk(browser) {
   const res = { route: 'report desk', theme: 'both', width: 0, tested: 0, skipped: 0, capped: 0, hidden: 0, sections: 0, fails: [], ms: 0 };
@@ -1212,6 +1214,11 @@ async function reportDesk(browser) {
   const en = JSON.parse(fs.readFileSync(path.join(REPO, 'public', 'lang', 'en.json'), 'utf8'));
   const fen = JSON.parse(fs.readFileSync(path.join(REPO, 'public', 'desks', 'fanboy', 'lang', 'en.json'), 'utf8'));
   const h = await startHarness({ report: true });
+  // «Your reports»: seven, newest first, each with where it stands — one with its public issue (UC_SHOTS=<folder>: pictures)
+  const YOURS = ['Darker logs', 'A table for the fan curve', 'Plan ran twice', 'Restore hangs at 90 %', 'Wake disks only on a click', 'German typo', 'Old one']
+    .map((title, i) => ({ kind: ['wish', 'bug', 'question'][i % 3], title, desk: ['office', 'fanboy', 'snapshot'][i % 3], sent: 1763800000 - i * 86400,
+      status: ['received', 'seen', 'done'][i % 3], ...(i === 1 ? { public: { number: 31, url: 'https://github.com/dropnook/UnraidSecretaryOffice/issues/31' } } : {}) }));
+  const shots = process.env.UC_SHOTS || '';
   h.setPost('fanboy.report', () => ({ report: 'Fanboy detection report v1\nBoard: Example X570' }));
   h.setPost('office.reports', () => ({ reports: [], n: 0, left: 25, cap: 25, next: null, closed: false }));
   h.setPost('office.report_inbox', () => ({ inbox: 'open' }));
@@ -1303,6 +1310,56 @@ async function reportDesk(browser) {
         res.tested++;
         if (!v || v.desk !== 'fanboy' || v.title !== 'CPU fan missing') fail(`${at}: the search's item on Fanboy's page — about him, his draft (${JSON.stringify(v)})`);
         await page.keyboard.press('Escape');
+        await page.waitForTimeout(200);
+        // «Your reports» (2026-11-22, the owner: no scroll inside the scroll): seven of them — the newest three in the
+        // dialog's one scroll, no box that scrolls of its own; «Show all 7» shows them all, still without one
+        h.setPost('office.reports', () => ({ reports: YOURS, n: 0, left: 25, cap: 25, next: null, closed: false }));
+        await page.click('#sso-more');
+        await page.locator('#sso-menu button', { hasText: en['office.report_menu'] }).click();
+        await page.waitForSelector('#sso-dialog .sso-report-yours-more', { timeout: 10000 });
+        const yoursLook = () => page.evaluate(() => {
+          const y = document.querySelector('#sso-dialog .sso-report-yours');
+          const inner = [y, ...y.querySelectorAll('*')].filter((n) => /(auto|scroll)/.test(getComputedStyle(n).overflowY) && n.scrollHeight > n.clientHeight + 1);
+          const more = y.querySelector('.sso-report-yours-more');
+          const b = document.querySelector('#sso-dialog-body');
+          const r = more.getBoundingClientRect(), rb = b.getBoundingClientRect();
+          return { rows: [...y.querySelectorAll('li')].filter((li) => li.offsetHeight > 0).length, inner: inner.map((n) => n.className || n.tagName),
+            more: more.textContent, expanded: more.getAttribute('aria-expanded'), inView: r.top >= rb.top - 1 && r.bottom <= rb.bottom + 1, at: [r.top, r.bottom, rb.top, rb.bottom, b.scrollTop].map(Math.round),
+            dialog: Math.round(document.querySelector('#sso-dialog').getBoundingClientRect().height),
+            wide: b.scrollWidth > b.clientWidth + 1 || document.documentElement.scrollWidth > window.innerWidth + 1 };
+        });
+        let y = await yoursLook();
+        const tall = y.dialog;
+        res.tested++;
+        if (y.rows !== 3 || y.inner.length || y.more !== en['office.report_yours_all'].other.replace('{n}', '7') || y.expanded !== 'false' || y.wide) {
+          fail(`${at}: «Your reports» — the newest three, no scroll of its own, «Show all 7» (${JSON.stringify(y)})`);
+        }
+        if (shots) {
+          await page.evaluate(() => document.querySelector('#sso-dialog .sso-report-yours-more').scrollIntoView({ block: 'end' }));
+          await page.screenshot({ path: path.join(shots, `report-yours-${theme}-${width}-three.png`) });
+        }
+        await page.click('#sso-dialog .sso-report-yours-more');
+        await page.waitForTimeout(150);
+        y = await yoursLook();
+        res.tested++;
+        if (y.rows !== 7 || y.inner.length || y.more !== en['office.report_yours_fewer'] || y.expanded !== 'true' || !y.inView || y.wide) {
+          fail(`${at}: «Show all 7» — all seven in the dialog's scroll, none of its own, the button still in view (${JSON.stringify(y)})`);
+        }
+        // the dialog keeps its height while its body scrolls (2026-11-22: on a phone a scroll shrank the report to a
+        // 160-px strip — core.js dialogFit() read its «max-height: 100%» as 100 px)
+        res.tested++;
+        if (Math.abs(y.dialog - tall) > 1 || tall < 400) fail(`${at}: the dialog's height changed while its body scrolled (${tall} → ${y.dialog})`);
+        if (shots) {
+          await page.evaluate(() => document.querySelector('#sso-dialog .sso-report-yours-more').scrollIntoView({ block: 'end' }));
+          await page.screenshot({ path: path.join(shots, `report-yours-${theme}-${width}-all.png`) });
+        }
+        await page.click('#sso-dialog .sso-report-yours-more');
+        await page.waitForTimeout(150);
+        y = await yoursLook();
+        res.tested++;
+        if (y.rows !== 3 || y.expanded !== 'false' || !y.inView) fail(`${at}: «Show fewer» — the three again, the button still in view (${JSON.stringify(y)})`);
+        await page.keyboard.press('Escape');
+        h.setPost('office.reports', () => ({ reports: [], n: 0, left: 25, cap: 25, next: null, closed: false }));
         const wide = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
         if (wide) fail(`${at}: the page scrolls sideways`);
         for (const e of [...new Set(errors)]) fail(`${at}: ${e}`);

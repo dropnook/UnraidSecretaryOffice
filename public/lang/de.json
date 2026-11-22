@@ -268,6 +268,8 @@
   "office.report_sent_note": {"one": "Dieses Sekretariat kann heute noch {n} senden.", "other": "Dieses Sekretariat kann heute noch {n} senden."},
   "office.report_yours": {"one": "Deine Rückmeldungen ({n})", "other": "Deine Rückmeldungen ({n})"},
   "office.report_yours_row": "{kind} · {desk} · {day}",
+  "office.report_yours_all": {"one": "Alle {n} zeigen", "other": "Alle {n} zeigen"},
+  "office.report_yours_fewer": "Weniger zeigen",
   "office.report_status.received": "Eingegangen",
   "office.report_status.seen": "Angeschaut",
   "office.report_status.done": "Erledigt",
