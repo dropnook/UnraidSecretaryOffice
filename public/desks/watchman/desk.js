@@ -270,7 +270,15 @@ function renderAt(...selectors) {
 // right now); the others are his round's, said at any hour
 const greetOk = (key, hour = new Date().getHours()) => key !== 'greet.1' || hour >= 17 || hour < 6;
 
+/** «Known vulnerabilities» off (until switched on once — agent: watchman-vuln.php): his one sentence, the page's one button */
+const vulnOff = () => !!(state && state.on_watch && state.vuln && state.vuln.on === false && hired());
+
 function bubbleText() {
+  const text = bubbleBase();
+  return vulnOff() && !running() ? `${text} ${T('bubble.vuln_off')}` : text;
+}
+
+function bubbleBase() {
   if (!state) return T('bubble.loading');
   if (running()) return T('bubble.touring');
   if (!state.on_watch) return T('bubble.first');
@@ -301,7 +309,9 @@ function render() {
   btn.title = T('round_now_title');
   btn.disabled = !Office.agent.running || running() || !hired();
   btn.onclick = roundNow;
-  const { head } = Office.deskHead(Office.desks.get(ID), { bubble: Office.withGreeting(ID, bubbleText()), actions: [btn] });
+  const actions = [btn];
+  if (vulnOff()) actions.push(vulnButton());
+  const { head } = Office.deskHead(Office.desks.get(ID), { bubble: Office.withGreeting(ID, bubbleText()), actions });
   root.appendChild(head);
   const lim = (state && state.limits) || {};
   root.appendChild(Office.pageHelp(ID, [
@@ -2401,6 +2411,27 @@ function netGroup(n) {
   const sum = senders.length && !stateText[n.state] ? T('watch.net_sum', { senders: senders.length, devices: n.devices, det: (det.in || 0) + (det.out || 0) })
     : T(stateText[n.state] || 'watch.net_listening', { folder: (n.cfg && n.cfg.folder) || '' });
   return group('net', T('watch.net'), sum, rows);
+}
+
+/** One click switches «Known vulnerabilities» on (the public lists once a day; off again in his setup) */
+function vulnButton() {
+  const b = el('button', 'btn plain wm-vuln-on', T('vuln.switch_on'));
+  b.type = 'button';
+  b.title = T('vuln.switch_on_title');
+  b.disabled = !Office.agent.running;
+  b.onclick = async () => {
+    b.disabled = true;
+    const j = await Office.api.post(`${ID}.vuln_set`, { on: true });
+    if (!j.ok) {
+      b.disabled = false;
+      Office.toast(Office.errorText(j.error, ID), true);
+      return;
+    }
+    if (j.state) state = j.state;
+    render();
+    Office.toast(T('vuln.on'));
+  };
+  return b;
 }
 
 /** The «Whole LAN» switch: per device on the LAN how often it connected and how many detections named it — counts, off by default */

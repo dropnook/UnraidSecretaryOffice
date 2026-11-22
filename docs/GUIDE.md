@@ -481,6 +481,9 @@ You need Unraid **7.3.2 or a newer 7.x**. Nothing else to install.
 **Nothing leaves the server** unless you set it up: offsite to your storage, partner offices to the partner.
 
 - The office asks GitHub once a day for a new version and checks logo addresses for containers without a picture.
+- Only if you switch on the Night Watchman's «Known vulnerabilities» (off until you do): once a day public lists —
+  cisa.gov (actively exploited vulnerabilities), raw.githubusercontent.com (the CVE records of those), releases.unraid.net
+  (Unraid's releases and their support). Every office asks the same; nothing of your server goes along.
 - It sends a report only when you send one. No telemetry.
 - The desks never wake a sleeping disk unless you ask. The scheduled backup does, unless you leave sleeping pools out.
 
