@@ -275,23 +275,35 @@ try {
     const foc = await page.evaluate((sel) => { const a = document.activeElement; const c = document.querySelector(sel + ' .fan-curve'); const svg = c.querySelector('svg');
       return [!!(a && c.contains(a) && a.tagName !== 'INPUT'), getComputedStyle(svg).outlineStyle, svg.hasAttribute('tabindex'), [...c.querySelectorAll('.fan-curve-pt')].some((g) => g.hasAttribute('tabindex'))]; }, part);
     check('curve card: a click on the chart and on a point — nothing in the chart takes focus, no frame, no tabindex', JSON.stringify(foc) === '[false,"none",false,false]', JSON.stringify(foc));
-    // 2026-11-20 (the coordinator on his server: a typed 40 % shown as 30 without a word): a typed number the curve can't
-    // keep says why, under the fields, and goes with the next change
+    // 2026-11-20 (the coordinator on his server: a typed 40 % shown as 30 without a word) and 2026-11-21 (curve-push: a
+    // point pushes the others along, only the chart's edge holds it): what a typed number did is said under the fields
     const typeIn = async (axis, nth, value) => { const f = `${part} .fan-curve-field input[data-axis="${axis}"] >> nth=${nth}`; await page.fill(f, String(value)); await page.press(f, 'Tab'); await page.waitForTimeout(400); };
     const noteNow = () => page.evaluate((sel) => { const n = document.querySelector(sel + ' .fan-curve-note'); return n && !n.hidden ? n.textContent : ''; }, part);
     const fieldsNow = () => page.evaluate((sel) => [...document.querySelectorAll(sel + ' .fan-curve-field input')].map((i) => Number(i.value)), part);
     await typeIn('v', 0, 40);
-    const wantV = EN['curve.clamp_next_v'].replace('{i}', '1').replace('{j}', '2').replace('{limit}', EN.value.replace('{pct}', '30'));
     const v40 = [await fieldsNow(), await noteNow()];
-    check('curve note: 40 % typed into point 1 (point 2 at 30 %) — 30 kept and said why, under the fields', v40[0][1] === 30 && v40[1] === wantV, JSON.stringify([v40, wantV]));
+    const wantV = EN['curve.pushed_one'].replace('{i}', '1').replace('{list}', '2');
+    check('curve note: 40 % typed into point 1 (point 2 at 30 %) — point 2 pushed up to 40 %, said under the fields', v40[0][1] === 40 && v40[0][3] === 40 && v40[1] === wantV, JSON.stringify([v40, wantV]));
     await typeIn('t', 1, 60);
-    const wantT = EN['curve.clamp_next_t'].replace('{i}', '2').replace('{j}', '3').replace('{limit}', EN.temp.replace('{c}', '51'));
     const t60 = [await fieldsNow(), await noteNow()];
-    check('curve note: 60 °C typed into point 2 (point 3 at 52 °C) — 51 kept and said', t60[0][2] === 51 && t60[1] === wantT, JSON.stringify([t60, wantT]));
+    const wantT = EN['curve.pushed_many'].replace('{i}', '2').replace('{list}', '3, 4');
+    check('curve note: 60 °C typed into point 2 (points 3 and 4 at 52 and 55 °C) — both pushed along, a degree apart, and said',
+      t60[0][4] === t60[0][2] + 1 && t60[0][6] === t60[0][2] + 2 && t60[1] === wantT, JSON.stringify([t60, wantT]));
+    await typeIn('t', 0, 500);
+    const edge = [await fieldsNow(), await noteNow()];
+    const wantE = EN['curve.clamp_max_t'].replace('{i}', '1').replace('{limit}', EN.temp.replace('{c}', String(edge[0][0])));
+    check('curve note: 500 °C typed into point 1 — held where the chart\'s edge leaves room for the three after it (a degree each), said',
+      edge[0][0] === edge[0][6] - 3 && edge[0][2] === edge[0][6] - 2 && edge[1] === wantE, JSON.stringify([edge, wantE]));
+    // back to the curve as it was, by typing (each change pushes only what it must)
+    await typeIn('t', 0, 45);
+    await typeIn('t', 3, 55);
     await typeIn('t', 1, 48);
+    await typeIn('t', 2, 52);
     await typeIn('v', 0, 0);
+    await typeIn('v', 1, 30);
     const back = [await fieldsNow(), await noteNow()];
-    check('curve note: … numbers that fit — the line gone, the curve as before', JSON.stringify(back) === JSON.stringify([[45, 0, 48, 30, 52, 70, 55, 100], '']), JSON.stringify(back));
+    // (point 1 may stop at the chart's lower edge: the scale followed the points up to the edge and back — the next step sets 47 anyway)
+    check('curve note: … typed back — the curve as before, no line', [45, 46, 47].includes(back[0][0]) && JSON.stringify(back[0].slice(1)) === JSON.stringify([0, 48, 30, 52, 70, 55, 100]) && back[1] === '', JSON.stringify(back));
     const first = `${part} .fan-curve-field input[data-axis="t"] >> nth=0`;
     await page.fill(first, '47');
     await page.press(first, 'Tab');
@@ -330,15 +342,15 @@ try {
     check('curve card: «Save» — the disk\'s goal Normal with his own curve kept beside it; no «Temperaturen», no source values',
       !!disk && JSON.stringify(disk.curves.disk) === JSON.stringify({ preset: 'normal', own: [[47, 0], [48, 30], [52, 70], [55, 100]] }) && !disk.kinds && disk.sources.every((x) => Object.keys(x).join() === 'id'), JSON.stringify(disk));
     check('curve card: no «Temperaturen» fold, no error', !(await page.$('#sso .fb-temps')) && !errors.length, errors.join(' | '));
-    // a kept own curve of fewer points (the case's RAM: three, an earlier evening's) opens with four on its line
+    // a kept own curve of three points (the case's RAM, an earlier evening's) opens as it was — 2 to 6 points since curve-push
     await page.click('#sso .fb-zone-side .fb-item[data-row="case"]');
     await page.waitForTimeout(300);
     const casePart = '#sso .fb-curve-part[data-zone="case"]';
     const ramPick = await page.$(`${casePart} .fb-kindpick[data-kind="ram"]`);
     if (ramPick) { await ramPick.click(); await page.waitForTimeout(300); }
     const ram = await page.evaluate((sel) => [...document.querySelectorAll(sel + ' .fan-curve-field input')].map((i) => Number(i.value)), casePart);
-    check('curve card: a kept own curve of three points (RAM 40/55/65 °C) opens with four on its line — 46 °C 39 % added, the others as they were',
-      JSON.stringify(ram) === '[40,25,46,39,55,60,65,100]', JSON.stringify(ram));
+    check('curve card: a kept own curve of three points (RAM 40/55/65 °C) opens as it was — three points, nothing added',
+      JSON.stringify(ram) === '[40,25,55,60,65,100]', JSON.stringify(ram));
     await ctx.close();
     if (h.close) await h.close();
   }

@@ -1386,6 +1386,12 @@
    }
   ]
  },
+ "doctor": [
+  {
+   "code": "bmc",
+   "seen": true
+  }
+ ],
  "idle": {
   "on": true,
   "warm": null,

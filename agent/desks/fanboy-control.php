@@ -559,6 +559,7 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
 {
     $fans = [];
     $zones = [];
+    $sticks = fanboyUsbStickIds(fanboyPaths(fanboySysRoot() ?: null)['disks']);
     foreach (is_array($settings['zones'] ?? null) ? $settings['zones'] : [] as $z) {
         if (!is_array($z) || !is_string($z['id'] ?? null) || !is_array($z['fans'] ?? null)) {
             continue;
@@ -608,7 +609,9 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
         if ($ids) {
             $zones[$z['id']] = [
                 'id' => $z['id'], 'name' => is_string($z['name'] ?? null) ? $z['name'] : $z['id'], 'fans' => $ids,
-                'sources' => array_values(array_filter(is_array($z['sources'] ?? null) ? $z['sources'] : [], fn ($s) => is_array($s) && is_string($s['id'] ?? null) && is_string($s['kind'] ?? null))),
+                // (2026-11-22: a USB stick a zone still names — no heat source: dropped quietly, fanboyUsbStickIds())
+                'sources' => array_values(array_filter(is_array($z['sources'] ?? null) ? $z['sources'] : [], fn ($s) => is_array($s) && is_string($s['id'] ?? null) && is_string($s['kind'] ?? null)
+                    && !in_array($s['id'], $sticks, true))),
                 'target' => is_array($z['target'] ?? null) ? $z['target'] : ['preset' => 'normal'],
                 'unit' => ($z['unit'] ?? 'pct') === 'rpm' ? 'rpm' : 'pct',
                 'low' => $z['low'] ?? null, 'high' => $z['high'] ?? null,

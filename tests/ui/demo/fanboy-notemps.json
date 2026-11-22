@@ -2039,6 +2039,7 @@
    }
   ]
  },
+ "doctor": [],
  "idle": {
   "on": true,
   "warm": null,

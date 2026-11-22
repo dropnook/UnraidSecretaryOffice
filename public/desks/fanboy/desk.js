@@ -471,7 +471,7 @@ const quiet = (v) => JSON.stringify(v, (k, x) => (VOLATILE.has(k) ? undefined : 
 function frameSig() {
   const su = setup();
   const active = setupSw ? setupSw.active() : '';
-  const rest = ['test', 'measure'].includes(active) ? null : [busy, su.fans, su.zones, su.curves, step(), showNow(), dry, zdraft, zfans, S().dashboard, idle().on, S().tools, S().suggest, S().drivers, S().hints_open, S().chip, S().temps_missing];
+  const rest = ['test', 'measure'].includes(active) ? null : [busy, su.fans, su.zones, su.curves, step(), showNow(), dry, zdraft, zfans, S().dashboard, idle().on, S().tools, S().suggest, S().drivers, S().hints_open, S().chip, S().temps_missing, S().doctor];
   return quiet([ready(), !!art(), !!cat, !!state, Office.agent.running, bubbleText(), plainNow(), situation(), control().running, su.armed, su.outputs, active, rest]);
 }
 /** What the step tiles say */
@@ -1647,7 +1647,10 @@ function hintsBlock() {
   for (let i = 1; has(`hints.why.${i}`); i++) why.appendChild(el('li', '', T(`hints.why.${i}`)));
   body.appendChild(why);
   body.appendChild(hintHead(T('hints.bios_title')));
-  hintParas(body, 'hints.bios');
+  // 2026-11-22: the BIOS checklist for everyone (the owner's research), the menus' names by maker as examples
+  const check = el('ol', 'fb-hint-list fb-bios-check');
+  for (let i = 1; has(`hints.bios_check.${i}`); i++) check.appendChild(el('li', '', T(`hints.bios_check.${i}`)));
+  body.append(check, el('p', 'fb-hint-text', T('hints.bios_where')), el('p', 'fb-hint-text', T('hints.bios.2')));
   body.appendChild(hintHead(T('hints.hub_title')));
   hintParas(body, 'hints.hub');
   body.appendChild(hintHead(T('hints.clash_title')));
@@ -1880,6 +1883,7 @@ function paintBanner() {
     box('warn', T('situation.driver_missing', { plugins: (st.plugins || []).join(', '), modules: (st.modules || []).join(', ') }), { situation: s });
   } else if (s === 'ipmi') {
     const p = box('warn', T('situation.ipmi'), { situation: s });
+    p.appendChild(el('p', 'fb-hint-text', T('situation.ipmi_more')));     // 2026-11-22: the driver doctor's BMC hint, merged here
     p.appendChild(reportButton(true));
   } else if (s === 'no_output') {
     // round 5: in a virtual machine the fans are the host's (a hint only — a VM with a chip passed through steers on)
@@ -2016,6 +2020,31 @@ function nextBar(lines, acts) {
   return next;
 }
 /*
+ * 2026-11-22, the driver doctor (agent/desks/fanboy-doctor.php): a hint only where he sees its sign — the BIOS reserving
+ * the chip (ACPI), a driver with no chip, the read-only nct6683, a BMC (merged into the IPMI banner where that stands),
+ * DDR5's SPD write lock, Intel VMD, the kernel locked down, an output in DC mode whose test wasn't clean. AMD's Tctl/Tdie
+ * is said in the zones' source list instead. Nothing when he sees nothing.
+ */
+function doctorPart() {
+  const signs = (S().doctor || []).filter((x) => x && x.code !== 'tctl' && !(x.code === 'bmc' && situation() === 'ipmi'));
+  const say = (x) => {
+    switch (x.code) {
+      case 'acpi_conflict': return T(x.ite ? 'doctor.acpi_conflict_ite' : 'doctor.acpi_conflict');
+      case 'not_bound': return T(x.plugin ? (x.installed ? 'doctor.not_bound_installed' : 'doctor.not_bound_plugin') : 'doctor.not_bound', { module: x.module, plugin: x.plugin ? toolName(x.plugin) : '' });
+      case 'read_only': return T(x.installed ? 'doctor.read_only_installed' : 'doctor.read_only', { plugin: toolName('nct6687-driver') });
+      case 'lockdown': return T('doctor.lockdown', { mode: x.mode || '?' });
+      case 'dc_mode': return T('doctor.dc_mode', { n: (x.fans || []).length, fans: (x.fans || []).map((id) => fanSay(id)).join(', ') });
+      default: return has(`doctor.${x.code}`) ? T(`doctor.${x.code}`) : '';
+    }
+  };
+  const lines = signs.map((x) => [x.code, say(x)]).filter(([, text]) => text);
+  if (!lines.length) return null;
+  const box = el('div', 'fb-doctor');
+  box.append(el('h3', 'fb-head', T('doctor.title')), el('p', 'fb-hint-text', T('doctor.sub')));
+  lines.forEach(([code, text]) => { const p = el('p', 'fb-hint-text fb-doctor-sign', text); p.dataset.doctor = code; box.appendChild(p); });
+  return box;
+}
+/*
  * 2026-11-21 (the owner: «Treiber sind immer mühsam, nicht nur für die Lüfter, auch für die Fühler»): the kinds of
  * temperature a server usually has that no chip shows (the agent's temps_missing: board, cpu) — what is missing and the
  * way; a hint, never a warning; nothing when all is there (or in a virtual machine: the host's sensors)
@@ -2035,6 +2064,8 @@ function detectStep() {
   if (!(su.outputs || []).length) {
     // the banner above says why (never the same text twice on a page); here only that there is nothing to set up
     box.appendChild(para(T('step.nothing')));
+    const doc = doctorPart();
+    if (doc) box.appendChild(doc);
     const th = tempsHint();
     if (th) box.appendChild(th);
     box.appendChild(bar(reportButton(true)));
@@ -2058,6 +2089,8 @@ function detectStep() {
   const tachs = chips().filter(offered).reduce((n, c) => n + (c.fans || []).length, 0);
   const go = btn(T('step.next', { name: T('step.test') }), 'btn', () => { setupSwitcher().pick('test'); drawn = ''; redraw(); });
   box.appendChild(nextBar([T('detect.summary', { outputs: (su.outputs || []).length, inputs: tachs, sensors: (su.sources || []).length }), fixed ? T('detect.fixed_note', { n: fixed }) : ''], go));
+  const doc = doctorPart();
+  if (doc) box.appendChild(doc);
   const th = tempsHint();
   if (th) box.appendChild(th);
   box.appendChild(hintsBlock());
@@ -4070,6 +4103,8 @@ function zoneSources(z, i) {
       b2.setAttribute('aria-pressed', on ? 'true' : 'false');
       b2.dataset.own = '1';
       b2.title = on ? T('zones.src_out') : T('zones.src_in');
+      // 2026-11-22: AMD's two CPU values told apart (k10temp)
+      if (s.chip === 'k10temp' && ['Tctl', 'Tdie'].includes(s.label)) b2.title += ` — ${T(s.label === 'Tctl' ? 'src.tctl' : 'src.tdie')}`;
       b2.onclick = () => changeZones((all) => {
         const has2 = all[i].sources.some((x) => x.id === s.id);
         all[i].sources = has2 ? all[i].sources.filter((x) => x.id !== s.id) : [...all[i].sources, { id: s.id, kind: s.kind }];
@@ -4077,6 +4112,7 @@ function zoneSources(z, i) {
       chips.appendChild(b2);
     });
     block.appendChild(chips);
+    if (k === 'cpu' && ['Tctl', 'Tdie'].every((l) => list.some((s) => s.chip === 'k10temp' && s.label === l))) block.appendChild(el('p', 'fb-hint-text fb-src-note', T('zones.src_tctl_tdie')));
     box.appendChild(block);
   });
   // 2026-11-21: the kinds of temperature no chip shows here — said under the list (one zone's card at a time)
@@ -4295,6 +4331,7 @@ const zoneKinded = (z) => ({ ...z, sources: (z.sources || []).map((x) => ({ ...x
 /** Degrees as they are: whole, or with their tenth (a preset's middle point may lie at 39.5 °C) */
 const degrees = (c) => fmt.number(c, Number.isInteger(c) ? 0 : 1);
 let curveFocus = null;           // the curve's typed field he is in while its chart is built anew (zone, point, axis)
+let curveNoteKept = null;        // the line under a curve's fields, carried over when a typed number rebuilds the chart (2026-11-22)
 const kindSel = new Map();      // zone id → the kind whose curve is in front
 /**
  * A zone's curves, ONE chart (round 13, the owner: «eine Grafik pro Zone, eine Kurve pro Art»). 2026-11-20 (the owner:
@@ -4463,6 +4500,9 @@ function curvePart(z, i) {
         // (a typed point may move the chart's scale, and the chart is then built anew: the field he went on to is remembered)
         const a = document.activeElement;
         curveFocus = a && a.dataset && a.dataset.axis && c.el.contains(a) ? { zone: z.id, i: a.closest('.fan-curve-field').dataset.i, axis: a.dataset.axis } : null;
+        // (… and what the typed number did, said under the fields — «pushed along», «at most»: kept for the new chart)
+        const nt = c.el.querySelector('.fan-curve-note');
+        curveNoteKept = nt && !nt.hidden && nt.textContent ? { zone: z.id, text: nt.textContent } : null;
         zs[i].curves = { ...(zs[i].curves || {}), [K]: { points: p.map((x) => [x.t, x.v]) } };
         zdraft = zs;
         drawn = '';
@@ -4475,8 +4515,11 @@ function curvePart(z, i) {
       const want = curveFocus;
       setTimeout(() => { const inp = c.el.querySelector(`.fan-curve-field[data-i="${want.i}"] input[data-axis="${want.axis}"]`); if (inp && inp.isConnected) { inp.focus({ preventScroll: true }); inp.select(); } }, 0);
     }
+    const nt = curveNoteKept && curveNoteKept.zone === z.id ? c.el.querySelector('.fan-curve-note') : null;
+    if (nt) { nt.textContent = curveNoteKept.text; nt.hidden = false; }
   } else cv.c.live(liveNow);
   curveFocus = null;
+  curveNoteKept = null;
   cv.c.el.classList.add('fb-curve-edit');
   // how to shape it, above the chart where it is seen (2026-11-22, the owner missed it below); with several kinds: which steers
   if (!locked) box.appendChild(para(T('zones.curve_sub'), 'fb-hint-text fb-curve-hint'));

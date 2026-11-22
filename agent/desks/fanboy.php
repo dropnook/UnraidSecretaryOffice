@@ -116,6 +116,8 @@ function fanboyScan(): array
     $state['drivers'] = fanboyDriversState($state['board']);
     $state['chip'] = fanboyChipState($state);           // the fan chip's id read on a click (fanboy-chipid.php): what it needs
     $state['suggest'] = fanboyChipSuggest($state['suggest'], $state['chip']);      // what fits, narrowed once the chip is known
+    // 2026-11-22, the driver doctor (fanboy-doctor.php): a hint only where he sees its sign (read only)
+    $state['doctor'] = fanboyDoctor($state, null, is_array($settings['fans'] ?? null) ? $settings['fans'] : [], $state['chip']);
     $state['dashboard'] = fanboyDashState();            // his Dashboard tile's setting (fanboy-dash.php), its mirror in RAM
     $state['show'] = fanboyShowRead();                  // round 6: «show me this fan» running or just done
     $state['safety'] = fanboySafetyFull() ?: new stdClass();     // round 9 (H2): outputs he set to full for safety
@@ -345,6 +347,9 @@ function fanboyReportText(array $scan, array $ipmiFans = []): string
     if (!empty($scan['no_fan_chip'])) {
         $lines[] = 'Fan chip driver: none loaded (no chip with a fan output or a fan input)';
     }
+    // the driver doctor's signs, one line each (2026-11-22)
+    $mine = is_array($scan['board'] ?? null) ? ((fanboyBoardRaw($scan['board']) ?? [])['fans'] ?? []) : [];
+    array_push($lines, ...fanboyDoctorLines(is_array($scan['doctor'] ?? null) ? $scan['doctor'] : fanboyDoctor($scan, null, is_array($mine) ? $mine : []), $scan));
     if (!empty($scan['temps_missing'])) {
         $lines[] = 'Temperatures not seen: ' . implode(', ', array_map(fn ($k) => ['board' => 'board sensors', 'cpu' => 'CPU'][$k] ?? 'other', (array) $scan['temps_missing']));
     }
@@ -892,6 +897,9 @@ function fanboySetupState(array $scan, ?array $settings): array
     $store = fanboyStoreRead();
     $key = fanboyBoardKey($scan['board']);
     $zones = is_array($settings['zones'] ?? null) ? array_values(array_filter($settings['zones'], 'is_array')) : [];
+    // 2026-11-22: a USB stick a zone still names is no heat source — shown without it (and saved so, quietly)
+    $sticks = fanboyUsbStickIds(fanboyPaths()['disks']);
+    $zones = array_map(fn ($z) => fanboyZoneSourcesClean($z, $sticks), $zones);
     // each zone's curve as the control reads it, its scale and the three presets on that scale (the page draws them)
     $curves = [];
     foreach ($zones as $z) {

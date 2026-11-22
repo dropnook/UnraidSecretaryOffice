@@ -110,7 +110,11 @@ function fanboyPaths(?string $root = null): array
         'var'      => "$r/var/local/emhttp/var.ini",                   // round 5: poll_attributes (how fresh the disks' temperatures are)
         'cpuinfo'  => "$r/proc/cpuinfo",
         'ipmitool' => $root === null ? '' : "$r/usr/bin/ipmitool",     // '' = found in the PATH (fanboyIpmiFans())
-        'crontab'  => "$r/var/spool/cron/crontabs/root",               // root's crontab (PWM Fan steers from there): read only
+        'crontab'  => "$r/var/spool/cron/crontabs/root",
+        // the driver doctor (fanboy-doctor.php, 2026-11-22): the kernel log ('' = dmesg; the tests: a file of their tree),
+        // the PCI devices Intel VMD holds
+        'dmesg'    => $root === null ? '' : "$r/dmesg",
+        'vmd'      => "$r/sys/bus/pci/drivers/vmd",               // root's crontab (PWM Fan steers from there): read only
         // Unraid's disk temperature limits (read only): ⟦Settings⟧ → ⟦Disk Settings⟧ keeps them in dynamix.cfg [display]
         // (hot/max for hard disks, hotssd/maxssd for SSDs), its defaults in the webGui's default.cfg; a disk's own
         // (⟦Main⟧ → the disk → hotTemp/maxTemp) stand in disks.ini — the way 7.4's SmartInfo.php reads them
@@ -344,6 +348,48 @@ function fanboyDiskSleeps(array $d): bool
     return $down && (($d['rotational'] ?? '1') !== '0' || !ctype_digit((string) ($d['temp'] ?? '')));
 }
 
+/**
+ * A USB stick (2026-11-22, the owner's server: an unassigned Samsung flash drive offered as a disk heat source and named in
+ * «in no zone» — it never has a temperature): removable and on USB in disks.ini or devs.ini — never a heat source. A USB
+ * hard disk in an enclosure (removable="0") stays one.
+ */
+function fanboyUsbStick(array $d): bool
+{
+    return ($d['removable'] ?? '0') === '1' && strtolower(trim((string) ($d['transport'] ?? ''))) === 'usb';
+}
+
+/**
+ * The ids a saved zone may still name for a USB stick (fanboyUsbStick(), the flash too): dropped quietly where zones are
+ * read, shown and saved — never a refusal, never an alarm
+ *
+ * @return list<string>
+ */
+function fanboyUsbStickIds(string $ini): array
+{
+    $ids = [];
+    foreach (is_file($ini) ? readCfg($ini, true) : [] as $section => $d) {
+        if (fanboyUsbStick($d) || ($d['type'] ?? '') === 'Flash') {
+            $ids[] = (string) ($d['name'] ?? $section);
+        }
+    }
+    $devs = dirname($ini) . '/devs.ini';
+    foreach (is_file($devs) && !is_link($devs) ? readCfg($devs, true) : [] as $d) {
+        if ((fanboyUsbStick($d) || ($d['name'] ?? '') === 'flash') && (string) ($d['id'] ?? '') !== '') {
+            $ids[] = fanboyDevId((string) $d['id']);
+        }
+    }
+    return array_values(array_unique($ids));
+}
+
+/** A saved zone's sources without a USB stick's (fanboyUsbStickIds()) — the rest as it was */
+function fanboyZoneSourcesClean(array $zone, array $sticks): array
+{
+    if ($sticks && is_array($zone['sources'] ?? null)) {
+        $zone['sources'] = array_values(array_filter($zone['sources'], fn ($s) => !is_array($s) || !in_array($s['id'] ?? null, $sticks, true)));
+    }
+    return $zone;
+}
+
 /** The disks of array and pools (disks.ini) */
 function fanboyArrayDisks(string $ini, ?array $limits = null): array
 {
@@ -351,7 +397,7 @@ function fanboyArrayDisks(string $ini, ?array $limits = null): array
     $deg = fn ($v) => is_string($v) && preg_match('/^\d{1,3}$/D', $v) ? (int) $v : null;
     foreach (readCfg($ini, true) as $section => $d) {
         $type = (string) ($d['type'] ?? '');
-        if ($type === 'Flash' || ($d['device'] ?? '') === '' || str_starts_with((string) ($d['status'] ?? ''), 'DISK_NP')) {
+        if ($type === 'Flash' || ($d['device'] ?? '') === '' || str_starts_with((string) ($d['status'] ?? ''), 'DISK_NP') || fanboyUsbStick($d)) {
             continue;
         }
         $asleep = fanboyDiskSleeps($d);
@@ -409,7 +455,8 @@ function fanboyDevDisks(string $ini, ?array $limits = null): array
     foreach (readCfg($devs, true) as $d) {
         $dev = (string) ($d['device'] ?? '');
         $id = (string) ($d['id'] ?? '');
-        if (!preg_match('/^[a-z][a-z0-9]{0,15}$/D', $dev) || $id === '' || str_starts_with($dev, 'nvme')) {
+        // (a USB stick — removable, on USB — or the flash: no heat source, fanboyUsbStick())
+        if (!preg_match('/^[a-z][a-z0-9]{0,15}$/D', $dev) || $id === '' || str_starts_with($dev, 'nvme') || fanboyUsbStick($d) || ($d['name'] ?? '') === 'flash') {
             continue;
         }
         $rot = ($d['rotational'] ?? '1') !== '0';

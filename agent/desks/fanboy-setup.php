@@ -1924,9 +1924,11 @@ function fanboyZonesCheck(mixed $zones, array $scan, array $settings): array
         throw new Problem('fanboy_zones_max', ['max' => FANBOY_ZONES_MAX]);
     }
     $known = array_column(fanboySources($scan), null, 'id');
+    $sticks = fanboyUsbStickIds(fanboyPaths()['disks']);       // 2026-11-22: a USB stick's source dropped quietly, never refused
     $used = [];
     $out = [];
     foreach ($zones as $zi => $z) {
+        $z = is_array($z) ? fanboyZoneSourcesClean($z, $sticks) : $z;
         if (!is_array($z) || !is_string($z['id'] ?? null) || !preg_match('/^[a-z0-9_-]{1,24}$/D', $z['id']) || isset($out[$z['id']])
             || !is_string($z['name'] ?? null) || !is_array($z['fans'] ?? null) || !array_is_list($z['fans']) || !is_array($z['sources'] ?? null) || !array_is_list($z['sources'])) {
             throw new Problem('fanboy_bad_zones', ['field' => 'zone']);
