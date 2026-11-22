@@ -123,6 +123,7 @@ require_once __DIR__ . '/../lib/partnerlook.php';
 require_once __DIR__ . '/../lib/watchnet.php';
 require_once __DIR__ . '/../lib/paritywhy.php';
 require_once __DIR__ . '/../lib/arrayhold.php';     // «What holds the array?» (his page, on demand)
+require_once __DIR__ . '/watchman-diskwakes.php';    // «Who woke my disks?» (data/watchman/wakes.json): the sampler in his tick
 
 const WATCH_EVERY        = 300;              // a round every 5 minutes
 const WATCH_LOOK         = 20;               // the tick looks whether one is due this often (seconds)
@@ -338,7 +339,10 @@ const WATCH_LOGINS_MAX   = 30;                                  // successful lo
 desk('watchman', [
     'fit'     => fn (): array => fit(true, 'yes'),
     'start'   => fn () => watchmanRecover(),
-    'tick'    => fn () => watchmanTick(),
+    'tick'    => function (): void {
+        watchmanTick();
+        watchmanWakeTick();             // «Who woke my disks?»: a clock compare until a look is due (watchman-diskwakes.php)
+    },
     'actions' => [
         'refresh' => fn (array $r) => ['ok' => true, 'state' => watchmanPageState()],
         'round'   => fn (array $r) => watchmanRoundNow(),
@@ -352,10 +356,13 @@ desk('watchman', [
         'syslog_set' => fn (array $r) => watchmanSyslogSet($r['on'] ?? null),
         'posture_ack' => fn (array $r) => watchmanPostureAck($r['id'] ?? null, $r['on'] ?? null),
         'net_lan_set' => fn (array $r) => watchmanNetLanSet($r['on'] ?? null),
+        // «Who woke my disks?»: his switch (on unless switched off), kept on the server
+        'wakes_watch' => fn (array $r) => watchmanWakeWatchSet(boolField($r, 'on')) + ['state' => watchmanPageState()],
     ],
-    'jobs'    => ['watchman-round' => fn (array $args) => watchmanRun(), 'watchman-hold' => fn (array $args) => watchmanHoldRun()],
+    'jobs'    => ['watchman-round' => fn (array $args) => watchmanRun(), 'watchman-hold' => fn (array $args) => watchmanHoldRun(),
+                  'watchman-wake-name' => fn (array $args) => watchmanWakeNameRun()],
     'checks'  => fn (): array => watchmanChecks(),
-    'metrics' => fn (): array => watchmanMetrics(),
+    'metrics' => fn (): array => array_merge(watchmanMetrics(), watchmanWakeMetrics()),
 ]);
 
 /** Where he reads — fixed; the tests hand in copies */
@@ -10181,6 +10188,8 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
         'syslog'   => ['on' => !empty($st['siem'])],
         'incidents' => $incidents,
         'hold'     => watchmanHoldPage(),
+        // «Who woke my disks?»: the rotating disks there are, his switch, since when he watches, the wakes of the last days
+        'wakes'    => watchmanWakesForPage(),
         'chains'   => array_map(fn ($c) => array_diff_key($c, ['key' => 1]), watchmanChains($d['book'], $now)),
         // the last night shift (the array stopped, or from boot to the array's start): from, until, from which mirror
         'night'    => is_array($st['night'] ?? null) && isset($st['night']['until']) ? array_map(fn ($v) => is_int($v) ? $v : (string) $v, $st['night']) : null,

@@ -15,7 +15,6 @@
     "help.source",
     "help.space",
     "help.time",
-    "help.wakes",
     "hide.title",
     "live",
     "mine.title",
@@ -25,8 +24,7 @@
     "tile.read",
     "tile.schedule",
     "tour",
-    "varlog.title",
-    "wakes.title"
+    "varlog.title"
   ],
   "texts": [
     "help.colours",
@@ -46,7 +44,6 @@
     "help.source_text",
     "help.space_text",
     "help.time_text",
-    "help.tour_text",
-    "help.wakes_text"
+    "help.tour_text"
   ]
 }

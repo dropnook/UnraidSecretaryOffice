@@ -88,7 +88,93 @@ function officeMigrateSteps(): array
         // Ms. Dustdevil's cache up to 1.94.0 kept every /mnt mention of the flash (2026-11-19: 13 MB for 10 MB of text, read at
         // every look): the flash search's part goes (she searches again, now bounded); the file before kept beside it
         ['id' => 'cleanup-flash-cache', 'version' => '1.94.1', 'run' => fn (string $dir, string $to): string => officeMigrateCleanupCache($dir, $to)],
+        // «Who woke my disks?» went from Ms. Protocolli to the Night Watchman (2026-11-22): her logs-wakes.json becomes
+        // his watchman/wakes.json (merged by wake when both are there), the sampler's memory in RAM follows; the old file
+        // kept beside it — a user who had only her keeps the history, and he shows it once hired
+        ['id' => 'wakes-watchman', 'version' => '1.95.6', 'run' => fn (string $dir, string $to): string => officeMigrateWakes($dir, $to)],
     ];
+}
+
+// «Who woke my disks?»: Ms. Protocolli's files up to 1.95 => the Night Watchman's (agent/desks/watchman-diskwakes.php
+// WATCH_WAKE_FILE, WATCH_WAKE_MEM) — names of the past, fixed here so the step needs no desk loaded
+const OFFICE_MIGRATE_WAKES     = ['logs-wakes.json', 'watchman/wakes.json'];          // below the data folder
+const OFFICE_MIGRATE_WAKES_MEM_OLD = 'logs-wakes.json';        // below RUN_DIR (RAM): hers …
+const OFFICE_MIGRATE_WAKES_MEM_NEW = 'watchman-wakes.json';    // … and his
+const OFFICE_MIGRATE_WAKES_MAX = 16 << 20;            // an old file larger than this isn't hers (hers stays under 1 MB)
+
+/**
+ * Step `wakes-watchman`: her data/logs-wakes.json becomes his data/watchman/wakes.json — read only as a plain file of
+ * the data folder (never through a link, never a huge one), written with writeAtomic(); when his is there already (a
+ * downgrade and back: she counted again in between) the two are merged — every wake once (by id, his kept), the
+ * counter per disk the larger, `since` the earlier, his switch. Then hers is renamed aside (<name>.before-<version>),
+ * never deleted. The sampler's memory in RAM (what slept at the last look: a wake across the update still counts)
+ * is renamed to his name while his isn't there. An old file that isn't hers (a link, no JSON) stays, said. Throws
+ * when hers couldn't be put aside (the step runs again: the merge gives the same result twice). $run for the tests.
+ */
+function officeMigrateWakes(string $dir, string $to, ?string $run = null): string
+{
+    $done = [];
+    $run ??= RUN_DIR;
+    [$memOld, $memNew] = [$run . '/' . OFFICE_MIGRATE_WAKES_MEM_OLD, $run . '/' . OFFICE_MIGRATE_WAKES_MEM_NEW];
+    clearstatcache();
+    $m = @lstat($memOld);
+    if ($m !== false && ($m['mode'] & 0170000) === 0100000 && @lstat($memNew) === false && @rename($memOld, $memNew)) {
+        $done[] = 'the sampler\'s memory (RAM) → ' . OFFICE_MIGRATE_WAKES_MEM_NEW;
+    }
+    [$from, $dest] = ["$dir/" . OFFICE_MIGRATE_WAKES[0], "$dir/" . OFFICE_MIGRATE_WAKES[1]];
+    $st = @lstat($from);
+    if ($st === false) {
+        return implode(', ', $done) ?: 'nothing to change';
+    }
+    if (($st['mode'] & 0170000) !== 0100000 || $st['size'] > OFFICE_MIGRATE_WAKES_MAX) {
+        return implode(', ', [...$done, OFFICE_MIGRATE_WAKES[0] . ' left alone (no plain file)']);
+    }
+    $old = json_decode((string) @file_get_contents($from), true);
+    if (!is_array($old)) {
+        return implode(', ', [...$done, OFFICE_MIGRATE_WAKES[0] . ' left alone (no JSON)']);
+    }
+    $now = readJson($dest);
+    if (!is_array($now)) {
+        $new = $old;
+        $how = 'taken over';
+    } else {
+        $new = $now;
+        $wakes = [];
+        $loose = [];
+        foreach ([(array) ($old['wakes'] ?? []), (array) ($now['wakes'] ?? [])] as $list) {
+            foreach ($list as $w) {
+                if (is_array($w) && is_string($w['id'] ?? null)) {
+                    $wakes[$w['id']] = $w;               // his last: his wins
+                } else {
+                    $loose[] = $w;
+                }
+            }
+        }
+        $wakes = array_values($wakes);
+        usort($wakes, fn ($a, $b): int => (is_int($a['time'] ?? null) ? $a['time'] : 0) <=> (is_int($b['time'] ?? null) ? $b['time'] : 0));
+        $new['wakes'] = array_merge($wakes, $loose);
+        $totals = is_array($now['totals'] ?? null) ? $now['totals'] : [];
+        foreach (is_array($old['totals'] ?? null) ? $old['totals'] : [] as $disk => $n) {
+            if (is_int($n) && (!is_int($totals[$disk] ?? null) || $n > $totals[$disk])) {
+                $totals[$disk] = $n;
+            }
+        }
+        $new['totals'] = $totals;
+        $since = array_filter([$old['since'] ?? null, $now['since'] ?? null], 'is_int');
+        if ($since) {
+            $new['since'] = min($since);
+        }
+        $how = 'merged into his';
+    }
+    @mkdir(dirname($dest), 0755, true);
+    writeAtomic($dest, jsonEncode($new));
+    $aside = officeMigrateAside($from, $to);
+    if ($aside === null) {
+        throw new RuntimeException(OFFICE_MIGRATE_WAKES[0] . " $how, but it could not be put aside");
+    }
+    $done[] = sprintf('%s %s %s (%d wakes; the old one kept as %s)', OFFICE_MIGRATE_WAKES[0], $how === 'taken over' ? '→' : '→ merged into',
+                      OFFICE_MIGRATE_WAKES[1], count((array) ($new['wakes'] ?? [])), basename($aside));
+    return implode(', ', $done);
 }
 
 const OFFICE_MIGRATE_CL_CACHE      = 'cleanup/cache.json';

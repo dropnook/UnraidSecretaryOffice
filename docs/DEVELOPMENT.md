@@ -856,26 +856,6 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   «Syslog», «Errors & warnings» and the reader sort newest / oldest first or by service (a syslog line's program,
   desk.js `SERVICE`) — a choice kept per browser (`logs.<list>.sort`), named in the note line only when not the list's own
   (core.js `bar.done({order})`); a click on a line's service filters to exactly it, and a saved filter keeps it (`svc`).
-  «Who woke my disks?» (agent/desks/logs-diskwakes.php, data/logs-wakes.json): in her tick, only while hired and
-  the array runs — disks.ini every `LOGS_WAKE_INI` s (a rotating disk asleep → awake is a wake), `/proc/diskstats` every
-  `LOGS_WAKE_LOOK` s only while an HDD sleeps (moved counters = asked for → a capture of /proc's state-D tasks, capped by
-  time and count; never a stat or walk under /mnt, no getfattr); names (docker ps, smbstatus), cron lines due and
-  Unraid's «read SMART» time come later from the job `logs-wake-name`, whose answer only her tick writes into the file;
-  the tile always — without a rotating disk it says there is none (all flash); machine names and paths on her page
-  only, never in the agent's log. **Unraid's own look after a wake** (emhttpd's smartctl/hdparm, `hdparm -C`,
-  smartctl in standby mode; `sensors` unless a `drivetemp` hwmon exists: `logsWakeReaction()`) is never a
-  cause, only said apart (`unraid`; 1.68.0's records read the same way). Writes don't wait (page cache, the kernel's
-  flush): a writers' list while a disk sleeps (files open for writing there, every `LOGS_WAKE_HOLD` s, budgeted; their
-  write counters every look) gives «wrote to it»; a user share's file by the disk shfs holds it on; a plain program by who
-  started it (`by`: Unraid, its web page, a plugin, a user script, a terminal); a capture that found nobody looks again
-  `LOGS_WAKE_AGAIN_LOOK` s later. **The trail** (`trail`, `logsWakeTrail()`, only in the job `logs-wake-name`, never the
-  tick): what was written on the woken disk itself around the wake, by folder (count, bytes, first/last time; at most
-  `LOGS_WAKE_TRAIL_DIRS`) — a hint, not a cause; only on a disk awake now (a pool: every member), for a wake of the last
-  `LOGS_WAKE_TRAIL_LATE` s. btrfs: the tick notes each disk's generation from `/sys/fs/btrfs/<fsid>/generation` when it
-  falls asleep (RAM), the job asks `btrfs subvolume find-new` after it (the mounted tree and every writable subvolume that
-  changed; read-only snapshots and `.btrfs-snap` left out); XFS/ZFS: `find -xdev` over the disk's own mounts for folders
-  changed since it slept (`.zfs` pruned), then their files — bounded (`LOGS_WAKE_TRAIL_*`), `cut` said. The office's data
-  folder is left out. Folders only on her page.
 * **`watchman` — The Night Watchman.** **The office's security department — no other desk gives security advice. Read only,
   never a command that changes anything.** Snapshot automounts he counts per place (`uso_watchman_snapshot_automounts{where}`
   host/container/process, «What holds the array?»: `arrayholdSnaps()`, /proc only, `snapshotMountsEverywhere()`). Posture tips (never in the book or notified) and the watch book (what differs from
@@ -889,6 +869,28 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   slowly is told too; one going on for days is the normal), a pull that has ended does. An entry says what tripped (`watchmanFlowShape()`, `entry.<kind>`, `_hour`, `_span`): the pull in its
   minutes (up to 3 h, holding the hour), else the hour (`hour`), or so much in so long (`gap`); «I know, thanks» makes an
   hour normal (`peak`), never a pull's sum.
+  «Who woke my disks?» (agent/desks/watchman-diskwakes.php, data/watchman/wakes.json; Ms. Protocolli's up to 1.95 — the
+  step `wakes-watchman` moved her logs-wakes.json; who a process is: agent/lib/procwho.php, shared with «What holds the
+  array?»): in his tick, only while hired and
+  the array runs — disks.ini every `WATCH_WAKE_INI` s (a rotating disk asleep → awake is a wake), `/proc/diskstats` every
+  `WATCH_WAKE_LOOK` s only while an HDD sleeps (moved counters = asked for → a capture of /proc's state-D tasks, capped by
+  time and count; never a stat or walk under /mnt, no getfattr); names (docker ps, smbstatus), cron lines due and
+  Unraid's «read SMART» time come later from the job `watchman-wake-name`, whose answer only his tick writes into the file;
+  the tile always — without a rotating disk it says there is none (all flash); machine names and paths on his page
+  only, never in the agent's log. **Unraid's own look after a wake** (emhttpd's smartctl/hdparm, `hdparm -C`,
+  smartctl in standby mode; `sensors` unless a `drivetemp` hwmon exists: `watchmanWakeReaction()`) is never a
+  cause, only said apart (`unraid`; 1.68.0's records read the same way). Writes don't wait (page cache, the kernel's
+  flush): a writers' list while a disk sleeps (files open for writing there, every `WATCH_WAKE_HOLD` s, budgeted; their
+  write counters every look) gives «wrote to it»; a user share's file by the disk shfs holds it on; a plain program by who
+  started it (`by`: Unraid, its web page, a plugin, a user script, a terminal); a capture that found nobody looks again
+  `WATCH_WAKE_AGAIN_LOOK` s later. **The trail** (`trail`, `watchmanWakeTrail()`, only in the job `watchman-wake-name`, never the
+  tick): what was written on the woken disk itself around the wake, by folder (count, bytes, first/last time; at most
+  `WATCH_WAKE_TRAIL_DIRS`) — a hint, not a cause; only on a disk awake now (a pool: every member), for a wake of the last
+  `WATCH_WAKE_TRAIL_LATE` s. btrfs: the tick notes each disk's generation from `/sys/fs/btrfs/<fsid>/generation` when it
+  falls asleep (RAM), the job asks `btrfs subvolume find-new` after it (the mounted tree and every writable subvolume that
+  changed; read-only snapshots and `.btrfs-snap` left out); XFS/ZFS: `find -xdev` over the disk's own mounts for folders
+  changed since it slept (`.zfs` pruned), then their files — bounded (`WATCH_WAKE_TRAIL_*`), `cut` said. The office's data
+  folder is left out. Folders only on his page.
 * **`cleanup` — Ms. Dustdevil.** «Where is what» (operational advice, **never security**; read only) and «Tidying up» (what a
   drill or restore left: only what his journals name). **Her tour on schedule** (1.78, off by default): job `cleanup`
   (`job.sh cleanup` → `job cleanup-tour-due`, a mark in RAM); her tick (`clScheduledTick()`) tours as «Tour» does —
