@@ -611,17 +611,37 @@ function fanboyInitialRead(): array
     return is_array($j) && is_array($j['boards'] ?? null) ? $j : ['v' => 1, 'boards' => []];
 }
 
-/** One output's state before Fanboy into the copy (per board; another board's entries and unknown keys stay) */
-function fanboyInitialKeep(string $boardKey, string $id, array $initial): void
+/**
+ * One output's state before Fanboy into the copy (per board; another board's entries and unknown keys stay). True when kept.
+ *
+ * 2026-11-22 (decision E7, «always on»): NOT kept — an output found on a fixed value at a boot's first take where the copy
+ * says the chip's automatic stood before him. A restart without a hand-back (a reset, a crash: no TERM) may have left his
+ * own last value there, and that must never become «the state before him»: the copy goes on saying the automatic (its
+ * mode number is what «give back» to the automatic needs — fanboyAutoMode()), notes what was found (`left`: boot, value,
+ * at) and says it in the log, once per output and boot.
+ */
+function fanboyInitialKeep(string $boardKey, string $id, array $initial): bool
 {
     $f = fanboyInitialFile();
     if ($f === null) {
-        return;
+        return false;
     }
     @mkdir(dirname($f), 0700, true);
     $j = fanboyInitialRead();
     $b = is_array($j['boards'][$boardKey] ?? null) ? $j['boards'][$boardKey] : [];
-    $b[$id] = ['value' => $initial['value'] ?? null, 'enable' => $initial['enable'] ?? null, 'boot' => fanboyBootId(), 'at' => time()];
+    $was = is_array($b[$id] ?? null) ? $b[$id] : null;
+    $boot = fanboyBootId();
+    $left = $was !== null && is_int($was['enable'] ?? null) && $was['enable'] >= 2 && ($initial['enable'] ?? null) === 1 && ($was['boot'] ?? null) !== $boot;
+    if ($left && ($was['left']['boot'] ?? null) === $boot) {
+        return false;               // found and said at this boot already
+    }
+    $b[$id] = $left ? ['left' => ['boot' => $boot, 'value' => $initial['value'] ?? null, 'at' => time()]] + $was
+        : ['value' => $initial['value'] ?? null, 'enable' => $initial['enable'] ?? null, 'boot' => $boot, 'at' => time()];
     $j['boards'][$boardKey] = $b;
     writeAtomic($f, jsonEncode($j), 0600);
+    if ($left) {
+        logLine("Fanboy: $id was found on a fixed value (" . json_encode($initial['value'] ?? null) . ") at this boot's first take, where the mainboard's automatic (mode {$was['enable']}) stood before him"
+            . ' — the automatic stays noted as its state before him');
+    }
+    return !$left;
 }

@@ -2008,19 +2008,73 @@ function fanboyHistoryLoad(string $board, ?int $wall = null, ?array &$curves = n
 {
     $curves = [];
     foreach ([fanboyRunDir() . '/history.json', defined('FANBOY_DIR') ? FANBOY_DIR . '/history.json' : ''] as $f) {
-        $j = $f === '' ? null : readJson($f);
-        if (is_array($j) && ($j['board'] ?? null) === $board && is_array($j['zones'] ?? null)) {
-            $curves = fanboyHistoryCurvesUnpack($j, $wall ?? time());       // each curve's line (2026-11-20), when the file has it
-            $out = [];
-            foreach (fanboyHistoryUnpack($j) as $zid => $pts) {
-                if (($kept = fanboyHistoryThin($pts, $wall ?? time()))) {
-                    $out[$zid] = $kept;
-                }
-            }
+        if ($f !== '' && ($out = fanboyHistoryRead($f, $board, $wall, $curves)) !== null) {
             return $out;
         }
     }
+    $curves = [];
     return [];
+}
+
+/** One history file read: this board's zones with their points (thinned and bounded as kept) and each curve's line — null: not this board's, not a history */
+function fanboyHistoryRead(string $file, string $board, ?int $wall = null, ?array &$curves = null): ?array
+{
+    $curves = [];
+    $j = readJson($file);
+    if (!is_array($j) || ($j['board'] ?? null) !== $board || !is_array($j['zones'] ?? null)) {
+        return null;
+    }
+    $curves = fanboyHistoryCurvesUnpack($j, $wall ?? time());       // each curve's line (2026-11-20), when the file has it
+    $out = [];
+    foreach (fanboyHistoryUnpack($j) as $zid => $pts) {
+        if (($kept = fanboyHistoryThin($pts, $wall ?? time()))) {
+            $out[$zid] = $kept;
+        }
+    }
+    return $out;
+}
+
+/**
+ * 2026-11-22 («always on», a boot): a control that started before the agent — from the copy of his mirror on the flash,
+ * before the array — begins with no history: the one from before the boot lies in the data folder. The agent hands it
+ * over once it is there (RUN_DIR/fanboy/history-before.json, fanboyHistorySync()); the control takes what is older than
+ * its own first point of each zone it has, and each curve's rows likewise (the same kinds only), and removes the file.
+ * True when one was taken.
+ */
+function fanboyHistoryBefore(array &$c, ?int $wall = null): bool
+{
+    $file = fanboyRunDir() . '/history-before.json';
+    clearstatcache(true, $file);
+    $st = @lstat($file);
+    if ($st === false) {
+        return false;
+    }
+    $older = ($st['mode'] & 0170000) === 0100000 ? fanboyHistoryRead($file, (string) $c['key'], $wall, $curves) : null;
+    @unlink($file);
+    foreach ($older ?? [] as $zid => $pts) {
+        if (!isset($c['zones'][$zid])) {
+            continue;
+        }
+        $first = $c['hist'][$zid][0][0] ?? PHP_INT_MAX;
+        $add = array_values(array_filter($pts, fn ($p) => is_array($p) && ($p[0] ?? PHP_INT_MAX) < $first));
+        if ($add) {
+            $c['hist'][$zid] = fanboyHistoryThin([...$add, ...($c['hist'][$zid] ?? [])], $wall ?? time());
+        }
+    }
+    foreach ($older === null ? [] : ($curves ?? []) as $zid => $h) {
+        if (!isset($c['zones'][$zid])) {
+            continue;
+        }
+        $own = $c['curves'][$zid] ?? null;
+        if ($own === null || !$own['rows']) {
+            $c['curves'][$zid] = $h;
+        } elseif ($own['kinds'] === $h['kinds']) {
+            $first = (int) array_key_first($own['rows']);
+            $c['curves'][$zid]['rows'] = array_filter($h['rows'], fn ($t) => $t < $first, ARRAY_FILTER_USE_KEY) + $own['rows'];
+            ksort($c['curves'][$zid]['rows']);
+        }
+    }
+    return $older !== null;
 }
 
 // ===================================================================== the process
@@ -2222,6 +2276,9 @@ function fanboyControlMain(): int
                     break;
                 }
                 $c['hold'] = $why;
+                if (fanboyRamMode() && fanboyHistoryBefore($c)) {       // after a boot: the history from before it, handed over by the agent
+                    logLine('Fanboy: the history from before this boot taken in (the agent handed it over)');
+                }
             }
             if (is_file("$dir/look-now")) {
                 @unlink("$dir/look-now");

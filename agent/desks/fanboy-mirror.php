@@ -190,8 +190,8 @@ function fanboyInitialSync(): int
     $n = 0;
     foreach ($new as $id => $o) {
         if (is_array($o['initial'] ?? null) && (!is_array($kept[$id] ?? null) || ($kept[$id]['boot'] ?? null) !== $j['boot'])) {
-            fanboyInitialKeep($key, (string) $id, $o['initial']);
-            $n++;
+            // (a fixed value found where the chip's automatic stood before him is not kept: fanboyInitialKeep(), decision E7)
+            $n += fanboyInitialKeep($key, (string) $id, $o['initial']) ? 1 : 0;
         }
         $done['ids'][$id] = true;
     }
@@ -201,6 +201,8 @@ function fanboyInitialSync(): int
 /**
  * The history between RAM and the data folder, a look every FANBOY_HISTORY_SYNC_EVERY ($force: now):
  *   seeded — none in RAM (a boot): the data folder's copy put there, for the control to start from and the page to show
+ *   before — one in RAM at this boot's first look, begun by a control that started before the agent: the data folder's
+ *            handed to that control (history-before.json), once
  *   kept   — RAM's is FANBOY_HISTORY_KEEP or more ahead of the data folder's copy (or there is none): copied there
  * Only a plain file of a sane size that is JSON, byte for byte; never through a link. null: nothing to do.
  */
@@ -227,6 +229,13 @@ function fanboyHistorySync(bool $force = false, ?float $now = null): ?string
     };
     $r = $look($ram);
     $d = $look($data);
+    // the first look of this boot that finds the data folder (a mark in RAM): what it finds in RAM decides
+    $mark = fanboyRunDir() . '/history-looked';
+    $first = $look($mark) === false;
+    if ($first) {
+        @mkdir(fanboyRunDir(), 0700, true);
+        writeAtomic($mark, (string) time(), 0600, 0, 0);
+    }
     if ($r === false) {
         if (!$plain($d) || ($raw = $read($data)) === null) {
             return null;
@@ -235,9 +244,229 @@ function fanboyHistorySync(bool $force = false, ?float $now = null): ?string
         writeAtomic($ram, $raw, 0644, 0, 0);
         return 'seeded';
     }
+    // 2026-11-22: there IS one in RAM at this boot's first look — a control that started before the agent (from the copy
+    // of his mirror on the flash, before the array) began it from nothing. The data folder's, from before the boot, is
+    // handed to that control (it takes what is older than its own: fanboyHistoryBefore()) instead of being overwritten
+    // ten minutes on; nothing is kept at this look.
+    if ($first && fanboyControlPid() !== null && $plain($d) && ($raw = $read($data)) !== null) {
+        writeAtomic(fanboyRunDir() . '/history-before.json', $raw, 0600, 0, 0);
+        return 'before';
+    }
     if (!$plain($r) || ($d !== false && (($d['mode'] & 0170000) !== 0100000 || $r['mtime'] - $d['mtime'] < FANBOY_HISTORY_KEEP)) || ($raw = $read($ram)) === null) {
         return null;
     }
     writeAtomic($data, $raw);
     return 'kept';
+}
+
+// ===================================================================== the copy on the flash: for a boot (step S6b, decision E2)
+
+/*
+ * After a reboot RAM is empty: no mirror, so no control — until the array started and the agent wrote one. On a server
+ * that waits for its array (a key to type, a start by hand) the BIOS ran the fans for that long. So, while he is hired
+ * and armed, the agent keeps a copy of the mirror on the flash:
+ *
+ *   <flash>/fanboy-mirror.json   {v: 1, board, hired: true, settings: {board, fans, zones, armed} (only these of his
+ *                                board's entry — what the control reads), initial: {<fan id>: {value, enable}}, watch,
+ *                                drivers: [modules he loaded on this board], unraid, kernel, sum, at}
+ *
+ * The night shift (fanboy-night.php) puts it into RAM as his mirror ONLY when all of this holds (the owner's four
+ * conditions, 2026-11-22) — else the BIOS runs the fans until the array starts, as it always did:
+ *   1. there is no mirror in RAM (a boot — never over one the agent wrote) and the copy is in exactly its shape, its sum right
+ *   2. it is this board's
+ *   3. the Unraid version and the kernel are the ones it was written under (after an update of Unraid the drivers,
+ *      the chips' names, the outputs' numbers may differ: the agent looks first)
+ *   4. emhttpd runs (Unraid's management is up: its var.ini is there, its socket or its process)
+ * The copy exists only while he is hired, armed and has a zone: taken away at once on «Hand back» or when he is fired,
+ * written at once on «Take over»; other changes of his settings at most once a minute (the flash is spared: its sum
+ * leaves out what changes at every boot). The plugin's removal takes it away.
+ */
+const FANBOY_MIRROR_FLASH = '/boot/config/plugins/unraid-secretary-office/fanboy-mirror.json';
+const FANBOY_FLASH_EVERY = 60.0;                                // seconds between two writes of the copy at most (made and removed: at once)
+const FANBOY_FLASH_KEYS = ['board', 'fans', 'zones', 'armed'];  // what of his board's entry goes to the flash
+
+/** The copy on the flash — in the tests' tree in a test */
+function fanboyMirrorFlashFile(): string
+{
+    return fanboySysRoot() . FANBOY_MIRROR_FLASH;
+}
+
+/** This server's Unraid version and kernel now — what a copy must have been written under to count after a boot */
+function fanboyMirrorSystem(): array
+{
+    $root = fanboySysRoot();
+    return ['unraid' => reportUnraidVersion(['unraid_version' => "$root/etc/unraid-version"]), 'kernel' => $root === '' ? php_uname('r') : 'test'];
+}
+
+/** The sum over what a copy says (never over `sum` and `at`) */
+function fanboyMirrorFlashSum(array $f): string
+{
+    $say = [];
+    foreach (['v', 'board', 'hired', 'settings', 'initial', 'watch', 'drivers', 'unraid', 'kernel'] as $k) {
+        $say[$k] = $f[$k] ?? null;
+    }
+    return hash('sha256', jsonEncode($say));
+}
+
+/**
+ * What the copy has to say now — from his mirror in RAM as the agent keeps it; null: there is nothing to keep (no mirror
+ * for this board, not hired, not armed, no zone, or this server's version can't be read)
+ */
+function fanboyMirrorFlashBuild(): ?array
+{
+    $m = fanboyMirrorRead(fanboyBoardKey(fanboyBoard(fanboyPaths(fanboySysRoot() ?: null)['dmi'])));
+    $s = $m['settings'] ?? null;
+    $sys = fanboyMirrorSystem();
+    if ($m === null || !$m['hired'] || !is_array($s) || ($s['armed'] ?? false) !== true || !fanboyControlNew($s, '', ['pid' => 0])['zones']
+        || $sys['unraid'] === '' || $sys['kernel'] === '') {
+        return null;
+    }
+    $initial = [];
+    foreach ($m['initial'] as $id => $x) {
+        if (is_string($id) && is_array($x)) {
+            // without the boot it is from and its time: they change at every boot, the copy would be written at every boot
+            $initial[$id] = ['value' => is_int($x['value'] ?? null) ? $x['value'] : null, 'enable' => is_int($x['enable'] ?? null) ? $x['enable'] : null];
+        }
+    }
+    ksort($initial);
+    $f = ['v' => 1, 'board' => $m['board'], 'hired' => true, 'settings' => array_intersect_key($s, array_flip(FANBOY_FLASH_KEYS)), 'initial' => $initial,
+          'watch' => $m['watch'], 'drivers' => array_values(fanboyDriversRead()['boards'][$m['board']]['modules'] ?? [])] + $sys;
+    return $f + ['sum' => fanboyMirrorFlashSum($f)];
+}
+
+/**
+ * The copy as a reader may take it: a plain file of a sane size, `v` 1, every field of its type, only modules he knows,
+ * the sum right. Anything else: null.
+ *
+ * @return array{v: int, board: string, hired: bool, settings: array, initial: array, watch: bool, drivers: list<string>, unraid: string, kernel: string, sum: string}|null
+ */
+function fanboyMirrorFlashRead(?string $file = null): ?array
+{
+    $file ??= fanboyMirrorFlashFile();
+    clearstatcache(true, $file);
+    $st = @lstat($file);
+    if ($st === false || ($st['mode'] & 0170000) !== 0100000 || $st['size'] > FANBOY_MIRROR_MAX + 4096) {
+        return null;
+    }
+    $f = readJson($file);
+    if (!is_array($f) || ($f['v'] ?? null) !== 1 || !is_string($f['board'] ?? null) || ($f['hired'] ?? null) !== true || !is_bool($f['watch'] ?? null)
+        || !is_array($f['settings'] ?? null) || !is_array($f['initial'] ?? null) || !is_array($f['drivers'] ?? null) || !array_is_list($f['drivers'])
+        || array_filter($f['drivers'], fn ($m) => !is_string($m) || !in_array($m, FANBOY_DRIVERS, true))
+        || !is_string($f['unraid'] ?? null) || $f['unraid'] === '' || !is_string($f['kernel'] ?? null) || $f['kernel'] === ''
+        || !is_string($f['sum'] ?? null) || !hash_equals(fanboyMirrorFlashSum($f), $f['sum'])) {
+        return null;
+    }
+    return $f;
+}
+
+/**
+ * The agent's part (his tick, his start and his own saves): the copy on the flash says what his mirror in RAM says — or
+ * there is none (not hired, not armed, no zone). Cheap while neither file changed.
+ *
+ * @return string same · written · removed · waits (changed, but written less than FANBOY_FLASH_EVERY ago: the next tick)
+ *                · no_flash (no folder of the plugin on the flash: never made here) · failed
+ */
+function fanboyMirrorFlashKeep(bool $force = false, ?float $now = null): string
+{
+    $now ??= fanboyMono();
+    $file = fanboyMirrorFlashFile();
+    if (!is_dir(dirname($file))) {
+        return 'no_flash';
+    }
+    $stamp = function (string $f): string {
+        clearstatcache(true, $f);
+        $st = @lstat($f);
+        return $st === false ? 'none' : "{$st['ino']}.{$st['size']}.{$st['mtime']}";
+    };
+    $seen = &$GLOBALS['fanboyFlashSeen'];
+    $seen = is_array($seen) ? $seen : ['ram' => null, 'flash' => null, 'wrote' => -INF, 'file' => null];
+    $ram = $stamp(fanboyMirrorFile());
+    if (!$force && $seen['file'] === $file && $seen['ram'] === $ram && $seen['flash'] === $stamp($file)) {
+        return 'same';
+    }
+    $want = fanboyMirrorFlashBuild();
+    $have = fanboyMirrorFlashRead($file);
+    $result = 'same';
+    if ($want === null) {
+        if (@lstat($file) !== false) {
+            @unlink($file);
+            $result = 'removed';
+        }
+    } elseif ($have === null || $have['sum'] !== $want['sum']) {
+        if ($have !== null && !$force && $now - $seen['wrote'] < FANBOY_FLASH_EVERY) {
+            return 'waits';
+        }
+        if (is_link($file)) {
+            @unlink($file);                 // never through a link
+        }
+        writeAtomic($file, jsonEncode($want + ['at' => time()]), 0600, 0, 0);
+        $seen['wrote'] = $now;
+        $result = fanboyMirrorFlashRead($file) !== null ? 'written' : 'failed';
+    }
+    $seen = ['ram' => $ram, 'flash' => $stamp($file), 'wrote' => $seen['wrote'], 'file' => $file];
+    return $result;
+}
+
+/** Does emhttpd run? Unraid's var.ini says a state and its socket or a process of that name is there (RAM and /proc only) */
+function fanboyEmhttpUp(): bool
+{
+    $root = fanboySysRoot();
+    if ((string) (readCfg("$root/var/local/emhttp/var.ini")['fsState'] ?? '') === '') {
+        return false;
+    }
+    if (@file_exists("$root/var/run/emhttpd.socket")) {
+        return true;
+    }
+    foreach (@scandir("$root/proc") ?: [] as $pid) {
+        if (ctype_digit((string) $pid) && trim((string) @file_get_contents("$root/proc/$pid/comm", false, null, 0, 32)) === 'emhttpd') {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * After a boot, may the copy on the flash count (conditions 1–3 above)? The copy when it may — else why not:
+ * 'ram' (a mirror is there: no boot) · 'none' · 'shape' · 'board' · 'unraid' · 'kernel'
+ *
+ * @return array|string
+ */
+function fanboyMirrorFlashFits(): array|string
+{
+    clearstatcache(true, fanboyMirrorFile());
+    if (@lstat(fanboyMirrorFile()) !== false) {
+        return 'ram';
+    }
+    $f = fanboyMirrorFlashRead();
+    if ($f === null) {
+        clearstatcache(true, fanboyMirrorFlashFile());
+        return @lstat(fanboyMirrorFlashFile()) === false ? 'none' : 'shape';
+    }
+    if ($f['board'] !== fanboyBoardKey(fanboyBoard(fanboyPaths(fanboySysRoot() ?: null)['dmi']))) {
+        return 'board';
+    }
+    $sys = fanboyMirrorSystem();
+    return $f['unraid'] !== $sys['unraid'] ? 'unraid' : ($f['kernel'] !== $sys['kernel'] ? 'kernel' : $f);
+}
+
+/**
+ * The night shift after a boot: his mirror in RAM from the copy on the flash, when it may count and emhttpd runs — the
+ * drivers he had loaded on this board first, as the agent does at its start. The ONE place besides the agent that writes
+ * the mirror; the agent writes it anew from the data folder at its start. Returns 'restored' or why not
+ * (fanboyMirrorFlashFits()'s word, 'emhttpd', 'failed').
+ */
+function fanboyMirrorFromFlash(): string
+{
+    $f = fanboyMirrorFlashFits();
+    if (!is_array($f)) {
+        return $f;
+    }
+    if (!fanboyEmhttpUp()) {
+        return 'emhttpd';
+    }
+    fanboyDriversBoot($f['drivers']);
+    $m = ['v' => 1, 'board' => $f['board'], 'hired' => true, 'settings' => $f['settings'], 'initial' => $f['initial'], 'watch' => $f['watch']];
+    @mkdir(fanboyRunDir(), 0700, true);
+    writeAtomic(fanboyMirrorFile(), jsonEncode($m + ['sum' => fanboyMirrorSum($m), 'at' => time(), 'from' => 'flash']), 0600, 0, 0);
+    return fanboyMirrorRead($f['board']) !== null ? 'restored' : 'failed';
 }

@@ -423,6 +423,7 @@ function fanboyStoreUpdate(callable $fn, ?array $board = null): array
         // his mirror in RAM follows at once (fanboy-mirror.php; the agent's tick would within seconds) — never in a save's way
         try {
             fanboyMirrorKeep(true);
+            fanboyMirrorFlashKeep();        // its copy on the flash: made or taken away at once («Take over», «Hand back»), else at most once a minute
         } catch (Throwable) {
         }
         return $entry;

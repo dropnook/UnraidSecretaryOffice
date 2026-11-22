@@ -811,8 +811,10 @@ function testAlwaysOnRamJob(): void
     file_put_contents("$tmp/run/ramjob-third.log", "2026-11-22 10:00:08  from the third job\n");
     ramLogFold("$tmp/run");
     $now = (string) @file_get_contents(AGENT_LOG);
-    check('always on S4b: into the agent\'s log for real — the job\'s line as it stands, after the agent\'s own', str_contains(substr($now, strlen($keepLog)), "  always-on test: before\n")
-        && str_ends_with($now, "2026-11-22 10:00:08  from the third job\n"));
+    // (the tests' agent log may be put aside at its bound right here: looked for in what is there now, not behind what was)
+    $at = strrpos($now, "  always-on test: before\n");
+    check('always on S4b: into the agent\'s log for real — the job\'s line as it stands, after the agent\'s own', $at !== false && strlen($keepLog) >= 0
+        && str_ends_with($now, "2026-11-22 10:00:08  from the third job\n") && $at < strrpos($now, "2026-11-22 10:00:08  from the third job\n"));
     // the wiring: the agent folds every few seconds; the audit knows the files; the libraries name no desk
     $agent = (string) file_get_contents(OFFICE_DIR . '/agent/agent.php');
     check('always on S4b: the agent takes the logs over in its loop, and a RAM job never asks for the data folder\'s real path',
@@ -1830,6 +1832,251 @@ function testAlwaysOnThroughStop(): void
             }
         }
         @unlink(fanboyBrakeFile());
+        alwaysOnTHireEnd($keep);
+        fanboyTEnd();
+    }
+}
+
+// ===================================================================== step S6b: after a boot, before the array starts (decisions E2, E7)
+
+/** The copy on the flash changed by the test and summed anew (as a copy another server, another version would have written) */
+function alwaysOnTFlash(callable $change): void
+{
+    $f = $change(array_diff_key(readJson(fanboyMirrorFlashFile()) ?? [], ['sum' => 1]));
+    file_put_contents(fanboyMirrorFlashFile(), json_encode($f + ['sum' => fanboyMirrorFlashSum($f)], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+}
+
+/**
+ * Step S6b: while he is hired and armed the agent keeps a copy of his mirror on the flash; after a boot the night shift
+ * takes it into RAM only when it is this board's, in its shape, written under this Unraid version and kernel, and emhttpd
+ * runs — then he steers before the array starts. Else the BIOS keeps the fans until the array starts, as ever. The
+ * history from before the boot is handed to a control that started before the agent; a fixed value found where the
+ * chip's automatic stood before him never becomes «the state before him».
+ */
+function testAlwaysOnBoot(): void
+{
+    $t = fanboyT('ao-boot');
+    $keep = alwaysOnTHire($t, true);
+    $procs = [];
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $settings = fanboyTSettings() + ['auto_back_seen' => ['at' => 5, 'output' => 'x'], 'note' => 'not for the flash'];
+        fanboyTStore($settings);
+        fanboyInitialKeep(FANBOY_T_KEY, fanboyTId(4), ['value' => 77, 'enable' => 2]);
+        fanboyMirrorKeep(true);
+        $flash = fanboyMirrorFlashFile();
+        $ino = function () use ($flash): string {
+            clearstatcache(true, $flash);
+            $st = @lstat($flash);
+            return $st === false ? 'none' : "{$st['ino']}.{$st['size']}";
+        };
+        // 1. the agent keeps the copy
+        same('always on S6b: the copy lies in the plugin\'s folder on the flash; without that folder nothing is written (never made here)',
+            ["{$t['root']}/boot/config/plugins/unraid-secretary-office/fanboy-mirror.json", 'no_flash', false], [$flash, fanboyMirrorFlashKeep(true), file_exists($flash)]);
+        @mkdir(dirname($flash), 0700, true);
+        same('always on S6b: hired, armed, zones — the copy is written, once', ['written', 'same', 'same'], [fanboyMirrorFlashKeep(false, 100.0), fanboyMirrorFlashKeep(false, 101.0), fanboyMirrorFlashKeep(true, 102.0)]);
+        $f = readJson($flash) ?? [];
+        same('always on S6b: what it says: this board, hired, of his settings only what the control reads, each output\'s state before him without what changes at every boot, the system it was written under',
+            [['v', 'board', 'hired', 'settings', 'initial', 'watch', 'drivers', 'unraid', 'kernel', 'sum', 'at'], FANBOY_T_KEY, true, ['board', 'fans', 'zones', 'armed'], [fanboyTId(4) => ['value' => 77, 'enable' => 2]], [], '7.3.2', 'test'],
+            [array_keys($f), $f['board'] ?? null, $f['hired'] ?? null, array_keys($f['settings'] ?? []), $f['initial'] ?? null, $f['drivers'] ?? null, $f['unraid'] ?? null, $f['kernel'] ?? null]);
+        check('always on S6b: … read back only in exactly its shape, its sum right', fanboyMirrorFlashRead() !== null && fanboyMirrorFlashRead()['settings']['armed'] === true);
+        // what changes at every boot (the boot an output's state is from, its time) rewrites the mirror in RAM, never the flash
+        $i0 = $ino();
+        $ini = readJson((string) fanboyInitialFile());
+        $ini['boards'][FANBOY_T_KEY][fanboyTId(4)] = ['value' => 77, 'enable' => 2, 'boot' => 'another-boot', 'at' => 12345];
+        file_put_contents((string) fanboyInitialFile(), json_encode($ini));
+        same('always on S6b: another boot (the same states before him) — the mirror in RAM is written anew, the copy on the flash is not', ['written', 'same', $i0], [fanboyMirrorKeep(true), fanboyMirrorFlashKeep(true, 200.0), $ino()]);
+        // a change of his settings: at most once a minute
+        $s2 = $settings;
+        $s2['zones'][0]['name'] = 'Disks, renamed';
+        fanboyTStore($s2);
+        fanboyMirrorKeep(true);
+        same('always on S6b: his settings change — the copy follows, but at most once a minute (the flash is spared)', ['waits', 'waits', 'written', 'Disks, renamed'],
+            [fanboyMirrorFlashKeep(false, 110.0), fanboyMirrorFlashKeep(false, 159.0), fanboyMirrorFlashKeep(false, 160.5), readJson($flash)['settings']['zones'][0]['name'] ?? null]);
+        // handed back, fired: the copy goes at once — taken over again: back at once
+        fanboyTStore(['armed' => false] + $s2);
+        fanboyMirrorKeep(true);
+        same('always on S6b: handed back — the copy is taken away at once (a boot must not find «armed»)', ['removed', false, 'same'], [fanboyMirrorFlashKeep(false, 161.0), file_exists($flash), fanboyMirrorFlashKeep(false, 162.0)]);
+        fanboyTStore($s2);
+        fanboyMirrorKeep(true);
+        same('always on S6b: taken over again — written at once', ['written', true], [fanboyMirrorFlashKeep(false, 163.0), file_exists($flash)]);
+        alwaysOnTHire($t, false);
+        fanboyMirrorKeep(true);
+        same('always on S6b: fired — taken away', ['removed', false], [fanboyMirrorFlashKeep(false, 164.0), file_exists($flash)]);
+        alwaysOnTHire($t, true);
+        fanboyMirrorKeep(true);
+        fanboyMirrorFlashKeep(true);
+        $src = fn (string $f) => (string) file_get_contents(OFFICE_DIR . "/agent/desks/$f");
+        check('always on S6b: the agent keeps it at its start, in his tick and with every save of his settings',
+            (bool) preg_match('/fanboyMirrorKeep\(true\);[^\n]*\n\s+fanboyMirrorFlashKeep\(true\);/', $src('fanboy.php')) && str_contains($src('fanboy.php'), 'fanboyMirrorFlashKeep(false, $now);')
+            && (bool) preg_match('/fanboyMirrorKeep\(true\);\n\s+fanboyMirrorFlashKeep\(\);/', $src('fanboy-setup.php')));
+
+        // 2. the copy as a reader takes it
+        $good = (string) file_get_contents($flash);
+        alwaysOnTFlash(fn ($f) => ['drivers' => ['it87', 'evil_module']] + $f);
+        same('always on S6b: a copy naming a module he doesn\'t know is no copy', null, fanboyMirrorFlashRead());
+        alwaysOnTFlash(fn ($f) => ['hired' => false] + $f);
+        same('always on S6b: a copy that says «not hired» is no copy (there is none while he isn\'t)', null, fanboyMirrorFlashRead());
+        file_put_contents($flash, str_replace('"armed":true', '"armed":false', $good));
+        same('always on S6b: a copy changed by hand (its sum wrong) is no copy', null, fanboyMirrorFlashRead());
+        file_put_contents($flash, $good);
+
+        // 3. after a boot: when it may count
+        $mirror = fanboyMirrorFile();
+        same('always on S6b: a mirror in RAM is there (no boot): the copy is never put over it', ['ram', 'ram'], [fanboyMirrorFlashFits(), fanboyMirrorFromFlash()]);
+        @unlink($mirror);
+        $GLOBALS['fanboyRamMode'] = true;
+        same('always on S6b: a boot (RAM empty), the copy fits — but emhttpd isn\'t up: nothing yet, no mirror', [true, 'emhttpd', false], [is_array(fanboyMirrorFlashFits()), fanboyMirrorFromFlash(), file_exists($mirror)]);
+        same('always on S6b: … the night shift stays on for him meanwhile (the copy waits for emhttpd)', true, fanboyNightWanted());
+        @mkdir("{$t['root']}/var/run", 0700, true);
+        file_put_contents("{$t['root']}/var/run/emhttpd.socket", '');
+        file_put_contents("{$t['root']}/var/local/emhttp/var.ini", "fsState=\"Stopped\"\n");
+        same('always on S6b: emhttpd up (its socket, its var.ini saying a state) — the mirror comes from the flash: hired, armed, the state before him; he may steer',
+            ['restored', true, true, 2, 'flash', null],
+            [fanboyMirrorFromFlash(), fanboyHiredNow(), fanboyBoardRaw()['armed'] ?? null, fanboyInitialKept(FANBOY_T_KEY, fanboyTId(4))['enable'] ?? null, readJson($mirror)['from'] ?? null, fanboyHoldReason(fanboyBoardRaw())]);
+        same('always on S6b: … once: a second look finds the mirror', 'ram', fanboyMirrorFromFlash());
+        @unlink("{$t['root']}/var/run/emhttpd.socket");
+        @unlink($mirror);
+        same('always on S6b: no socket, no process of that name: not up', 'emhttpd', fanboyMirrorFromFlash());
+        @mkdir("{$t['root']}/proc/4711", 0700, true);
+        file_put_contents("{$t['root']}/proc/4711/comm", "emhttpd\n");
+        same('always on S6b: a process named emhttpd counts too', 'restored', fanboyMirrorFromFlash());
+        file_put_contents("{$t['root']}/var/local/emhttp/var.ini", "csrf_token=\"x\"\n");
+        @unlink($mirror);
+        same('always on S6b: … but not while its var.ini says no state yet', 'emhttpd', fanboyMirrorFromFlash());
+        file_put_contents("{$t['root']}/var/local/emhttp/var.ini", "fsState=\"Stopped\"\n");
+        // … and when it may not
+        $why = [];
+        file_put_contents("{$t['root']}/etc/unraid-version", "version=\"7.4.0\"\n");
+        $why['unraid'] = fanboyMirrorFromFlash();
+        file_put_contents("{$t['root']}/etc/unraid-version", "version=\"7.3.2\"\n");
+        alwaysOnTFlash(fn ($f) => ['kernel' => '6.12.99-Unraid'] + $f);
+        $why['kernel'] = fanboyMirrorFromFlash();
+        file_put_contents($flash, $good);
+        alwaysOnTFlash(fn ($f) => ['board' => 'Other Boards Inc. | X1'] + $f);
+        $why['board'] = fanboyMirrorFromFlash();
+        file_put_contents($flash, substr($good, 0, 300));
+        $why['shape'] = fanboyMirrorFromFlash();
+        same('always on S6b: … cut: the night shift need not stay for him', false, fanboyNightWanted());
+        @unlink($flash);
+        $why['none'] = fanboyMirrorFromFlash();
+        same('always on S6b: another Unraid version, another kernel, another board, a cut copy, none — no mirror, each with its reason (the BIOS keeps the fans until the array starts)',
+            ['unraid' => 'unraid', 'kernel' => 'kernel', 'board' => 'board', 'shape' => 'shape', 'none' => 'none', 'mirror' => false], $why + ['mirror' => file_exists($mirror)]);
+
+        // 4. the night shift after a boot: the mirror, the drivers he had loaded, the control — said once
+        file_put_contents("{$t['tmp']}/modprobe", "#!/bin/bash\necho \"\$*\" >> " . escapeshellarg("{$t['tmp']}/modprobe.log") . "\nmkdir -p " . escapeshellarg("{$t['root']}/sys/module") . "/\"\$1\"\n");
+        chmod("{$t['tmp']}/modprobe", 0755);
+        putenv("OFFICE_MODPROBE_BIN={$t['tmp']}/modprobe");
+        file_put_contents($flash, $good);
+        alwaysOnTFlash(fn ($f) => ['drivers' => ['nct6683']] + $f);
+        unset($GLOBALS['fanboyNightNext'], $GLOBALS['fanboyNightWanted'], $GLOBALS['fanboyNightBootSaid']);
+        $GLOBALS['fanboyLaunched'] = [];
+        $log0 = strlen((string) @file_get_contents(AGENT_LOG));
+        $wanted = fanboyNight(1000.0);
+        fanboyNight(1005.0);
+        $log = substr((string) @file_get_contents(AGENT_LOG), $log0);
+        same('always on S6b: the night shift\'s look after a boot — the driver he had loaded on this board loaded again, the mirror from the flash, the control started; it stays on for him',
+            [true, "nct6683\n", true, ['fanboy-control']], [$wanted, (string) @file_get_contents("{$t['tmp']}/modprobe.log"), fanboyMirrorRead(FANBOY_T_KEY) !== null, $GLOBALS['fanboyLaunched']]);
+        same('always on S6b: … said once', 1, substr_count($log, 'after this boot his settings come from their copy on the flash — he steers before the array starts'));
+        // a hand-back asked for before the reboot: the mirror comes, the control doesn't
+        @unlink($mirror);
+        file_put_contents(fanboyHandBackFlash(), '{"v":1,"at":1700000000}');
+        unset($GLOBALS['fanboyNightNext'], $GLOBALS['fanboyNightBootSaid']);
+        $GLOBALS['fanboyLaunched'] = [];
+        fanboyCrashKeep(['launched' => null]);
+        fanboyNight(2000.0);
+        same('always on S6b: the fans were given back before the reboot (the mark\'s copy on the flash) — no control after it either', [[], true], [$GLOBALS['fanboyLaunched'], fanboyHandBackAsked()]);
+        @unlink(fanboyHandBackFlash());
+        @unlink(fanboyHandBackFile());
+        // a copy from another Unraid version: said once, the night shift need not stay
+        @unlink($mirror);
+        file_put_contents("{$t['root']}/etc/unraid-version", "version=\"7.4.0\"\n");
+        unset($GLOBALS['fanboyNightNext'], $GLOBALS['fanboyNightBootSaid']);
+        $log0 = strlen((string) @file_get_contents(AGENT_LOG));
+        $w1 = fanboyNight(3000.0);
+        $w2 = fanboyNight(3005.0);
+        same('always on S6b: Unraid was updated since the copy was written — no mirror, no control, the night shift need not stay; said once why',
+            [false, false, false, 1], [$w1, $w2, file_exists($mirror), substr_count(substr((string) @file_get_contents(AGENT_LOG), $log0), 'was written under another Unraid version — the BIOS runs the fans until the array starts')]);
+        file_put_contents("{$t['root']}/etc/unraid-version", "version=\"7.3.2\"\n");
+        unset($GLOBALS['fanboyRamMode']);
+        putenv('OFFICE_MODPROBE_BIN');
+
+        // 5. the history from before the boot: a control that started before the agent takes what is older than its own
+        $wall = 1700000000;
+        $c = fanboyControlNew($s2, FANBOY_T_KEY, fanboyMe('control'));
+        $c['hist'] = ['disks' => [[$wall - 120, 40.0, 30.0, 800], [$wall - 60, 41.0, 31.0, 810]]];
+        $older = ['disks' => [[$wall - 7200, 35.0, 20.0, 600], [$wall - 3600, 36.0, 21.0, 610], [$wall - 60, 99.0, 99.0, 999]], 'gone-zone' => [[$wall - 3600, 30.0, 10.0, 500]]];
+        @mkdir(fanboyRunDir(), 0700, true);
+        file_put_contents(fanboyRunDir() . '/history-before.json', json_encode(['v' => 1, 'board' => FANBOY_T_KEY, 'every' => FANBOY_HISTORY_EVERY] + fanboyHistoryPack($older)));
+        $took = fanboyHistoryBefore($c, $wall);
+        same('always on S6b: the history handed over — the points older than its own first one come in front, its own stay as they are, a zone it doesn\'t have is left out, the file is gone',
+            [true, [$wall - 7200, $wall - 3600, $wall - 120, $wall - 60], 41.0, false, false],
+            [$took, array_column($c['hist']['disks'], 0), end($c['hist']['disks'])[1], isset($c['hist']['gone-zone']), file_exists(fanboyRunDir() . '/history-before.json')]);
+        file_put_contents(fanboyRunDir() . '/history-before.json', json_encode(['v' => 1, 'board' => 'Other Boards Inc. | X1', 'every' => FANBOY_HISTORY_EVERY] + fanboyHistoryPack($older)));
+        same('always on S6b: another board\'s history is not taken (and removed); none there: nothing', [false, false, false, 4],
+            [fanboyHistoryBefore($c, $wall), file_exists(fanboyRunDir() . '/history-before.json'), fanboyHistoryBefore($c, $wall), count($c['hist']['disks'])]);
+        check('always on S6b: the control looks for it at its 10-second look (only without the data folder)', str_contains($src('fanboy-control.php'), 'if (fanboyRamMode() && fanboyHistoryBefore($c)) {'));
+        // the agent's side: this boot's first look at the data folder
+        $ramH = fanboyRunDir() . '/history.json';
+        $dataH = FANBOY_DIR . '/history.json';
+        $pack = fn (array $h) => json_encode(['v' => 1, 'board' => FANBOY_T_KEY, 'every' => FANBOY_HISTORY_EVERY] + fanboyHistoryPack($h));
+        @unlink(fanboyRunDir() . '/history-looked');
+        @unlink($ramH);
+        file_put_contents($dataH, $pack($older));
+        same('always on S6b: a boot without a control before the agent — the data folder\'s history is put into RAM as ever', ['seeded', true], [fanboyHistorySync(true), is_file(fanboyRunDir() . '/history-looked')]);
+        if (is_dir('/proc/' . getmypid())) {
+            // (a control that runs: its pid file names a process of the test's — only where a /proc says when a process started)
+            @unlink(fanboyRunDir() . '/history-looked');
+            file_put_contents($ramH, $pack($c['hist']));
+            touch($dataH, time() - 3600);
+            $procs[] = $sleeper = proc_open(['sleep', '60'], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
+            $sp = (int) proc_get_status($sleeper)['pid'];
+            file_put_contents(fanboyRunDir() . '/control.pid', "$sp " . fanboyProcStart($sp));
+            $dataBefore = md5_file($dataH);
+            same('always on S6b: a boot with a control that started before the agent — at the first look the data folder\'s history is handed to it, not overwritten',
+                ['before', true, $dataBefore, md5_file($dataH)], [fanboyHistorySync(true), is_file(fanboyRunDir() . '/history-before.json'), md5_file($dataH), md5((string) file_get_contents(fanboyRunDir() . '/history-before.json'))]);
+            same('always on S6b: … once: the next look keeps RAM\'s (ten minutes ahead) in the data folder as ever', 'kept', fanboyHistorySync(true));
+            @unlink(fanboyRunDir() . '/control.pid');
+            @unlink(fanboyRunDir() . '/history-before.json');
+        }
+
+        // 6. decision E7: a fixed value found at a boot's first take where the chip's automatic stood before him
+        exec('rm -rf ' . escapeshellarg(TESTS_RUN_DIR . '/fanboy/journal.json'));
+        unset($GLOBALS['fanboyInitialDone']);
+        file_put_contents((string) fanboyInitialFile(), json_encode(['v' => 1, 'boards' => [FANBOY_T_KEY => [
+            fanboyTId(4) => ['value' => 77, 'enable' => 2, 'boot' => 'the-boot-before', 'at' => 1],
+            fanboyTId(2) => ['value' => 90, 'enable' => 1, 'boot' => 'the-boot-before', 'at' => 1]]]]));
+        $log0 = strlen((string) @file_get_contents(AGENT_LOG));
+        $procs[] = alwaysOnTHold($t, 4, 'control');         // the boot's first take of each (128, fixed, in the tests' tree)
+        $procs[] = alwaysOnTHold($t, 2, 'control');
+        $kept = fanboyInitialRead()['boards'][FANBOY_T_KEY];
+        same('always on S6b: found fixed (128) where the automatic stood before him — the automatic stays noted (its mode is what «give back» needs), with what was found; an output that was on a fixed value before is kept as found',
+            [['value' => 77, 'enable' => 2], 128, ['value' => 128, 'enable' => 1], false],
+            [array_intersect_key($kept[fanboyTId(4)], ['value' => 1, 'enable' => 1]), $kept[fanboyTId(4)]['left']['value'] ?? null, array_intersect_key($kept[fanboyTId(2)], ['value' => 1, 'enable' => 1]), isset($kept[fanboyTId(2)]['left'])]);
+        // the agent's own carrying over (a control without the data folder took them): the same rule, nothing said twice
+        same('always on S6b: … the agent\'s carrying over from the journal goes by the same rule and adds nothing', [0, ['value' => 77, 'enable' => 2]],
+            [fanboyInitialSync(), array_intersect_key(fanboyInitialRead()['boards'][FANBOY_T_KEY][fanboyTId(4)], ['value' => 1, 'enable' => 1])]);
+        same('always on S6b: … said once in the log, for that output', 1, substr_count(substr((string) @file_get_contents(AGENT_LOG), $log0), fanboyTId(4) . " was found on a fixed value (128) at this boot's first take, where the mainboard's automatic (mode 2) stood before him"));
+        unset($GLOBALS['fanboyInitialDone']);
+        fanboyInitialSync();
+        same('always on S6b: … not again by the agent (an agent started anew at the same boot neither)', 1, substr_count(substr((string) @file_get_contents(AGENT_LOG), $log0), 'was found on a fixed value'));
+        // the next boot finds the automatic again (a hand-back at the shutdown, the BIOS at its start): kept as ever, the note gone
+        $j = readJson((string) fanboyInitialFile());
+        $j['boards'][FANBOY_T_KEY][fanboyTId(4)]['left']['boot'] = 'the-boot-before';
+        file_put_contents((string) fanboyInitialFile(), json_encode($j));
+        same('always on S6b: … an output found in the automatic is kept as found, the note of the fixed value gone', [true, ['value' => 60, 'enable' => 2], false],
+            [fanboyInitialKeep(FANBOY_T_KEY, fanboyTId(4), ['value' => 60, 'enable' => 2]), array_intersect_key(fanboyInitialRead()['boards'][FANBOY_T_KEY][fanboyTId(4)], ['value' => 1, 'enable' => 1]),
+             isset(fanboyInitialRead()['boards'][FANBOY_T_KEY][fanboyTId(4)]['left'])]);
+        // 7. the plugin's removal takes the copy and the mark's copy off the flash
+        check('always on S6b: the plugin\'s removal takes his mirror\'s copy and the hand-back mark\'s copy off the flash',
+            str_contains((string) file_get_contents(OFFICE_DIR . '/plugin/unraid-secretary-office.plg'), 'rm -f "$flash"/$name-*.txz "$flash/watchman-mirror.json" "$flash/fanboy-mirror.json" "$flash/fanboy-handback.json"')
+            && FANBOY_MIRROR_FLASH === '/boot/config/plugins/unraid-secretary-office/fanboy-mirror.json' && FANBOY_HANDBACK_FLASH === '/boot/config/plugins/unraid-secretary-office/fanboy-handback.json');
+    } finally {
+        unset($GLOBALS['fanboyRamMode'], $GLOBALS['fanboyFlashSeen'], $GLOBALS['fanboyNightBootSaid'], $GLOBALS['fanboyInitialDone']);
+        putenv('OFFICE_MODPROBE_BIN');
+        foreach ($procs as $p) {
+            alwaysOnTEnd($p);
+        }
         alwaysOnTHireEnd($keep);
         fanboyTEnd();
     }

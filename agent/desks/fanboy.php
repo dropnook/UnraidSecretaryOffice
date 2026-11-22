@@ -438,6 +438,7 @@ function fanboyStart(): void
     }
     fanboyHistorySync(true);        // after a boot: the data folder's history into RAM, for the control and the page (fanboy-mirror.php)
     fanboyMirrorKeep(true);         // his mirror in RAM says what the data folder says (fanboy-mirror.php)
+    fanboyMirrorFlashKeep(true);    // … and its copy on the flash, for the next boot (there only while he is hired and armed)
     fanboyDriversBoot();
     fanboyWatch();
     fanboyGuardCron((fanboyBoardRaw()['armed'] ?? false) === true);       // the guard's line only while he is armed
@@ -496,6 +497,7 @@ function fanboyTick(?float $now = null): void
         fanboyInitialSync();                // the outputs' states before him from the journal into the data folder's copy …
         fanboyHistorySync(false, $now);     // … and his history, every ten minutes (what a control without the data folder can't write itself)
         fanboyMirrorKeep(false, $now);      // the mirror follows the data folder, whoever changed it (fanboy-mirror.php)
+        fanboyMirrorFlashKeep(false, $now); // … and its copy on the flash follows the mirror (for a boot: before the array starts)
     } catch (Throwable $e) {
         logLine('Fanboy: his mirror in RAM could not be kept: ' . $e->getMessage());
     }

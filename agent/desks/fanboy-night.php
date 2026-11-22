@@ -13,6 +13,7 @@ declare(strict_types=1);
  *   · the control, when it should run and doesn't: started — after a death only after a pause, not after too many
  *     (fanboyEnsureControl(); the deaths are counted in RAM for the agent and the night shift alike)
  *   · «give the fans back to the mainboard», the one wish heard without the agent (the mark, below)
+ *   · after a boot: his mirror from its copy on the flash, so he steers before the array starts (fanboyNightBoot())
  *
  * Everything he knows then comes from his mirror in RAM (fanboyRamMode() holds in the night shift; FANBOY_DIR names a
  * place that can never be there). What only the agent can do waits for it: the mirror itself, the history's copy, a
@@ -29,6 +30,7 @@ function fanboyNight(?float $now = null): bool
     if ($now >= ($GLOBALS['fanboyNightNext'] ?? -INF)) {
         $GLOBALS['fanboyNightNext'] = $now + FANBOY_TICK_EVERY;
         fanboyHandBackKeep();           // «give the fans back»: the mark and its copy on the flash say the same
+        fanboyNightBoot();              // after a boot: his mirror from its copy on the flash, when it may count
         fanboyWatch();
         fanboyBackCheck();
         fanboyEnsureControl($now);
@@ -47,7 +49,33 @@ function fanboyNightWanted(): bool
         return true;
     }
     $s = fanboyBoardRaw();
-    return $s !== null && ($s['armed'] ?? false) === true && fanboyHiredNow() && (bool) fanboyControlNew($s, '', ['pid' => 0])['zones'];
+    if ($s !== null && ($s['armed'] ?? false) === true && fanboyHiredNow() && (bool) fanboyControlNew($s, '', ['pid' => 0])['zones']) {
+        return true;
+    }
+    // after a boot: a copy of his mirror on the flash that may count waits for emhttpd (fanboyNightBoot())
+    return is_array(fanboyMirrorFlashFits());
+}
+
+/**
+ * After a boot there is no mirror in RAM: taken from its copy on the flash when that may count (this board, this Unraid
+ * version and kernel, emhttpd running — fanboy-mirror.php «the copy on the flash»); then fanboyEnsureControl() starts
+ * the control, before the array starts. Said once: that it was taken, or why the BIOS keeps the fans until the array
+ * starts. Returns fanboyMirrorFromFlash()'s word.
+ */
+function fanboyNightBoot(): string
+{
+    $r = fanboyMirrorFromFlash();
+    if (($GLOBALS['fanboyNightBootSaid'] ?? null) !== $r && !in_array($r, ['ram', 'none', 'emhttpd'], true)) {
+        logLine('Fanboy: after this boot ' . match ($r) {
+            'restored' => 'his settings come from their copy on the flash — he steers before the array starts',
+            'board'    => 'the copy of his settings on the flash is another board\'s — the BIOS runs the fans until the array starts',
+            'unraid'   => 'the copy of his settings on the flash was written under another Unraid version — the BIOS runs the fans until the array starts',
+            'kernel'   => 'the copy of his settings on the flash was written under another kernel — the BIOS runs the fans until the array starts',
+            default    => 'the copy of his settings on the flash can\'t be read in its shape — the BIOS runs the fans until the array starts',
+        });
+    }
+    $GLOBALS['fanboyNightBootSaid'] = $r;
+    return $r;
 }
 
 // ===================================================================== «give the fans back to the mainboard» without the agent (step S5c)
