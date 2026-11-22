@@ -354,8 +354,13 @@ She reads every log out loud: Unraid's, the office's, the plugins', every User S
 His fans' biggest fan: he steers the fans on the mainboard's fan connectors by what really gets warm.
 
 - **What the board has:** the outputs Linux can steer, the drivers and the hints. When Linux shows no fan connector,
-  *Your fan chip* asks the chip for its name on your click (never on a Gigabyte board) and says which driver or driver
-  plugin it needs.
+  *Your fan chip* asks the chip for its name on your click and says which driver or driver plugin it needs. On a
+  Gigabyte board, or one that doesn't name its maker, he never asks by himself: *Read the fan chip anyway…* first warns
+  that such a read can hang the server, and only your confirmed click reads. When no fan chip driver is loaded at all,
+  he says so and shows the way (Dynamix System Temp's *Detect*, the ITE driver plugin, else the BIOS: its fan control
+  handed to the system, the headers on PWM, a BIOS update where the fans hang on the embedded controller). Missing
+  board sensors or a missing CPU temperature are said the same way, in the first step and the zones' heat sources.
+  Another fan control set to an output that isn't there is named, its settings untouched.
 - **Test and assign, output by output:** the output runs at 100 % until you say whether you heard it, then every fan runs
   as before and you enter what it is (a name, its role, where it sits) and save. *Stop the other fans meanwhile* lets
   only that one be heard, the CPU cooler and a pump too.

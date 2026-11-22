@@ -38,7 +38,8 @@ const TOOLS = [
 // such a board is never read; the ITE plugin by name, the words to search for
 const IT87 = { id: 'it87-driver', name: 'ITE IT87 Driver', author: 'ich777' };
 const NCT = { id: 'nct6687-driver', name: 'Nuvoton NCT6687 Driver', author: 'ich777' };
-const MAKER_CHIP = { kept: null, can: false, blocked: 'maker', loaded: [], need: 'plugin',
+// (risky: the read past the warning could be made — /dev/port there, no driver holding the chip; 2026-11-21)
+const MAKER_CHIP = { kept: null, can: false, blocked: 'maker', risky: true, loaded: [], need: 'plugin',
   chip: { id: null, port: null, via: null, name: null, family: true, maker: 'ITE', module: 'it87', unraid: null, since: null, plugin_id: 'it87-driver', src: 'FANBOY_BOARD_HINTS' },
   plugin: { ...IT87, installed: false }, restart: false, hint_plugin: { ...IT87, installed: false },
   words: [{ w: 'ITE', kind: 'chip' }, { w: 'it87', kind: 'driver' }, { w: 'ITE IT87 Driver', kind: 'plugin' }, { w: 'Example Boards EB-Z100 PRO', kind: 'board' }] };
@@ -242,6 +243,8 @@ function state(o) {
     // round 5: Unraid's poll_attributes (its default 1800 s — the hint shows), a virtual machine, chips with two drivers
     poll: o.poll === undefined ? 1800 : o.poll, vm: !!o.vm, twins: o.twins || [], names: [],
     hints_open: ['no_output', 'driver_missing', 'other', 'ipmi'].includes((o.situation || { code: 'ok' }).code),
+    no_fan_chip: !chips.some((c) => c.kind !== 'gpu' && c.name !== 'acpi_fan' && (c.outputs.length || c.fans.length)),
+    temps_missing: ['board', 'cpu'].filter((k) => !chips.some((c) => c.kind === k && c.temps.length && c.name !== 'acpitz')),
     counts: { outputs: offered.reduce((n, c) => n + c.outputs.length, 0), fans: fansAll.length, turning: turning.length, zero: fansAll.filter((f) => f.rpm === 0).length,
       rpm_min: turning.length ? Math.min(...turning) : null, rpm_max: turning.length ? Math.max(...turning) : null, temps: chips.reduce((n, c) => n + c.temps.length, 0) },
     hottest, hottest_kinds: kinds, hottest_lead: leadOf(kinds),
@@ -377,16 +380,23 @@ files['fanboy-chipgone'] = state({ fans: SET_UP, zones: ZONES, armed: true, situ
     notes: [...NOTES, { code: 'alarm_chip', params: { fan: 'Plattenkäfig' }, at: T0 - 95 }], time: T0 } });
 // another controller steering: FanCtrl Plus
 files['fanboy-other'] = state({ ite: ite({}, RPM), situation: { code: 'other', who: ['fanctrlplus'], names: ['FanCtrl Plus'] },
-  controllers: [{ id: 'fanctrlplus', name: 'FanCtrl Plus', settings: true, running: true, blocks: true }],
+  controllers: [{ id: 'fanctrlplus', name: 'FanCtrl Plus', settings: true, running: true, blocks: true, targets: [], missing: [] }],
   tools: TOOLS.map((t) => (t.id === 'fanctrlplus' ? { ...t, installed: true, active: true } : t)),
   who: { who: 'fanctrlplus', name: 'FanCtrl Plus', why: 'other' } });
 // WAZ Cooling Control running beside him: a hint only (it steers shelves and IPMI fans)
 files['fanboy-waz'] = (() => {
   const s = steering();
   s.tools = TOOLS.map((t) => (t.id === 'md12xx.fancontrol' ? { ...t, installed: true, active: true } : t));
-  s.controllers = [{ id: 'md12xx.fancontrol', name: 'WAZ Cooling Control', settings: false, running: true, blocks: false }];
+  s.controllers = [{ id: 'md12xx.fancontrol', name: 'WAZ Cooling Control', settings: false, running: true, blocks: false, targets: [], missing: [] }];
   return s;
 })();
+// 2026-11-21 (a user's report): no fan chip driver loaded, and Dynamix Autofan set to an output of a temperature-only
+// chip — the plain hint and the other control's missing output (read only)
+files['fanboy-autofangone'] = state({ situation: { code: 'other', who: ['dynamix.system.autofan'], names: ['Dynamix System Autofan'] }, suggest: ['it87-driver'],
+  controllers: [{ id: 'dynamix.system.autofan', name: 'Dynamix System Autofan', settings: true, running: true, blocks: true,
+    targets: ['/sys/class/hwmon/hwmon2/pwm1', '/sys/class/hwmon/hwmon2/fan1_input'], missing: ['/sys/class/hwmon/hwmon2/pwm1', '/sys/class/hwmon/hwmon2/fan1_input'] }],
+  tools: TOOLS.map((t) => (t.id === 'dynamix.system.autofan' ? { ...t, installed: true, active: true } : { ...t, installed: false, loaded: t.kind === 'driver' ? false : t.loaded })),
+  who: { who: 'dynamix.system.autofan', name: 'Dynamix System Autofan', why: 'other' } });
 // a server board: no output Linux shows, a BMC
 files['fanboy-ipmi'] = state({ situation: { code: 'ipmi' }, ipmi: { bmc: true, manufacturer: 10876, product: 2398, firmware: '1.74' }, who: { who: 'bmc', why: 'ipmi' }, suggest: [] });
 // nothing Linux could steer: the hints open
@@ -398,18 +408,18 @@ const NOOUT = { situation: { code: 'no_output' }, suggest: ['it87-driver', 'dyna
   tools: TOOLS.map((t) => ({ ...t, installed: false, loaded: t.kind === 'driver' ? false : t.loaded })), who: { who: 'bios', why: 'no_output' } };
 const chipKept = (ports) => ({ at: T0 - 60, result: 'read', ports: [['0x2e', null, null], ['0x4e', null, null]].map(([port], i) => ({ port, id: null, via: null, ...(ports[i] || {}) })), modules: [] });
 const BOARD_WORD = { w: 'Example Boards EB-Z100 PRO', kind: 'board' };
-files['fanboy-chipplugin'] = state({ ...NOOUT, chip: { kept: chipKept([{ id: '0x8696', via: 'ite' }]), can: true, blocked: '', loaded: [], need: 'plugin',
+files['fanboy-chipplugin'] = state({ ...NOOUT, chip: { kept: chipKept([{ id: '0x8696', via: 'ite' }]), can: true, blocked: '', risky: false, loaded: [], need: 'plugin',
   chip: { id: '0x8696', port: '0x2e', via: 'ite', name: 'IT8696E', maker: 'ITE', module: 'it87', unraid: null, since: null, plugin_id: 'it87-driver', src: 'frankcrawford/it87' },
   plugin: { id: 'it87-driver', name: 'ITE IT87 Driver', author: 'ich777', installed: false }, restart: false, hint_plugin: IT87,
   words: [{ w: 'ITE IT8696E', kind: 'chip' }, { w: 'it87', kind: 'driver' }, { w: 'ITE IT87 Driver', kind: 'plugin' }, BOARD_WORD] }, suggest: ['it87-driver'] });
-files['fanboy-chipunraid'] = state({ ...NOOUT, suggest: ['dynamix.system.temp'], chip: { kept: chipKept([{ id: '0xd42b', via: 'winbond' }]), can: true, blocked: '', loaded: [], need: 'unraid',
+files['fanboy-chipunraid'] = state({ ...NOOUT, suggest: ['dynamix.system.temp'], chip: { kept: chipKept([{ id: '0xd42b', via: 'winbond' }]), can: true, blocked: '', risky: false, loaded: [], need: 'unraid',
   chip: { id: '0xd42b', port: '0x2e', via: 'winbond', name: 'NCT6798D', maker: 'Nuvoton', module: 'nct6775', unraid: 'steer', since: null, plugin_id: null, src: 'kernel 6.18.60' },
   plugin: null, restart: false, hint_plugin: null, words: [{ w: 'Nuvoton NCT6798D', kind: 'chip' }, { w: 'nct6775', kind: 'driver' }, BOARD_WORD] } });
-files['fanboy-chipunknown'] = state({ ...NOOUT, chip: { kept: chipKept([{ id: '0x8612', via: 'ite' }]), can: true, blocked: '', loaded: [], need: 'unknown',
+files['fanboy-chipunknown'] = state({ ...NOOUT, chip: { kept: chipKept([{ id: '0x8612', via: 'ite' }]), can: true, blocked: '', risky: false, loaded: [], need: 'unknown',
   chip: { id: '0x8612', port: '0x2e', via: 'ite', name: null }, plugin: null, restart: false, hint_plugin: null, words: [{ w: 'Super-I/O 0x8612', kind: 'chip' }, BOARD_WORD] } });
 // couldn't be asked (no /dev/port) on a board whose maker's hint is Nuvoton (as MSI's): the hint's words and plugin
 files['fanboy-chipnoread'] = state({ ...NOOUT, suggest: ['nct6687-driver', 'dynamix.system.temp'], board_hint: 'nuvoton',
-  chip: { kept: null, can: false, blocked: 'no_port', loaded: [], need: 'not_read', chip: null, plugin: null, restart: false, hint_plugin: NCT,
+  chip: { kept: null, can: false, blocked: 'no_port', risky: false, loaded: [], need: 'not_read', chip: null, plugin: null, restart: false, hint_plugin: NCT,
   words: [{ w: 'Nuvoton NCT6687', kind: 'chip' }, { w: 'nct6687', kind: 'driver' }, { w: 'Nuvoton NCT6687 Driver', kind: 'plugin' }, BOARD_WORD] } });
 // the owner's kind of case: a board of the ITE maker, never read, «Load drivers yourself» clicked — none of Unraid's own
 // found a chip: the same next step, the ITE plugin by name
@@ -482,6 +492,10 @@ files['fanboy-measure'] = state({ ite: ite({ 4: [115, 1] }, { ...RPM, 4: 896 }),
   step: running('measure', [P(4), P(5)], P(4), [], {}, { progress: { id: P(4), table: TABLE4.slice(0, 7) } }) });
 files['fanboy-zones'] = state({ ite: ite({}, RPM), fans: SET_UP });
 files['fanboy-ready'] = state({ ite: ite({}, RPM), fans: SET_UP, zones: ZONES, who: { who: 'bios', why: 'not_armed' } });
+// 2026-11-21: fans there, but no sensor of the board and no CPU temperature (the fan chip shows none of its own, no
+// coretemp, no board WMI): step 1 and the zones' source list say what is missing and the way
+files['fanboy-notemps'] = state({ chips: base.chips.filter((c) => ![CHIP, 'gigabyte_wmi', 'coretemp'].includes(c.name)).concat([{ ...ite({}, RPM), temps: [] }]),
+  fans: SET_UP, zones: ZONES, who: { who: 'bios', why: 'not_armed' } });
 files['fanboy-gone'] = state({ ite: ite({}, RPM), fans: [fan(1, { tachs: [1], found: 'tach' }), fan(2, { found: 'ask' })],
   step: { id: 'a1b2c3d4e5f6', kind: 'test_up', fans: OUTPUTS, status: 'stopped', why: 'page_gone', pid: 4242, start: '123456', current: null, done: [P(1), P(2)], results: {}, progress: null, at: T0 - 20 } });
 

@@ -498,6 +498,8 @@
  ],
  "names": [],
  "hints_open": false,
+ "no_fan_chip": false,
+ "temps_missing": [],
  "counts": {
   "outputs": 6,
   "fans": 7,
@@ -1579,6 +1581,7 @@
   "kept": null,
   "can": false,
   "blocked": "maker",
+  "risky": true,
   "loaded": [],
   "need": "plugin",
   "chip": {

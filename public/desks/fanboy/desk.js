@@ -132,6 +132,8 @@ const step = () => S().step || null;
 const situation = () => (S().situation && S().situation.code) || '';
 const counts = () => S().counts || {};
 const tools = () => (Array.isArray(S().tools) ? S().tools : []);
+/** A plugin's name from the agent's list (the ITE driver's as a fallback: the hint names it before a scan lists it) */
+const toolName = (id) => (tools().find((x) => x.id === id) || {}).name || (id === 'it87-driver' ? 'ITE IT87 Driver' : id);
 const running = (s) => !!s && (s.status === 'starting' || s.status === 'running');
 const stepRuns = () => running(step());
 const offered = (c) => c.outputs.length > 0 && c.kind !== 'gpu';
@@ -469,7 +471,7 @@ const quiet = (v) => JSON.stringify(v, (k, x) => (VOLATILE.has(k) ? undefined : 
 function frameSig() {
   const su = setup();
   const active = setupSw ? setupSw.active() : '';
-  const rest = ['test', 'measure'].includes(active) ? null : [busy, su.fans, su.zones, su.curves, step(), showNow(), dry, zdraft, zfans, S().dashboard, idle().on, S().tools, S().suggest, S().drivers, S().hints_open, S().chip];
+  const rest = ['test', 'measure'].includes(active) ? null : [busy, su.fans, su.zones, su.curves, step(), showNow(), dry, zdraft, zfans, S().dashboard, idle().on, S().tools, S().suggest, S().drivers, S().hints_open, S().chip, S().temps_missing];
   return quiet([ready(), !!art(), !!cat, !!state, Office.agent.running, bubbleText(), plainNow(), situation(), control().running, su.armed, su.outputs, active, rest]);
 }
 /** What the step tiles say */
@@ -480,7 +482,7 @@ function tilesSig() {
     setupSw ? setupSw.active() : '']);
 }
 /** What the banner above the steps says */
-const bannerSig = () => quiet([stepRuns(), showRuns(), Object.keys(S().safety || {}).length, who(), S().situation, control().running, control().alarm, control().net ? [control().net.level, control().net.source] : 0, control().armed, control().why, idle(), S().twins, S().vm, setup().zones && setup().zones.length, cpuGiven(), S().chip, busy]);
+const bannerSig = () => quiet([stepRuns(), showRuns(), Object.keys(S().safety || {}).length, who(), S().situation, control().running, control().alarm, control().net ? [control().net.level, control().net.source] : 0, control().armed, control().why, idle(), S().twins, S().vm, S().no_fan_chip, S().controllers, S().temps_missing, setup().zones && setup().zones.length, cpuGiven(), S().chip, busy]);
 function overviewSig() {
   return quiet([ready(), !!art(), !!cat, Office.agent.running, busy, state, history && history.zones, period, period > 24 && history72 ? history72.zones : null, sw.active(), (sensorBar && sensorBar.read().words) || []]);
 }
@@ -503,6 +505,7 @@ function bubbleText() {
   // 2026-11-20: the fan chip read on a click — named, and what it needs (the Team Lead's line says the same)
   if (s === 'no_output' && chipKnown() && ['unraid', 'plugin'].includes(chipNow().need)) return T(`bubble.no_output_${chipNow().need}`, chipParams());
   if (s === 'no_output' && chipNow().chip && chipNow().chip.family && chipNow().plugin) return T('bubble.no_output_family', chipParams());
+  if (s === 'no_output' && S().no_fan_chip) return T('bubble.no_fan_chip');
   if (s === 'driver_missing' || s === 'no_output' || s === 'ipmi') return T(`bubble.${s}`);
   if (s === 'ok' && c.armed === false && (setup().zones || []).length) return T('bubble.ready');
   if (s === 'ok') return T('bubble.ok', { n: counts().outputs || 0 });
@@ -1680,6 +1683,30 @@ function chipReadButton(again) {
     Office.toast(k.result === 'read' ? (n ? T('chip.read_toast') : T('chip.none_toast')) : T('chip.not_read_toast'), k.result !== 'read');
   }));
 }
+/*
+ * 2026-11-21 (the owner: «A+B, aber auch für Gigabyte»): on a board he never reads by himself (Gigabyte, or no maker named)
+ * the read is offered on a click — after a warning that says the risk plainly; only the confirmed click reads
+ * (confirm_risk: true; the agent refuses it without).
+ */
+function chipRiskyButton() {
+  const c = chipNow();
+  return button(T('chip.read_risky'), T('chip.read_risky_tip'), (b) => {
+    const body = el('div');
+    body.append(el('p', '', T(c.blocked === 'maker' ? 'chip.risk_maker' : 'chip.risk_no_maker')), el('p', '', T('chip.risk_text')));
+    Office.dialog({
+      title: T('chip.risk_title'),
+      body,
+      buttons: [{ text: t('common.cancel') }, { text: T('chip.risk_go'), kind: '', act: async () => {
+        await act('chip_read', { confirm_risk: true }, b, (j) => {
+          const k = (j && j.chip) || {};
+          const n = (k.ports || []).filter((x) => x.id).length;
+          Office.toast(k.result === 'read' ? (n ? T('chip.read_toast') : T('chip.none_toast')) : T('chip.not_read_toast'), k.result !== 'read');
+        });
+        return true;
+      } }],
+    });
+  });
+}
 async function sendChipReport(b) {
   if (!Office.agent.running) return;
   b.disabled = true;
@@ -1739,6 +1766,7 @@ function chipPart() {
     bar.appendChild(b);
   }
   if (c.kept && c.can) bar.appendChild(chipReadButton(true));
+  if (c.risky) bar.appendChild(chipRiskyButton());
   // on the overview the hints aren't below: a way to them (the set-up's first step)
   if (page !== 'setup') {
     const a = el('a', 'btn small', T('chip.to_hints'));
@@ -1855,7 +1883,14 @@ function paintBanner() {
     p.appendChild(reportButton(true));
   } else if (s === 'no_output') {
     // round 5: in a virtual machine the fans are the host's (a hint only — a VM with a chip passed through steers on)
-    const p = box('warn', T('situation.no_output') + (S().vm ? ' ' + T('situation.vm') : ''), { situation: s });
+    // 2026-11-21: no driver of a fan chip loaded at all — said plainly, with the way to one (Detect, the ITE plugin, the BIOS)
+    const p = box('warn', (S().no_fan_chip ? T('situation.no_fan_chip', { ite: toolName('it87-driver') }) : T('situation.no_output')) + (S().vm ? ' ' + T('situation.vm') : ''), { situation: S().no_fan_chip ? 'no_fan_chip' : s });
+    // 2026-11-21 (the owner): the BIOS's part, careful (names vary by maker); the ITE IT8613E only where the chip read or
+    // the board points to an ITE chip
+    if (S().no_fan_chip && !S().vm) {
+      p.appendChild(el('p', 'fb-hint-text', T('situation.no_fan_chip_bios')));
+      if ((chipNow().chip || {}).maker === 'ITE' || S().board_hint === 'ite') p.appendChild(el('p', 'fb-hint-text', T('situation.no_fan_chip_ite', { ite: toolName('it87-driver') })));
+    }
     if (S().chip) p.appendChild(chipPart());       // 2026-11-20: which fan chip, what it needs
   } else if (s === 'ok' && w.why === 'fixed') {
     // round 7 (F3): nobody steers — not the BIOS: the outputs stand on a fixed value someone left (an uninstalled plugin)
@@ -1867,6 +1902,9 @@ function paintBanner() {
     // while the setup holds outputs, «the BIOS steers every fan» would be untrue — the setup's strip says what runs
     box('', steers() ? T(cpuGiven() ? 'situation.steers_cpu' : 'situation.steers', { n: w.zones || 0 }) : c.armed === false && (setup().zones || []).length ? T('situation.not_armed') : T('situation.ok'), { situation: s });
   }
+  // 2026-11-21: another fan control set to an output (pwmN) or a fan input that isn't there — named, read only (its
+  // settings never touched)
+  (S().controllers || []).forEach((x) => (x.missing || []).forEach((path) => box('warn', T(/\/pwm\d+$/.test(path) ? 'situation.other_missing' : 'situation.other_missing_fan', { who: x.name, path }), { situation: 'other_missing' })));
   // round 6: a show whose give-back didn't read back as before (the fan may sit at 100 %)
   const sh = page === 'setup' ? null : showNow();        // the setup page's strip says how a show or a step ended
   if (sh && freshEnd(sh) && sh.status !== 'running' && sh.status !== 'starting' && sh.why === 'give_back') box('warn', T('show.give_back_failed', { fan: fanSay(sh.fan) }), { show: 'give_back' });
@@ -1977,12 +2015,28 @@ function nextBar(lines, acts) {
   next.append(text, a);
   return next;
 }
+/*
+ * 2026-11-21 (the owner: «Treiber sind immer mühsam, nicht nur für die Lüfter, auch für die Fühler»): the kinds of
+ * temperature a server usually has that no chip shows (the agent's temps_missing: board, cpu) — what is missing and the
+ * way; a hint, never a warning; nothing when all is there (or in a virtual machine: the host's sensors)
+ */
+function tempsHint() {
+  const miss = (S().temps_missing || []).filter((k) => ['board', 'cpu'].includes(k));
+  if (!miss.length || S().vm) return null;
+  const box = el('div', 'fb-temps-hint');
+  box.appendChild(el('p', 'fb-hint-text', miss.map((k) => T(`temps.missing_${k}`)).join(' ')));
+  miss.forEach((k) => box.appendChild(el('p', 'fb-hint-text', T(`temps.way_${k}`))));
+  if (miss.includes('board')) box.appendChild(el('p', 'fb-hint-text', T('temps.way_bios')));
+  return box;
+}
 function detectStep() {
   const box = el('div', 'fb-step-body');
   const su = setup();
   if (!(su.outputs || []).length) {
     // the banner above says why (never the same text twice on a page); here only that there is nothing to set up
     box.appendChild(para(T('step.nothing')));
+    const th = tempsHint();
+    if (th) box.appendChild(th);
     box.appendChild(bar(reportButton(true)));
     box.appendChild(hintsBlock());
     return box;
@@ -2004,6 +2058,8 @@ function detectStep() {
   const tachs = chips().filter(offered).reduce((n, c) => n + (c.fans || []).length, 0);
   const go = btn(T('step.next', { name: T('step.test') }), 'btn', () => { setupSwitcher().pick('test'); drawn = ''; redraw(); });
   box.appendChild(nextBar([T('detect.summary', { outputs: (su.outputs || []).length, inputs: tachs, sensors: (su.sources || []).length }), fixed ? T('detect.fixed_note', { n: fixed }) : ''], go));
+  const th = tempsHint();
+  if (th) box.appendChild(th);
   box.appendChild(hintsBlock());
   return box;
 }
@@ -4025,6 +4081,9 @@ function zoneSources(z, i) {
     block.appendChild(chips);
     box.appendChild(block);
   });
+  // 2026-11-21: the kinds of temperature no chip shows here — said under the list (one zone's card at a time)
+  const th = tempsHint();
+  if (th) box.appendChild(th);
   return box;
 }
 /**

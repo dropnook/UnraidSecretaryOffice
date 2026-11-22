@@ -75,6 +75,12 @@ const PICTURES = [
   ['waz-beside', 'fanboy-waz', 'fanboy/setup/detect', null, false],
   ['ipmi', 'fanboy-ipmi', 'fanboy', null, false],
   ['no-output', 'fanboy-nooutput', 'fanboy', null, false],
+  // 2026-11-21: no fan chip driver at all, another control set to an output that isn't there
+  ['autofan-gone', 'fanboy-autofangone', 'fanboy', null, false],
+  ['autofan-gone-setup', 'fanboy-autofangone', 'fanboy/setup/detect', null, false],
+  // … and kinds of temperature no chip shows (no board sensors, no CPU temperature): step 1, the zones' source list
+  ['temps-missing-detect', 'fanboy-notemps', 'fanboy/setup/detect', null, false],
+  ['temps-missing-zones', 'fanboy-notemps', 'fanboy/setup/zones', null, false],
   // 2026-11-20: the fan chip read in «no output» — a chip that needs a driver plugin, one Unraid's own driver should
   // steer, one nobody knows yet, one that couldn't be asked (every theme and language, 1440 and 375)
   ['chip-plugin', 'fanboy-chipplugin', 'fanboy', null, true, { widths: [1440, 375] }],

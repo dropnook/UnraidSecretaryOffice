@@ -540,7 +540,11 @@ function fanboyIpmi(array $p): ?array
  * blocks: false for a controller of other fans than the board's outputs (WAZ Cooling Control: shelves, IPMI) — named,
  * never holding Fanboy back (fanboyBlocking()).
  *
- * @return list<array{id:string, name:string, settings:bool, running:bool, blocks:bool}>
+ * targets: the /sys paths its settings name (`controller`, `fan` …), missing: those of them that aren't there (2026-11-21, a
+ * user's report: Dynamix Autofan running against /sys/class/hwmon/hwmon2/pwm1 on a board where hwmon2 is a temperature-only
+ * chip) — read only, its settings never touched.
+ *
+ * @return list<array{id:string, name:string, settings:bool, running:bool, blocks:bool, targets:list<string>, missing:list<string>}>
  */
 function fanboyControllers(array $p): array
 {
@@ -556,8 +560,15 @@ function fanboyControllers(array $p): array
         }
         [$folder, $files, $marker] = $plugin['controller'];
         $settings = false;
+        $targets = [];
         foreach ($files === '' ? [] : (glob($p['plugins'] . "/$folder/$files") ?: []) as $f) {
             $cfg = !is_link($f) && is_file($f) ? readCfg($f) : [];
+            foreach (['controller', 'fan'] as $k) {
+                $v = trim((string) ($cfg[$k] ?? ''));
+                if (preg_match('~^/sys/[A-Za-z0-9_./:-]+$~', $v) && !str_contains($v, '..')) {
+                    $targets[] = $v;
+                }
+            }
             foreach ($plugin['on'] ?? [['service', '1']] as [$k, $v]) {
                 $settings = $settings || ($cfg[$k] ?? '') === $v;
             }
@@ -568,7 +579,10 @@ function fanboyControllers(array $p): array
         $running = (bool) array_filter($programs, fn ($c) => preg_match($marker, $c) === 1)
             || (isset($plugin['cron']) && fanboyCronNames($p['crontab'], $plugin['cron']));
         if ($settings || $running) {
-            $out[] = ['id' => $id, 'name' => $plugin['name'], 'settings' => $settings, 'running' => $running, 'blocks' => ($plugin['hint_only'] ?? false) !== true];
+            $targets = array_values(array_unique($targets));
+            $root = substr($p['hwmon'], 0, -strlen(FANBOY_HWMON));          // '' on the server, the tests' tree in a test
+            $out[] = ['id' => $id, 'name' => $plugin['name'], 'settings' => $settings, 'running' => $running, 'blocks' => ($plugin['hint_only'] ?? false) !== true,
+                      'targets' => $targets, 'missing' => array_values(array_filter($targets, fn ($t) => !file_exists($root . $t)))];
         }
     }
     return $out;
@@ -878,6 +892,14 @@ function fanboyDetect(?string $root = null, ?int $now = null): array
         'twins'       => $twins,
         'names'       => fanboySensorNames($p['plugins'] . '/' . FANBOY_SYSTEMP_CONF, $chips),
         'hints_open'  => in_array($situation['code'], ['no_output', 'driver_missing', 'other', 'ipmi'], true),
+        // 2026-11-21 (a user's report): no driver of a fan chip loaded at all — no chip shows a fan output or a fan input
+        // (a graphics card's own fan aside, and acpi_fan: the firmware's word on one fan, there with no fan chip driver at
+        // all — the demo board's look); the page says it plainly and the way to one
+        'no_fan_chip' => !array_filter($chips, fn ($c) => $c['kind'] !== 'gpu' && $c['name'] !== 'acpi_fan' && ($c['outputs'] || $c['fans'])),
+        // 2026-11-21 (the owner: «Treiber sind immer mühsam … auch für die Fühler»): the kinds of temperature a server
+        // usually has that no chip shows — board (a sensor chip of the board; acpitz, the firmware's thermal zone, isn't
+        // one) and cpu (coretemp, k10temp …); facts of the scan only (RAM sensors aren't knowable: never said)
+        'temps_missing' => array_values(array_filter(['board', 'cpu'], fn ($k) => !array_filter($chips, fn ($c) => $c['kind'] === $k && $c['temps'] && $c['name'] !== 'acpitz'))),
         'counts'      => [
             'outputs' => array_sum(array_map(fn ($c) => fanboyOffers($c) ? count($c['outputs']) : 0, $chips)),
             'fans'    => count($fans),
