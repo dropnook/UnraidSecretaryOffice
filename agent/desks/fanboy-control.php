@@ -2114,7 +2114,7 @@ function fanboyControlMain(): int
     $stamp = fanboyControlStamp();
     $lastHold = fanboyMono();
     $nextSelf = -INF;
-    $exit = in_array($why, ['other', null], true) ? null : $why;
+    $exit = in_array($why, ['other', null], true) ? (fanboyHandBackAsked() ? 'hand_back' : null) : $why;
     logLine('Fanboy: the control started (PID ' . $owner['pid'] . ', ' . count($c['zones']) . ' zones, ' . count($c['fans']) . ' fans'
         . (fanboyRamMode() ? ', without the data folder: from his mirror in RAM' : '') . ')');
     try {
@@ -2154,6 +2154,12 @@ function fanboyControlMain(): int
             if (is_file("$dir/look-now")) {
                 @unlink("$dir/look-now");
                 $c['look_now'] = true;
+            }
+            // «give the fans back to the mainboard», asked while no agent can hear it (a mark in RAM, fanboy-night.php):
+            // looked for every round — he ends, every output goes back, and nobody starts him while it stands
+            if (fanboyHandBackAsked()) {
+                $exit = 'hand_back';
+                break;
             }
             fanboyRound($c, $now);
             fanboyControlLog($c);

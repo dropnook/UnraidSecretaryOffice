@@ -426,6 +426,11 @@ function fanboyStart(): void
     }
     @unlink(fanboyBrakeFile());     // a control that stopped itself (fanboyBrake()) may be started again: the agent starts anew
     @unlink(fanboyCrashFile());     // … and its deaths are counted anew (as when they were the agent's own memory)
+    try {
+        fanboyHandBackTake();       // «give the fans back» clicked while the array wasn't started: made true in his store now
+    } catch (Throwable $e) {
+        logLine('Fanboy: the hand-back asked for while the array wasn\'t started could not be kept: ' . $e->getMessage());
+    }
     fanboyHistorySync(true);        // after a boot: the data folder's history into RAM, for the control and the page (fanboy-mirror.php)
     fanboyMirrorKeep(true);         // his mirror in RAM says what the data folder says (fanboy-mirror.php)
     fanboyDriversBoot();
@@ -676,7 +681,8 @@ function fanboyEnsureControl(float $now): void
     if ($settings === null || ($settings['armed'] ?? false) !== true || !fanboyControlNew($settings, '', ['pid' => 0])['zones']
         || !arrayRunning(fanboyVarIni()) || !($ram ? fanboyHiredNow() : in_array('fanboy', staffHired($GLOBALS['agentStaffFile'] ?? null), true))
         || fanboyStepRunning() || fanboyControlPid() !== null
-        || is_file(fanboyBrakeFile())) {        // it stopped itself (fanboyBrake()): not again by itself
+        || is_file(fanboyBrakeFile())           // it stopped itself (fanboyBrake()): not again by itself
+        || fanboyHandBackAsked()) {             // the user gave the fans back while no agent could hear it (fanboy-night.php)
         return;
     }
     $status = readJson(fanboyStatusFile());

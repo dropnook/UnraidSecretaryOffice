@@ -2188,6 +2188,8 @@ function fanboyTakeOver(array $r = []): array
     fanboyGuardCron(true);
     fanboyCrashKeep(['deaths' => []]);
     @unlink(fanboyBrakeFile());         // a control that stopped itself (fanboyBrake()) may try again on the user's click
+    @unlink(fanboyHandBackFile());      // … and a hand-back asked for while the array wasn't started is over: the user takes over
+    @unlink(fanboyHandBackFlash());
     fanboyLaunch('fanboy-control');
     logLine('Fanboy: taken over on the user\'s click');
     // 2026-11-21 (the owner): a new setup shows his Dashboard tile with «Speeds» — only where nobody ever chose

@@ -1474,3 +1474,104 @@ function testAlwaysOnNight(): void
         fanboyTEnd();
     }
 }
+
+// ===================================================================== step S5c: «give the fans back to the mainboard» without the agent
+
+/**
+ * Step S5c: the one wish heard while no agent is there — a mark in RAM. While it stands the control ends (every output
+ * back) and nobody starts it; the night shift keeps a copy on the flash (a reboot) and brings it back from there; the
+ * agent's next start makes it true in his store («Hand back») and takes both away. A mark counts by being there.
+ */
+function testAlwaysOnHandBack(): void
+{
+    $t = fanboyT('ao-handback');
+    $keep = alwaysOnTHire($t, true);
+    $procs = [];
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $settings = fanboyTSettings();
+        fanboyTStore($settings);
+        fanboyMirrorKeep(true);
+        $flash = fanboyHandBackFlash();
+        same('always on S5c: the copy lies in the plugin\'s folder on the flash (the tests\' tree here), the mark in his RAM folder',
+            ["{$t['root']}/boot/config/plugins/unraid-secretary-office/fanboy-handback.json", TESTS_RUN_DIR . '/fanboy/handback.json'], [$flash, fanboyHandBackFile()]);
+        same('always on S5c: no mark — nothing asked, nothing to keep, nothing for the agent to take', [false, null, false], [fanboyHandBackAsked(), fanboyHandBackKeep(), fanboyHandBackTake()]);
+
+        // nobody starts the control while the mark stands
+        fanboyHandBackMark(1700000000);
+        same('always on S5c: the mark: in RAM, 0600, {v, at}', [true, 0600, ['v' => 1, 'at' => 1700000000]], [fanboyHandBackAsked(), fileperms(fanboyHandBackFile()) & 0777, readJson(fanboyHandBackFile())]);
+        $GLOBALS['fanboyLaunched'] = [];
+        fanboyEnsureControl(100.0);
+        $GLOBALS['fanboyRamMode'] = true;
+        fanboyEnsureControl(200.0);
+        unset($GLOBALS['fanboyRamMode']);
+        same('always on S5c: while it stands neither the agent\'s tick nor the night shift starts the control', [], $GLOBALS['fanboyLaunched']);
+
+        // the night shift: the copy on the flash, and back from there after a reboot
+        same('always on S5c: no folder of the plugin on the flash: no copy (never made here)', [null, false], [fanboyHandBackKeep(), file_exists($flash)]);
+        @mkdir(dirname($flash), 0700, true);
+        same('always on S5c: the night shift copies the mark to the flash, once', ['flash', null, ['v' => 1, 'at' => 1700000000]], [fanboyHandBackKeep(), fanboyHandBackKeep(), readJson($flash)]);
+        @unlink(fanboyHandBackFile());              // a reboot: RAM is empty, the flash is not
+        same('always on S5c: after a reboot (RAM empty) it brings the mark back from the flash — with its time', ['ram', true, 1700000000, null],
+            [fanboyHandBackKeep(), fanboyHandBackAsked(), readJson(fanboyHandBackFile())['at'] ?? null, fanboyHandBackKeep()]);
+        file_put_contents(fanboyHandBackFile(), '{"v":1,"a');
+        $GLOBALS['fanboyLaunched'] = [];
+        fanboyCrashKeep(['launched' => null]);
+        fanboyEnsureControl(300.0);
+        same('always on S5c: a cut mark is a mark (the BIOS has the fans — never a guess the other way)', [true, []], [fanboyHandBackAsked(), $GLOBALS['fanboyLaunched']]);
+
+        // the running control hears it within a round and gives back
+        @unlink(fanboyHandBackFile());
+        @unlink($flash);
+        $data = "{$t['tmp']}/data";
+        @mkdir($data, 0700, true);
+        $was = fanboyTOut($t, 4);
+        $procs[] = $p = alwaysOnTControl($t, $data);
+        $steers = fanboyTWait(fn () => in_array(fanboyTId(4), fanboyHeld(), true) && fanboyTOut($t, 4) !== $was, 20);
+        check('always on S5c: (the control steers: it holds the disk fan)', $steers, (string) @file_get_contents("{$t['tmp']}/proc.out"));
+        $t0 = fanboyMono();
+        fanboyHandBackMark();
+        $ended = alwaysOnTStop($p, 12, false);
+        $st = readJson(fanboyStatusFile()) ?? [];
+        same('always on S5c: the mark set — the control ends by itself within a round or two, every fan back as before, the status «handed back»',
+            [true, true, $was, [], 'bios', 'hand_back', 'ended'], [$ended, fanboyMono() - $t0 < 8, fanboyTOut($t, 4), fanboyHeld(), $st['who'] ?? null, $st['why'] ?? null, $st['phase'] ?? null]);
+        $procs[] = $p = alwaysOnTControl($t, $data);
+        $ended = alwaysOnTStop($p, 12, false);
+        same('always on S5c: … and one started while the mark stands takes nothing and ends («handed back»)', [true, $was, [], 'hand_back'],
+            [$ended, fanboyTOut($t, 4), fanboyHeld(), readJson(fanboyStatusFile())['why'] ?? null]);
+
+        // the agent's start makes it true in his store and takes both marks away
+        fanboyHandBackKeep();
+        same('always on S5c: (armed in his store, the mark in RAM and on the flash)', [true, true, true], [fanboyBoardRaw()['armed'] ?? null, fanboyHandBackAsked(), is_file($flash)]);
+        $log0 = strlen((string) @file_get_contents(AGENT_LOG));
+        fanboyStart();
+        $log = substr((string) @file_get_contents(AGENT_LOG), $log0);
+        same('always on S5c: the agent\'s next start hands back in his store (not armed), mirrors it, and takes both marks away',
+            [false, false, false, false], [fanboyBoardRaw()['armed'] ?? null, fanboyMirrorRead(FANBOY_T_KEY)['settings']['armed'] ?? null, fanboyHandBackAsked(), file_exists($flash)]);
+        check('always on S5c: … said in the log, with when it was asked', str_contains($log, 'the fans were given back to the mainboard while the array wasn\'t started (') && str_contains($log, 'handed back, until «Take over»'), $log);
+        $GLOBALS['fanboyLaunched'] = [];
+        fanboyCrashKeep(['launched' => null]);
+        fanboyEnsureControl(400.0);
+        same('always on S5c: … and he stays handed back: no control until «Take over»', [], $GLOBALS['fanboyLaunched']);
+        // a mark left on the flash alone (the array started before the night shift looked — or a reboot): the start takes it too
+        file_put_contents($flash, '{"v":1,"at":1700000001}');
+        same('always on S5c: a copy on the flash alone is taken by the agent\'s start as well', [true, false], [fanboyHandBackTake(), file_exists($flash)]);
+        // the code: the control looks every round; «Take over» ends a hand-back asked for before
+        $src = fn (string $f) => (string) file_get_contents(OFFICE_DIR . "/agent/desks/$f");
+        check('always on S5c: the control looks for the mark every round (not only at its 10-second look)',
+            (bool) preg_match('/if \(fanboyHandBackAsked\(\)\) \{\n\s+\$exit = \'hand_back\';\n\s+break;\n\s+\}\n\s+fanboyRound\(\$c, \$now\);/', $src('fanboy-control.php')));
+        check('always on S5c: «Take over» takes both marks away; the night shift keeps mark and copy alike at every look',
+            (bool) preg_match('/function fanboyTakeOver\(array \$r = \[\]\): array\n\{(?:(?!\n\}\n).)*@unlink\(fanboyHandBackFile\(\)\);[^\n]*\n\s+@unlink\(fanboyHandBackFlash\(\)\);/s', $src('fanboy-setup.php'))
+            && (bool) preg_match('/function fanboyNight\(\?float \$now = null\): bool\n\{(?:(?!\n\}\n).)*fanboyHandBackKeep\(\);/s', $src('fanboy-night.php')));
+    } finally {
+        unset($GLOBALS['fanboyRamMode']);
+        foreach ($procs as $p) {
+            if (is_resource($p)) {
+                @proc_terminate($p, 9);
+                @proc_close($p);
+            }
+        }
+        alwaysOnTHireEnd($keep);
+        fanboyTEnd();
+    }
+}
