@@ -87,6 +87,7 @@ require __DIR__ . '/lib/jobs.php';          // what the office is doing right no
 require __DIR__ . '/lib/firsthome.php';       // a fresh server without appdata: the welcome's look and its «create»
 require __DIR__ . '/lib/import.php';        // taking over an earlier install: the folder and file checks (Jack Emby, Ms. Moverelli)
 require __DIR__ . '/lib/missedruns.php';    // scheduled runs that did not start because the array wasn't started (job.sh's marks)
+require __DIR__ . '/lib/holdsnothing.php';   // «holds nothing»: the self-check of what outlives the array's stop
 require __DIR__ . '/lib/rundir.php';        // the RAM folder: a real folder, nothing left behind, within its budget (/run is shared)
 foreach (glob(__DIR__ . '/desks/*.php') ?: [] as $deskFile) {
     require $deskFile;

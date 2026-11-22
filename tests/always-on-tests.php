@@ -244,3 +244,200 @@ function testAlwaysOnMissedRuns(): void
     check('always on S1d: the agent takes them at its start (setUp())', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/agent.php'), "    officeMissedSay();"));
     hardeningRm($tmp);
 }
+
+// ===================================================================== step S2: «holds nothing» (agent/lib/holdsnothing.php)
+
+/** A mount table as an Unraid server shows it (invented): RAM, the flash and its loop images, array, pools, shares, images on a pool */
+function alwaysOnTMountinfo(): string
+{
+    return implode("\n", [
+        '22 1 0:2 / / rw - rootfs rootfs rw,size=16000000k',
+        '23 22 0:22 / /proc rw,relatime - proc proc rw',
+        '24 22 0:23 / /sys rw,relatime - sysfs sysfs rw',
+        '25 22 0:5 / /dev rw,relatime - devtmpfs devtmpfs rw',
+        '28 22 0:26 / /run rw,nosuid shared:5 - tmpfs tmpfs rw,size=131072k',
+        '30 22 8:1 / /boot rw,noatime shared:6 - vfat /dev/sda1 rw',
+        '31 22 7:0 / /usr ro - squashfs /dev/loop0 ro',
+        '32 22 7:1 / /lib ro - squashfs /dev/loop1 ro',
+        '40 22 0:30 / /mnt rw shared:10 - tmpfs tmpfs rw,size=1024k',
+        '41 40 0:31 / /mnt/disks rw shared:11 - tmpfs tmpfs rw,size=1024k',
+        '42 40 0:32 / /mnt/remotes rw shared:12 - tmpfs tmpfs rw,size=1024k',
+        '43 40 0:33 / /mnt/addons rw shared:13 - tmpfs tmpfs rw,size=1024k',
+        '50 40 9:1 / /mnt/disk1 rw,noatime shared:20 - xfs /dev/md1p1 rw',
+        '51 40 0:40 / /mnt/cache rw,noatime shared:21 - btrfs /dev/nvme0n1p1 rw',
+        '52 40 0:45 / /mnt/tank rw shared:22 - zfs tank rw',
+        '53 52 0:46 / /mnt/tank/appdata rw shared:23 - zfs tank/appdata rw',
+        '54 40 0:50 / /mnt/user rw,nosuid shared:24 - fuse.shfs shfs rw',
+        '55 40 0:51 / /mnt/user0 rw,nosuid shared:25 - fuse.shfs shfs rw',
+        '60 22 7:2 / /var/lib/docker rw,noatime shared:30 - btrfs /dev/loop2 rw',
+        '61 22 7:3 / /etc/libvirt rw,noatime shared:31 - btrfs /dev/loop3 rw',
+        '62 43 0:60 / /mnt/addons/UnraidSecretaryOffice/snapread/p1 ro shared:32 - zfs tank/appdata@uso-read ro',
+        '63 41 8:33 / /mnt/disks/My\\040Disk rw shared:33 - ntfs3 /dev/sdc1 rw',
+        'a broken line',
+        '',
+    ]);
+}
+
+/** A fake /proc and /sys under $tmp: the mount table for $pids, init's namespace, the loop devices' files */
+function alwaysOnTProc(string $tmp, array $procs): array
+{
+    $proc = "$tmp/proc";
+    $sys = "$tmp/sys";
+    foreach (['loop0' => '/boot/bzfirmware', 'loop1' => '/boot/bzmodules', 'loop2' => '/mnt/cache/system/docker/docker.img', 'loop3' => '/mnt/user/system/libvirt/libvirt.img'] as $l => $file) {
+        @mkdir("$sys/block/$l/loop", 0700, true);
+        file_put_contents("$sys/block/$l/loop/backing_file", "$file\n");
+    }
+    @mkdir("$proc/1/ns", 0700, true);
+    @symlink('mnt:[4026531841]', "$proc/1/ns/mnt");
+    file_put_contents("$proc/1/stat", "1 (init) S 0 1 1 0 -1 4194560 0 0\n");
+    foreach ($procs as $pid => $p) {
+        $p += ['ns' => 'mnt:[4026531841]', 'cwd' => '/', 'root' => '/', 'fds' => [0 => '/dev/null', 1 => '/dev/null', 2 => '/dev/null'], 'maps' => [], 'ppid' => 1, 'name' => 'php', 'mountinfo' => alwaysOnTMountinfo()];
+        @mkdir("$proc/$pid/ns", 0700, true);
+        @mkdir("$proc/$pid/fd", 0700, true);
+        if ($p['ns'] !== null) {
+            @symlink($p['ns'], "$proc/$pid/ns/mnt");
+        }
+        foreach (['cwd', 'root'] as $k) {
+            if ($p[$k] !== null) {
+                @symlink($p[$k], "$proc/$pid/$k");
+            }
+        }
+        foreach ($p['fds'] as $n => $target) {
+            @symlink($target, "$proc/$pid/fd/$n");
+        }
+        $maps = "55d0c0000000-55d0c0200000 r--p 00000000 07:00 1234                       /usr/bin/php\n7ffc00000000-7ffc00021000 rw-p 00000000 00:00 0                          [stack]\n";
+        foreach ($p['maps'] as $m) {
+            $maps .= "7f0000000000-7f0000100000 r--s 00000000 {$m[0]} 77                         {$m[1]}\n";
+        }
+        if ($p['maps'] !== null) {
+            file_put_contents("$proc/$pid/maps", $maps);
+        }
+        if ($p['mountinfo'] !== null) {
+            file_put_contents("$proc/$pid/mountinfo", $p['mountinfo']);
+        }
+        file_put_contents("$proc/$pid/stat", "$pid ({$p['name']}) S {$p['ppid']} $pid $pid 0 -1 4194560 0 0\n");
+    }
+    return [$proc, $sys];
+}
+
+/**
+ * Step S2: what must not be held — from the mount table and the loop devices, never from a path's first letters alone:
+ * array disks, pools, datasets, the shares, a snapshot mounted under /mnt/addons, a disk outside array and pools, and the
+ * loop mounts of images that lie on a pool (/etc/libvirt, /var/lib/docker); never RAM under /mnt, the flash or its images.
+ */
+function testAlwaysOnHoldBarred(): void
+{
+    $tmp = hardeningTmp('ao-barred');
+    [$proc, $sys] = alwaysOnTProc($tmp, [100 => []]);
+    $b = officeHoldBarred(100, $proc, $sys);
+    same('always on S2: barred mounts — array, pools, datasets, shares, a mounted snapshot, a disk outside (its name with a space), the images on a pool',
+        ['/mnt/disk1' => '9:1', '/mnt/cache' => '0:40', '/mnt/tank' => '0:45', '/mnt/tank/appdata' => '0:46', '/mnt/user' => '0:50', '/mnt/user0' => '0:51',
+         '/var/lib/docker' => '7:2', '/etc/libvirt' => '7:3', '/mnt/addons/UnraidSecretaryOffice/snapread/p1' => '0:60', '/mnt/disks/My Disk' => '8:33'], $b['mounts'] ?? null);
+    same('always on S2: … their devices', ['9:1', '0:40', '0:45', '0:46', '0:50', '0:51', '7:2', '7:3', '0:60', '8:33'], array_map('strval', array_keys($b['devs'] ?? [])));
+    check('always on S2: never barred — the root, /run, the flash, its loop images (/usr, /lib), /mnt itself and RAM folders under it (/mnt/addons, /mnt/disks)',
+        !array_intersect(['/', '/run', '/boot', '/usr', '/lib', '/mnt', '/mnt/disks', '/mnt/remotes', '/mnt/addons', '/proc', '/sys', '/dev'], array_keys($b['mounts'] ?? [])));
+    same('always on S2: no mount table (the process gone, no /proc) — no list, never an empty one', [null, null], [officeHoldBarred(999, $proc, $sys), officeHoldBarred(100, "$tmp/nowhere", $sys)]);
+    // a loop device whose file can't be read is not barred by guess; the same device mounted under /mnt is
+    @unlink("$sys/block/loop3/loop/backing_file");
+    $b = officeHoldBarred(100, $proc, $sys);
+    check('always on S2: a loop device without a readable file is not barred by guess (the flash\'s are loops too)', !isset($b['mounts']['/etc/libvirt']) && isset($b['mounts']['/var/lib/docker']));
+    same('always on S2: the device number as the mount table writes it, from stat()\'s (small and large numbers)',
+        ['8:1', '0:45', '259:3', '7:2', '8:65537', '4660:5'], array_map('officeHoldDev', [(8 << 8) | 1, 45, (259 << 8) | 3, (7 << 8) | 2, (8 << 8) | 1 | (0x10000 << 12), (0x234 << 8) | 5 | (0x1000 << 32)]));
+    hardeningRm($tmp);
+}
+
+/** Step S2: a look judged — a process's namespace, cwd, root, open files and mapped files against what is barred (pure) */
+function testAlwaysOnHoldJudge(): void
+{
+    $tmp = hardeningTmp('ao-judge');
+    [$proc, $sys] = alwaysOnTProc($tmp, [100 => []]);
+    $barred = officeHoldBarred(100, $proc, $sys);
+    $clean = ['ns' => 'mnt:[1]', 'ns1' => 'mnt:[1]', 'cwd' => ['path' => '/', 'dev' => '0:2'], 'root' => ['path' => '/', 'dev' => '0:2'],
+        'files' => [['fd' => 0, 'path' => '/dev/null', 'dev' => '0:5'], ['fd' => 3, 'path' => '/run/unraid-secretary-office/fanboy/control.lock', 'dev' => '0:26'],
+                    ['fd' => 4, 'path' => '/mnt/addons/UnraidSecretaryOffice/metrics/office.prom', 'dev' => '0:33'], ['fd' => 5, 'path' => '/boot/config/plugins/x.cfg', 'dev' => '8:1']],
+        'maps' => [['path' => '/usr/bin/php', 'dev' => '7:0'], ['path' => '/lib64/libc.so.6', 'dev' => '7:1']], 'ok' => true];
+    same('always on S2: cwd /, files in RAM (also RAM under /mnt/addons), on the flash, code from the flash\'s images — holds nothing', null, officeHoldJudge($clean, $barred));
+    $with = fn (array $x) => officeHoldJudge(array_replace($clean, $x), $barred);
+    $short = fn (?array $f) => $f === null ? null : [$f['why'], $f['what'], $f['mount']];
+    same('always on S2: a mount namespace of its own — held, whatever else it says (2026-11-22: cwd /, no file open, the stop hung)',
+        ['namespace', 'mnt:[2] ≠ mnt:[1]', null], $short($with(['ns' => 'mnt:[2]'])));
+    same('always on S2: the working directory on a pool', ['cwd', '/mnt/cache/appdata', '/mnt/cache'], $short($with(['cwd' => ['path' => '/mnt/cache/appdata', 'dev' => '0:40']])));
+    same('always on S2: … through the share', ['cwd', '/mnt/user/appdata/UnraidSecretaryOffice/data', '/mnt/user'], $short($with(['cwd' => ['path' => '/mnt/user/appdata/UnraidSecretaryOffice/data', 'dev' => '0:50']])));
+    same('always on S2: a root on a pool (chroot)', ['root', '/mnt/tank/jail', '/mnt/tank'], $short($with(['root' => ['path' => '/mnt/tank/jail', 'dev' => '0:45']])));
+    same('always on S2: an open file on an array disk', ['file', '/mnt/disk1/x.log', '/mnt/disk1'], $short($with(['files' => [['fd' => 7, 'path' => '/mnt/disk1/x.log', 'dev' => '9:1']]])));
+    same('always on S2: … in a dataset: the deepest mount is named', ['file', '/mnt/tank/appdata/a/b.json', '/mnt/tank/appdata'], $short($with(['files' => [['fd' => 7, 'path' => '/mnt/tank/appdata/a/b.json', 'dev' => '0:46']]])));
+    same('always on S2: an open file in /etc/libvirt — an image on a pool behind it', ['file', '/etc/libvirt/qemu/vm.xml', '/etc/libvirt'], $short($with(['files' => [['fd' => 7, 'path' => '/etc/libvirt/qemu/vm.xml', 'dev' => '7:3']]])));
+    same('always on S2: a btrfs file whose device is not its mount\'s (a subvolume) — found by its path', ['file', '/mnt/cache/sub/x', '/mnt/cache'], $short($with(['files' => [['fd' => 7, 'path' => '/mnt/cache/sub/x', 'dev' => '0:99']]])));
+    same('always on S2: a file seen under another path (a bind mount) — found by its device', ['file', '/srv/elsewhere/x', '/mnt/disk1'], $short($with(['files' => [['fd' => 7, 'path' => '/srv/elsewhere/x', 'dev' => '9:1']]])));
+    same('always on S2: a deleted file still open on a pool — held', ['file', '/mnt/cache/gone.tmp', '/mnt/cache'],
+        $short(officeHoldJudge(['files' => [['fd' => 7, 'path' => '/mnt/cache/gone.tmp', 'dev' => null]]] + $clean, $barred)));
+    same('always on S2: a mapped file on a pool', ['map', '/mnt/user/appdata/x/lib.so', '/mnt/user'], $short($with(['maps' => [['path' => '/mnt/user/appdata/x/lib.so', 'dev' => '0:50']]])));
+    same('always on S2: names that only begin alike are not on the mount (/mnt/cache2 is not /mnt/cache, /mnt/disk10 not /mnt/disk1)', null,
+        $with(['files' => [['fd' => 7, 'path' => '/mnt/cache2/x', 'dev' => '0:77'], ['fd' => 8, 'path' => '/mnt/disk10/x', 'dev' => '0:78'], ['fd' => 9, 'path' => '/mnt/userdata', 'dev' => '0:30']]]));
+    // a look that could not be made is never «fine»
+    same('always on S2: no list of what is barred — «no look», never fine', ['no_look', 'mountinfo', null], $short(officeHoldJudge($clean, null)));
+    same('always on S2: the namespace not readable — «no look»', ['no_look', 'ns/mnt', null], $short($with(['ns1' => null])));
+    same('always on S2: a part of /proc not readable — «no look»', ['no_look', 'proc', null], $short($with(['ok' => false])));
+    check('always on S2: each finding has its line for a log', str_contains(officeHoldSay(['why' => 'file', 'what' => '/mnt/disk1/x', 'mount' => '/mnt/disk1', 'pid' => 7]), 'an open file (PID 7): /mnt/disk1/x on /mnt/disk1')
+        && str_contains(officeHoldSay(['why' => 'namespace', 'what' => 'a ≠ b', 'mount' => null]), 'a mount namespace of its own: a ≠ b') && str_contains(officeHoldSay(['why' => 'no_look', 'what' => 'proc', 'mount' => null]), 'the look itself failed (proc)'));
+    hardeningRm($tmp);
+}
+
+/** Step S2: the look itself, from a /proc of the test's — and a process with everything it started */
+function testAlwaysOnHoldLook(): void
+{
+    $tmp = hardeningTmp('ao-look');
+    [$proc, $sys] = alwaysOnTProc($tmp, [
+        100 => ['fds' => [0 => '/dev/null', 1 => '/dev/null', 2 => '/dev/null', 3 => '/run/unraid-secretary-office/fanboy/control.lock', 4 => 'pipe:[5551]', 5 => 'socket:[77]', 6 => 'anon_inode:[eventpoll]']],
+        101 => ['ppid' => 100, 'name' => 'sh) S 1 (x'],                // its name can hold anything: the parent is read after the last «)»
+        102 => ['ppid' => 101, 'cwd' => '/mnt/cache/appdata/x'],
+        200 => ['cwd' => '/mnt/user/appdata'],
+        201 => ['fds' => [0 => '/dev/null', 9 => '/mnt/disk1/share/file.bin']],
+        202 => ['fds' => [0 => '/dev/null', 9 => '/mnt/cache/tmp/x (deleted)']],
+        203 => ['maps' => [['00:32', '/mnt/user/appdata/x/lib.so'], ['00:1a', '/run/x.shm']]],
+        204 => ['ns' => 'mnt:[4026532999]'],
+        205 => ['fds' => [0 => '/dev/null', 9 => '/etc/libvirt/qemu/vm.xml']],
+        206 => ['ns' => null],
+        207 => ['mountinfo' => null],
+        208 => ['root' => '/mnt/tank/jail'],
+        300 => ['ppid' => 1], 301 => ['ppid' => 300], 302 => ['ppid' => 301, 'fds' => [0 => '/dev/null', 5 => '/mnt/tank/appdata/held']],
+    ]);
+    $look = officeHoldLook(100, $proc);
+    same('always on S2: the look — its namespace and init\'s, cwd, root, only what has a path among its open files (no pipe, socket, anonymous), its mapped files',
+        ['mnt:[4026531841]', 'mnt:[4026531841]', '/', '/', ['/dev/null', '/dev/null', '/dev/null', '/run/unraid-secretary-office/fanboy/control.lock'], ['/usr/bin/php'], true],
+        [$look['ns'], $look['ns1'], $look['cwd']['path'] ?? null, $look['root']['path'] ?? null, array_column($look['files'], 'path'), array_column($look['maps'], 'path'), $look['ok']]);
+    same('always on S2: a mapped file\'s device, hex in /proc/<pid>/maps, as the mount table writes it', ['0:50', '0:26'], array_column(officeHoldLook(203, $proc)['maps'], 'dev', 'path') === [] ? [] :
+        array_values(array_intersect_key(array_column(officeHoldLook(203, $proc)['maps'], 'dev', 'path'), ['/mnt/user/appdata/x/lib.so' => 1, '/run/x.shm' => 1])));
+    same('always on S2: a process and what it started (child, grandchild) — the tree; another tree stays out', [[100, 101, 102], [300, 301, 302], [200]],
+        [officeHoldTree(100, $proc), officeHoldTree(300, $proc), officeHoldTree(200, $proc)]);
+    $short = fn (?array $f) => $f === null ? null : [$f['why'], $f['what'], $f['mount'], $f['pid']];
+    $got = [];
+    foreach ([200, 201, 202, 203, 204, 205, 206, 207, 208] as $pid) {
+        $got[$pid] = $short(officeHoldsNothing($pid, $proc, $sys));
+    }
+    same('always on S2: each way to hold a pool is found and named — cwd on the share, a file on an array disk, a deleted file still open, a mapped file, a namespace of its own, a file in /etc/libvirt; a namespace or mount table that can\'t be read is «no look»; a root on a pool',
+        [200 => ['cwd', '/mnt/user/appdata', '/mnt/user', 200], 201 => ['file', '/mnt/disk1/share/file.bin', '/mnt/disk1', 201], 202 => ['file', '/mnt/cache/tmp/x', '/mnt/cache', 202],
+         203 => ['map', '/mnt/user/appdata/x/lib.so', '/mnt/user', 203], 204 => ['namespace', 'mnt:[4026532999] ≠ mnt:[4026531841]', null, 204],
+         205 => ['file', '/etc/libvirt/qemu/vm.xml', '/etc/libvirt', 205], 206 => ['no_look', 'ns/mnt', null, 206], 207 => ['no_look', 'mountinfo', null, 207],
+         208 => ['root', '/mnt/tank/jail', '/mnt/tank', 208]], $got);
+    same('always on S2: a clean process whose grandchild sits on a pool — held, the grandchild named', ['cwd', '/mnt/cache/appdata/x', '/mnt/cache', 102], $short(officeHoldsNothing(100, $proc, $sys)));
+    same('always on S2: … and one whose great-grandchild holds a file in a dataset', ['file', '/mnt/tank/appdata/held', '/mnt/tank/appdata', 302], $short(officeHoldsNothing(300, $proc, $sys)));
+    exec('rm -rf ' . escapeshellarg("$proc/102"));
+    same('always on S2: the grandchild gone — the process holds nothing', null, officeHoldsNothing(100, $proc, $sys));
+    same('always on S2: a process that isn\'t there — «no look», never fine', 'no_look', officeHoldsNothing(999, $proc, $sys)['why'] ?? null);
+    // for real, where there is a /proc (never on the Mac): this test process. On the server the suite runs in a mount
+    // namespace of its own (the guard of the live RAM folder, tests/run.php) — exactly what the look must find
+    if (is_link('/proc/self/ns/mnt') && is_link('/proc/1/ns/mnt') && @readlink('/proc/1/ns/mnt') !== false) {
+        $real = officeHoldsNothing();
+        $own = readlink('/proc/self/ns/mnt') !== readlink('/proc/1/ns/mnt');
+        check('always on S2: for real — this process ' . ($own ? 'runs in a mount namespace of its own: found' : 'in init\'s namespace: nothing, or what it really holds, by name')
+            . ' (' . ($real === null ? 'holds nothing' : officeHoldSay($real)) . ')',
+            $own ? ($real['why'] ?? null) === 'namespace' : ($real === null || in_array($real['why'], ['cwd', 'file', 'map'], true)));
+        $b = officeHoldBarred();
+        check('always on S2: for real — the mount table is read, and nothing barred lies outside /mnt but loop mounts', is_array($b)
+            && !array_filter(array_keys($b['mounts']), fn ($m) => !str_starts_with((string) $m, '/mnt/') && !in_array((string) $m, ['/var/lib/docker', '/etc/libvirt'], true) && !str_starts_with((string) $m, '/var/lib/docker/')), json_encode($b));
+    }
+    check('always on S2: the library needs nothing of the agent (the guard and the control load it alone)',
+        !preg_match('/\b(logLine|readJson|writeAtomic|RUN_DIR|DATA_DIR|run\()\b/', (string) preg_replace('~/\*.*?\*/|//[^\n]*~s', '', (string) file_get_contents(OFFICE_DIR . '/agent/lib/holdsnothing.php'))));
+    hardeningRm($tmp);
+}
