@@ -1356,5 +1356,21 @@
   "hist.curve": "{kind} {c} °C",
   "hist.curve_led": "{kind} {c} °C (führte)",
   "hist.read_hint": "Zeig auf eine Kurve (oder tippe darauf), um einen Moment abzulesen — in allen Zonen zugleich; die Pfeiltasten verschieben die Markierung.",
-  "hist.read_none": "{time}: nichts aufgezeichnet"
+  "hist.read_none": "{time}: nichts aufgezeichnet",
+  "why.no_mirror": "Seine Einstellungen fehlen im Arbeitsspeicher — er regelt nichts",
+  "why.holds": "Seine Regelung hat sich selbst beendet: Sie darf den Stopp des Arrays nie aufhalten — jeder Lüfter ist zurückgegeben",
+  "dash.why.no_mirror": "seine Einstellungen fehlen im Arbeitsspeicher",
+  "dash.why.holds": "seine Regelung hat sich selbst beendet",
+  "notify.holds_subject": "Fanboy: seine Regelung hat sich selbst beendet",
+  "notify.holds": "Fanboys Regelung hat bemerkt, dass sie etwas auf dem Array oder einem Pool festhält. Sie darf den Stopp des Arrays nie aufhalten, darum hat sie sich beendet. Jeder Lüfter, den sie hielt, ist so zurückgegeben, wie es für ihn festgelegt ist (sein Zustand vor ihm oder die Automatik des Mainboards). Er startet sie nicht von selbst wieder — erst wenn der Hausbote neu startet (beim nächsten Start des Arrays, nach einem Update) oder nach «Zurückgeben» und «Übernehmen». Im Log des Sekretariats steht, was sie festhielt.",
+  "still": "Fanboy regelt die Lüfter weiter. Seine Einstellungen warten auf das Array.",
+  "dash.stopped": "Das Array läuft nicht — er regelt weiter.",
+  "dash.stopped_disks": "Die Temperaturen der Festplatten kennt solange niemand: Die Lüfter der Platten halten eine Mindestdrehzahl, keiner steht.",
+  "pic.unknown_stopped": "Temperatur unbekannt, solange das Array gestoppt ist",
+  "pic.unknown_now": "Temperatur gerade unbekannt",
+  "dash.back": "Lüfter dem Mainboard zurückgeben…",
+  "dash.back_title": "Lüfter dem Mainboard zurückgeben?",
+  "dash.back_text": "Jeder Lüfter, den er regelt, geht sofort ans Mainboard zurück. Er übernimmt sie erst wieder mit «Übernehmen» auf seiner Seite, sobald das Array läuft.",
+  "dash.back_yes": "Zurückgeben",
+  "dash.back_no": "Abbrechen"
 }

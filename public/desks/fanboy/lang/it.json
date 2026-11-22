@@ -1356,5 +1356,21 @@
   "hist.curve": "{kind} {c} °C",
   "hist.curve_led": "{kind} {c} °C (guidava)",
   "hist.read_hint": "Punta su un grafico (o toccalo) per leggere un momento — in tutte le zone insieme; i tasti freccia spostano il segno.",
-  "hist.read_none": "{time}: niente registrato"
+  "hist.read_none": "{time}: niente registrato",
+  "why.no_mirror": "Le sue impostazioni mancano in memoria — non regola nulla",
+  "why.holds": "La sua regolazione si è fermata da sola: non deve mai trattenere l’arresto dell’array — ogni ventola è restituita",
+  "dash.why.no_mirror": "le sue impostazioni mancano in memoria",
+  "dash.why.holds": "la sua regolazione si è fermata da sola",
+  "notify.holds_subject": "Fanboy: la sua regolazione si è fermata da sola",
+  "notify.holds": "La regolazione di Fanboy si è accorta di tenere occupato qualcosa sull'array o su un pool. Non deve mai trattenere l'arresto dell'array, perciò si è fermata. Ogni ventola che teneva è restituita come stabilito per lei (il suo stato prima di lui o l'automatico della scheda madre). Non la riavvia da solo — solo quando il messaggero riparte (al prossimo avvio dell'array, dopo un aggiornamento) oppure dopo «Restituisci» e «Affida a lui». Nel registro della segreteria c'è scritto che cosa teneva occupato.",
+  "still": "Fanboy continua a regolare le ventole. Le sue impostazioni aspettano l'array.",
+  "dash.stopped": "L'array non è in funzione — lui continua a regolare.",
+  "dash.stopped_disks": "Nel frattempo nessuno conosce le temperature dei dischi: le loro ventole tengono una velocità minima, nessuna si ferma.",
+  "pic.unknown_stopped": "temperatura sconosciuta finché l'array è fermo",
+  "pic.unknown_now": "temperatura sconosciuta in questo momento",
+  "dash.back": "Restituisci le ventole alla scheda madre…",
+  "dash.back_title": "Restituire le ventole alla scheda madre?",
+  "dash.back_text": "Ogni ventola che regola torna subito alla scheda madre. Le riprende solo con «Affida a lui» sulla sua pagina, quando l'array è in funzione.",
+  "dash.back_yes": "Restituisci",
+  "dash.back_no": "Annulla"
 }

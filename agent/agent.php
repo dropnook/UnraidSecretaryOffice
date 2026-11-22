@@ -25,6 +25,8 @@ declare(strict_types=1);
  *   php agent.php status    is an agent running?
  *   php agent.php job snapshot-plans   run the snapshot schedules that are due (the plugin's cron file, via scripts/job.sh)
  *   php agent.php job <name> [args]    a job a desk registers ('jobs' in desk()), e.g. embycache, gather
+ *   php agent.php ramjob <name> [args] a job a desk registers to run WITHOUT the data folder, whatever the array does
+ *                           ('ram_jobs' in desk(), lib/ramjob.php): RAM and flash only, nothing under /mnt
  *
  * When one of its files changes, the running agent lints the new code and
  * restarts itself in place.
@@ -59,17 +61,24 @@ define('OFFICE_DIR', dirname(__DIR__));
 defined('OFFICE_WEB') || define('OFFICE_WEB', OFFICE_DIR);
 // the night shift keeps nothing under /mnt: its log lies in RAM next to its book
 define('NIGHT_MODE', PHP_SAPI === 'cli' && !defined('AGENT_LIBRARY_ONLY') && ($argv[1] ?? '') === 'nightshift');
+// A job without the data folder (`ramjob <name>`, lib/ramjob.php): its name, '' in every other process. It may run while
+// the array runs, stops or is stopped and must never open anything there — its data folder is OFFICE_NO_DATA, a place
+// that can never be (nothing is read, made or written under /dev/null), its log lies in RAM. The tests name the mode
+// themselves (AGENT_RAM_JOB) before they load this file.
+require __DIR__ . '/lib/ramjob.php';
+define('RAM_JOB', defined('AGENT_RAM_JOB') ? (string) AGENT_RAM_JOB
+    : (PHP_SAPI === 'cli' && !defined('AGENT_LIBRARY_ONLY') && ($argv[1] ?? '') === 'ramjob' && preg_match(RAMJOB_NAME_RE, (string) ($argv[2] ?? '')) ? (string) $argv[2] : ''));
 // The data folder as the user set it (DATA_DIR in the plugin's .cfg, usually /mnt/user/appdata/…): what the user
 // sees and what other programs get (the backup engine's UB_DATA, Ms. Dustdevil's «Where is what»). The agent itself
 // reads and writes DATA_DIR: the same folder, on its pool directly when it lies in an exclusive share
 // (officeUnraidPath() — past shfs; decided at every start = every array start, looked at again every minute,
 // dataWayLook()). The night shift never looks under /mnt.
 define('DATA_DIR_USER', rtrim(getenv('OFFICE_DATA_DIR') ?: officePluginDataDir(), '/'));
-define('DATA_DIR', NIGHT_MODE ? DATA_DIR_USER : officeUnraidPath(DATA_DIR_USER));
+define('DATA_DIR', RAM_JOB !== '' ? OFFICE_NO_DATA : (NIGHT_MODE ? DATA_DIR_USER : officeUnraidPath(DATA_DIR_USER)));
 define('MAILBOX', DATA_DIR . '/mailbox');
 define('OFFICE_PRIVATE', DATA_DIR . '/office');
 define('AGENT_INFO', DATA_DIR . '/agent.json');
-define('AGENT_LOG', NIGHT_MODE ? RUN_DIR . '/nightshift/nightshift.log' : DATA_DIR . '/agent.log');
+define('AGENT_LOG', NIGHT_MODE ? RUN_DIR . '/nightshift/nightshift.log' : (RAM_JOB !== '' ? ramLogFile(RAM_JOB) : DATA_DIR . '/agent.log'));
 
 require __DIR__ . '/lib/util.php';
 require __DIR__ . '/lib/mounts.php';
@@ -86,6 +95,8 @@ require __DIR__ . '/lib/supporter.php';     // the key a tip made, asked of the 
 require __DIR__ . '/lib/jobs.php';          // what the office is doing right now, for the Dashboard tile (office.jobs)
 require __DIR__ . '/lib/firsthome.php';       // a fresh server without appdata: the welcome's look and its «create»
 require __DIR__ . '/lib/import.php';        // taking over an earlier install: the folder and file checks (Jack Emby, Ms. Moverelli)
+require __DIR__ . '/lib/missedruns.php';    // scheduled runs that did not start because the array wasn't started (job.sh's marks)
+require __DIR__ . '/lib/holdsnothing.php';   // «holds nothing»: the self-check of what outlives the array's stop
 require __DIR__ . '/lib/rundir.php';        // the RAM folder: a real folder, nothing left behind, within its budget (/run is shared)
 foreach (glob(__DIR__ . '/desks/*.php') ?: [] as $deskFile) {
     require $deskFile;
@@ -115,6 +126,17 @@ function main(array $argv): int
             }
             fwrite(STDERR, "Usage: php agent.php job snapshot-plans|<a desk's job>\n");
             return 2;
+        case 'ramjob':
+            // a desk's job without the data folder (lib/ramjob.php): cwd /, RAM and flash only
+            foreach (RAM_JOB !== '' ? desks() : [] as $desk) {
+                if (isset($desk['ram_jobs'][RAM_JOB])) {
+                    chdir('/');
+                    umask(0077);
+                    return (int) $desk['ram_jobs'][RAM_JOB](array_slice($argv, 3));
+                }
+            }
+            fwrite(STDERR, "Usage: php agent.php ramjob <a desk's job that runs without the data folder>\n");
+            return 2;
         case 'nightshift':
             return nightShift();
         case 'status':
@@ -122,7 +144,7 @@ function main(array $argv): int
             echo $pid ? "Agent is running (PID $pid).\n" : "Agent is not running.\n";
             return $pid ? 0 : 3;
     }
-    fwrite(STDERR, "Usage: php agent.php run|nightshift|status|job <name>\n");
+    fwrite(STDERR, "Usage: php agent.php run|nightshift|status|job <name>|ramjob <name>\n");
     return 2;
 }
 
@@ -171,6 +193,14 @@ function runningAgent(): ?int
  * Ends when the array is started or the agent runs (never two of them: WATCH_NIGHT_LOCK), at SIGTERM
  * (agent.sh stops it before the agent starts), and at once without a mirror (he isn't hired, or had no
  * round yet): exit 0 — the supervisor in agent.sh doesn't start it again then.
+ *
+ * Other desks may have work of their own while the array isn't started (desk(…, ['night' => fn (): bool]), 2026-11-22:
+ * the fan desk's control is looked after) — called every pass, RAM and flash only like everything here. A desk that
+ * answers true keeps the night shift on: then it stays without the night watchman's mirror too (no rounds of his), and
+ * ends once no desk asks any more.
+ *
+ * It looks at itself before its first round and every minute (lib/holdsnothing.php) and ends when it finds itself holding
+ * something on the array or a pool — exit 0: the supervisor doesn't start it again.
  */
 function nightShift(): int
 {
@@ -199,6 +229,9 @@ function nightShift(): int
     $GLOBALS['officeNotifySender'] = true;     // the night shift sends the Team Lead's summaries meanwhile (RAM only)
     $nextNotify = -INF;
     $zoneSeen = null;
+    $watch = true;              // the night watchman's rounds: until he has no mirror
+    $nextSelf = -INF;           // its look at itself: before its first round and every minute
+    $noLook = false;
     while (!$stop) {
         clearstatcache();
         $agent = runningAgent();
@@ -209,6 +242,23 @@ function nightShift(): int
         if (arrayRunning()) {
             $why = 'the array is started — the agent takes over';
             break;
+        }
+        // 2026-11-22: it is at work while the array stops and starts, and stays on longer since a desk can ask — it must
+        // never be what keeps the array from stopping. Found holding something on the array or a pool (a working
+        // directory, an open file, a mapped file, a mount namespace of its own — lib/holdsnothing.php): it says so and ends;
+        // what it looked after has nets of its own. A look that can't be made ends nothing (it opens nothing there by
+        // itself, and its end would help nobody): said once.
+        if (agentClock() >= $nextSelf) {
+            $nextSelf = agentClock() + 60;
+            $held = officeHoldsNothing();
+            if ($held !== null && ($held['why'] ?? '') !== 'no_look') {
+                $why = 'it must never keep the array from stopping, and ' . officeHoldSay($held);
+                break;
+            }
+            if ($held !== null && !$noLook) {
+                $noLook = true;
+                nightLog('The look at itself could not be made (' . officeHoldSay($held) . ') — it goes on');
+            }
         }
         if (agentClock() >= $nextNotify) {
             $nextNotify = agentClock() + 60;
@@ -222,13 +272,35 @@ function nightShift(): int
                 nightLog('Notifications: ' . $e->getMessage());
             }
         }
-        if (agentClock() >= $next) {
+        // the desks' own work while the array isn't started; one that answers true keeps the night shift on
+        $wanted = [];
+        foreach (desks() as $id => $desk) {
+            if (isset($desk['night'])) {
+                try {
+                    if ($desk['night']() === true) {
+                        $wanted[] = $id;
+                    }
+                } catch (Throwable $e) {
+                    nightLog("$id: " . $e->getMessage() . ' (' . basename($e->getFile()) . ':' . $e->getLine() . ')');
+                }
+            }
+        }
+        if (!$watch && !$wanted) {
+            $why = 'nothing left to look after';
+            break;
+        }
+        if ($watch && agentClock() >= $next) {
             $next = agentClock() + WATCH_EVERY;
             try {
                 $r = watchmanNightRound(watchmanNightPaths());
                 if ($r === null) {
-                    $why = 'no mirror of his baseline (the night watchman isn\'t hired, or had no round yet) — no night shift';
-                    break;
+                    if (!$wanted) {
+                        $why = 'no mirror of his baseline (the night watchman isn\'t hired, or had no round yet) — no night shift';
+                        break;
+                    }
+                    $watch = false;
+                    nightLog('No mirror of the night watchman\'s baseline (he isn\'t hired, or had no round yet): no rounds of his — the night shift stays for ' . implode(', ', $wanted));
+                    continue;
                 }
                 $rounds++;
                 if ($r['begun'] ?? null) {
@@ -381,6 +453,11 @@ function serve(): int
                 hostAtRequeue();        // the office's jobs queued «now» while the clock was ahead (lib/house.php)
             } catch (Throwable $e) {
                 logLine('Office: atd\'s queue: ' . $e->getMessage());
+            }
+            try {
+                ramLogFold();           // what the jobs without the data folder said, into this log (lib/ramjob.php)
+            } catch (Throwable $e) {
+                logLine('Office: a RAM job\'s log could not be taken over: ' . $e->getMessage());
             }
             $new = codeStamp();
             if ($new !== $code) {
@@ -575,6 +652,7 @@ function setUp(): void
         logLine('Office: ' . $GLOBALS['runDirSaid']);
         $GLOBALS['runDirSaid'] = null;
     }
+    officeMissedSay();      // scheduled runs that did not start while the array wasn't started (lib/missedruns.php)
     // what an agent before this one left in RAM (a crash, a restart in place keeps the pid: no job of this one runs yet)
     if ($gone = runDirSweep([])) {
         logLine('Office: removed from the RAM folder what the agent before left: ' . implode(', ', array_slice($gone, 0, 10)) . (count($gone) > 10 ? ' …' : ''));

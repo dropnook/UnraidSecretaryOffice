@@ -130,12 +130,17 @@ function fanboyDriversLoad(): array
     return $result;
 }
 
-/** At the agent's start, before the control steers: what helped on this board, loaded again (when not loaded) */
-function fanboyDriversBoot(): array
+/**
+ * At the agent's start, before the control steers: what helped on this board, loaded again (when not loaded). $mods: the
+ * night shift after a boot, before the array started (2026-11-22) — the modules the copy of his mirror on the flash
+ * names for this board (fanboyMirrorFromFlash(): his store in the data folder isn't there yet); only modules he knows.
+ */
+function fanboyDriversBoot(?array $mods = null): array
 {
     $bin = fanboyModprobe();
     $board = fanboyBoard(fanboyPaths(fanboySysRoot() ?: null)['dmi']);
-    $mods = fanboyDriversRead()['boards'][fanboyBoardKey($board)]['modules'] ?? [];
+    $mods = $mods !== null ? array_values(array_filter($mods, fn ($m) => is_string($m) && in_array($m, FANBOY_DRIVERS, true)))
+        : (fanboyDriversRead()['boards'][fanboyBoardKey($board)]['modules'] ?? []);
     $out = [];
     foreach ($mods as $m) {
         if ($bin === null || fanboyModuleLoaded($m)) {

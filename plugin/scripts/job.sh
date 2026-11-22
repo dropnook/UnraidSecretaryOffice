@@ -13,7 +13,9 @@
 #
 # Only while the array is started (agent.sh's array_started): the office's data
 # lies in appdata, and nothing may land in /mnt while it is a bare RAM folder.
-# The watch looks itself (a stopped array resets its count).
+# The watch looks itself (a stopped array resets its count). A run that doesn't
+# start for that leaves a mark in RAM (job_missed below): the agent says it in
+# its log at its next start.
 #
 # Once per job and minute: Unraid's crond reads root's own crontab as well as
 # /etc/cron.d/root, so a line that is in both (or twice in one) starts a job
@@ -45,9 +47,31 @@ fi
 exec 9>&-          # not into the job: it would hold the lock for hours
 
 [[ "$1" == watch ]] && exec bash "$DIR/scripts/agent.sh" watch
+
+# A scheduled run that doesn't start because the array isn't started was silent: nothing in a history, nothing in a
+# log. Now a mark in RAM, $RUN/missed-<job>: "<first time> <last time> <how often>" - the agent takes it at its next
+# start and says it in its log (agent/lib/missedruns.php) - and one line in the syslog at the first one. Not for the
+# snapshots: what was due is caught up at the array's start. Never anything under /mnt; anything in the way: no mark.
+job_missed() {
+    local m="$RUN/missed-$1" now first="" last="" n=""
+    case "$1" in
+        backup|embycache|gather|moverelli|cleanup|logs) ;;
+        *) return 0 ;;
+    esac
+    [[ -d "$RUN" && ! -L "$RUN" && ! -L "$m" && ! -L "$m.tmp" ]] || return 0
+    now=$(date +%s)
+    [[ -f "$m" ]] && read -r first last n <"$m" 2>/dev/null
+    if [[ ! "$first" =~ ^[0-9]{1,12}$ || ! "$n" =~ ^[0-9]{1,5}$ ]]; then
+        first=$now; n=0
+        logger -t unraid-secretary-office "job $1: not started - the array isn't started"
+    fi
+    echo "$first $now $((10#$n + 1))" >"$m.tmp" 2>/dev/null && mv -f "$m.tmp" "$m" 2>/dev/null
+    return 0
+}
 # the array runs - agent.sh's array_started (Started, and Unraid's "Started, formatting/clearing": the engine
 # backs up while a new disk is cleared for hours); sourced, agent.sh only defines
-source "$DIR/scripts/agent.sh" 2>/dev/null && array_started || exit 0
+source "$DIR/scripts/agent.sh" 2>/dev/null || exit 0
+array_started || { job_missed "$1"; exit 0; }
 
 case "$1" in
     backup)

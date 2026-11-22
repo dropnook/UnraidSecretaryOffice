@@ -13293,7 +13293,8 @@ function testAgentBackupHooks(): void
     same('array states: agent.sh, agent.php and the engine agree - Formatting and Clearing run, Starting and none are neither',
         ['Started' => ['1', '1', '-'], 'Formatting' => ['1', '1', '-'], 'Clearing' => ['1', '1', '-'], 'Starting' => ['0', '0', '-'],
          'Stopping' => ['0', '0', 'stop'], 'Stopped' => ['0', '0', 'stop'], '(none)' => ['0', '0', '-']], $got);
-    check('array states: job.sh asks agent.sh\'s array_started', (bool) preg_match('/^source "\$DIR\/scripts\/agent\.sh" 2>\/dev\/null && array_started \|\| exit 0$/m',
+    // (2026-11-22: a run that doesn't start for it leaves its mark first — job_missed, testAlwaysOnMissedRuns)
+    check('array states: job.sh asks agent.sh\'s array_started', (bool) preg_match('/^source "\$DIR\/scripts\/agent\.sh" 2>\/dev\/null \|\| exit 0\narray_started \|\| \{ job_missed "\$1"; exit 0; \}$/m',
         (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/job.sh')));
     $all = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/agent.sh') . file_get_contents(OFFICE_DIR . '/plugin/scripts/job.sh') . file_get_contents(OFFICE_DIR . '/agent/agent.php');
     check('array states: no other spelling of «started» left in agent.sh, job.sh, agent.php', !str_contains($all, 'fsState="Started"') && !str_contains($all, "=== 'Started'")
@@ -24347,7 +24348,8 @@ function testCleanEnv(): void
     same('clean env: CLEAN_ENV unsets the session\'s five', ['env -u ' . implode(' -u ', $vars)],
         preg_match('/^CLEAN_ENV=\((env[^)\n]*)\)$/m', $agent, $m) ? [$m[1]] : []);
     preg_match_all('/^[^#\n]*\b(setsid|at -M)\b[^\n]*$/m', $agent, $starts);
-    check('clean env: agent.sh starts four things (both supervisors, the USO network\'s check, atd\'s --recover)', count($starts[0]) === 4,
+    // (2026-11-22: the fifth — the guard's look after a release, fanboy_back_check)
+    check('clean env: agent.sh starts five things (both supervisors, the USO network\'s check, atd\'s --recover, Fanboy\'s look after a release)', count($starts[0]) === 5,
         implode("\n", $starts[0]));
     same('clean env: every one of them through CLEAN_ENV', [], array_values(array_filter($starts[0], fn ($l) => !str_contains($l, '"${CLEAN_ENV[@]}"'))));
     $job = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/job.sh');
@@ -24534,7 +24536,7 @@ function testJobGuard(): void
     $script = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/job.sh');
     $script = str_replace(['DIR=/usr/local/emhttp/plugins/unraid-secretary-office', 'RUN=/var/run/unraid-secretary-office', 'logger -t unraid-secretary-office'],
                           ["DIR=$tmp/plugin", "RUN=$tmp/run", "echo >> $tmp/syslog"], $script, $n);
-    same('job guard: the copy points to the test folder', 3, $n);
+    same('job guard: the copy points to the test folder', 4, $n);       // DIR, RUN and both of its syslog lines (the second: job_missed, 2026-11-22)
     file_put_contents("$tmp/job.sh", $script);
     file_put_contents("$tmp/plugin/scripts/agent.sh", "echo \"\$1\" >> $tmp/ran\n");
     $run = function () use ($tmp): string {
@@ -30752,6 +30754,7 @@ function testNightUi(): void
         . ' set_error_handler(function (int $no, string $s, string $file, int $line): bool { if (error_reporting() & $no) { fwrite(STDERR, "PHP: $s ($file:$line)\n"); } return true; });'
         . ' if ($argv[1] === "read") { $out = []; foreach (json_decode($argv[2], true) as $n) { $out[$n] = officeNightShift(' . var_export($tmp, true) . ' . "/run-$n"); }'
         . ' echo json_encode($out); exit; }'
+        . ' if ($argv[1] === "word") { echo json_encode(array_map("officeDashAgentWord", json_decode($argv[2], true))); exit; }'
         . ' if ($argv[1] === "api") { $_SERVER["REQUEST_METHOD"] = "GET"; $_GET = ["a" => $argv[2], "lang" => "en", "desk" => $argv[3] ?? ""]; api_main(); }'
         . ' echo json_encode(["agent" => agentInfo(), "config" => officePageConfig()["agent"], "en" => officeDashRows("en"), "de" => officeDashRows("de"),'
         . ' "fr" => officeDashRows("fr")]);');
@@ -30784,6 +30787,17 @@ function testNightUi(): void
     check('night ui: the tile — the messenger says the array, his line with since, rounds and what is new',
         str_contains($en, 'Array stopped') && str_contains($en, 'desks/watchman/avatar.svg') && str_contains($en, 'The Night Watchman')
         && ($at === null || str_contains($en, "Night shift since $at")) && str_contains($en, '7 rounds, 1 new entry') && str_contains($en, 'orange-text'), $raw);
+    // 2026-11-22: the array stopped on purpose is no alarm — the Messenger's word in no colour (red before), and no empty tone class
+    check('night ui: the tile — «Array stopped» in no colour: nothing is wrong',
+        (bool) preg_match('~<span class="sso-dash-state">Array stopped</span>~', $en) && !str_contains($en, 'red-text') && !str_contains($en, '"sso-dash-state -text"'), $en);
+    [$words, $err] = $web(['word', json_encode([
+        'on' => ['running' => true], 'night' => ['running' => false, 'night' => ['since' => 1]],
+        'stopped' => ['running' => false, 'no_data' => ['array' => 'Stopped']], 'stopping' => ['running' => false, 'no_data' => ['array' => 'Stopping']],
+        'boot' => ['running' => false, 'no_data' => ['array' => '']], 'no_folder' => ['running' => false, 'no_data' => ['array' => 'Started']],
+        'away' => ['running' => false]])], 'on');
+    same('night ui: the Messenger\'s word and tone — at work green; night shift, stopped, stopping, booting: the array\'s word, no colour; away with the array started: red',
+        ['on' => ['agent.label_on', 'green'], 'night' => ['agent.label_array', ''], 'stopped' => ['agent.label_array', ''], 'stopping' => ['agent.label_array', ''],
+         'boot' => ['agent.label_array', ''], 'no_folder' => ['agent.label_off', 'red'], 'away' => ['agent.label_off', 'red'], 'err' => ''], ($words ?? []) + ['err' => $err]);
     check('night ui: the tile in German and French', str_contains((string) ($o['de'] ?? ''), '7 Rundgänge, 1 neuer Eintrag') && str_contains((string) ($o['de'] ?? ''), 'Der Nachtwächter')
         && str_contains((string) ($o['fr'] ?? ''), '7 rondes, 1 nouvelle entrée'), $raw);
     check('night ui: the tile links to the office\'s reception', (bool) preg_match('~<a class="sso-dash-row" href="[^"]*#/"><img class="sso-dash-icon" src="[^"]*desks/watchman/avatar\.svg~', $en), $en);
@@ -65285,6 +65299,7 @@ require __DIR__ . '/fanboy-chipid-tests.php';
 require __DIR__ . '/fanboy-doctor-tests.php';
 require __DIR__ . '/fanboy-look-tests.php';
 require __DIR__ . '/caretaker-newcomer-tests.php';
+require __DIR__ . '/always-on-tests.php';       // «always on» (2026-11-22): its part `alwayson`
 
 /**
  * 2026-11-16 (the owner lets him out): Fanboy is a desk like the others — listed, hireable, not hired by default, steering
@@ -65318,7 +65333,7 @@ function testFanboyPublic(): void
     };
     $agent = 'define("AGENT_LIBRARY_ONLY", 1); define("OFFICE_WEB", ' . var_export(OFFICE_WEB, true) . '); require ' . var_export(OFFICE_DIR . '/agent/agent.php', true) . ';'
         . ' $d = desks()["fanboy"] ?? null; echo json_encode(["desk" => $d !== null, "actions" => $d ? array_keys($d["actions"]) : [], "fit" => $d && $d["fit"] !== null,'
-        . ' "checks" => $d && $d["checks"] !== null, "jobs" => $d ? array_keys($d["jobs"] ?? []) : [], "tick" => $d && $d["tick"] !== null,'
+        . ' "checks" => $d && $d["checks"] !== null, "jobs" => $d ? array_merge(array_keys($d["ram_jobs"] ?? []), array_keys($d["jobs"] ?? [])) : [], "tick" => $d && $d["tick"] !== null,'
         . ' "hired" => in_array("fanboy", staffHired(), true), "notify" => in_array("fanboy", officeNotifyDesks(), true)]);';
     // the web side as the plugin lays it out (src/ beside desks/, lang/, assets/)
     @mkdir("$tmp/plugin/src", 0700, true);
@@ -65341,7 +65356,8 @@ function testFanboyPublic(): void
     same('fanboy public: … hired once staff.json says so (agent, web) — «not hired» above is the default, not a blind spot', [true, true], [$hired[0]['hired'] ?? $hired[0], $hired[1]['hired'] ?? $hired[1]]);
     $actions = ['refresh', 'report', 'look_now', 'drivers_load', 'drivers_undo', 'chip_read', 'chip_report', 'test_up', 'measure', 'step_alive', 'step_stop', 'step_next', 'hub_look', 'answer', 'role', 'fan_name', 'fan_save',
                 'zones_propose', 'zones_save', 'dry_run', 'take_over', 'hand_back', 'back', 'fan_look', 'history', 'dashboard', 'watch', 'show', 'show_stop', 'safety_back', 'stop_all'];
-    same('fanboy public: the desk on both sides without any file (refresh, report and part 2\'s actions; a fit, checks, his four jobs, a tick), a sender of the notification centre — and not hired',
+    // (2026-11-22: the control is his job without the data folder — `ram_jobs` —, the other three jobs as before)
+    same('fanboy public: the desk on both sides without any file (refresh, report and part 2\'s actions; a fit, checks, his four jobs — the control without the data folder —, a tick), a sender of the notification centre — and not hired',
         [true, $actions, true, true, ['fanboy-control', 'fanboy-step', 'fanboy-show', 'fanboy-restore'], true, false, true, true, false],
         [$seen['none'][0]['desk'] ?? $seen['none'][0], $seen['none'][0]['actions'] ?? null, $seen['none'][0]['fit'] ?? null, $seen['none'][0]['checks'] ?? null, $seen['none'][0]['jobs'] ?? null,
          $seen['none'][0]['tick'] ?? null, $seen['none'][0]['hired'] ?? null, $seen['none'][0]['notify'] ?? null, $seen['none'][1]['desk'] ?? $seen['none'][1], $seen['none'][1]['hired'] ?? null]);
@@ -65371,7 +65387,7 @@ function testFanboyNoWrite(): void
     $files = array_merge(glob(OFFICE_DIR . '/agent/desks/fanboy*.php') ?: [], [OFFICE_DIR . '/agent/fanboy-guard.php'], glob(OFFICE_WEB . '/desks/fanboy/*.js') ?: []);
     check('fanboy no write: his files there (' . count($files) . ')', count($files) >= 9);
     $allowed = [
-        'fanboy.php'          => ['writeAtomic', 'run', 'proc_open'],
+        'fanboy.php'          => ['writeAtomic', 'run', 'proc_open', 'unlink'],       // unlink: the mark of a control that stopped itself (2026-11-22)
         'fanboy-detect.php'   => [],
         'fanboy-control.php'  => ['writeAtomic', 'fopen', 'unlink'],
         'fanboy-setup.php'    => ['writeAtomic', 'fopen', 'unlink', 'run'],      // part 3: update_cron for the guard's line (fanboyGuardCron())
@@ -65382,6 +65398,8 @@ function testFanboyNoWrite(): void
         'fanboy-dash.php'     => ['writeAtomic'],
         'fanboy-doctor.php'   => ['run'],                                      // 2026-11-22: the kernel log read (dmesg), nothing written                              // his Dashboard tile's setting and its mirror in RAM
         'fanboy-watch.php'    => ['writeAtomic', 'unlink'],                    // round 6: the watch's setting, what it learned, its state in RAM
+        'fanboy-mirror.php'   => ['writeAtomic', 'fopen', 'unlink'],           // 2026-11-22: his mirror in RAM and its lock
+        'fanboy-night.php'    => ['writeAtomic', 'unlink'],                    // 2026-11-22: the night shift's look after him; the mark «given back to the mainboard» (RAM, its copy on the flash)
         'fanboy-show.php'     => ['writeAtomic', 'fopen', 'unlink'],           // round 6: «show me this fan» — its state in RAM, its lock (writes only through the helper)
         'fanboy-write.php'    => ['writeAtomic', 'fopen', 'fwrite', 'unlink'],
         'fanboy-guard.php'    => ['writeAtomic', 'fwrite'],
@@ -67473,6 +67491,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                        'testFanboyBack', 'testFanboyGuardCron', 'testFanboyWaz', 'testFanboyHistoryPart', 'testFanboyMeasureProgress', 'testFanboyFanLook', 'testFanboyDesk', 'testFanboyUx', 'testFanboyOverview', 'testFanboyHistoryLeads', 'testFanboyHistoryCurves', 'testFanboyDeskWords', 'testFanboyHistoryThin', 'testFanboyAvatar', 'testFanboyCount', 'testFanboyHottestKinds', 'testFanboyRound3Words', 'testFanboyStandsKick', 'testFanboyNvmeWarm', 'testFanboyProposeKinds', 'testFanboyReact', 'testFanboyTemps', 'testFanboyCpuOwn', 'testFanboyPresetsMirror', 'testFanboyR5Subjects', 'testFanboyR5GuardZone', 'testFanboyR5TrimHeld', 'testFanboyR5Names', 'testFanboyR5ChipGone', 'testFanboyR5Moved', 'testFanboyR5NoDriftAtFull', 'testFanboyR5Obeys', 'testFanboyR5GiveBackSafe', 'testFanboyR5Sane', 'testFanboyR5Refused', 'testFanboyR5Detect', 'testFanboyR5DisksAsleep', 'testFanboyR5TwoChips', 'testFanboyR6WatchLearn', 'testFanboyR6WatchRules', 'testFanboyR6WarmNow', 'testFanboyR6ShowStep', 'testFanboyR6ShowRefused', 'testFanboyR6ShowControl', 'testFanboyR6OldDisks', 'testFanboyR7FullOnObeys', 'testFanboyR7ControlFullOn', 'testFanboyR7Fixed', 'testFanboyR7NotAController', 'testFanboyR7CardsKeepSize', 'testFanboyR7TestLongEnough', 'testFanboyR8IgnoredLate', 'testFanboyR8FullLongEnough', 'testFanboyR8Quiet', 'testFanboyR8QuietGuards', 'testFanboyR8QuietSafety', 'testFanboyR8FoundNext', 'testFanboyR8Assign', 'testFanboyR9Kick', 'testFanboyR9Safety', 'testFanboyR9Now', 'testFanboyR9CpuOwn', 'testFanboyR10Notify', 'testFanboyR11Heard', 'testFanboyR11StopVerdict', 'testFanboyR11StaleNext', 'testFanboyR11ProgressNext', 'testFanboyR12Standstill', 'testFanboyR12Warm', 'testFanboyR12Control', 'testFanboyR12CpuRole', 'testFanboyR12CpuMeasure', 'testFanboyR12CpuControl', 'testFanboyR12CpuGone', 'testFanboyR12FixSpikes', 'testFanboyR12FixControl', 'testFanboyR12FixConfirm', 'testFanboyNetDrift', 'testFanboyProposeSaves', 'testFanboyZonesWords', 'testFanboyFourPoints', 'testFanboyLookKeeps', 'testFanboyKickStartSecs', 'testFanboyReloadDrift', 'testFanboyNet', 'testFanboyNetTakeOver', 'testFanboyR12Curve', 'testFanboyR12CurveEffective', 'testFanboyR12AutoSeen', 'testFanboyR12Look', 'testFanboyR13Compat', 'testFanboyR13Curves', 'testFanboyR13Refused', 'testFanboyR13Devs', 'testFanboyR13DevsControl', 'testFanboyR14Plan', 'testFanboyR14Look', 'testFanboySetupFanPlan', 'testFanboyDashHours', 'testFanboyTimes', 'testFanboySsdSleeps', 'testFanboyCpuFloorCurve',
                        'testFanboyDashTile', 'testFanboyDashSource', 'testFanboyDashSetting', 'testFanboyDashHistory', 'testFanboyDashFans', 'testFanboyDashCards', 'testFanboyDashAsleep', 'testFanboyDashSplitter', 'testFanboyDashDefault', 'testFanboyDashCpuRest', 'testFanboyZoneSources', 'testFanboyCpuOwnWheel', 'testFanboySetupWaits', 'testFanboySetupPlaces', 'testFanboyArtClipped', 'testFanboySetupFlow', 'testFanboyEmptyOutput', 'testFanboyZonesDraft', 'testFanboyWarmOverride', 'testFanboyStartWait', 'testFanboyKindGoal',
                        'testFanboyLookReverse', 'testFanboyLookDash', 'testFanboyLookKeys', 'testFanboyLookGap', 'testFanboyLookTipAir', 'testFanboyZoneStacks', 'testFanboyChipTable', 'testFanboyChipRead', 'testFanboyChipState', 'testFanboyChipReport', 'testFanboyChipRisk', 'testFanboyNoFanChip', 'testFanboyTempsMissing', 'testFanboyDoctor', 'testFanboyUsbStick', 'testFanboyCurveFloorKinds', 'testFanboyCurvePush'],
+          'alwayson' => ['testAlwaysOnStopWhy', 'testAlwaysOnBackCheck', 'testAlwaysOnMissedRuns', 'testAlwaysOnHoldBarred', 'testAlwaysOnHoldJudge', 'testAlwaysOnHoldLook', 'testAlwaysOnMirror', 'testAlwaysOnAgentKeeps', 'testAlwaysOnRamJob', 'testAlwaysOnControlRam', 'testAlwaysOnControlProc', 'testAlwaysOnLaunch', 'testAlwaysOnReleaseSteps', 'testAlwaysOnNight', 'testAlwaysOnHandBack', 'testAlwaysOnUnknown', 'testAlwaysOnThroughStop', 'testAlwaysOnBoot', 'testAlwaysOnStoppedView'],
           'tools' => ['testReleaseHashes', 'testReleaseState', 'testReleaseClicksRetry', 'testScenarioToolsSafe']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.

@@ -1356,5 +1356,21 @@
   "hist.curve": "{kind} {c} °C",
   "hist.curve_led": "{kind} {c} °C (menait)",
   "hist.read_hint": "Pointe un graphique (ou touche-le) pour lire un moment — dans toutes les zones à la fois ; les flèches déplacent le repère.",
-  "hist.read_none": "{time} : rien d'enregistré"
+  "hist.read_none": "{time} : rien d'enregistré",
+  "why.no_mirror": "Ses réglages manquent en mémoire — il ne régule rien",
+  "why.holds": "Sa régulation s’est arrêtée d’elle-même : elle ne doit jamais retenir l’arrêt de l’array — chaque ventilateur est rendu",
+  "dash.why.no_mirror": "ses réglages manquent en mémoire",
+  "dash.why.holds": "sa régulation s'est arrêtée d'elle-même",
+  "notify.holds_subject": "Fanboy : sa régulation s'est arrêtée d'elle-même",
+  "notify.holds": "La régulation de Fanboy a constaté qu'elle retenait quelque chose sur l'array ou un pool. Elle ne doit jamais retenir l'arrêt de l'array, elle s'est donc arrêtée. Chaque ventilateur qu'elle tenait est rendu comme prévu pour lui (son état avant lui ou l'automatique de la carte mère). Il ne la relance pas tout seul — seulement quand le coursier redémarre (au prochain démarrage de l'array, après une mise à jour) ou après « Rendre » puis « Prendre en main ». Le journal du secrétariat dit ce qu'elle retenait.",
+  "still": "Fanboy continue de régler les ventilateurs. Ses réglages attendent l'array.",
+  "dash.stopped": "L'array ne tourne pas — il continue de régler.",
+  "dash.stopped_disks": "Personne ne connaît les températures des disques pendant ce temps : leurs ventilateurs gardent une vitesse minimale, aucun ne s'arrête.",
+  "pic.unknown_stopped": "température inconnue tant que l'array est arrêté",
+  "pic.unknown_now": "température inconnue en ce moment",
+  "dash.back": "Rendre les ventilateurs à la carte mère…",
+  "dash.back_title": "Rendre les ventilateurs à la carte mère ?",
+  "dash.back_text": "Chaque ventilateur qu'il règle retourne aussitôt à la carte mère. Il ne les reprend qu'avec «Prendre en main» sur sa page, une fois l'array démarré.",
+  "dash.back_yes": "Rendre",
+  "dash.back_no": "Annuler"
 }

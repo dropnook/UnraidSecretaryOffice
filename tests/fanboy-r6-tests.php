@@ -3173,15 +3173,16 @@ function testFanboyTimes(): void
             ['name_max' => FANBOY_NAME_MAX, 'count_max' => FANBOY_COUNT_MAX, 'zones_max' => FANBOY_ZONES_MAX, 'sources_max' => FANBOY_SOURCES_MAX], $s['limits']);
         $demo = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/fanboy.json'), true)['setup'] ?? [];
         check('fanboy times: … the demo states give the same numbers (the page\'s pictures)', ($demo['times'] ?? null) == $want && ($demo['limits'] ?? null) == $s['limits'], json_encode($demo['times'] ?? null));
-        $was = $GLOBALS['fanboyCrashes'] ?? null;
+        // (the deaths lie in RAM since 2026-11-22: the agent and the night shift count them together — fanboyCrashRead())
+        $was = fanboyCrashRead()['deaths'];
         $now = fanboyMono();
-        $GLOBALS['fanboyCrashes'] = [$now - 60, $now - 30];
+        fanboyCrashKeep(['deaths' => [$now - 60, $now - 30]]);
         $two = fanboySetupState(fanboyDetect(), fanboyBoardRaw())['restarts'];
-        $GLOBALS['fanboyCrashes'][] = $now - 5;
+        fanboyCrashKeep(['deaths' => [$now - 60, $now - 30, $now - 5]]);
         $three = fanboySetupState(fanboyDetect(), fanboyBoardRaw())['restarts'];
-        $GLOBALS['fanboyCrashes'] = [$now - FANBOY_CRASH_WINDOW - 10, $now - FANBOY_CRASH_WINDOW - 5, $now - FANBOY_CRASH_WINDOW - 1];
+        fanboyCrashKeep(['deaths' => [$now - FANBOY_CRASH_WINDOW - 10, $now - FANBOY_CRASH_WINDOW - 5, $now - FANBOY_CRASH_WINDOW - 1]]);
         $old = fanboySetupState(fanboyDetect(), fanboyBoardRaw())['restarts'];
-        $GLOBALS['fanboyCrashes'] = $was;
+        fanboyCrashKeep(['deaths' => $was]);
         same('fanboy times: setup.restarts — two deaths in the window: started again; the third: given up (not by itself any more); deaths outside the window don\'t count',
             [[2, false], [3, true], [0, false]], [[$two['deaths'], $two['given_up']], [$three['deaths'], $three['given_up']], [$old['deaths'], $old['given_up']]]);
         same('fanboy times: the refusals carry their numbers — a name too long ({max}), too many fans on a connector ({max})',

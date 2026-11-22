@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /*
- * Fanboy's control service («Regel-Dienst»): ONE process for all zones (`php agent.php job fanboy-control`, started by
+ * Fanboy's control service («Regel-Dienst»): ONE process for all zones (`php agent.php ramjob fanboy-control` — without the data folder, 2026-11-22 —, started by
  * the agent's tick in a session of its own — an agent restarting itself in place never touches it, so the fans never
  * flap then). It runs only while the array is started, he is hired, not hidden, set up and «taken over» (armed), and no
  * other known controller runs; otherwise every output goes back to the BIOS and the status says why.
@@ -502,6 +502,35 @@ const FANBOY_POLL_SPAN = 600;           // seconds: … per started 10 minutes �
 const FANBOY_POLL_ADD = 1;              // … 1 °C …
 const FANBOY_POLL_ADD_MAX = 3;          // … at most 3 °C
 
+const FANBOY_POLL_DEFAULT = 1800;       // Unraid's own poll_attributes when var.ini doesn't say (seconds)
+const FANBOY_DISKS_STALE_MIN = 600;     // disks.ini not rewritten for this long AND for twice the poll: its values are not «now»
+const FANBOY_UNKNOWN_HOLD = 1800.0;     // seconds a zone keeps its last level once the array isn't started and its disks' temperatures are unknown
+
+/**
+ * Are the disks' temperatures in Unraid's disks.ini (and devs.ini) «now»? null: yes. Else why they are UNKNOWN
+ * («always on», 2026-11-22 — he steers while the array is stopped too):
+ *   stopped   the array isn't started. Measured on Unraid 7.4 (2026-11-22): the stop spins every drive up, emhttpd
+ *             rewrites the file for the last time within two minutes and never again — the values of that moment stay
+ *             in it for hours, `spundown` too. They say nothing about now.
+ *   missing   there is no disks.ini (emhttpd not up yet after a boot).
+ *   stale     the array runs, but the file was not rewritten for twice poll_attributes (and FANBOY_DISKS_STALE_MIN):
+ *             emhttpd hangs. (Running, it rewrites the file at every poll at the latest.)
+ * Unknown is neither «asleep» (no demand: the fans may stand) nor a silent sensor (an alarm): a zone with an unknown disk
+ * never lets a fan stand, keeps at least each fan's floor and holds its last level (fanboyZoneRound()). $wall: the tests'.
+ */
+function fanboyDisksUnknown(array $p, ?int $poll, ?int $wall = null): ?string
+{
+    if (function_exists('arrayRunning') && !arrayRunning($p['var'])) {
+        return 'stopped';
+    }
+    clearstatcache(true, $p['disks']);
+    $m = @filemtime($p['disks']);
+    if ($m === false) {
+        return 'missing';
+    }
+    return ($wall ?? time()) - $m > max(FANBOY_DISKS_STALE_MIN, 2 * ($poll ?? FANBOY_POLL_DEFAULT)) ? 'stale' : null;
+}
+
 /** The °C a disks.ini value counts more by Unraid's poll_attributes (null: unknown — nothing added) */
 function fanboyPollAllowance(?int $poll): int
 {
@@ -618,7 +647,7 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
                 'kinds' => is_array($z['kinds'] ?? null) ? $z['kinds'] : [],      // round 4: «Temperaturen» per kind
                 'curves' => is_array($z['curves'] ?? null) ? $z['curves'] : [],   // round 13: a curve of its own per kind
                 'by_kind' => [], 'leader' => null,
-                'cur' => null, 'hold_t' => null, 'warmest' => null, 'level' => null, 'state' => [],
+                'cur' => null, 'hold_t' => null, 'warmest' => null, 'level' => null, 'state' => [], 'unknown_since' => null,
                 'react' => in_array($z['react'] ?? null, FANBOY_REACTS, true) ? $z['react'] : 'balanced', 'below_since' => null,
             ];
         }
@@ -636,7 +665,7 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
         'key' => $boardKey, 'owner' => $owner, 'phase' => 'start', 'hold' => null, 'fans' => $fans, 'zones' => $zones, 'watch' => $watch,
         'chips' => [], 'sources' => [], 'alarm' => null, 'reasons' => [], 'clear_since' => null, 'told' => [], 'notes' => [], 'full_since' => [],
         'missing' => null, 'started' => null, 'last_hist' => null, 'last_keep' => null, 'hist' => [], 'curves' => [], 'look_now' => false,
-        'disks_at' => null, 'disks' => [], 'scan_at' => null, 'events' => [], 'poll' => null, 'allow' => 0,
+        'disks_at' => null, 'disks' => [], 'scan_at' => null, 'events' => [], 'poll' => null, 'allow' => 0, 'disks_unknown' => null,
         'loose' => [], 'net' => null,         // round 12 fix: the heat sources in none of his zones, and the net for them
     ];
 }
@@ -704,7 +733,7 @@ function fanboyLocate(array &$c, array $scan): array
         foreach ($scan['chips'] as $chip) {
             if ($chip['name'] === $f['chip'] && $chip['address'] === $r['address']) {
                 $c['fans'][$id]['auto'] = ($f['back'] ?? null) === 'auto'
-                    ? fanboyAutoMode($chip, $f['output'], fanboyInitialRead()['boards'][$c['key']][$id] ?? null) : null;
+                    ? fanboyAutoMode($chip, $f['output'], fanboyInitialKept($c['key'], $id)) : null;
                 $c['fans'][$id]['device'] = $chip['device'];
                 $c['fans'][$id]['address_now'] = $chip['address'];
                 $c['fans'][$id]['hwmon'] = $chip['hwmon'];
@@ -748,6 +777,7 @@ function fanboyReadSources(array &$c, float $now): void
         $c['disks_at'] = $now;
         $c['poll'] = fanboyPollAttributes($p);
         $c['allow'] = fanboyPollAllowance($c['poll']);         // round 6: an old disk value counts more (a lower bound)
+        $c['disks_unknown'] = fanboyDisksUnknown($p, $c['poll']);      // 2026-11-22: are those values «now» at all? (the array stopped, the file old)
         // a zone saved before round 4 calls an SSD pool member «disk»: on the SSD's scale and limit from now on
         foreach ($c['zones'] as $zid => $z) {
             foreach ($z['sources'] as $i => $s) {
@@ -815,7 +845,7 @@ function fanboyReadSources(array &$c, float $now): void
     // round 12 fix: their temperatures now — hwmon every round, Unraid's disks as disks.ini says (asleep: none)
     foreach ($c['loose'] as $id => $l) {
         if (in_array($l['kind'], FANBOY_DISK_KINDS, true)) {
-            $d = $c['disks'][$id] ?? null;
+            $d = ($c['disks_unknown'] ?? null) !== null ? null : ($c['disks'][$id] ?? null);      // unknown: no value for the net either
             $c['loose'][$id]['c'] = $d === null || $d['asleep'] || $d['temp'] === null ? null : $d['temp'] + ($c['allow'] ?? 0);
         } else {
             $c['loose'][$id]['c'] = $l['path'] === null ? null : fanboySaneTemp(fanboyReadInt($l['path']));
@@ -824,19 +854,23 @@ function fanboyReadSources(array &$c, float $now): void
     foreach ($c['sources'] as $id => $s) {
         if (in_array($s['kind'], FANBOY_DISK_KINDS, true)) {
             $d = $c['disks'][$id] ?? null;
-            $c['sources'][$id]['asleep'] = $d !== null && $d['asleep'];
-            $c['sources'][$id]['raw'] = $d['temp'] ?? null;
-            $c['sources'][$id]['c'] = ($d['temp'] ?? null) === null ? null : $d['temp'] + ($c['allow'] ?? 0);
+            // 2026-11-22: what the file says is not «now» (fanboyDisksUnknown()): no temperature, not asleep, no alarm
+            $unknown = ($c['disks_unknown'] ?? null) !== null;
+            $c['sources'][$id]['unknown'] = $unknown;
+            $c['sources'][$id]['asleep'] = !$unknown && $d !== null && $d['asleep'];
+            $c['sources'][$id]['raw'] = $unknown ? null : ($d['temp'] ?? null);
+            $c['sources'][$id]['c'] = $unknown || ($d['temp'] ?? null) === null ? null : $d['temp'] + ($c['allow'] ?? 0);
             $c['sources'][$id]['there'] = $d !== null;
-            $c['sources'][$id]['in_use'] = ($d['in_use'] ?? false) === true;       // round 13b: in use, no temperature
+            $c['sources'][$id]['in_use'] = !$unknown && ($d['in_use'] ?? false) === true;       // round 13b: in use, no temperature
         } else {
             $raw = $s['path'] === null ? null : fanboyReadInt($s['path']);
+            $c['sources'][$id]['unknown'] = false;
             $c['sources'][$id]['asleep'] = false;
             $c['sources'][$id]['c'] = fanboySaneTemp($raw);
             $c['sources'][$id]['there'] = $s['path'] !== null;
         }
-        // since when it says nothing (an asleep disk says nothing on purpose)
-        $quiet = $c['sources'][$id]['c'] === null && !$c['sources'][$id]['asleep'];
+        // since when it says nothing (an asleep disk says nothing on purpose; an unknown one can't say)
+        $quiet = $c['sources'][$id]['c'] === null && !$c['sources'][$id]['asleep'] && !$c['sources'][$id]['unknown'];
         $c['sources'][$id]['quiet_since'] = $quiet ? ($s['quiet_since'] ?? $now) : null;
     }
 }
@@ -1051,10 +1085,18 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
     $kindCurves = [];
     $byKind = [];
     $states = [];
+    $unknown = false;
     foreach ($z['sources'] as $s) {
         $s = fanboySourceValues($z, $s);        // its own values, else the zone's for its kind, else the kind's
         $r = $c['sources'][$s['id']] ?? null;
         if ($r === null) {
+            continue;
+        }
+        if (!empty($r['unknown'])) {
+            // 2026-11-22: a disk whose temperature nobody knows now (the array isn't started, disks.ini old or missing) —
+            // neither asleep nor a silent sensor: no demand of its own, no alarm, but the zone takes care (below)
+            $states[$s['id']] = 'unknown';
+            $unknown = true;
             continue;
         }
         if ($r['asleep']) {
@@ -1093,6 +1135,21 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
     if ($z['unit'] === 'pct') {
         $raw = max(0.0, min(100.0, $raw));
     }
+    // 2026-11-22 (decision E4): a zone with a disk of unknown temperature keeps the level it had — while the array isn't
+    // started for FANBOY_UNKNOWN_HOLD (the stop spun every drive up; idle, they cool from there), with the array running
+    // (disks.ini not rewritten: emhttpd hangs, the drives may be at work) for as long as it lasts. What its other sources
+    // ask for on top still counts at once. No fan of it stands meanwhile (below).
+    $kept = false;          // the level is kept for a disk of unknown temperature, not asked for by a source
+    if ($unknown) {
+        $z['unknown_since'] = $z['unknown_since'] ?? $now;
+        $keepLevel = ($c['disks_unknown'] ?? null) !== 'stopped' || $now - $z['unknown_since'] < FANBOY_UNKNOWN_HOLD;
+        if ($keepLevel && $z['cur'] !== null && $raw < $z['cur']) {
+            $raw = (float) $z['cur'];
+            $kept = true;
+        }
+    } else {
+        $z['unknown_since'] = null;
+    }
     $cur = $z['cur'];
     $t = $warmest['mapped'] ?? $lo;
     // round 13: with a curve of its own for some kind, the zone's common scale says nothing about who asks more — the way
@@ -1120,7 +1177,8 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
         $cur = $cur === null || $up === null ? $raw
             : min($raw, $cur + ($z['unit'] === 'pct' ? $up : $up * FANBOY_DOWN_STEP_RPM / FANBOY_DOWN_STEP));
         $higher = ($warmest['id'] ?? null) !== ($z['hold_src'] ?? null) || ($z['hold_t'] ?? null) === null || $t >= $z['hold_t'];
-        if ($up === null || $higher) {
+        // (a level only kept for an unknown disk moves no anchor: the way down later goes by what it went up at)
+        if (($up === null || $higher) && !$kept) {
             $hold();
         }
         $z['below_since'] = null;
@@ -1168,8 +1226,9 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
         $pct = max(0.0, min(100.0, $pct));
         if ($f['off_ok'] && $f['cpu']) {
             // round 12: a CPU cooler that may stand — by the CPU itself, read every round, never by the curve's way down
-            $pct = fanboyCpuStand($c, $z, $id, $now, isset($c['full_since'][$zid])) ? 0.0 : max($pct, (float) $f['floor']);
-        } elseif ($pct < 0.5 && $f['off_ok']) {
+            // (2026-11-22: never while a disk of its zone is of unknown temperature — as every fan below)
+            $pct = !$unknown && fanboyCpuStand($c, $z, $id, $now, isset($c['full_since'][$zid])) ? 0.0 : max($pct, (float) $f['floor']);
+        } elseif ($pct < 0.5 && $f['off_ok'] && !$unknown) {
             $pct = 0.0;
         } else {
             $pct = max($pct, (float) $f['floor']);
@@ -1779,6 +1838,8 @@ function fanboyStatus(array $c, ?string $exitWhy = null): array
             'react' => $z['react'], 'down' => fanboyDownProfile($z['warmest']['kind'] ?? ($z['sources'][0]['kind'] ?? 'disk'), $z['react']),
             'warmest' => $z['warmest'], 'asleep' => count(array_filter($z['state'], fn ($s) => $s === 'asleep')),
             'in_use' => array_keys(array_filter($z['state'], fn ($s) => $s === 'in_use')),        // round 13b: in use, temperature unknown
+            // 2026-11-22: its disks whose temperature nobody knows now (how many), and until when it keeps its level for them (monotonic; null: as long as it lasts, or none)
+            'unknown' => count(array_filter($z['state'], fn ($s) => $s === 'unknown')),
             // round 13: every kind's curve as it counts now (own or derived), its warmest source and what it asks, who leads
             'curves' => fanboyZoneKindCurves($z), 'by_kind' => ($z['by_kind'] ?? []) ?: new stdClass(), 'leader' => $z['leader'] ?? null,
             'fans' => array_map(fn ($id) => ['id' => $id, 'name' => $c['fans'][$id]['name'], 'output' => $c['fans'][$id]['output'],
@@ -1816,6 +1877,8 @@ function fanboyStatus(array $c, ?string $exitWhy = null): array
         'notes' => $c['notes'],
         // round 6: how old Unraid's disk values can be and what the zone logic adds to them (°C)
         'disk_allow' => ['poll' => $c['poll'] ?? null, 'add' => $c['allow'] ?? 0],
+        // 2026-11-22: are Unraid's disk temperatures «now»? null: yes — else why not: stopped (the array isn't started) · missing · stale
+        'disks_unknown' => $c['disks_unknown'] ?? null,
         'refuses' => array_keys(array_filter($c['fans'], fn ($f) => !empty($f['refuses']))),     // round 5: the driver takes no values
         // round 12 fix: the net for the sources in no zone — {level %, since, source {id, label, kind, c, warm, limit}, below_since}|null
         'net' => $c['net'] === null ? null : array_diff_key($c['net'], ['below_since' => 1]) + ['clearing' => $c['net']['below_since'] !== null],
@@ -1945,33 +2008,103 @@ function fanboyHistoryLoad(string $board, ?int $wall = null, ?array &$curves = n
 {
     $curves = [];
     foreach ([fanboyRunDir() . '/history.json', defined('FANBOY_DIR') ? FANBOY_DIR . '/history.json' : ''] as $f) {
-        $j = $f === '' ? null : readJson($f);
-        if (is_array($j) && ($j['board'] ?? null) === $board && is_array($j['zones'] ?? null)) {
-            $curves = fanboyHistoryCurvesUnpack($j, $wall ?? time());       // each curve's line (2026-11-20), when the file has it
-            $out = [];
-            foreach (fanboyHistoryUnpack($j) as $zid => $pts) {
-                if (($kept = fanboyHistoryThin($pts, $wall ?? time()))) {
-                    $out[$zid] = $kept;
-                }
-            }
+        if ($f !== '' && ($out = fanboyHistoryRead($f, $board, $wall, $curves)) !== null) {
             return $out;
         }
     }
+    $curves = [];
     return [];
+}
+
+/**
+ * One history file read: this board's zones with their points (thinned and bounded as kept) and each curve's line — null:
+ * not this board's, not a history
+ *
+ * @param-out array<string, array{kinds: list<string>, rows: array<int, list<?int>>}> $curves  each curve's line (fanboyHistoryCurvesUnpack())
+ */
+function fanboyHistoryRead(string $file, string $board, ?int $wall = null, ?array &$curves = null): ?array
+{
+    $curves = [];
+    $j = readJson($file);
+    if (!is_array($j) || ($j['board'] ?? null) !== $board || !is_array($j['zones'] ?? null)) {
+        return null;
+    }
+    $curves = fanboyHistoryCurvesUnpack($j, $wall ?? time());       // each curve's line (2026-11-20), when the file has it
+    $out = [];
+    foreach (fanboyHistoryUnpack($j) as $zid => $pts) {
+        if (($kept = fanboyHistoryThin($pts, $wall ?? time()))) {
+            $out[$zid] = $kept;
+        }
+    }
+    return $out;
+}
+
+/**
+ * 2026-11-22 («always on», a boot): a control that started before the agent — from the copy of his mirror on the flash,
+ * before the array — begins with no history: the one from before the boot lies in the data folder. The agent hands it
+ * over once it is there (RUN_DIR/fanboy/history-before.json, fanboyHistorySync()); the control takes what is older than
+ * its own first point of each zone it has, and each curve's rows likewise (the same kinds only), and removes the file.
+ * True when one was taken.
+ */
+function fanboyHistoryBefore(array &$c, ?int $wall = null): bool
+{
+    $file = fanboyRunDir() . '/history-before.json';
+    clearstatcache(true, $file);
+    $st = @lstat($file);
+    if ($st === false) {
+        return false;
+    }
+    $older = ($st['mode'] & 0170000) === 0100000 ? fanboyHistoryRead($file, (string) $c['key'], $wall, $curves) : null;
+    @unlink($file);
+    foreach ($older ?? [] as $zid => $pts) {
+        if (!isset($c['zones'][$zid])) {
+            continue;
+        }
+        $first = $c['hist'][$zid][0][0] ?? PHP_INT_MAX;
+        $add = array_values(array_filter($pts, fn ($p) => is_array($p) && ($p[0] ?? PHP_INT_MAX) < $first));
+        if ($add) {
+            $c['hist'][$zid] = fanboyHistoryThin([...$add, ...($c['hist'][$zid] ?? [])], $wall ?? time());
+        }
+    }
+    foreach ($older === null ? [] : ($curves ?? []) as $zid => $h) {
+        if (!isset($c['zones'][$zid])) {
+            continue;
+        }
+        $own = $c['curves'][$zid] ?? null;
+        if ($own === null || !$own['rows']) {
+            $c['curves'][$zid] = $h;
+        } elseif ($own['kinds'] === $h['kinds']) {
+            $first = (int) array_key_first($own['rows']);
+            $c['curves'][$zid]['rows'] = array_filter($h['rows'], fn ($t) => $t < $first, ARRAY_FILTER_USE_KEY) + $own['rows'];
+            ksort($c['curves'][$zid]['rows']);
+        }
+    }
+    return $older !== null;
 }
 
 // ===================================================================== the process
 
 /**
  * Why the control may not steer now — the one place that decides (the process every 10 s, the agent's tick):
- *   array_stopped · not_hired · not_set_up · not_armed (exit) — other (stay, give back, look again)
+ *   no_mirror · not_hired · not_set_up · not_armed (exit) — other (stay, give back, look again)
+ *
+ * The array's state is no reason any more («always on», 2026-11-22, the owner: «taken over» means he steers for as long
+ * as the server runs): the control runs without the data folder, holds nothing on the array or a pool and proves it to
+ * itself every minute, so it steers while the array runs, stops, is stopped and starts. Only a control that still
+ * works WITH the data folder (not a RAM job: none is started that way any more) ends when the array isn't started —
+ * `array_stopped`, as every control did before.
  */
 function fanboyHoldReason(?array $settings): ?string
 {
-    if (function_exists('arrayRunning') && !arrayRunning(fanboyVarIni())) {
+    if (!fanboyRamMode() && function_exists('arrayRunning') && !arrayRunning(fanboyVarIni())) {
         return 'array_stopped';
     }
-    if (!in_array('fanboy', staffHired(), true)) {
+    // without the data folder (a RAM job) everything he knows comes from his mirror: none in its shape for this board — the
+    // BIOS keeps the fans, never a guess
+    if (fanboyRamMode() && fanboyMirrorRead(fanboyBoardKey(fanboyBoard(fanboyPaths(fanboySysRoot() ?: null)['dmi']))) === null) {
+        return 'no_mirror';
+    }
+    if (!fanboyHiredNow()) {
         return 'not_hired';
     }
     if ($settings === null || !fanboyControlNew($settings, '', ['pid' => 0])['zones']) {
@@ -1996,16 +2129,95 @@ function fanboyVarIni(): string
 function fanboyBoardRaw(?array $board = null): ?array
 {
     $board ??= fanboyBoard(fanboyPaths(fanboySysRoot() ?: null)['dmi']);
+    if (fanboyRamMode()) {
+        return fanboyMirrorRead(fanboyBoardKey($board))['settings'] ?? null;        // the agent mirrored exactly this entry (fanboy-mirror.php)
+    }
     $raw = readJson(fanboyStoreFile());
     // round 5: a board DMI says nothing about was kept under « | » before — read there until written under its new key
     $b = $raw['boards'][fanboyBoardKey($board)] ?? (isset($board['chip']) ? ($raw['boards'][' | '] ?? null) : null);
     return is_array($b) ? $b : null;
 }
 
+// ===================================================================== without the data folder (2026-11-22, «always on» step S4c)
+
+const FANBOY_HOLD_CHECK_EVERY = 60.0;       // seconds between the control's looks at itself: does it hold anything on the array or a pool?
+
 /**
- * The control process: `php agent.php job fanboy-control`. One at a time (a flock in RAM held for its life). Ends —
- * every output given back first, read back — on TERM/INT/HUP, when the array stops, he is hidden, fired, or not
- * armed any more; holds (everything with the BIOS) while another controller runs.
+ * Does this process run without the data folder — a RAM job (`php agent.php ramjob fanboy-control`, lib/ramjob.php), or
+ * the night shift supervising him while the array isn't started (fanboy-night.php)? Then everything he reads of the data
+ * folder comes from his mirror in RAM (fanboy-mirror.php), his log lines go to a log in RAM, and what he used to write
+ * there (the history's copy, the outputs' states before him) the agent carries over.
+ */
+function fanboyRamMode(): bool
+{
+    return $GLOBALS['fanboyRamMode'] ?? ((defined('RAM_JOB') && RAM_JOB !== '') || (defined('NIGHT_MODE') && NIGHT_MODE));
+}
+
+/** Is he hired? The staff list — in a RAM job the mirror's word */
+function fanboyHiredNow(): bool
+{
+    if (fanboyRamMode()) {
+        return (fanboyMirrorRead()['hired'] ?? false) === true;
+    }
+    return in_array('fanboy', staffHired(), true);
+}
+
+/** An output's state before him as kept across boots (initial.json) — in a RAM job the mirror's copy of this board's */
+function fanboyInitialKept(string $key, string $id): ?array
+{
+    $x = fanboyRamMode() ? (fanboyMirrorRead($key)['initial'][$id] ?? null) : (fanboyInitialRead()['boards'][$key][$id] ?? null);
+    return is_array($x) ? $x : null;
+}
+
+/** What tells the running control its settings changed: the store's time — in a RAM job the mirror's file (written only when what it says changed) */
+function fanboyControlStamp(): string|int|false
+{
+    if (!fanboyRamMode()) {
+        return @filemtime(fanboyStoreFile());
+    }
+    $f = fanboyMirrorFile();
+    clearstatcache(true, $f);
+    $st = @lstat($f);
+    return $st === false ? 'none' : "{$st['ino']}.{$st['size']}.{$st['mtime']}";
+}
+
+function fanboyBrakeFile(): string
+{
+    return fanboyRunDir() . '/brake.json';
+}
+
+/** The control's look at itself (lib/holdsnothing.php): null — it holds nothing on the array or a pool — or what it found */
+function fanboyHoldCheck(): ?array
+{
+    return isset($GLOBALS['fanboyHoldCheck']) ? ($GLOBALS['fanboyHoldCheck'])() : officeHoldsNothing();
+}
+
+/**
+ * The emergency brake: the control found itself (or something it started) holding something on the array or a pool — or
+ * could not look. It must never keep the array from stopping, so it ends at once and gives every fan back (its usual way
+ * out); the mark in RAM keeps the agent from starting it again by itself (fanboyEnsureControl()) until the agent starts
+ * anew, «Take over» or «Look now». The worst case is what happened at every array stop before: the BIOS has the fans.
+ */
+function fanboyBrake(array &$c, array $found): void
+{
+    @mkdir(fanboyRunDir(), 0700, true);
+    writeAtomic(fanboyBrakeFile(), jsonEncode(['v' => 1, 'at' => time(), 'pid' => getmypid() ?: 0, 'why' => (string) ($found['why'] ?? ''),
+        'what' => mb_substr((string) ($found['what'] ?? ''), 0, 300), 'mount' => is_string($found['mount'] ?? null) ? $found['mount'] : null,
+        'holder' => is_int($found['pid'] ?? null) ? $found['pid'] : null]), 0600, 0, 0);
+    logLine('Fanboy: the control stops itself — it must never keep the array from stopping, and ' . officeHoldSay($found)
+        . ' — every fan goes back; not started again by itself until the agent starts anew, «Take over» or «Look now»');
+    fanboyTell($c, 'holds', 'holds', [], 'warning');
+}
+
+/**
+ * The control process: `php agent.php ramjob fanboy-control` — without the data folder (2026-11-22; `job fanboy-control`
+ * before): his mirror in RAM is all it reads of it. One at a time (a flock in RAM held for its life). Ends — every output
+ * given back first, read back — on TERM/INT/HUP (every stop of the office, the plugin's update and removal, the server's
+ * shutdown), when he is fired or not armed any more, on «give the fans back» (the mark in RAM), without a mirror, and
+ * when it finds itself holding something on the array or a pool (the brake); holds (everything with the BIOS) while
+ * another controller runs. NOT when the array stops or is stopped (2026-11-22): it steers on — its disks' temperatures
+ * are «unknown» then (fanboyDisksUnknown()), and scripts/agent.sh looks at it from outside at the stop (fanboy-guard.php
+ * release-steps).
  */
 function fanboyControlMain(): int
 {
@@ -2030,18 +2242,30 @@ function fanboyControlMain(): int
     $c['hist'] = fanboyHistoryLoad($key, null, $curves);
     $c['curves'] = $curves;
     fanboyStandCarry($c, readJson(fanboyStatusFile()), fanboyMono());
-    $stamp = @filemtime(fanboyStoreFile());
+    $stamp = fanboyControlStamp();
     $lastHold = fanboyMono();
-    $exit = in_array($why, ['other', null], true) ? null : $why;
-    logLine('Fanboy: the control started (PID ' . $owner['pid'] . ', ' . count($c['zones']) . ' zones, ' . count($c['fans']) . ' fans)');
+    $nextSelf = -INF;
+    $exit = in_array($why, ['other', null], true) ? (fanboyHandBackAsked() ? 'hand_back' : null) : $why;
+    logLine('Fanboy: the control started (PID ' . $owner['pid'] . ', ' . count($c['zones']) . ' zones, ' . count($c['fans']) . ' fans'
+        . (fanboyRamMode() ? ', without the data folder: from his mirror in RAM' : '') . ')');
     try {
         while (!fanboyStopAsked() && $exit === null) {
             $now = fanboyMono();
             fanboyBeat();
+            // without the data folder he is to outlive the array's stop: before his first write and every minute, does this
+            // process (with what it started) hold anything on the array or a pool? Then the brake — never a held stop
+            if (fanboyRamMode() && $now >= $nextSelf) {
+                $nextSelf = $now + FANBOY_HOLD_CHECK_EVERY;
+                if (($found = fanboyHoldCheck()) !== null) {
+                    fanboyBrake($c, $found);
+                    $exit = 'holds';
+                    break;
+                }
+            }
             if ($now - $lastHold >= 10) {
                 $lastHold = $now;
                 clearstatcache();
-                $new = @filemtime(fanboyStoreFile());
+                $new = fanboyControlStamp();
                 if ($new !== $stamp) {          // the settings changed (zones, roles, a hand-back): taken anew
                     $stamp = $new;
                     $settings = fanboyBoardRaw($board);
@@ -2057,10 +2281,19 @@ function fanboyControlMain(): int
                     break;
                 }
                 $c['hold'] = $why;
+                if (fanboyRamMode() && fanboyHistoryBefore($c)) {       // after a boot: the history from before it, handed over by the agent
+                    logLine('Fanboy: the history from before this boot taken in (the agent handed it over)');
+                }
             }
             if (is_file("$dir/look-now")) {
                 @unlink("$dir/look-now");
                 $c['look_now'] = true;
+            }
+            // «give the fans back to the mainboard», asked while no agent can hear it (a mark in RAM, fanboy-night.php):
+            // looked for every round — he ends, every output goes back, and nobody starts him while it stands
+            if (fanboyHandBackAsked()) {
+                $exit = 'hand_back';
+                break;
             }
             fanboyRound($c, $now);
             fanboyControlLog($c);
@@ -2134,7 +2367,7 @@ function fanboyControlReload(array &$c, array $settings, string $key, array $own
         if ($o === null || $o['unit'] !== $z['unit']) {
             continue;
         }
-        foreach (['cur', 'hold_t', 'hold_src', 'hold_pos', 'below_since', 'hot_since', 'warmest', 'leader', 'by_kind', 'state'] as $k) {
+        foreach (['cur', 'hold_t', 'hold_src', 'hold_pos', 'below_since', 'hot_since', 'warmest', 'leader', 'by_kind', 'state', 'unknown_since'] as $k) {
             if (array_key_exists($k, $o)) {
                 $new['zones'][$zid][$k] = $o[$k];
             }

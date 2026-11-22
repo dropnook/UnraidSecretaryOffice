@@ -482,7 +482,7 @@ function officeFanboyDashRing(array $s, ?float $level, string $unit, bool $full,
  *
  * @return array{who:string, tone:string, mood:string, banners:list<array{0:string,1:string}>, stale:?int, zones:list<array>,
  *               more:int, watch:list<array{0:string,1:string}>, watch_art:list<?array>, before:?string, setup:bool, steers:bool,
- *               history:bool, no_curve:bool, art:bool}
+ *               history:bool, no_curve:bool, art:bool, stopped:?array{back:bool, unknown:int}}
  */
 function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $lang, int $now, ?array $hist = null): array
 {
@@ -497,7 +497,15 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
     $runs = $mine && in_array($phase, ['start', 'run', 'hold', 'wait_chip'], true);
     $stateAt = $int($state['time'] ?? null) ?? 0;
     $out = ['who' => '', 'tone' => '', 'mood' => '', 'banners' => [], 'stale' => null, 'zones' => [], 'more' => 0, 'watch' => [], 'watch_art' => [], 'before' => null,
-            'setup' => false, 'steers' => false, 'history' => $hist !== null, 'no_curve' => false, 'art' => false];
+            'setup' => false, 'steers' => false, 'history' => $hist !== null, 'no_curve' => false, 'art' => false, 'stopped' => null];
+    // 2026-11-22 («always on»): his control runs while the array isn't started — it says so itself (its disks' temperatures
+    // are unknown then: `disks_unknown` stopped). The tile says it in a line and offers the one thing the user can ask of
+    // him then: «give the fans back to the mainboard» (`stopped.back`: only without the data folder — with it his page has
+    // «Hand back»). `unknown`: disks of his zones whose temperature nobody knows meanwhile.
+    $diskWhy = $runs ? $str($status['disks_unknown'] ?? null) : '';
+    if ($runs && $diskWhy === 'stopped') {
+        $out['stopped'] = ['back' => $state === null, 'unknown' => 0];
+    }
 
     // who steers and why, in one line
     $who = is_array($state['who'] ?? null) ? $state['who'] : ['who' => 'bios', 'why' => null];
@@ -506,7 +514,7 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
             : ['who' => 'bios', 'why' => $status['why'] ?? null];
     } elseif ($mine && $phase === 'ended' && $statusAt >= $stateAt && ($who['who'] ?? '') === 'fanboy') {
         $who = ['who' => 'bios', 'why' => $status['why'] ?? null];          // it ended after his last look: the BIOS again
-    } elseif ($mine && $phase === 'ended' && $statusAt >= $stateAt && in_array($status['why'] ?? null, ['array_stopped', 'crashed', 'released', 'hand_back', 'stopped'], true)) {
+    } elseif ($mine && $phase === 'ended' && $statusAt >= $stateAt && in_array($status['why'] ?? null, ['array_stopped', 'crashed', 'released', 'hand_back', 'stopped', 'holds', 'no_mirror'], true)) {
         $who = ['who' => 'bios', 'why' => $status['why']];
     }
     $whoId = $str($who['who'] ?? null);
@@ -523,7 +531,8 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
             default => $str($who['name'] ?? null) !== '' ? $str($who['name']) : $whoId,
         };
         $out['who'] = $name . (isset($s["fanboy.dash.why.$why"]) ? ' · ' . officeDashT($s, "fanboy.dash.why.$why") : '');
-        $out['tone'] = in_array($why, ['crashed', 'chip_missing', 'array_stopped', 'fixed'], true) ? 'orange' : '';
+        // (holds, no_mirror: 2026-11-22 — a control without the data folder that stopped itself, or found no mirror of his settings)
+        $out['tone'] = in_array($why, ['crashed', 'chip_missing', 'array_stopped', 'fixed', 'holds', 'no_mirror'], true) ? 'orange' : '';
     }
 
     // the numbers: the control's while it runs (its status), else his last look's — and how old they are
@@ -664,6 +673,12 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
             // many the zone has (an agent's status without the count, or a zone his setup doesn't list: never «all asleep»)
             $refs = is_array($z['sources'] ?? null) ? count(array_filter($z['sources'], static fn ($r) => is_array($r) && is_string($r['id'] ?? null))) : 0;
             $sleeps = $refs > 0 && is_int($l['asleep'] ?? null) && $l['asleep'] >= $refs;
+            // 2026-11-22: disks of this zone whose temperature nobody knows now (the array isn't started, or Unraid's
+            // disks.ini is old) — never «asleep», never «quiet»
+            $unknown = is_int($l['unknown'] ?? null) ? $l['unknown'] : 0;
+            if ($out['stopped'] !== null) {
+                $out['stopped']['unknown'] += $unknown;
+            }
             $level = is_numeric($l['level'] ?? null) ? (float) $l['level'] : null;
             $full = ($l['full'] ?? false) === true;         // round 4: an alarm in this zone — its fans at 100 %, the others steer on
         } else {
@@ -689,6 +704,7 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
                 }
             }
             $sleeps = $asleep !== [] && !in_array(false, $asleep, true);     // his last look: every source of the zone asleep
+            $unknown = 0;
             $level = null;
             $full = false;
         }
@@ -703,7 +719,7 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
             'id'      => $id,
             'name'    => $name,
             'warmest' => $warm !== null ? officeDashT($s, 'fanboy.pic.warmest', ['where' => officeFanboyDashSource($s, $warm), 'c' => officeFanboyDashNum((float) $warm['c'], $lang)])
-                : officeDashT($s, $sleeps ? 'fanboy.pic.asleep_all' : 'fanboy.pic.quiet'),
+                : officeDashT($s, $unknown > 0 ? ($diskWhy === 'stopped' ? 'fanboy.pic.unknown_stopped' : 'fanboy.pic.unknown_now') : ($sleeps ? 'fanboy.pic.asleep_all' : 'fanboy.pic.quiet')),
             // what the fans get (2026-11-21, the owner: «39 %» over a resting cooler): the highest share of its fans, «stands —
             // it may» when every fan rests by its own rule; the zone's own ask goes to the ring's title; a zone by speed its target
             'level'   => $full ? officeDashT($s, 'fanboy.pic.full') : ($level === null ? officeDashT($s, 'fanboy.pic.bios')
@@ -888,6 +904,10 @@ function officeFanboyDashRows(string $lang, ?int $now = null, ?string $show = nu
     if ($m['stale'] !== null) {
         $out .= '<div class="sso-fb-stale">' . $h(officeDashT($s, 'fanboy.dash.stale', ['when' => officeDashSince($s, $m['stale'], $lang)])) . '</div>';
     }
+    // 2026-11-22: the array isn't started and he steers on — said plainly, with what that means for the disks' fans
+    if ($m['stopped'] !== null) {
+        $out .= '<div class="sso-fb-note">' . $h(officeDashT($s, 'fanboy.dash.stopped') . ($m['stopped']['unknown'] > 0 ? ' ' . officeDashT($s, 'fanboy.dash.stopped_disks') : '')) . '</div>';
+    }
     $dim = $m['stale'] !== null ? ' sso-fb-old' : '';
     // a fan's row with its symbol: an empty box of the symbol's size (the tile's script draws the wheel of fan-art.js into it
     // from data-fan — nothing moves before it is there), the name, the speed
@@ -961,6 +981,13 @@ function officeFanboyDashRows(string $lang, ?int $now = null, ?string $show = nu
                 . '<span>' . $h(implode(' · ', array_map(static fn ($w) => "$w[0] $w[1]", $line))) . '</span></div>';
         }
     }
+    // «give the fans back to the mainboard» — the one thing to ask of him while the array isn't started (the tile's
+    // script asks first, with these words; src/fanboy-stopped.php leaves the mark his control sees)
+    if (($m['stopped']['back'] ?? false) === true) {
+        $out .= '<div class="sso-fb-line sso-fb-backrow"><button type="button" class="sso-fb-back" data-title="' . $h(officeDashT($s, 'fanboy.dash.back_title'))
+            . '" data-text="' . $h(officeDashT($s, 'fanboy.dash.back_text')) . '" data-yes="' . $h(officeDashT($s, 'fanboy.dash.back_yes')) . '" data-no="' . $h(officeDashT($s, 'fanboy.dash.back_no')) . '">'
+            . $h(officeDashT($s, 'fanboy.dash.back')) . '</button></div>';
+    }
     return $out;
 }
 
@@ -1016,6 +1043,8 @@ function officeFanboyDashTile(): string
         . '#db-sso-fanboy .sso-fb-who{padding:0 0 6px;overflow-wrap:anywhere}'
         . '#db-sso-fanboy .sso-fb-banner{display:block;padding:6px 0;font-weight:bold;text-decoration:none;overflow-wrap:anywhere;border-top:1px solid var(--table-border-color,rgba(128,128,128,.25))}'
         . '#db-sso-fanboy .sso-fb-stale{padding:6px 0;opacity:.8;font-style:italic;border-top:1px solid var(--table-border-color,rgba(128,128,128,.25))}'
+        . '#db-sso-fanboy .sso-fb-note{padding:6px 0;opacity:.85;border-top:1px solid var(--table-border-color,rgba(128,128,128,.25))}'
+        . '#db-sso-fanboy .sso-fb-backrow{justify-content:flex-end}#db-sso-fanboy .sso-fb-back{margin:0;font:inherit;cursor:pointer}'
         . '#db-sso-fanboy .sso-fb-old{opacity:.6}'
         . '#db-sso-fanboy .sso-fb-zone{border-top:1px solid var(--table-border-color,rgba(128,128,128,.25))}'
         . '#db-sso-fanboy .sso-fb-zone summary{display:block;padding:6px 0;cursor:pointer;list-style:none}'
@@ -1156,6 +1185,16 @@ function officeFanboyDashTile(): string
         . 'if(typeof csrf_token!=="undefined")hd["X-CSRF-Token"]=csrf_token;'
         . 'fetch(' . json_encode('/plugins/' . OFFICE_PLUGIN . '/api.php') . ',{method:"POST",headers:hd,body:JSON.stringify({a:"fanboy.dashboard",hours:parseInt(t.getAttribute("data-hours"),10)})})'
         . '.then(function(){load();}).catch(function(){t.disabled=false;});},true);'
+        // «give the fans back to the mainboard» (the array isn't started): asked first — Unraid's own dialog where the page
+        // has it, the browser's else —, then the wish goes to the office (fanboy.hand_back) and the rows come anew
+        . 'document.addEventListener("click",function(e){var t=e.target&&e.target.closest?e.target.closest("#sso-fb-dash .sso-fb-back"):null;if(!t)return;'
+        . 'e.preventDefault();e.stopPropagation();if(t.disabled)return;var go=function(){t.disabled=true;var hd={"Content-Type":"application/json","X-Office":"1"};'
+        . 'if(typeof csrf_token!=="undefined")hd["X-CSRF-Token"]=csrf_token;'
+        . 'fetch(' . json_encode('/plugins/' . OFFICE_PLUGIN . '/api.php') . ',{method:"POST",headers:hd,body:JSON.stringify({a:"fanboy.hand_back"})})'
+        . '.then(function(){load();}).catch(function(){t.disabled=false;});};'
+        . 'var ti=t.getAttribute("data-title"),tx=t.getAttribute("data-text");'
+        . 'if(typeof swal==="function"){swal({title:ti,text:tx,type:"warning",showCancelButton:true,confirmButtonText:t.getAttribute("data-yes"),cancelButtonText:t.getAttribute("data-no")},'
+        . 'function(ok){if(ok)go();});}else if(window.confirm(ti+"\n\n"+tx)){go();}},true);'
         // the marker: on the tile's own box (it stays when the rows come anew) — nothing runs while the pointer is elsewhere;
         // the span under the pointer: a line there and its words (the server's) with its times (the browser's) in place
         // of the caption; a tap on the curve marks without unfolding the zone, a tap beside it lets go

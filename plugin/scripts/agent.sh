@@ -11,18 +11,21 @@
 #   agent.sh watch     is the agent at work? (cron, every 5 minutes: job.sh watch)
 #   agent.sh array stopping|started   from the event scripts: a line for the night
 #                      watchman's book, then the agent goes and the night shift
-#                      comes (stopping) or the other way round (started); at the
+#                      comes (stopping) or the other way round (started); Fanboy's
+#                      control steers on through both (fanboy_release); at the
 #                      stop the backup engine's mounts left between runs go, at the
 #                      start what a backup run the stop ended left stopped comes
 #                      back (backup.sh --unmount / --recover, engine 2.25); a partner's
 #                      transfer through the door ends at the stop (partner_release)
 #   agent.sh release   everything the office holds let go (the .plg's remove, before the code goes): the agent
-#                      stopped, then what "array stopping" releases - no night shift after it (the USO network
-#                      stays: the .plg's remove takes it with scripts/usonet.sh leave)
+#                      stopped, Fanboy's control with it (every fan back), then what "array stopping" releases -
+#                      no night shift after it (the USO network stays: the .plg's remove takes it with
+#                      scripts/usonet.sh leave)
 #   agent.sh nightshift  the night shift alone (php agent.php nightshift: RAM and
-#                      flash only - nothing under /mnt; it ends by itself without
-#                      the night watchman's mirror, when the array is started or
-#                      the agent runs)
+#                      flash only - nothing under /mnt; it ends by itself when the
+#                      array is started or the agent runs, and when neither the night
+#                      watchman has a mirror nor a desk asks it to stay - Fanboy does
+#                      while he steers: it looks after his control meanwhile)
 #
 # "start" leaves a small supervisor behind (its own session, so "stop" can end
 # everything the agent started - a du measuring a share would keep the pool
@@ -195,11 +198,31 @@ stop() {
 
 # Fanboy's fans back to the state they had before him, read back (agent/fanboy-guard.php release): after the agent is
 # gone (it starts no control any more), whatever holds an output asked to end, then every output still held given back.
-# Every stop goes through here - stop, restart, the plugin's update (stop) and removal (release), the array stopping
-# (release). Nothing held: one look at a file in RAM.
+# Every stop of the office goes through here - stop, restart, the plugin's update (stop) and removal (release). Nothing
+# held and no control: one look at two files in RAM.
+# The array stopping is different (STOP_WHY=array_stopping, set by array_event; «always on», 2026-11-22): his control runs
+# without the data folder and steers on through the stop. Only what works in the data folder ends (a setup step, «show me
+# this fan»: asked to end, its outputs given back), and the control is looked at from outside - holds it anything on the
+# array or a pool, or can't that be seen, it is ended and every fan goes back (fanboy-guard.php release-steps). The stop
+# itself is never held: at most 15 s, a few milliseconds when no step runs.
 fanboy_release() {
+    local cmd=release
+    [[ -f "$DIR/agent/fanboy-guard.php" ]] || return 0
+    [[ -s "$FANBOY_JOURNAL" || -s "${FANBOY_JOURNAL%/*}/control.pid" ]] || return 0
+    [[ "${STOP_WHY:-}" == array_stopping ]] && cmd=release-steps
+    timeout -k 1 15 php "$DIR/agent/fanboy-guard.php" "$cmd" </dev/null >>"$LOG" 2>&1
+    fanboy_back_check
+    return 0
+}
+
+# Did the mainboard take the fans back? The agent's tick asks that 10 s after every give-back (a fan clearly slower than
+# before Fanboy and not rising is set to full speed) - but after a stop there is no agent, and the guard's cron line
+# looks only while the journal names a holder: nobody asked after an array stop. So one look of the guard's own
+# (fanboy-guard.php check-back: it waits for that moment, at most 30 s, then looks once), in a session of its own, cwd /,
+# RAM and /sys only - never the data folder: it never holds up a stop, and this function returns at once.
+fanboy_back_check() {
     [[ -f "$DIR/agent/fanboy-guard.php" && -s "$FANBOY_JOURNAL" ]] || return 0
-    timeout -k 1 15 php "$DIR/agent/fanboy-guard.php" release </dev/null >>"$LOG" 2>&1
+    ( cd / && setsid "${CLEAN_ENV[@]}" timeout -k 1 60 php "$DIR/agent/fanboy-guard.php" check-back </dev/null >>"$LOG" 2>&1 & )
     return 0
 }
 
@@ -568,7 +591,7 @@ array_event() {
     echo "$(date +%s) $what" >>"$ARRAY_EVENTS"
     tail -n 50 "$ARRAY_EVENTS" >"$ARRAY_EVENTS.tmp" 2>/dev/null && mv -f "$ARRAY_EVENTS.tmp" "$ARRAY_EVENTS"
     if [[ "$what" == stop ]]; then
-        local STOP_WHY=array_stopping   # drill_release tells Mr. Restori's jobs why they end
+        local STOP_WHY=array_stopping   # drill_release tells Mr. Restori's jobs why they end, fanboy_release his guard
         release             # everything the office holds on a pool
         night_start         # RAM and flash only
     else

@@ -420,6 +420,12 @@ function fanboyStoreUpdate(callable $fn, ?array $board = null): array
         }
         @mkdir(dirname(fanboyStoreFile()), 0700, true);
         writeAtomic(fanboyStoreFile(), jsonEncode($raw), 0600);
+        // his mirror in RAM follows at once (fanboy-mirror.php; the agent's tick would within seconds) — never in a save's way
+        try {
+            fanboyMirrorKeep(true);
+            fanboyMirrorFlashKeep();        // its copy on the flash: made or taken away at once («Take over», «Hand back»), else at most once a minute
+        } catch (Throwable) {
+        }
         return $entry;
     } finally {
         flock($lock, LOCK_UN);
@@ -2181,7 +2187,10 @@ function fanboyTakeOver(array $r = []): array
         return $e;
     }, $scan['board']);
     fanboyGuardCron(true);
-    $GLOBALS['fanboyCrashes'] = [];
+    fanboyCrashKeep(['deaths' => []]);
+    @unlink(fanboyBrakeFile());         // a control that stopped itself (fanboyBrake()) may try again on the user's click
+    @unlink(fanboyHandBackFile());      // … and a hand-back asked for while the array wasn't started is over: the user takes over
+    @unlink(fanboyHandBackFlash());
     fanboyLaunch('fanboy-control');
     logLine('Fanboy: taken over on the user\'s click');
     // 2026-11-21 (the owner): a new setup shows his Dashboard tile with «Speeds» — only where nobody ever chose

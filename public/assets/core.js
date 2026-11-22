@@ -720,6 +720,7 @@ Office.setAgent = function setAgent(info) {
     notice.dataset.kind = 'agent';
     const text = el('span');
     text.append(el('strong', '', t('agent.array_stopped_title')), ' ', nightText(night));
+    stillLines(text);
     notice.append(Office.deskIcon('watchman'), text);
     notice.hidden = false;
   } else if (homeFresh(Office.agent.no_data)) {
@@ -735,6 +736,7 @@ Office.setAgent = function setAgent(info) {
       stopped ? t('agent.array_stopped_text', { dir: Office.agent.no_data.dir })
         : appdata ? t('agent.no_appdata_text', { dir: Office.agent.no_data.dir, appdata })
           : t('agent.no_data_text', { dir: Office.agent.no_data.dir }));
+    if (stopped) stillLines(notice);
     notice.hidden = false;
   } else {
     notice.innerHTML = '';
@@ -847,6 +849,17 @@ function updateNotice() {
   later.onclick = () => { node.hidden = true; Office.store('update.later', v); };
   node.append(el('span', '', t('office.updated', { version: v })), reload, later);
   node.hidden = false;
+}
+
+/**
+ * What keeps working while the array isn't started (the agent's info `still`: [{desk}], src/mailbox.php — from RAM only):
+ * a sentence each in the «array stopped» notice, the desk's own string `<desk>.still`. A desk without that string: nothing.
+ */
+function stillLines(into) {
+  (Array.isArray(Office.agent.still) ? Office.agent.still : []).forEach((k) => {
+    const key = k && typeof k.desk === 'string' ? `${k.desk}.still` : '';
+    if (key && Office.has(key)) into.append(' ', t(key));
+  });
 }
 
 /** "The night watchman has been on night shift since 09:18 (12 rounds, 1 new entry) …" — {since, rounds, new} */
