@@ -36,8 +36,8 @@ declare(strict_types=1);
  * Not the array: /mnt/remotes (SMB/NFS shares of other machines), /mnt/disks and /mnt/rootshare (Unassigned Devices) —
  * they never hold it; a remote that doesn't answer only makes everything slower. /mnt/addons is the office's own (RAM).
  *
- * Who a process is comes from Ms. Protocolli's disk-wake capture (agent/desks/logs-diskwakes.php: logsWakeWho(),
- * logsWakeKind(), logsWakeStat(), logsWakeSmb()) — called, never copied; what only this look needs (a shell in an SSH
+ * Who a process is comes from agent/lib/procwho.php (procwhoWho(), procwhoKind(), procwhoStat(), procwhoSmb() — shared
+ * with his «Who woke my disks?») — called, never copied; what only this look needs (a shell in an SSH
  * session or Unraid's web terminal, a User Script, a plugin's script) lies here.
  *
  * arrayholdLook() runs in a job of its own (`php agent.php job watchman-hold`, started from his page), capped by time and
@@ -45,7 +45,7 @@ declare(strict_types=1);
  */
 
 require_once __DIR__ . '/paritywhy.php';
-require_once __DIR__ . '/../desks/logs-diskwakes.php';
+require_once __DIR__ . '/procwho.php';
 
 const ARRAYHOLD_BUDGET_MS = 1500;       // the walk through /proc stops after this many milliseconds (`cut`)
 const ARRAYHOLD_PIDS      = 20000;      // … or this many processes
@@ -116,7 +116,7 @@ function arrayholdLook(array $paths, array $o = []): array
     foreach ($cts ?? [] as $c) {
         $names[$c['id']] = $c['name'];
     }
-    $smb = $walk['smb'] ? ($o['smb'] ?? logsWakeSmb()) : [];
+    $smb = $walk['smb'] ? ($o['smb'] ?? procwhoSmb()) : [];
     $syslog = arrayholdSyslog((string) ($paths['rsyslog_conf'] ?? ''));
 
     $holds = [];
@@ -179,7 +179,7 @@ function arrayholdLook(array $paths, array $o = []): array
     foreach ($mounts as [$dev, $point, $type]) {
         $where = arrayholdWhere($point);
         if ($where !== null && $where !== 'array' && substr_count($point, '/') >= 3 && count($out['outside']) < ARRAYHOLD_LIST) {
-            $out['outside'][] = ['kind' => $where, 'mount' => mb_strcut($point, 0, LOGS_WAKE_PATH, 'UTF-8'), 'type' => mb_strcut($type, 0, 32, 'UTF-8')];
+            $out['outside'][] = ['kind' => $where, 'mount' => mb_strcut($point, 0, PROCWHO_PATH, 'UTF-8'), 'type' => mb_strcut($type, 0, 32, 'UTF-8')];
         }
     }
 
@@ -223,7 +223,7 @@ function arrayholdLook(array $paths, array $o = []): array
 }
 
 /**
- * Every process with a file or its working folder under /mnt (logsWakeWho()), what it is (logsWakeKind(), refined by
+ * Every process with a file or its working folder under /mnt (procwhoWho()), what it is (procwhoKind(), refined by
  * arrayholdRefine()); the office's running jobs (by their command line); capped by ARRAYHOLD_*.
  *
  * @return array{found: list<array>, office: list<string>, smb: bool, cut: bool}
@@ -252,7 +252,7 @@ function arrayholdWalk(string $proc, array $o, int $t0): array
         }
         $cmd = (string) @file_get_contents("$proc/$pid/cmdline", false, null, 0, 4096);
         if (str_contains($cmd, '/plugins/unraid-secretary-office/')) {
-            $k = logsWakeKind($proc, $pid);
+            $k = procwhoKind($proc, $pid);
             $desk = $k['desk'] ?? '';
             if ($desk !== '' && !in_array($desk, ['watchman', 'logs'], true) && !in_array($desk, $office, true)
                 && preg_match('#(?:job\.sh|agent\.php\x00job|/backup/|/smartmover/|/mediacache/|/gather/)#', $cmd)) {
@@ -260,9 +260,9 @@ function arrayholdWalk(string $proc, array $o, int $t0): array
             }
         }
         $fds = 0;
-        $w = logsWakeWho($proc, $pid, $fds, $ns, true);
+        $w = procwhoWho($proc, $pid, $fds, $ns, true);
         $total += $fds;
-        if ($fds > LOGS_WAKE_FDS) {
+        if ($fds > PROCWHO_FDS) {
             $cut = true;                // one process with more open files than one look reads
         }
         if ($w === null || $w['prog'] === 'shfs') {
@@ -291,7 +291,7 @@ function arrayholdRefine(string $proc, array $w): array
     }
     $p = (int) $w['pid'];
     for ($i = 0; $i < ARRAYHOLD_UP && $p > 1; $i++) {
-        $st = logsWakeStat("$proc/$p/stat");
+        $st = procwhoStat("$proc/$p/stat");
         if ($st === null) {
             break;
         }
@@ -374,7 +374,7 @@ function arrayholdLoops(string $sys, array $mounts): array
             continue;
         }
         $out[] = ['kind' => 'loop', 'name' => mb_strcut(basename($file), 0, 200, 'UTF-8'), 'dev' => $dev, 'mount' => $at,
-                  'files' => [mb_strcut($file, 0, LOGS_WAKE_PATH, 'UTF-8')], 'more' => 0, 'via' => null, 'pid' => null, 'prog' => null, 'procs' => 0];
+                  'files' => [mb_strcut($file, 0, PROCWHO_PATH, 'UTF-8')], 'more' => 0, 'via' => null, 'pid' => null, 'prog' => null, 'procs' => 0];
     }
     return $out;
 }

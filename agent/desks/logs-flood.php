@@ -7,7 +7,7 @@ declare(strict_types=1);
  * /nginx_status, /stub_status, /basic_status — Netdata's nginx collector looking for a status page on its own and Unraid
  * answering with its login. Unraid then breaks in odd ways (no logs, errors on its pages).
  * Functions only, in a file of their own beside her desk (logs.php require_once's it; the agent's desk glob loads it
- * first — «logs-flood» sorts before «logs.php» in every locale, as logs-diskwakes.php does).
+ * first — «logs-flood» sorts before «logs.php» in every locale, as «logs-filters» does).
  * Read only, RAM only: statvfs, lstat under /var/log, a tail of ONE file, /proc — never a disk, never a change.
  *
  * In her tick, every LOGS_FLOOD_EVERY s (nothing but a clock compare in between):

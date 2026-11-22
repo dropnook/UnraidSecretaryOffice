@@ -75,12 +75,14 @@ const RUNDIR_FILES = [
         => ['max' => 262144, 'bound' => '≤ 80 samples, the looks of one run, one size per Kopia source', 'gone' => 'rewritten per run'],
     'watchman-mirror\.json|watchman-hold\.json|watchman-flow-[0-9a-f]{8}\.json' => ['max' => 1 << 20, 'bound' => 'the mirror\'s caps; ≤ 5 per thing; ≤ WATCH_FLOW_CONNS 5000 connections', 'gone' => 'rewritten'],
     'watchman-round\.err|watchman-hold\.err|logs-tour\.err' => ['max' => 65536, 'bound' => 'one run\'s stderr: a fatal error\'s lines (a child of the agent; warnings never reach stderr on Unraid\'s php.ini)', 'gone' => 'truncated at the next run'],
-    'logs-flood\.json|logs-flood-catch\.json|logs-wakes\.json|logs-wake-names\.json' => ['max' => 1 << 20, 'bound' => '11 × 300 files; LOGS_WAKE_MAX 1000', 'gone' => 'rewritten / at its end'],
+    'logs-flood\.json|logs-flood-catch\.json' => ['max' => 1 << 20, 'bound' => '11 × 300 files', 'gone' => 'rewritten / at its end'],
+    'watchman-wakes\.json|watchman-wake-names\.json' => ['max' => 1 << 20, 'bound' => 'the disks\' sleep (a line each); names for WATCH_WAKE_MAX 1000 wakes', 'gone' => 'rewritten / at its end; the array\'s stop'],
     'templates'                   => ['max' => 1 << 20, 'bound' => 'the catalog\'s templates the Consultant prepared (a few KB each)', 'gone' => 'rewritten'],
     'advisor-plugin(?:\.(?:json|out|done))?' => ['max' => 262144, 'bound' => 'one plugin install\'s output (Unraid\'s installer: its lines, read back to the last 32 KB)', 'gone' => 'at the next install'],
     // what 1.94 and earlier wrote there and nobody writes now: removed whenever found (a server in 1.94's crash loop comes out of it by itself)
     'cleanup-\d+-[0-9a-f]{32}\.out' => ['max' => 0, 'bound' => 'none in 1.94 (the cause of 2026-11-19); no longer written: her jobs read through a pipe', 'gone' => 'runDirSweep() at once', 'legacy' => true],
     'cleanup-icons-(?:check|\d+)'  => ['max' => 0, 'bound' => 'no longer written: the pictures are checked in officeTmpDir()', 'gone' => 'runDirSweep() at once', 'legacy' => true],
+    'logs-wakes\.json|logs-wake-names\.json' => ['max' => 0, 'bound' => 'no longer written: «Who woke my disks?» is the Night Watchman\'s (watchman-wakes.json; the step wakes-watchman renames the memory before the first sweep)', 'gone' => 'runDirSweep() at once', 'legacy' => true],
     'drill'                       => ['max' => 0, 'bound' => 'no longer written: the drill\'s dumps lie in officeTmpDir()', 'gone' => 'runDirSweep() at once', 'legacy' => true],
     // Jack Streamer (jack*.php, mediacache/)
     'jack-headers\.(\d+)'          => ['max' => 4096, 'bound' => 'one request\'s headers (his API key)', 'gone' => 'right after curl; runDirSweep() once its process is gone', 'pid' => true],
