@@ -61,6 +61,15 @@ function agentInfo(): array
     if (!$info['running'] && ($night = officeNightShift()) !== null) {
         $info['night'] = $night;        // the array isn't started: the night watchman keeps watch from RAM and the flash
     }
+    // 2026-11-22: what keeps working while the array isn't started — a line each in the page's notice (core.js: the desk's
+    // own string `<desk>.still`), from files in RAM only
+    unset($info['still']);
+    if (!$info['running'] && isset($info['no_data'])) {
+        require_once __DIR__ . '/fanboy-stopped.php';
+        if (($s = officeFanboyStopped($info)) !== null && $s['steers']) {
+            $info['still'] = [['desk' => $s['desk']]];
+        }
+    }
     return $info;
 }
 

@@ -28,6 +28,8 @@ declare(strict_types=1);
  * POST {"a": "office.supporter_claim", auto?}   the key a tip made, asked of the support page by the agent
  *                                     (agent/lib/supporter.php) — never by the browser
  * POST {"a": "office.lang", "lang": <code>}   the language the page shows, for the notifications (desks.php)
+ * POST {"a": "fanboy.hand_back"}       while the array isn't started (no agent): the web side's own — a mark in RAM his control
+ *                                     sees (fanboy-stopped.php); else the agent's action like every other
  * POST {"a": "office.report_preview|report_send|report_diag|reports|report_inbox", …}   «Report a problem or a wish…»: the agent's
  *                                     (agent/lib/report.php) — it alone ever sends a report, and only on report_send
  * POST {"a": "office.report_image", "data": <base64>}   one picture for the next preview: checked by its first bytes and
@@ -104,6 +106,14 @@ function api_main(): void
         }
         if ($action === 'office.lang') {
             answer(officeLangRemember($data));
+        }
+        if ($action === 'fanboy.hand_back') {
+            // the array isn't started, no agent: «give the fans back to the mainboard» is a mark in RAM his control sees
+            // (src/fanboy-stopped.php) — with the agent at work the click goes to the agent as every action
+            require_once __DIR__ . '/fanboy-stopped.php';
+            if (officeFanboyStopped() !== null) {
+                answer(officeFanboyStoppedHandBack());
+            }
         }
         $office = in_array($action, OFFICE_AGENT_ACTIONS, true);      // the office's own, answered by the agent
         if (!$office && (!preg_match('/^[a-z][a-z0-9_-]*\.[a-z][a-z0-9_]*$/D', $action) || !isset(officeDesks()[explode('.', $action)[0]]))) {

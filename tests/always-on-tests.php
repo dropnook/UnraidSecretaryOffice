@@ -2081,3 +2081,104 @@ function testAlwaysOnBoot(): void
         fanboyTEnd();
     }
 }
+
+// ===================================================================== step S7: what the user sees while the array isn't started
+
+/**
+ * Step S7: with the array stopped there is no data folder, no agent, no page of his — his Dashboard tile is the view: it
+ * shows the running control's numbers (as before), says plainly that the array isn't running and he steers on, that the
+ * disks' temperatures are unknown meanwhile, and offers the one thing to ask of him then: «give the fans back to the
+ * mainboard» — a mark the web side leaves in his RAM folder, nothing else. The office's «array stopped» notice gets a
+ * line of his. (The helper fanboyDashWeb() is tests/fanboy-dash-tests.php's.)
+ */
+function testAlwaysOnStoppedView(): void
+{
+    $now = 1795400000;
+    $zone = fn (int $unknown, ?array $warm) => ['id' => 'disks', 'name' => 'Disks', 'unit' => 'pct', 'level' => 45.0, 'full' => false, 'warmest' => $warm, 'asleep' => 0, 'unknown' => $unknown,
+        'fans' => [['id' => 'it8696:it87.2608:pwm4', 'name' => 'Cage', 'output' => 4, 'pct' => 45, 'rpm' => 900, 'held' => true, 'foreign' => false, 'stands' => false]]];
+    $status = fn (?string $disks, array $zones, array $more = []) => $more + ['v' => 1, 'pid' => 4242, 'time' => $now - 2, 'board' => 'Example Boards Inc. | EB-Z100 PRO', 'who' => 'fanboy', 'why' => null, 'phase' => 'run',
+        'zones' => $zones, 'alarm' => null, 'watch' => [], 'disks_unknown' => $disks];
+    $dash = ['fanboy/dash.json' => ['v' => 1, 'show' => 'speeds']];
+    // the web side's own look and its one write, tried in the web side's process (its src directory found by a function of it)
+    $more = '(function () { $src = dirname((new ReflectionFunction("officeReadJson"))->getFileName()); require_once "$src/mailbox.php"; require_once "$src/fanboy-stopped.php";'
+        . ' $run = officeRunDir(); $stopped = ["running" => false, "no_data" => ["array" => "Stopped", "dir" => "/x"]]; $out = [];'
+        . ' $out["running"] = officeFanboyStopped(["running" => true], $run, ' . $now . ');'
+        . ' $out["started"] = officeFanboyStopped(["running" => false, "no_data" => ["array" => "Started", "dir" => "/x"]], $run, ' . $now . ');'
+        . ' $out["with_data"] = officeFanboyStopped(["running" => false], $run, ' . $now . ');'
+        . ' $out["stopped"] = officeFanboyStopped($stopped, $run, ' . $now . ');'
+        . ' $out["old"] = officeFanboyStopped($stopped, $run, ' . ($now + 600) . ');'
+        . ' $out["info"] = agentInfo()["still"] ?? null; $out["array"] = (string) ((@parse_ini_file("/var/local/emhttp/var.ini") ?: [])["fsState"] ?? "");'
+        . ' $out["refused"] = [officeFanboyStoppedHandBack(["running" => true], $run)["ok"], officeFanboyStoppedHandBack(["running" => false, "no_data" => ["array" => "Started", "dir" => "/x"]], $run)["ok"]];'
+        . ' $out["before"] = file_exists("$run/fanboy/handback.json");'
+        . ' chmod("$run/fanboy", 0755); $out["open_folder"] = officeFanboyStoppedHandBack($stopped, $run)["ok"]; chmod("$run/fanboy", 0700);'
+        . ' $out["asked"] = officeFanboyStoppedHandBack($stopped, $run); clearstatcache();'
+        . ' $out["mark"] = [officeReadJson("$run/fanboy/handback.json"), fileperms("$run/fanboy/handback.json") & 0777, count(glob("$run/fanboy/.*.tmp") ?: [])];'
+        . ' $out["again"] = officeFanboyStoppedHandBack($stopped, $run)["ok"]; $out["after"] = officeFanboyStopped($stopped, $run, ' . $now . ');'
+        . ' return $out; })()';
+    $o = fanboyDashWeb(null, $dash + ['fanboy/control.json' => $status('stopped', [$zone(3, null)])], $now, $more);
+    $m = $o['model'] ?? [];
+    $rows = (string) ($o['rows'] ?? '');
+    same('always on S7: the array stopped, the data folder away, his control running — the tile is there and says who steers: Fanboy; no error', ['speeds', true, 'green', ''],
+        [$o['gate'] ?? null, $m['steers'] ?? null, $m['tone'] ?? null, $o['err'] ?? null], $o['raw'] ?? '');
+    same('always on S7: … the model says «stopped»: the button offered, three disks of unknown temperature', ['back' => true, 'unknown' => 3], $m['stopped'] ?? null);
+    check('always on S7: … the rows say it plainly: the array isn\'t running and he steers on, the disks\' temperatures unknown meanwhile (their fans keep a minimum, none stands)',
+        str_contains($rows, '<div class="sso-fb-note">The array isn&#039;t running — he steers on. Nobody knows the disks&#039; temperatures meanwhile: their fans keep a minimum speed, none stands.</div>'), $rows);
+    check('always on S7: … the zone with only disks: «temperature not known while the array is stopped» — never «asleep», never «its quiet level»; its level and its fan\'s speed as ever',
+        ($m['zones'][0]['warmest'] ?? null) === 'temperature not known while the array is stopped' && str_contains($rows, '900 rpm'), json_encode($m['zones'][0] ?? null));
+    check('always on S7: … and the one thing to ask of him: the button, with the words the question is asked with',
+        (bool) preg_match('/<button type="button" class="sso-fb-back" data-title="Give the fans back to the mainboard\?" data-text="Every fan he steers goes back to the mainboard at once\.[^"]*" data-yes="Give back" data-no="Cancel">Give the fans back to the mainboard…<\/button>/', $rows), $rows);
+    same('always on S7: … in German too', ['Temperatur unbekannt, solange das Array gestoppt ist'], [$o['de']['zones'][0]['warmest'] ?? null]);
+    // the web side's look
+    $w = $o['more'] ?? [];
+    same('always on S7: the web side\'s look — nothing to say while the agent works, while the array runs, or with the data folder there', [true, null, null, null], [array_key_exists('with_data', $w), $w['running'], $w['started'], $w['with_data']]);
+    same('always on S7: … the array stopped and his control running (its status a few seconds old): he steers', ['desk' => 'fanboy', 'runs' => true, 'steers' => true, 'handed_back' => false], $w['stopped'] ?? null);
+    same('always on S7: … a status ten minutes old is no running control: nothing to say', [true, null], [array_key_exists('old', $w), $w['old']]);
+    same('always on S7: the office\'s notice gets his line while the array isn\'t started (here: ' . json_encode($w['array'] ?? null) . ')', ($w['array'] ?? '') === 'Started' ? null : [['desk' => 'fanboy']], $w['info'] ?? null);
+    // the one write
+    same('always on S7: «give back» is refused while the agent works or the array runs (then it is the agent\'s action), and into a folder that isn\'t root\'s alone — nothing written',
+        [[false, false], false, false], [$w['refused'] ?? null, $w['before'] ?? null, $w['open_folder'] ?? null]);
+    same('always on S7: … the array stopped, his control running: the mark — a new file in his RAM folder, 0600, {v, at}, nothing left beside it; asked twice is asked',
+        [['ok' => true, 'handed_back' => true], 1, 0600, 0, true], [$w['asked'] ?? null, $w['mark'][0]['v'] ?? null, $w['mark'][1] ?? null, $w['mark'][2] ?? null, $w['again'] ?? null]);
+    same('always on S7: … and the look says it: the mark stands', true, $w['after']['handed_back'] ?? null);
+
+    // the other states the tile can meet
+    $o = fanboyDashWeb(null, $dash + ['fanboy/control.json' => $status('stopped', [$zone(1, ['id' => 'x', 'label' => 'CPU', 'c' => 51.0, 'kind' => 'cpu'])])], $now);
+    check('always on S7: a zone with a live source beside its disks shows that source as ever (the note still names the disks)',
+        str_contains((string) ($o['model']['zones'][0]['warmest'] ?? ''), '51') && ($o['model']['stopped'] ?? null) === ['back' => true, 'unknown' => 1], json_encode($o['model']['zones'][0]['warmest'] ?? null));
+    $o = fanboyDashWeb(null, $dash + ['fanboy/control.json' => $status('stopped', [$zone(0, ['id' => 'x', 'label' => 'CPU', 'c' => 51.0, 'kind' => 'cpu'])])], $now);
+    check('always on S7: no disk among his sources: the note without the sentence about disks', str_contains((string) ($o['rows'] ?? ''), '<div class="sso-fb-note">The array isn&#039;t running — he steers on.</div>'), (string) ($o['rows'] ?? ''));
+    $o = fanboyDashWeb(['fanboy.json' => ['time' => $now - 5, 'setup' => ['board' => 'Example Boards Inc. | EB-Z100 PRO', 'zones' => [], 'fans' => []], 'who' => ['who' => 'fanboy']],
+        'fanboy/dashboard.json' => ['show' => 'speeds'], 'office/staff.json' => ['hired' => ['fanboy' => ['at' => 1]]]], ['fanboy/control.json' => $status('stopped', [$zone(3, null)])], $now);
+    same('always on S7: the seconds of a stop with the data folder still there: the note, but no button (his page has «Hand back»)', [['back' => false, 'unknown' => 3], false],
+        [$o['model']['stopped'] ?? null, str_contains((string) ($o['rows'] ?? ''), 'sso-fb-back"')], $o['err'] ?? '');
+    $o = fanboyDashWeb(null, $dash + ['fanboy/control.json' => $status(null, [$zone(0, null)])], $now);
+    same('always on S7: a control that says nothing of unknown disks (the array runs, an older control): no note, no button, the zone\'s words as before',
+        [true, null, false, 'no temperature — its quiet level'], [array_key_exists('stopped', $o['model'] ?? []), $o['model']['stopped'], str_contains((string) ($o['rows'] ?? ''), 'sso-fb-note'), $o['model']['zones'][0]['warmest'] ?? null]);
+    $o = fanboyDashWeb(null, $dash + ['fanboy/control.json' => $status('stale', [$zone(3, null)])], $now);
+    same('always on S7: the array runs but Unraid\'s disk values are old — «temperature not known right now», no note about a stopped array', [true, null, 'temperature not known right now'],
+        [array_key_exists('stopped', $o['model'] ?? []), $o['model']['stopped'], $o['model']['zones'][0]['warmest'] ?? null]);
+    $o = fanboyDashWeb(null, $dash + ['fanboy/control.json' => ['phase' => 'ended', 'why' => 'hand_back', 'who' => 'bios', 'time' => $now - 3, 'board' => 'x', 'zones' => []]], $now);
+    check('always on S7: after «give back»: the BIOS, handed back — no note, no button', ($o['model']['who'] ?? '') === 'The BIOS · handed back' && array_key_exists('stopped', $o['model'] ?? []) && $o['model']['stopped'] === null
+        && !str_contains((string) ($o['rows'] ?? ''), 'sso-fb-back"'), json_encode($o['model']['who'] ?? null));
+
+    // the wiring
+    $api = (string) file_get_contents(OFFICE_DIR . '/src/api.php');
+    check('always on S7: the API hears fanboy.hand_back itself only while there is something of his to say with the array stopped — before «hired» is asked (the staff list lies in the data folder), else the agent\'s action as ever',
+        (bool) preg_match('/if \(\$action === \'fanboy\.hand_back\'\) \{\n(?:\s*\/\/[^\n]*\n)*\s+require_once __DIR__ \. \'\/fanboy-stopped\.php\';\n\s+if \(officeFanboyStopped\(\) !== null\) \{\n\s+answer\(officeFanboyStoppedHandBack\(\)\);/', $api)
+        && strpos($api, "if (\$action === 'fanboy.hand_back') {") < strpos($api, "if (!\$office && !officeIsHired(\$desk)"));
+    $tile = (string) file_get_contents(OFFICE_DIR . '/src/dashboard-fanboy.php');
+    check('always on S7: the tile\'s script asks first (Unraid\'s dialog where the page has it, the browser\'s else), then sends the wish with the csrf token and loads the rows anew',
+        str_contains($tile, 'closest("#sso-fb-dash .sso-fb-back")') && str_contains($tile, 'body:JSON.stringify({a:"fanboy.hand_back"})') && str_contains($tile, 'if(typeof swal==="function"){swal({title:ti,text:tx,type:"warning",showCancelButton:true')
+        && str_contains($tile, '}else if(window.confirm(ti+"\\n\\n"+tx)){go();}'));
+    $web = (string) file_get_contents(OFFICE_DIR . '/src/fanboy-stopped.php');
+    check('always on S7: the web side writes exactly one thing there — the mark (a new file, renamed into place); it starts nothing, signals nobody, touches no fan',
+        substr_count($web, 'fopen(') === 1 && substr_count($web, 'rename(') === 1 && !preg_match('/\b(exec|shell_exec|system|passthru|popen|proc_open|posix_kill|file_put_contents)\s*\(/', $web) && stripos($web, 'pwm') === false);
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    check('always on S7: the page\'s «array stopped» notice takes a line from each desk the messenger\'s info names (`still`) — the desk\'s own string, no desk named in core.js',
+        str_contains($core, "const key = k && typeof k.desk === 'string' ? `\${k.desk}.still` : '';") && substr_count($core, 'stillLines(') === 3);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
+        $j = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/fanboy/lang/$lang.json"), true) ?: [];
+        check("always on S7: $lang has his line for the notice and the tile's words (the note, unknown temperatures, the button and its question)",
+            isset($j['still'], $j['dash.stopped'], $j['dash.stopped_disks'], $j['pic.unknown_stopped'], $j['pic.unknown_now'], $j['dash.back'], $j['dash.back_title'], $j['dash.back_text'], $j['dash.back_yes'], $j['dash.back_no']));
+    }
+}

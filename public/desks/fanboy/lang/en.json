@@ -1362,5 +1362,15 @@
   "dash.why.no_mirror": "his settings are missing in memory",
   "dash.why.holds": "his control stopped itself",
   "notify.holds_subject": "Fanboy: his control stopped itself",
-  "notify.holds": "Fanboy's control found itself holding something on the array or a pool. It must never keep the array from stopping, so it ended. Every fan it held is given back as set for it (its state before him or the mainboard's automatic). He does not start it again by himself — only once the messenger starts anew (at the array's next start, after an update), or after «Hand back» and «Take over». The office's log says what it held."
+  "notify.holds": "Fanboy's control found itself holding something on the array or a pool. It must never keep the array from stopping, so it ended. Every fan it held is given back as set for it (its state before him or the mainboard's automatic). He does not start it again by himself — only once the messenger starts anew (at the array's next start, after an update), or after «Hand back» and «Take over». The office's log says what it held.",
+  "still": "Fanboy keeps steering the fans meanwhile. His settings wait for the array.",
+  "dash.stopped": "The array isn't running — he steers on.",
+  "dash.stopped_disks": "Nobody knows the disks' temperatures meanwhile: their fans keep a minimum speed, none stands.",
+  "pic.unknown_stopped": "temperature not known while the array is stopped",
+  "pic.unknown_now": "temperature not known right now",
+  "dash.back": "Give the fans back to the mainboard…",
+  "dash.back_title": "Give the fans back to the mainboard?",
+  "dash.back_text": "Every fan he steers goes back to the mainboard at once. He takes them again only on «Take over» on his page, once the array runs.",
+  "dash.back_yes": "Give back",
+  "dash.back_no": "Cancel"
 }

@@ -385,7 +385,8 @@ function testFanboyDashHistory(): void
     $script = substr($tileSrc, (int) strpos($tileSrc, '<script>'));
     check('fanboy dash history: the marker\'s script — only on the tile\'s own box (nothing runs with the pointer elsewhere), no request, no timer of its own',
         str_contains($script, 'var bx=box();if(bx){bx.addEventListener("pointermove",mark);bx.addEventListener("pointerdown",mark);')
-        && !preg_match('/(document|window)\.addEventListener\("pointer/', $script) && substr_count($script, 'fetch(') === 2 && substr_count($script, 'setTimeout(') === 1
+        // (three requests in the tile's script, none the marker's: the rows, the span's click, and — 2026-11-22 — «give the fans back» while the array isn't started)
+        && !preg_match('/(document|window)\.addEventListener\("pointer/', $script) && substr_count($script, 'fetch(') === 3 && substr_count($script, 'setTimeout(') === 1
         && str_contains($tileSrc, '#db-sso-fanboy .sso-fb-mark{display:none;') && str_contains($tileSrc, '#db-sso-fanboy .sso-fb-on small>*{display:none}'), '');
     // the spans without leaders (an older agent's file): «warmest spot»
     $o2 = fanboyDashWeb(fanboyDashFiles('fanboy', 'history'), ['fanboy/history.json' => ['v' => 1, 'board' => $board, 'every' => 60, 'zones' => $days]], $now);
