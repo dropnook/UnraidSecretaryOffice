@@ -25,6 +25,8 @@ declare(strict_types=1);
  *   php agent.php status    is an agent running?
  *   php agent.php job snapshot-plans   run the snapshot schedules that are due (the plugin's cron file, via scripts/job.sh)
  *   php agent.php job <name> [args]    a job a desk registers ('jobs' in desk()), e.g. embycache, gather
+ *   php agent.php ramjob <name> [args] a job a desk registers to run WITHOUT the data folder, whatever the array does
+ *                           ('ram_jobs' in desk(), lib/ramjob.php): RAM and flash only, nothing under /mnt
  *
  * When one of its files changes, the running agent lints the new code and
  * restarts itself in place.
@@ -59,17 +61,24 @@ define('OFFICE_DIR', dirname(__DIR__));
 defined('OFFICE_WEB') || define('OFFICE_WEB', OFFICE_DIR);
 // the night shift keeps nothing under /mnt: its log lies in RAM next to its book
 define('NIGHT_MODE', PHP_SAPI === 'cli' && !defined('AGENT_LIBRARY_ONLY') && ($argv[1] ?? '') === 'nightshift');
+// A job without the data folder (`ramjob <name>`, lib/ramjob.php): its name, '' in every other process. It may run while
+// the array runs, stops or is stopped and must never open anything there — its data folder is OFFICE_NO_DATA, a place
+// that can never be (nothing is read, made or written under /dev/null), its log lies in RAM. The tests name the mode
+// themselves (AGENT_RAM_JOB) before they load this file.
+require __DIR__ . '/lib/ramjob.php';
+define('RAM_JOB', defined('AGENT_RAM_JOB') ? (string) AGENT_RAM_JOB
+    : (PHP_SAPI === 'cli' && !defined('AGENT_LIBRARY_ONLY') && ($argv[1] ?? '') === 'ramjob' && preg_match(RAMJOB_NAME_RE, (string) ($argv[2] ?? '')) ? (string) $argv[2] : ''));
 // The data folder as the user set it (DATA_DIR in the plugin's .cfg, usually /mnt/user/appdata/…): what the user
 // sees and what other programs get (the backup engine's UB_DATA, Ms. Dustdevil's «Where is what»). The agent itself
 // reads and writes DATA_DIR: the same folder, on its pool directly when it lies in an exclusive share
 // (officeUnraidPath() — past shfs; decided at every start = every array start, looked at again every minute,
 // dataWayLook()). The night shift never looks under /mnt.
 define('DATA_DIR_USER', rtrim(getenv('OFFICE_DATA_DIR') ?: officePluginDataDir(), '/'));
-define('DATA_DIR', NIGHT_MODE ? DATA_DIR_USER : officeUnraidPath(DATA_DIR_USER));
+define('DATA_DIR', RAM_JOB !== '' ? OFFICE_NO_DATA : (NIGHT_MODE ? DATA_DIR_USER : officeUnraidPath(DATA_DIR_USER)));
 define('MAILBOX', DATA_DIR . '/mailbox');
 define('OFFICE_PRIVATE', DATA_DIR . '/office');
 define('AGENT_INFO', DATA_DIR . '/agent.json');
-define('AGENT_LOG', NIGHT_MODE ? RUN_DIR . '/nightshift/nightshift.log' : DATA_DIR . '/agent.log');
+define('AGENT_LOG', NIGHT_MODE ? RUN_DIR . '/nightshift/nightshift.log' : (RAM_JOB !== '' ? ramLogFile(RAM_JOB) : DATA_DIR . '/agent.log'));
 
 require __DIR__ . '/lib/util.php';
 require __DIR__ . '/lib/mounts.php';
@@ -117,6 +126,17 @@ function main(array $argv): int
             }
             fwrite(STDERR, "Usage: php agent.php job snapshot-plans|<a desk's job>\n");
             return 2;
+        case 'ramjob':
+            // a desk's job without the data folder (lib/ramjob.php): cwd /, RAM and flash only
+            foreach (RAM_JOB !== '' ? desks() : [] as $desk) {
+                if (isset($desk['ram_jobs'][RAM_JOB])) {
+                    chdir('/');
+                    umask(0077);
+                    return (int) $desk['ram_jobs'][RAM_JOB](array_slice($argv, 3));
+                }
+            }
+            fwrite(STDERR, "Usage: php agent.php ramjob <a desk's job that runs without the data folder>\n");
+            return 2;
         case 'nightshift':
             return nightShift();
         case 'status':
@@ -124,7 +144,7 @@ function main(array $argv): int
             echo $pid ? "Agent is running (PID $pid).\n" : "Agent is not running.\n";
             return $pid ? 0 : 3;
     }
-    fwrite(STDERR, "Usage: php agent.php run|nightshift|status|job <name>\n");
+    fwrite(STDERR, "Usage: php agent.php run|nightshift|status|job <name>|ramjob <name>\n");
     return 2;
 }
 
@@ -383,6 +403,11 @@ function serve(): int
                 hostAtRequeue();        // the office's jobs queued «now» while the clock was ahead (lib/house.php)
             } catch (Throwable $e) {
                 logLine('Office: atd\'s queue: ' . $e->getMessage());
+            }
+            try {
+                ramLogFold();           // what the jobs without the data folder said, into this log (lib/ramjob.php)
+            } catch (Throwable $e) {
+                logLine('Office: a RAM job\'s log could not be taken over: ' . $e->getMessage());
             }
             $new = codeStamp();
             if ($new !== $code) {

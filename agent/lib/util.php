@@ -36,6 +36,9 @@ final class Problem extends RuntimeException
  *   metrics  fn(): list<array>                    its numbers for Prometheus, once a
  *                                                 minute from the agent's loop (from state
  *                                                 files only) — see lib/metrics.php
+ *   ram_jobs name => fn(array $args): int         jobs that run WITHOUT the data folder, whatever the
+ *                                                 array does (`php agent.php ramjob <name>`,
+ *                                                 lib/ramjob.php): RAM and flash only
  *   cron     fn(): array<string, list<string>>    the cron files it writes itself into the
  *                                                 plugin's flash folder (beside the schedules'
  *                                                 file), each with exactly its job lines: the
@@ -446,6 +449,17 @@ function writeNewFile(string $prefix, string $content, int $mode = 0644): ?strin
 
 function logLine(string $text): void
 {
+    // a job without the data folder (`agent.php ramjob`, lib/ramjob.php): its own log in RAM, which the agent takes into this one
+    if (defined('RAM_JOB') && RAM_JOB !== '') {
+        ramLogLine($text);
+        return;
+    }
+    logAppend(date('Y-m-d H:i:s') . '  ' . str_replace(["\r", "\n"], ['', ' | '], trim($text)) . "\n");
+}
+
+/** Whole lines into the agent's log as they stand: logLine()'s, and a RAM job's with the times they were written at (ramLogFold()) */
+function logAppend(string $lines): void
+{
     if (!is_dir(DATA_DIR)) {
         return;
     }
@@ -457,7 +471,7 @@ function logLine(string $text): void
         @rename(AGENT_LOG, AGENT_LOG . '.1');
     }
     $new = !file_exists(AGENT_LOG);
-    @file_put_contents(AGENT_LOG, date('Y-m-d H:i:s') . '  ' . str_replace(["\r", "\n"], ['', ' | '], trim($text)) . "\n", FILE_APPEND);
+    @file_put_contents(AGENT_LOG, $lines, FILE_APPEND);
     if ($new) {
         @lchown(AGENT_LOG, FILE_UID);
         @lchgrp(AGENT_LOG, FILE_GID);

@@ -52,6 +52,7 @@ const RUNDIR_FILES = [
     'nightshift'                  => ['max' => 1 << 20, 'bound' => 'his book and state: the mirror\'s caps (book 500, hosts 200, ips 500); nightshift.log 256 KB + .1', 'gone' => 'the handover at array start (WATCH_NIGHT_FILES); the rest is rewritten'],
     'watch-down|watch-told|array-events(?:\.tmp)?|job-[a-z-]+\.minute|backup-recover\.sh' => ['max' => 8192, 'bound' => 'a time, a line, 50 lines (array-events)', 'gone' => 'rewritten (agent.sh, job.sh)'],
     'missed-[a-z]+(?:\.tmp)?'      => ['max' => 64, 'bound' => 'two times and a count (job.sh, a scheduled run that did not start: the array wasn\'t started)', 'gone' => 'taken by the agent at its next start (officeMissedTake())'],
+    'ramjob-[a-z0-9-]+\.log(?:\.1)?|ramjob-fold\.json' => ['max' => 131072, 'bound' => 'a job without the data folder: its log RAMJOB_LOG_MAX 64 KB and a line, then one file .1; how far the agent took each', 'gone' => 'put aside at its bound (.1 replaced); taken into the agent\'s log (ramLogFold())'],
     // schedules and jobs through atd
     'at-requeue\.sh|at-requeued\.json' => ['max' => 65536, 'bound' => 'one at job\'s script (≤ 64 KB read); the jobs queued anew', 'gone' => 'right after at; entries leave with their job'],
     '[a-z-]+\.sh'                 => ['max' => 16384, 'bound' => 'one job\'s script (hostLaunch(): a fixed set of names)', 'gone' => 'overwritten at its next launch'],

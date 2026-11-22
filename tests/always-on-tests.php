@@ -696,3 +696,128 @@ function testAlwaysOnAgentKeeps(): void
         fanboyTEnd();
     }
 }
+
+// ===================================================================== step S4b: a job without the data folder (agent/lib/ramjob.php)
+
+/** The agent's code in a process of its own as a RAM job named $job would have it: runs $code, returns [exit, stdout, stderr] */
+function alwaysOnTRamProc(string $job, string $code, array $env): array
+{
+    $php = 'define("AGENT_LIBRARY_ONLY", 1); define("AGENT_RAM_JOB", ' . var_export($job, true) . '); define("OFFICE_WEB", ' . var_export(OFFICE_WEB, true) . ');'
+        . ' require ' . var_export(OFFICE_DIR . '/agent/agent.php', true) . '; ' . $code;
+    $p = proc_open([PHP_BINARY, '-r', $php], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, '/', $env + ['PATH' => (string) getenv('PATH'), 'TZ' => 'UTC']);
+    $out = (string) stream_get_contents($pipes[1]);
+    $err = (string) stream_get_contents($pipes[2]);
+    // what the code printed is its last line (a PHP that shows warnings — never Unraid's — may print one of its own before it)
+    $lines = array_values(array_filter(explode("\n", $out), fn ($l) => trim($l) !== ''));
+    return [proc_close($p), (string) end($lines), $err];
+}
+
+/** Every file under $dir with its size and time — to show a folder was not touched */
+function alwaysOnTTree(string $dir): array
+{
+    $out = [];
+    $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::SELF_FIRST);
+    foreach ($it as $f) {
+        $st = @lstat((string) $f);
+        $out[substr((string) $f, strlen($dir))] = $st === false ? null : [$st['size'], $st['mtime'], $st['ino']];
+    }
+    ksort($out);
+    return $out;
+}
+
+/**
+ * Step S4b: `php agent.php ramjob <name>` — a desk's job without the data folder. In its process the data folder is a
+ * place that can never be there, whatever the array does and whatever lies in the real one; its log lines go to RAM, and
+ * the agent takes them into its own log: whole lines, once, across a rotation.
+ */
+function testAlwaysOnRamJob(): void
+{
+    $tmp = hardeningTmp('ao-ramjob');
+    @mkdir("$tmp/run", 0700, true);
+    // a data folder that is THERE (the array runs), with what a job could trip over
+    @mkdir("$tmp/data/fanboy", 0700, true);
+    @mkdir("$tmp/data/office", 0700, true);
+    file_put_contents("$tmp/data/agent.log", "2026-01-01 00:00:00  the agent's own line\n");
+    file_put_contents("$tmp/data/fanboy/settings.json", '{"v":1,"boards":{}}');
+    file_put_contents("$tmp/data/office/staff.json", '{"hired":{"fanboy":{"at":1}}}');
+    $before = alwaysOnTTree("$tmp/data");
+    $env = ['OFFICE_DATA_DIR' => "$tmp/data", 'OFFICE_RUN_DIR' => "$tmp/run"];
+    [$code, $out, $err] = alwaysOnTRamProc('test-job', 'logLine("hello from the job\nsecond line"); $made = @mkdir(DATA_DIR . "/x", 0700, true); $wrote = @file_put_contents(DATA_DIR . "/y", "1");'
+        . ' echo json_encode(["job" => RAM_JOB, "data" => DATA_DIR, "user" => DATA_DIR_USER, "log" => AGENT_LOG, "is_dir" => is_dir(DATA_DIR), "made" => $made, "wrote" => $wrote,'
+        . ' "desk_dir" => is_dir(DATA_DIR . "/fanboy"), "store" => readJson(DATA_DIR . "/fanboy/settings.json"), "staff" => staffHired(), "mailbox" => MAILBOX, "night" => NIGHT_MODE]);', $env);
+    $j = json_decode($out, true) ?: [];
+    same('always on S4b: in a RAM job the data folder is a place that can never be — not a folder, nothing made, written or read there, though the real one is there and full',
+        ['test-job', OFFICE_NO_DATA, "$tmp/data", "$tmp/run/ramjob-test-job.log", false, false, false, false, true, false, OFFICE_NO_DATA . '/mailbox', false],
+        [$j['job'] ?? null, $j['data'] ?? null, $j['user'] ?? null, $j['log'] ?? null, $j['is_dir'] ?? null, $j['made'] ?? null, $j['wrote'] ?? null, $j['desk_dir'] ?? null, array_key_exists('store', $j) && $j['store'] === null,
+         in_array('fanboy', $j['staff'] ?? ['fanboy'], true), $j['mailbox'] ?? null, $j['night'] ?? null]);
+    same('always on S4b: … it ended well, without a word on stderr', [0, ''], [$code, trim((string) preg_replace('/^.*Constant BACKUP_OFFICE_SHARE already defined.*$/m', '', $err))]);
+    same('always on S4b: … the real data folder is exactly as it was: no file made, none touched (its agent.log too)', $before, alwaysOnTTree("$tmp/data"));
+    check('always on S4b: … its log line is in its own log in RAM: one line, a time, the line break folded', (bool) preg_match('/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d  hello from the job \| second line\n$/D', (string) @file_get_contents("$tmp/run/ramjob-test-job.log")));
+    check('always on S4b: OFFICE_NO_DATA lies under /dev/null (nothing can ever be made there)', str_starts_with(OFFICE_NO_DATA, '/dev/null/') && !@mkdir(OFFICE_NO_DATA, 0700, true) && !is_dir(OFFICE_NO_DATA));
+
+    // the command: a desk's ram_jobs by name, cwd /, its arguments, its exit code; anything else is refused
+    [$code, $out] = alwaysOnTRamProc('test-job', 'desk("aotest", ["ram_jobs" => ["test-job" => fn (array $a): int => (print json_encode([getcwd(), $a, sprintf("%o", umask())])) ? 7 : 1]]);'
+        . ' chdir(sys_get_temp_dir()); exit(main(["agent.php", "ramjob", "test-job", "one", "two"]));', $env);
+    same('always on S4b: `agent.php ramjob <name> …` runs the desk\'s job — cwd /, its arguments, root-only files, its exit code', [7, ['/', ['one', 'two'], '77']], [$code, json_decode($out, true)]);
+    [$code] = alwaysOnTRamProc('other-job', 'desk("aotest", ["ram_jobs" => ["test-job" => fn (array $a): int => 7]]); exit(main(["agent.php", "ramjob", "other-job"]));', $env);
+    same('always on S4b: a name no desk registered as a RAM job — refused (2)', 2, $code);
+    $real = function (array $args) use ($env): array {
+        $p = proc_open(array_merge([PHP_BINARY, OFFICE_DIR . '/agent/agent.php'], $args), [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, '/',
+            $env + ['PATH' => (string) getenv('PATH'), 'OFFICE_WEB' => OFFICE_WEB]);
+        stream_get_contents($pipes[1]);
+        $err = (string) stream_get_contents($pipes[2]);
+        return [proc_close($p), str_contains($err, 'Usage: php agent.php ramjob')];
+    };
+    same('always on S4b: for real — an unknown name, a name that is none, no name: refused with the usage line; an ordinary job is not a RAM job',
+        [[2, true], [2, true], [2, true], [2, true]], [$real(['ramjob', 'no-such-job']), $real(['ramjob', '../x']), $real(['ramjob']), $real(['ramjob', 'embycache'])]);
+    same('always on S4b: … and none of these made or touched anything in the real data folder', $before, alwaysOnTTree("$tmp/data"));
+
+    // the agent takes the jobs' lines into its own log: whole lines, once
+    $taken = '';
+    $append = function (string $lines) use (&$taken): void { $taken .= $lines; };
+    $log = "$tmp/run/ramjob-test-job.log";
+    $first = (string) file_get_contents($log);
+    same('always on S4b: the fold takes what is there — the job\'s line as it stands, with its own time', [1, $first], [ramLogFold("$tmp/run", $append), $taken]);
+    same('always on S4b: … a second look takes nothing', [0, $first], [ramLogFold("$tmp/run", $append), $taken]);
+    file_put_contents($log, "2026-11-22 10:00:01  line two\n2026-11-22 10:00:02  half a li", FILE_APPEND);
+    same('always on S4b: a line still being written waits; the whole one before it is taken', [1, $first . "2026-11-22 10:00:01  line two\n"], [ramLogFold("$tmp/run", $append), $taken]);
+    file_put_contents($log, "ne, now whole\n", FILE_APPEND);
+    same('always on S4b: … and comes whole at the next look', [1, true], [ramLogFold("$tmp/run", $append), str_ends_with($taken, "2026-11-22 10:00:02  half a line, now whole\n")]);
+    // put aside meanwhile (the job's log reached its bound): the rest of the old one first, then the new one from its start
+    file_put_contents($log, "2026-11-22 10:00:03  last of the old\n", FILE_APPEND);
+    rename($log, "$log.1");
+    file_put_contents($log, "2026-11-22 10:00:04  first of the new\n");
+    $taken = '';
+    same('always on S4b: the log put aside between two looks — the rest of the old file, then the new one, nothing twice, nothing lost',
+        [2, "2026-11-22 10:00:03  last of the old\n2026-11-22 10:00:04  first of the new\n"], [ramLogFold("$tmp/run", $append), $taken]);
+    // a second job's log beside it; a link and a name that is none are never read
+    file_put_contents("$tmp/run/ramjob-other.log", "2026-11-22 10:00:05  the other job\n");
+    file_put_contents("$tmp/secret", "2026-11-22 10:00:06  never read\n");
+    @symlink("$tmp/secret", "$tmp/run/ramjob-linked.log");
+    file_put_contents("$tmp/run/ramjob-Bad_Name.log", "2026-11-22 10:00:07  never read either\n");
+    $taken = '';
+    same('always on S4b: each job\'s log on its own; a link and a name that is none are never read', [1, "2026-11-22 10:00:05  the other job\n"], [ramLogFold("$tmp/run", $append), $taken]);
+    $state = readJson("$tmp/run/ramjob-fold.json") ?? [];
+    same('always on S4b: how far each was taken is kept in RAM (a restarting agent goes on from there)', [['other', 'test-job'], filesize($log), 0600],
+        [(function (array $k) { sort($k); return $k; })(array_keys($state)), $state['test-job']['pos'] ?? null, fileperms("$tmp/run/ramjob-fold.json") & 0777]);
+    // the job's log is put aside at its bound, one file back
+    $n0 = RAMJOB_LOG_MAX;
+    file_put_contents($log, str_repeat("x", $n0 + 10) . "\n", FILE_APPEND);
+    [$code] = alwaysOnTRamProc('test-job', 'logLine("after the bound");', $env);
+    check('always on S4b: the job\'s log past its bound — put aside as .1, the new line in a fresh file', $code === 0 && filesize("$log.1") > $n0 && str_ends_with((string) file_get_contents($log), "  after the bound\n") && filesize($log) < 200);
+    // into the agent's own log: for real, with logAppend() — the lines as they stand, between the agent's own
+    $keepLog = (string) @file_get_contents(AGENT_LOG);
+    logLine('always-on test: before');
+    file_put_contents("$tmp/run/ramjob-third.log", "2026-11-22 10:00:08  from the third job\n");
+    ramLogFold("$tmp/run");
+    $now = (string) @file_get_contents(AGENT_LOG);
+    check('always on S4b: into the agent\'s log for real — the job\'s line as it stands, after the agent\'s own', str_contains(substr($now, strlen($keepLog)), "  always-on test: before\n")
+        && str_ends_with($now, "2026-11-22 10:00:08  from the third job\n"));
+    // the wiring: the agent folds every few seconds; the audit knows the files; the libraries name no desk
+    $agent = (string) file_get_contents(OFFICE_DIR . '/agent/agent.php');
+    check('always on S4b: the agent takes the logs over in its loop, and a RAM job never asks for the data folder\'s real path',
+        str_contains($agent, '                ramLogFold();') && str_contains($agent, "define('DATA_DIR', RAM_JOB !== '' ? OFFICE_NO_DATA : (NIGHT_MODE ? DATA_DIR_USER : officeUnraidPath(DATA_DIR_USER)));"));
+    check('always on S4b: the RAM folder\'s audit knows the jobs\' logs and the fold\'s record', (bool) array_filter(array_keys(RUNDIR_FILES), fn ($p) => preg_match('#^(?:' . $p . ')$#D', 'ramjob-fanboy-control.log') === 1
+        && preg_match('#^(?:' . $p . ')$#D', 'ramjob-fanboy-control.log.1') === 1 && preg_match('#^(?:' . $p . ')$#D', 'ramjob-fold.json') === 1));
+    hardeningRm($tmp);
+}
