@@ -160,14 +160,14 @@ function testFanboyDoctor(): void
         $l[$c] = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/fanboy/lang/$c.json"), true);
     }
     $t = fn ($x, $k) => is_array($x[$k] ?? null) ? implode(' ', $x[$k]) : (string) ($x[$k] ?? '');
-    same('fanboy doctor words: in all five — the start options with ⟦Boot Parameters⟧ and the risk; the plugins by placeholder; nct6683; IPMI Support and the thresholds; SPD Write Disable; VMD before installing; Secure Boot (the chip\'s «locked» too); DC with 4-pin/3-pin and no Auto; Tctl/Tdie; eight BIOS points and the makers\' menus',
+    same('fanboy doctor words: in all five — the start options with ⟦Boot Parameters⟧ and the risk; the plugins by placeholder; nct6683; IPMI Tools and the thresholds; SPD Write Disable; VMD before installing; Secure Boot (the chip\'s «locked» too); DC with 4-pin/3-pin and no Auto; Tctl/Tdie; eight BIOS points and the makers\' menus',
         array_fill_keys(array_keys($l), array_fill(0, 10, true)),
         array_map(fn ($x) => [
             str_contains($t($x, 'doctor.acpi_conflict_ite'), 'it87.ignore_resource_conflict=1') && str_contains($t($x, 'doctor.acpi_conflict'), 'acpi_enforce_resources=lax')
                 && str_contains($t($x, 'doctor.acpi_conflict_ite'), '⟦Boot Parameters⟧') && str_contains($t($x, 'doctor.acpi_conflict'), '⟦Boot Parameters⟧') && str_contains($t($x, 'doctor.acpi_conflict'), 'append'),
             !array_filter(['doctor.not_bound', 'doctor.not_bound_plugin', 'doctor.not_bound_installed'], fn ($k) => !str_contains($t($x, $k), '{module}'))
                 && str_contains($t($x, 'doctor.not_bound_plugin'), '{plugin}') && str_contains($t($x, 'doctor.read_only'), '{plugin}') && str_contains($t($x, 'doctor.read_only'), 'nct6683'),
-            str_contains($t($x, 'doctor.bmc'), 'IPMI Support') && str_contains($t($x, 'situation.ipmi_more'), 'IPMI Support') && str_contains($t($x, 'situation.ipmi_more'), 'BMC'),
+            str_contains($t($x, 'doctor.bmc'), 'IPMI Tools') && str_contains($t($x, 'situation.ipmi_more'), 'IPMI Tools') && str_contains($t($x, 'situation.ipmi_more'), 'BMC'),
             str_contains($t($x, 'doctor.spd_wd'), 'SPD Write Disable') && str_contains($t($x, 'doctor.spd_wd'), 'DDR5'),
             str_contains($t($x, 'doctor.vmd'), 'VMD') && str_contains($t($x, 'doctor.vmd'), 'RAID'),
             str_contains($t($x, 'doctor.lockdown'), 'Secure Boot') && str_contains($t($x, 'doctor.lockdown'), '{mode}') && str_contains($t($x, 'chip.blocked.locked'), 'Secure Boot'),
