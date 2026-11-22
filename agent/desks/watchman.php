@@ -250,7 +250,7 @@ const WATCH_KINDS = [
  * never sees, so it never empties it. This version reads both as one book and writes each kind to its own file
  * (watchmanBookSplit()). Each new ability's step adds its kinds here.
  */
-const WATCH_KINDS_MORE = [];
+const WATCH_KINDS_MORE = ['flash_boot', 'ld_preload', 'net_gateway', 'net_dns'];     // step 13: what runs at the start (watchman-boot.php), the router and DNS (watchnet.php)
 
 /**
  * Each kind's nearest MITRE ATT&CK technique (attack.mitre.org) — the words a security team searches for; the page

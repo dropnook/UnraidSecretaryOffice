@@ -29732,6 +29732,15 @@ function testWatchmanGateway(): void
         [true, false, 'lan', 'lan', 'T1557.002', 'T1557'],
         [WATCH_KINDS['net_gateway'][1], WATCH_KINDS['net_dns'][1], watchmanCatOf('net_gateway'), watchmanCatOf('net_dns'),
          WATCH_ATTACK['net_gateway'], WATCH_ATTACK['net_dns']]);
+    // their entries in book-more.json (an office of 1.95 reads book.json alone and would drop them at its next write)
+    $more = (array) json_decode((string) json_encode(WATCH_KINDS_MORE), true);
+    $data = hardeningTmp('watch-gw-data');
+    watchmanSave($data, ['book' => []], ['book' => $book]);
+    same('gateway: both kinds in WATCH_KINDS_MORE — their entries in book-more.json, none in book.json, read as one',
+        [[], false, ['net_gateway', 'net_dns'], count($book)],
+        [array_values(array_diff(['net_gateway', 'net_dns'], $more)), is_file("$data/book.json") && readJson("$data/book.json")['entries'] !== [],
+         array_column(readJson("$data/book-more.json")['entries'], 'kind'), count(watchmanLoad($data)['book'])]);
+    same('book more: every kind listed there is one of his', [], array_values(array_diff($more, array_keys(WATCH_KINDS))));
     $night = watchmanNightPaths();
     same('gateway: the night shift looks too (RAM only)', ['/proc/net/route', '/proc/net/arp', '/etc/resolv.conf'],
         [$night['route'] ?? null, $night['arp'] ?? null, $night['resolv'] ?? null]);
@@ -29899,6 +29908,14 @@ function testWatchmanStartFiles(): void
         ['flash', 'host', true, true, 'T1037', 'T1574.006'],
         [watchmanCatOf('flash_boot'), watchmanCatOf('ld_preload'), WATCH_KINDS['flash_boot'][1], WATCH_KINDS['ld_preload'][1],
          WATCH_ATTACK['flash_boot'], WATCH_ATTACK['ld_preload']]);
+    // their entries in book-more.json (an office of 1.95 reads book.json alone and would drop them at its next write)
+    $more = (array) json_decode((string) json_encode(WATCH_KINDS_MORE), true);
+    $data = hardeningTmp('watch-start-data');
+    watchmanSave($data, ['book' => []], ['book' => array_merge([watchmanEntry('flash_user', 'flash_user:zed', $now, ['user' => 'zed'])], $book)]);
+    same('start: both kinds in WATCH_KINDS_MORE — their entries in book-more.json, the rest in book.json, read as one',
+        [[], ['flash_user'], ['flash_boot', 'ld_preload'], count($book) + 1],
+        [array_values(array_diff(['flash_boot', 'ld_preload'], $more)), array_column(readJson("$data/book.json")['entries'], 'kind'),
+         array_values(array_unique(array_column(readJson("$data/book-more.json")['entries'], 'kind'))), count(watchmanLoad($data)['book'])]);
     // every shape of the entry has its words in every language (testStrings checks the five agree)
     $en = langFile(OFFICE_WEB . '/desks/watchman/lang/en.json');
     same('start: every shape of the entry has its words', [], array_values(array_filter(array_map(fn ($e) => 'entry.' . (watchmanEntryVariant($e) ?? $e['kind']), $book),
