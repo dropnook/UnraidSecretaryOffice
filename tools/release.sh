@@ -12,9 +12,9 @@
 # ~/.config/uso-release.conf; bash, sourced). Without it the script stops before anything else:
 #   notes_dir=<folder>              release-<x.y.z>-notes.md lies there, the logs go to <folder>/releases/
 #   suite_host=<ssh host>           where the suite runs (step 7) - Tower, the scenarios' host: after them
-#   suite_host2=<ssh host>          optional: the suite runs there instead, beside the scenarios (test4); the tests it
-#                                   skips (no python3 there: «… 0 failed, N skipped») then run alone on suite_host
-#                                   once the scenarios are done - both together must be 0 failed
+#   suite_host2=<ssh host>          optional: the suite runs there instead, beside the scenarios (test4); tests it
+#                                   skips («… 0 failed, N skipped»; none since 1.95.6 - python3 was the one reason) then
+#                                   run alone on suite_host once the scenarios are done - both together must be 0 failed
 #   servers=(<host>=<Label> …)      step 12's order: the first is the canary, the last the main server
 #
 # Its steps:
@@ -428,7 +428,7 @@ suite_job() {
         if [[ ! "$line" =~ ^[0-9]+\ passed,\ 0\ failed(,\ [0-9]+\ skipped\ .*)?$ ]] || { [[ "$line" != *skipped* ]] && (( rc != 0 )); }; then
             why="the suite on $suite_host2 did not end with 0 failed (${line:-no summary line}; its output above)"
         elif [[ "$line" == *skipped* ]]; then
-            # what $suite_host2 can't run (no python3 there): those tests alone on $suite_host, once Tower is free
+            # what $suite_host2 skipped (none since 1.95.6): those tests alone on $suite_host, once Tower is free
             skipped=$(sed -n 's/^SKIP  \(test[A-Za-z0-9_]*\).*/\1/p' "$par/suite/run" | sort -u | tr '\n' ' ')
             if [[ -z "${skipped// }" ]]; then
                 why="$suite_host2 skipped tests but named none (SKIP lines) - nothing to run on $suite_host"

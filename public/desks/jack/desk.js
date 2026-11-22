@@ -45,8 +45,6 @@ let progBox = null;           // the panel on the page, redrawn in place
 let nightNow = null;          // the night run with Ms. Moverelli going for real (agent: jackNightNow()) — her card's phases on his page
 let watching = [];            // who is watching what while a real run goes (the job's look once a minute): [{name, items}] per person
 let startKicks = 0;           // a real run just started from here: look again until it shows as running
-const SHADOW_RESULTS = ['differ', 'once', 'error'];     // what a listed comparison came to
-const SHADOW_KINDS = ['request', 'outcome', 'run', 'give_back', 'give_back_order', 'cleanup', 'protected', 'fill', 'dropped', 'on_deck', 'file', 'person', 'selected', 'skipped'];     // what a comparison can name
 const STRUCTURE_KINDS = ['flat_movie', 'shared_folder', 'flat_series'];     // «Check the structure…»: the list's groups, in this order
 let structureList = null;     // the part «structure»: what the last check found
 let structureAsked = null;    // the check (its time) the part was last asked for
@@ -485,10 +483,8 @@ const sw = Office.sections({
       { id: 'shares', key: 'shares', place: 'tile.shares', section: () => shareSection(), tile: (a) => sharesTile(a) },
     ] : []),
     { id: 'gather', key: 'gather', place: 'tile.gather', section: () => gatherSection(), tile: (a) => gatherTile(a) },
-    ...(state && state.shadow ? [{ id: 'shadow', key: 'shadow.title', place: 'tile.shadow', section: () => shadowSection(), tile: (a) => shadowTile(a) }] : []),
   ],
   sections: { runs: () => historySection() },
-  wants: (sub) => sub === 'shadow',    // its tile comes only with his state (only with its flag file)
 });
 
 /** The desk's own actions — on both tabs (the other page is the tab, no head button for it) */
@@ -597,18 +593,15 @@ function scopeLine() {
 }
 
 /**
- * Under all (no section): the tools' versions with the one that does MediaCache's work — state.engine (1.94.0: PHP, Python only with
- * support's python.json; an older agent's state has none: its state.shadow.php) — and the quiet credit: both tools are helmi1987's,
- * and a share of the tips goes to him
+ * Under all (no section): the tools' versions with PHP's, which does MediaCache's work — and the quiet credit: both tools are
+ * helmi1987's, and a share of the tips goes to him
  */
 function footer() {
   const box = Office.place('tools', el('div', 'jo-foot'));
   const line = el('div', 'row-meta jo-tools');
   const ver = (state.versions.embycache || '?').replace(/\s*\(.*\)$/, '');
   line.append(el('span', '', `MediaCache ${ver}`), el('span', '', `${T('gather')} ${state.versions.gather || '?'}`));
-  const php = state.engine ? state.engine === 'php' : !!(state.shadow && state.shadow.php);
-  if (php) line.appendChild(el('span', '', `PHP ${state.php || ''}`.trim()));
-  else if (state.python) line.appendChild(el('span', '', `Python ${state.python}`));
+  line.appendChild(el('span', '', `PHP ${state.php || ''}`.trim()));
   box.append(line, credit());
   return box;
 }
@@ -1248,82 +1241,6 @@ function structureBox() {
   }
   if (s.unmapped) box.appendChild(el('p', 'jo-structure-line', T('structure.unmapped', { n: s.unmapped })));
   return box;
-}
-
-/**
- * The plan in PHP beside Python (agent/desks/jack-shadow.php): shown only with its flag file (state.shadow). What the comparisons
- * after his real runs found; the differences come by the part «shadow». Nothing here changes anything.
- */
-let shadowList = null;        // the part «shadow»
-let shadowAsked = null;       // the comparison (its time) the part was last asked for
-function shadowCounts(s) {
-  return T('shadow.value', { same: nOf('shadow_same', s.same), differ: nOf('shadow_differ', s.differ) });
-}
-/** What else the dates came to: seen once, both sides failed, not compared — each only when there is some */
-function shadowOthers(s) {
-  return [['shadow_once', s.once], ['shadow_error', s.error], ['shadow_not', s.not]].filter(([, n]) => n > 0).map(([k, n]) => nOf(k, n));
-}
-/** No python3 on the server (python false; an older agent's state has no key): PHP acts alone, nothing is compared — said so */
-const shadowNoPython = (s) => s.python === false;
-function shadowTile(a) {
-  const s = state.shadow;
-  const value = shadowNoPython(s) ? T('shadow.no_python') : s.last ? shadowCounts(s) : T('shadow.none');
-  const tip = T(shadowNoPython(s) ? 'shadow.tip_no_python' : s.php ? 'shadow.tip_php' : 'shadow.tip');
-  return Office.stat({ label: T('shadow.title'), value, sub: shadowOthers(s), tip, alert: s.differ > 0 || s.error > 0, ...a });
-}
-function shadowAsk(at) {
-  shadowAsked = at;
-  Office.loadState(ID, { part: 'shadow', fresh: true }, (j) => {
-    shadowList = j && j.ok && j.part && Array.isArray(j.part.nights) ? j.part.nights : null;
-    if (dom.shadow && dom.shadow.isConnected) {
-      const n = shadowBox();
-      dom.shadow.replaceWith(n);
-      dom.shadow = n;
-    }
-  }).catch(() => { shadowAsked = null; });
-}
-function shadowBox() {
-  const box = el('div', 'jo-structure');
-  const s = state.shadow;
-  if (!s.last) {
-    box.appendChild(el('p', 'jo-structure-line', T('shadow.none')));
-    return box;
-  }
-  // no Python and never compared (only «not compared» dates): no «last compared on …» — nothing ever was
-  if (!(shadowNoPython(s) && !s.same && !s.differ && !s.once && !s.error)) {
-    box.appendChild(el('p', 'jo-structure-line', T('shadow.line', { counts: shadowCounts(s), when: fmt.date(s.last) })));
-  }
-  const others = shadowOthers(s);
-  if (others.length) box.appendChild(el('p', 'jo-structure-line', others.join(' · ')));
-  if (!s.differ && !s.once && !s.error) return box;
-  if (shadowAsked !== s.last) shadowAsk(s.last);
-  (shadowList || []).forEach((n) => {
-    box.appendChild(el('p', 'jo-structure-tip', T('shadow.when', { when: fmt.date(n.time), result: T(SHADOW_RESULTS.includes(n.result) ? `shadow.result.${n.result}` : 'shadow.result.differ') })));
-    const rows = el('div', 'box');
-    (Array.isArray(n.differences) ? n.differences : []).forEach((d) => {
-      const row = el('div', 'row nocheck');
-      const main = el('div', 'row-main');
-      main.appendChild(el('div', 'row-name', d.path || '–'));
-      const meta = el('div', 'row-meta');
-      const kind = String(d.kind).split('.')[0];
-      meta.appendChild(chip(T(SHADOW_KINDS.includes(kind) ? `shadow.kind.${kind}` : 'shadow.kind.other'), 'warn'));
-      meta.append(el('span', 'jo-structure-path', T('shadow.python', { what: d.python })), el('span', 'jo-structure-path', T('shadow.php', { what: d.php })));
-      main.appendChild(meta);
-      row.appendChild(main);
-      rows.appendChild(row);
-    });
-    box.appendChild(rows);
-    if (n.more > 0) box.appendChild(el('p', 'jo-structure-line', T('shadow.more', { n: n.more })));
-  });
-  return box;
-}
-function shadowSection() {
-  // only with the comparison's flag (shadow.json, php.json): who moves, who compares — or that nothing is compared, there being no Python
-  const sub = state.shadow && shadowNoPython(state.shadow) ? 'shadow.sub_no_python' : state.shadow && state.shadow.php ? 'shadow.sub_php' : 'shadow.sub';
-  const s = section(T('shadow.title'), T(sub), { place: 'tile.shadow' });
-  dom.shadow = shadowBox();
-  s.appendChild(dom.shadow);
-  return s;
 }
 
 /** The gather: an optional helper (2026-10-16) — fewer disks wake when films go back and forth; no run waits for it */
@@ -2052,7 +1969,7 @@ function setupStep(id) {
 const everyone = () => [...new Set(form.instances.flatMap((inst) => (inst.users || []).map((u) => u.id)))];
 /** One person over several servers (1.65.0, as MediaCache counts them): the same name ignoring case, spaces and accents */
 function personKey(name) {
-  return (Office.fold || ((x) => String(x).toLowerCase()))(name || '').replace(/\s+/g, '');   // the office's folding (ß → ss, like Python's casefold)
+  return (Office.fold || ((x) => String(x).toLowerCase()))(name || '').replace(/\s+/g, '');   // the office's folding (ß → ss, like MediaCache's casefold)
 }
 /** The people as persons: [{key, name, ids, servers, admin}] in the servers' order — a person's ids on every server */
 function persons() {

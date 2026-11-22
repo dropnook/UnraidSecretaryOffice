@@ -39,7 +39,7 @@ const RUNDIR_TMP_NAME  = '/^\..+\.[0-9a-f]{12}\.tmp$/D';    // writeNewFile(): "
  * bytes, 'bound' what keeps it there, 'gone' who removes it. 'max' over RUNDIR_SMALL only with 'large' (why it is there
  * all the same — testRunDirAudit names these, so no new one comes without a word). runDirSweep(): 'pid' (the first group is
  * the pid of the process that made it: removed once no process has it), 'age' (removed once older than that many seconds),
- * 'legacy' (written by 1.94 or earlier, by nobody now: removed whenever found). 'own' => false: what the user brings for a
+ * 'legacy' (written by an earlier version, by nobody now: removed whenever found). 'own' => false: what the user brings for a
  * report — not counted against the office's budget.
  */
 const RUNDIR_SMALL = 1 << 20;
@@ -88,8 +88,8 @@ const RUNDIR_FILES = [
     'jack-import-trial\.[0-9a-f]{8}' => ['max' => 65536, 'bound' => 'one settings file', 'gone' => 'at once; runDirSweep() after 10 min', 'age' => RUNDIR_TMP_AGE],
     'jack-progress\.json|jack-progress-speed\.json|jack-watching\.json|jack-live-status\.(?:json|tmp)|jack-structure-run\.json'
         => ['max' => 1 << 20, 'bound' => 'the queue (JACK_RUN_QUEUE_MAX), ≤ 200 samples, ≤ 20 sessions', 'gone' => 'jackProgressClear() at a run\'s start and end'],
-    'jack-progress\.json\.(\d+)\.tmp' => ['max' => 1 << 20, 'bound' => 'the progress', 'gone' => 'os.replace; runDirSweep() once Python is gone', 'pid' => true],
-    'jack-shadow'                 => ['max' => null, 'large' => 'NOT bounded by the office: the media servers\' answers for the library (only with the support flag) — open: to officeTmpDir() or the data folder', 'bound' => 'NOT bounded — open', 'gone' => 'at the end of the run'],
+    'jack-progress\.json\.(\d+)\.tmp' => ['max' => 1 << 20, 'bound' => 'the progress', 'gone' => 'written by the Python run of 1.95.5 or earlier (os.replace); runDirSweep() once its process is gone', 'pid' => true],
+    'jack-shadow'                 => ['max' => 0, 'bound' => 'no longer written: the comparison with Python is gone (1.95.6)', 'gone' => 'runDirSweep() at once', 'legacy' => true],
     // Mr. Restori (restore*.php)
     'restore-peek-[a-z0-9-]+|libvirt-restore-[0-9-]+' => ['max' => 0, 'bound' => 'a mount point (what it shows is a snapshot or an image on a pool: never walked)', 'gone' => 'after the look / the restore'],
     'restore-partner\.want|restore-partner-look\.pid|drill\.open|restore\.open|letgo\.open' => ['max' => 256, 'bound' => 'a line or nothing', 'gone' => 'at its end; agent.sh at an array stop'],
