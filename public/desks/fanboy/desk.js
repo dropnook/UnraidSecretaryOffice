@@ -3675,8 +3675,6 @@ function zonesStep() {
     two.append(side, slot);
     box.appendChild(two);
   }
-  const how = T('zones.how_often', { s: setup().round || 2 }) + (num(S().poll) !== null && S().poll > timesNow().poll_live ? ' ' + T('zones.poll', { min: Math.round(S().poll / 60) })
-    + (num(S().disk_allow) > 0 ? ' ' + T('zones.poll_add', { add: S().disk_allow }) : '') : '');
   if (zdraft || zfans) {
     // changed here, not kept yet: «Save» is the one button of the moment — the zones and what he said about fans, ONE request
     const save = button(T('zones.save'), T('zones.save_tip'), (b) => act('zones_save', { zones: zonesNow().map(cleanZone), fans: zfansList() }, b, () => { zdraft = null; zfans = null; curves.clear(); dry = null; dryFor = ''; }), 'btn');
@@ -3690,9 +3688,9 @@ function zonesStep() {
     const undo = button(T('zones.undo'), T('zones.undo_tip'), () => { zdraft = null; zfans = null; curves.clear(); drawn = ''; redraw(); }, 'btn plain');
     const mark = el('span', 'fb-next-count');
     mark.appendChild(chipOfText('warn', T('zones.unsaved'), T('zones.save_tip')));
-    box.append(para(how), nextBar([mark], [save, undo]));
+    box.append(nextBar([mark], [save, undo]));
     if (held) box.appendChild(para(T('zones.save_held', { zone: held.z.name || held.z.id, why: held.why }), 'fb-hint-text fb-zones-held'));
-  } else box.append(para(how), nextBar([zones.length ? T('step.v.zones', { n: zones.length }) : ''], zones.length ? goButton('take', true) : null));
+  } else box.append(nextBar([zones.length ? T('step.v.zones', { n: zones.length }) : ''], zones.length ? goButton('take', true) : null));
   return box;
 }
 /**
@@ -4103,7 +4101,14 @@ function reactPart(z, i) {
   const ways = new Map();
   zoneKinds(z).forEach((k) => { const w = downWords(k, cur); ways.set(w, [...(ways.get(w) || []), T(`kind.${k}`)]); });
   ways.forEach((names, w) => box.appendChild(el('p', 'fb-hint-text', `${names.join(', ')}: ${w}`)));
+  // how often he looks, under the reaction it belongs to (2026-11-22, the owner: it hung in the air below the panel)
+  box.appendChild(el('p', 'fb-hint-text', howOften()));
   return box;
+}
+/** «He looks every 2 s; the disks' temperatures as fresh as Unraid polls them» (+ a slow poll said) */
+function howOften() {
+  return T('zones.how_often', { s: setup().round || 2 }) + (num(S().poll) !== null && S().poll > timesNow().poll_live ? ' ' + T('zones.poll', { min: Math.round(S().poll / 60) })
+    + (num(S().disk_allow) > 0 ? ' ' + T('zones.poll_add', { add: S().disk_allow }) : '') : '');
 }
 /** A choice that can't be: the control goes back to what holds, and the reason is said in words (toast and strip) */
 function snapBack(select, value, reason) {
