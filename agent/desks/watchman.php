@@ -4326,7 +4326,7 @@ function watchmanPosturePage(?array $posture, ?array $file): ?array
     foreach ($posture['tips'] as $t) {
         if (is_array($t) && isset(WATCH_POSTURE[$t['id'] ?? ''])) {
             $tips[] = ['id' => $t['id'], 'level' => WATCH_POSTURE[$t['id']], 'p' => (array) ($t['p'] ?? []), 'link' => $t['link'] ?? null,
-                       'known' => watchmanPostureIsKnown($t, $file)];
+                       'known' => watchmanPostureIsKnown($t, $file), 'cat' => watchmanCatOfTip((string) $t['id'])];      // its area (1.96)
         }
     }
     return ['time' => (int) ($posture['time'] ?? 0), 'tips' => $tips,

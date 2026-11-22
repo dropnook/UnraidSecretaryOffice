@@ -1519,5 +1519,7 @@
   "cat.empty": "Nichts im Wachbuch für diesen Bereich.",
   "cat.empty_filter": "Nichts passt zum Filter.",
   "help.lights": "Die Bereiche und ihre Ampeln",
-  "help.lights_text": "Jeder Bereich ist eine Kachel mit Ampel: rot — etwas wartet auf deine Antwort; gelb — etwas zum Anschauen, oder er konnte nicht schauen; grün mit «!» — in Ordnung, mit einem Rat oder einem nicht geprüften Teil; grün — in Ordnung; grau — hier gibt es nichts zu beobachten, oder ausgeschaltet. Jede Ampel hat auch ihre eigene Form. Der Filter über der Reihe zeigt nur die Bereiche, deren Wörter passen, oder nur die mit Befund. Die Maus über einer Kachel zeigt die ersten Einzelheiten."
+  "help.lights_text": "Jeder Bereich ist eine Kachel mit Ampel: rot — etwas wartet auf deine Antwort; gelb — etwas zum Anschauen, oder er konnte nicht schauen; grün mit «!» — in Ordnung, mit einem Rat oder einem nicht geprüften Teil; grün — in Ordnung; grau — hier gibt es nichts zu beobachten, oder ausgeschaltet. Jede Ampel hat auch ihre eigene Form. Der Filter über der Reihe zeigt nur die Bereiche, deren Wörter passen, oder nur die mit Befund. Die Maus über einer Kachel zeigt die ersten Einzelheiten.",
+  "cat.tips_title": "Ratschläge",
+  "cat.tips_known": {"one": "Dazu {n}, den du schon kennst — unter «Wie sicher steht es?».", "other": "Dazu {n}, die du schon kennst — unter «Wie sicher steht es?»."}
 }

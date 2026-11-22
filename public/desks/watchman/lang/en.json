@@ -1519,5 +1519,7 @@
   "cat.empty": "Nothing in his book for this area.",
   "cat.empty_filter": "Nothing fits the filter.",
   "help.lights": "The areas and their lights",
-  "help.lights_text": "Each area is a tile with a light: red — something waits for your answer; yellow — something to look at, or he couldn't look; green with «!» — fine, with a tip or a part not checked; green — fine; grey — nothing to watch here, or switched off. Each light has its own shape, too. The filter above the row shows only the areas whose words fit, or only those with a finding. The mouse over a tile shows its first details."
+  "help.lights_text": "Each area is a tile with a light: red — something waits for your answer; yellow — something to look at, or he couldn't look; green with «!» — fine, with a tip or a part not checked; green — fine; grey — nothing to watch here, or switched off. Each light has its own shape, too. The filter above the row shows only the areas whose words fit, or only those with a finding. The mouse over a tile shows its first details.",
+  "cat.tips_title": "Advice",
+  "cat.tips_known": {"one": "And {n} you know already — under «How secure does it stand?».", "other": "And {n} you know already — under «How secure does it stand?»."}
 }

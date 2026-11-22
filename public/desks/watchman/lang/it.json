@@ -1519,5 +1519,7 @@
   "cat.empty": "Niente nel registro per quest'area.",
   "cat.empty_filter": "Niente corrisponde al filtro.",
   "help.lights": "Le aree e i loro semafori",
-  "help.lights_text": "Ogni area è un riquadro con un semaforo: rosso — qualcosa aspetta la tua risposta; giallo — qualcosa da guardare, o non ha potuto guardare; verde con «!» — a posto, con un consiglio o una parte non controllata; verde — a posto; grigio — qui non c'è nulla da sorvegliare, o è spento. Ogni semaforo ha anche la sua forma. Il filtro sopra la fila mostra solo le aree le cui parole corrispondono, o solo quelle con un riscontro. Il mouse su un riquadro mostra i primi dettagli."
+  "help.lights_text": "Ogni area è un riquadro con un semaforo: rosso — qualcosa aspetta la tua risposta; giallo — qualcosa da guardare, o non ha potuto guardare; verde con «!» — a posto, con un consiglio o una parte non controllata; verde — a posto; grigio — qui non c'è nulla da sorvegliare, o è spento. Ogni semaforo ha anche la sua forma. Il filtro sopra la fila mostra solo le aree le cui parole corrispondono, o solo quelle con un riscontro. Il mouse su un riquadro mostra i primi dettagli.",
+  "cat.tips_title": "Consigli",
+  "cat.tips_known": {"one": "E {n} che conosci già — sotto «Quanto è al sicuro?».", "other": "E {n} che conosci già — sotto «Quanto è al sicuro?»."}
 }

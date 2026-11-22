@@ -1519,5 +1519,7 @@
   "cat.empty": "Nada en el libro para esta área.",
   "cat.empty_filter": "Nada coincide con el filtro.",
   "help.lights": "Las áreas y sus semáforos",
-  "help.lights_text": "Cada área es un mosaico con un semáforo: rojo — algo espera tu respuesta; amarillo — algo que mirar, o no pudo mirar; verde con «!» — bien, con un consejo o una parte sin comprobar; verde — bien; gris — aquí no hay nada que vigilar, o está apagado. Cada semáforo tiene además su propia forma. El filtro sobre la fila muestra solo las áreas cuyas palabras coinciden, o solo las que tienen un hallazgo. El ratón sobre un mosaico muestra los primeros detalles."
+  "help.lights_text": "Cada área es un mosaico con un semáforo: rojo — algo espera tu respuesta; amarillo — algo que mirar, o no pudo mirar; verde con «!» — bien, con un consejo o una parte sin comprobar; verde — bien; gris — aquí no hay nada que vigilar, o está apagado. Cada semáforo tiene además su propia forma. El filtro sobre la fila muestra solo las áreas cuyas palabras coinciden, o solo las que tienen un hallazgo. El ratón sobre un mosaico muestra los primeros detalles.",
+  "cat.tips_title": "Consejos",
+  "cat.tips_known": {"one": "Y {n} que ya conoces — en «¿Qué tan seguro está?».", "other": "Y {n} que ya conoces — en «¿Qué tan seguro está?»."}
 }

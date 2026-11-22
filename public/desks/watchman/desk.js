@@ -750,7 +750,7 @@ async function postureAck(x, on, b) {
     return;
   }
   if (j.state) state = j.state;
-  renderAt('.wm-posture');
+  renderAt('.wm-posture', '.wm-cat-tips');
   Office.toast(T(on ? 'posture.acked' : 'posture.unacked'));
 }
 
@@ -989,7 +989,9 @@ function catSection(id) {
     to.onclick = () => { sw.pick('watch', 'click'); Office.reveal(`watch:${key}`); };
     extras.push(to);
   }
-  s.appendChild(Office.sectionHead(catName(id), T(`cat.${id}_sub`), ...extras));
+  // the light in words beside the name (on a phone, without a mouse, the one place the tile's first line stands)
+  const said = catState(id);
+  s.appendChild(Office.sectionHead(catName(id), T(`cat.${id}_sub`), ...(said ? [said] : []), ...extras));
   if (!c) {
     s.appendChild(el('p', 'role', T('cat.unknown')));
     return s;
@@ -1011,7 +1013,44 @@ function catSection(id) {
   if (!v.rows.length) box.appendChild(el('p', 'empty', all.length ? T('cat.empty_filter') : T('cat.empty')));
   s.appendChild(box);
   bar.done(v.rows.reduce((n, r) => n + r.members.length, 0), all.length, { onlyAvail: all.some((e) => e.open) || f.only });
+  const advice = catAdvice(id);
+  if (advice) s.appendChild(advice);
   return s;
+}
+
+/**
+ * The light in words for an area's head: «2 open, 1 of them important · looked 3 minutes ago» — the first line of its
+ * mouse-over text without the name (a phone has no mouse; the head stands at the top of the chosen section)
+ */
+function catState(id) {
+  const c = catOf(id);
+  if (!c) return null;
+  const lines = catTip(id);
+  const first = String(lines[0] || '').slice(catName(id).length + 2);
+  const looked = state && state.round && state.round.last ? T('cat.tip_checked', { when: fmt.relative(state.round.last) }) : '';
+  const span = el('span', 'wm-cat-state wm-cat-' + (Office.LIGHTS.includes(c.level) ? c.level : 'unknown'), [first, looked].filter(Boolean).join(' · '));
+  span.title = lines.join('\n');
+  return span;
+}
+
+/**
+ * «Advice» in an area: its tips of «How secure does it stand?» (the same rows, the same «I know, thanks» — they stay
+ * there too), the ones you know only counted; nothing when the area has none now
+ */
+function catAdvice(id) {
+  const tips = ((state && state.posture && state.posture.tips) || []).filter((x) => x && x.cat === id);
+  if (!tips.length) return null;
+  const open = tips.filter((x) => !x.known || showKnownTips);
+  const known = tips.length - tips.filter((x) => !x.known).length;
+  const box = el('div', 'wm-cat-tips');
+  box.appendChild(el('h4', 'wm-hold-group', T('cat.tips_title')));
+  if (open.length) {
+    const list = el('div', 'box');
+    open.forEach((x) => list.appendChild(postureRow(x)));
+    box.appendChild(list);
+  }
+  if (known && !showKnownTips) box.appendChild(el('p', 'role', T('cat.tips_known', { n: known })));
+  return box;
 }
 
 /** A day's heading between the rows: «Today», «Yesterday», then the date */

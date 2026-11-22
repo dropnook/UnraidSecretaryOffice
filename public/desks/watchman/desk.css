@@ -54,6 +54,12 @@
 .wm-hold > .callout{margin-bottom:6px}
 .wm-hold .row-name, .wm-hold-file{overflow-wrap:anywhere; min-width:0}
 .wm-hold-file{font-family:var(--mono); font-size:12px}
+/* an area's section (1.96): the light in words in its head, its advice under its entries */
+.wm-cat-state{font-size:12px; color:var(--ink2); overflow-wrap:anywhere}
+.wm-cat-state.wm-cat-danger{color:var(--danger)}
+.wm-cat-state.wm-cat-warn{color:var(--warn)}
+.wm-cat-tips > .box{margin-top:2px}
+.wm-cat-tips > p.role{margin:6px 2px 0}
 /* who woke my disks: the list's sub heads (by disk, every wake), the disk chosen, a wake's causes, files and facts */
 .wm-wakes{display:flex; flex-direction:column; gap:8px}
 .wm-wake-note{margin:0 2px}

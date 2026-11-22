@@ -3260,7 +3260,8 @@
      "to": "boot",
      "path": "/Settings/BootParameters"
     },
-    "known": false
+    "known": false,
+    "cat": "host"
    }
   ],
   "open": 0

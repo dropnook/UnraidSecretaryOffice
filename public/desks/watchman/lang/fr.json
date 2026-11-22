@@ -1519,5 +1519,7 @@
   "cat.empty": "Rien dans le registre pour cette zone.",
   "cat.empty_filter": "Rien ne correspond au filtre.",
   "help.lights": "Les zones et leurs feux",
-  "help.lights_text": "Chaque zone est une tuile avec un feu : rouge — quelque chose attend ta réponse ; jaune — quelque chose à regarder, ou il n'a pas pu regarder ; vert avec «!» — bien, avec un conseil ou une partie non vérifiée ; vert — bien ; gris — rien à surveiller ici, ou désactivé. Chaque feu a aussi sa propre forme. Le filtre au-dessus de la rangée ne montre que les zones dont les mots correspondent, ou seulement celles avec une constatation. La souris sur une tuile en montre les premiers détails."
+  "help.lights_text": "Chaque zone est une tuile avec un feu : rouge — quelque chose attend ta réponse ; jaune — quelque chose à regarder, ou il n'a pas pu regarder ; vert avec «!» — bien, avec un conseil ou une partie non vérifiée ; vert — bien ; gris — rien à surveiller ici, ou désactivé. Chaque feu a aussi sa propre forme. Le filtre au-dessus de la rangée ne montre que les zones dont les mots correspondent, ou seulement celles avec une constatation. La souris sur une tuile en montre les premiers détails.",
+  "cat.tips_title": "Conseils",
+  "cat.tips_known": {"one": "Et {n} que tu connais déjà — sous «Est-ce bien protégé ?».", "other": "Et {n} que tu connais déjà — sous «Est-ce bien protégé ?»."}
 }

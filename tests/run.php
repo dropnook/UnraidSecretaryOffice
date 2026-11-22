@@ -20863,6 +20863,8 @@ function testWatchmanCats(): void
     same('page state: each entry\'s area; the lights; his files\' sizes in the round', ['login', true, true, true, filesize("$tmp/watchman/book.json"), 0],
         [$page['book'][0]['cat'] ?? null, isset($page['cats']['login']['level'], $page['cats']['wakes']), isset($page['cats_cross']['book'], $page['cats_cross']['schedule']),
          array_keys($page['round']['sizes'] ?? []) === WATCH_CAT_FILES, $page['round']['sizes']['book'] ?? null, $page['round']['sizes']['flow'] ?? null]);
+    same('page state: each posture tip carries its area (its «advice» in that area\'s section)', ['door', 'container'],
+        array_column(watchmanPosturePage(['tips' => [['id' => 'upnp'], ['id' => 'privileged']]], null)['tips'] ?? [], 'cat'));
     $m = array_values(array_filter(watchmanMetrics("$tmp/watchman"), fn ($f) => $f['name'] === 'uso_watchman_file_bytes'))[0] ?? null;
     same('metric: his files\' sizes, one sample per file', [count(WATCH_CAT_FILES), ['file' => 'book'], filesize("$tmp/watchman/book.json")],
         [count($m['samples'] ?? []), $m['samples'][0][0] ?? null, $m['samples'][0][1] ?? null]);
