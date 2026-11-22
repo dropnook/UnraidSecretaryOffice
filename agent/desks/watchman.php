@@ -245,6 +245,14 @@ const WATCH_KINDS = [
 ];
 
 /**
+ * The kinds of 1.96's new abilities (concept 6): their entries live in book-more.json, in book.json's shape — an older
+ * version reads only book.json and drops the kinds it doesn't know at its next write (watchmanLoad()); the second file it
+ * never sees, so it never empties it. This version reads both as one book and writes each kind to its own file
+ * (watchmanBookSplit()). Each new ability's step adds its kinds here.
+ */
+const WATCH_KINDS_MORE = [];
+
+/**
  * Each kind's nearest MITRE ATT&CK technique (attack.mitre.org) — the words a security team searches for; the page
  * shows it as a chip (no link out — 2026-10-09), the syslog export carries it. Nearest, not exact: a new plugin is software that runs as root at boot.
  */
@@ -340,7 +348,7 @@ const WATCH_INSPECT     = "{{json .Name}}\t{{json .Config.Image}}\t{{json .HostC
 // start (an encrypted array waits for its key), he keeps the RAM and flash parts of his watch — nothing under /mnt, no data folder
 const WATCH_NIGHT_DIR    = RUN_DIR . '/nightshift';             // the night's book, state and log (RAM, root only)
 const WATCH_NIGHT_LOCK   = RUN_DIR . '/nightshift.lock';        // held while the night shift is on: never two of them, never with the agent
-const WATCH_NIGHT_FILES  = ['baseline.json', 'book.json', 'state.json', 'seen.json', 'posture.json'];
+const WATCH_NIGHT_FILES  = ['baseline.json', 'book.json', 'book-more.json', 'state.json', 'seen.json', 'posture.json'];
 const WATCH_MIRROR_RAM   = RUN_DIR . '/watchman-mirror.json';   // what the night shift needs, after every round (RAM, for an array stop)
 const WATCH_MIRROR_FLASH = '/boot/config/plugins/' . OFFICE_PLUGIN . '/watchman-mirror.json';  // the same for a reboot, without secrets
 const WATCH_MIRROR_EVERY = 3600;                                // the flash mirror at most once an hour (the flash wears), only when it changed
@@ -513,14 +521,18 @@ function watchmanHiredSince(): ?int
 function watchmanLoad(?string $dir = null): array
 {
     $dir ??= watchmanDir();
-    $book = readJson("$dir/book.json");
-    $entries = [];
-    foreach ((array) ($book['entries'] ?? []) as $e) {
-        if (is_array($e) && is_string($e['id'] ?? null) && is_string($e['kind'] ?? null) && (isset(WATCH_KINDS[$e['kind']]) || $e['kind'] === 'watch')
-            && !watchmanCronSignalEntry($e)) {
-            $entries[] = $e;
+    $read = function (string $file): array {
+        $out = [];
+        foreach ((array) (readJson($file)['entries'] ?? []) as $e) {
+            if (is_array($e) && is_string($e['id'] ?? null) && is_string($e['kind'] ?? null) && (isset(WATCH_KINDS[$e['kind']]) || $e['kind'] === 'watch')
+                && !watchmanCronSignalEntry($e)) {
+                $out[] = $e;
+            }
         }
-    }
+        return $out;
+    };
+    // book-more.json (1.96): only the kinds that belong there (WATCH_KINDS_MORE) — book.json may hold them too (a hand's copy)
+    $entries = [...$read("$dir/book.json"), ...watchmanBookSplit($read("$dir/book-more.json"))[1]];
     return ['baseline' => readJson("$dir/baseline.json"), 'book' => $entries, 'state' => watchmanStateFix(readJson("$dir/state.json") ?? [])];
 }
 
@@ -546,7 +558,19 @@ function watchmanCronSignalEntry(array $e): bool
         && !array_filter($jobs, fn ($j) => !preg_match('#^(?:cron\.d/)?' . preg_quote(WATCH_CRON_SIGNAL, '#') . ': [a-z_][a-z0-9_.-]{0,31}$#D', (string) $j));
 }
 
-/** Writes what changed ($new: baseline, book, state; seen when given) */
+/**
+ * His book in its two files (concept 6): [book.json's entries, book-more.json's] — the kinds in $more (WATCH_KINDS_MORE)
+ * to the second, every other to the first, each in its order
+ *
+ * @return array{0: list<array>, 1: list<array>}
+ */
+function watchmanBookSplit(array $book, array $more = WATCH_KINDS_MORE): array
+{
+    $in = fn ($e) => in_array(is_array($e) ? ($e['kind'] ?? '') : '', $more, true);
+    return [array_values(array_filter($book, fn ($e) => !$in($e))), array_values(array_filter($book, $in))];
+}
+
+/** Writes what changed ($new: baseline, book, state; seen when given) — the book in its two files (watchmanBookSplit()) */
 function watchmanSave(string $dir, array $old, array $new): void
 {
     if (!is_dir($dir)) {
@@ -554,12 +578,21 @@ function watchmanSave(string $dir, array $old, array $new): void
         @lchown($dir, FILE_UID);
         @lchgrp($dir, FILE_GID);
     }
-    foreach (['baseline' => 'baseline.json', 'book' => 'book.json', 'state' => 'state.json', 'seen' => 'seen.json', 'flow' => 'flow.json',
-              'posture' => 'posture.json', 'snaps' => 'snaps.json', 'net' => 'net.json'] as $k => $file) {
+    if (is_array($old['book'] ?? null)) {
+        [$old['book'], $old['book_more']] = watchmanBookSplit($old['book']);
+    }
+    if (is_array($new['book'] ?? null)) {
+        [$new['book'], $new['book_more']] = watchmanBookSplit($new['book']);
+    }
+    foreach (['baseline' => 'baseline.json', 'book' => 'book.json', 'book_more' => 'book-more.json', 'state' => 'state.json', 'seen' => 'seen.json',
+              'flow' => 'flow.json', 'posture' => 'posture.json', 'snaps' => 'snaps.json', 'net' => 'net.json'] as $k => $file) {
         if (!array_key_exists($k, $new) || $new[$k] === null || ($old[$k] ?? null) === $new[$k]) {
             continue;
         }
-        writeAtomic("$dir/$file", jsonEncode($k === 'book' ? ['entries' => array_values($new[$k])] : $new[$k]));
+        if ($k === 'book_more' && $new[$k] === [] && !is_file("$dir/$file")) {
+            continue;                       // none of the new kinds yet: no file
+        }
+        writeAtomic("$dir/$file", jsonEncode($k === 'book' || $k === 'book_more' ? ['entries' => array_values($new[$k])] : $new[$k]));
     }
 }
 
@@ -10118,8 +10151,8 @@ function watchmanMetrics(?string $dir = null): array
         return [];
     }
     $st = readJson(($dir ?? watchmanDir()) . '/state.json') ?? [];
-    $booked = metricsCached(($dir ?? watchmanDir()) . '/book.json', fn (string $file): array =>
-        array_fill_keys(array_column(array_filter((array) (readJson($file)['entries'] ?? []), 'is_array'), 'kind'), true));
+    $kinds = fn (string $file): array => array_fill_keys(array_column(array_filter((array) (readJson($file)['entries'] ?? []), 'is_array'), 'kind'), true);
+    $booked = metricsCached(($dir ?? watchmanDir()) . '/book.json', $kinds) + metricsCached(($dir ?? watchmanDir()) . '/book-more.json', $kinds);
     $samples = [];
     foreach (array_keys(WATCH_KINDS) as $kind) {
         $n = (int) ($st['open'][$kind] ?? 0);
