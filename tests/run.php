@@ -20814,6 +20814,192 @@ function testWatchmanBookMore(): void
 }
 
 /**
+ * «Too warm for hours» (1.96, concept 11.3 D, agent/desks/watchman-heat.php): his own reader — NVMe (named by its pool),
+ * CPU (coretemp's packages with their Tcontrol, k10temp's Tdie with its HTC point only), the awake disks from disks.ini
+ * (one asleep, an SSD in standby, the NVMe's pool line: none), never drivetemp; minutes over the limit in 24 hours,
+ * counted per round (at most WATCH_HOT_STEP for a gap); `hw_hot` once a sensor reaches its setting — not for a 10-minute
+ * peak, updated while open, noted: not again that day; a CPU without its own limit: never judged; set.hw within bounds;
+ * the night shift reads no disks.ini. His book in two files: the new kinds in book-more.json (an older version never sees
+ * them), read as one. Texts for every sensor kind.
+ */
+function testWatchmanHot(): void
+{
+    $tmp = hardeningTmp('watch-hot');
+    $sys = "$tmp/hwmon";
+    $mk = function (string $h, array $files) use ($sys): void {
+        @mkdir("$sys/$h", 0700, true);
+        foreach ($files as $f => $v) {
+            file_put_contents("$sys/$h/$f", "$v\n");
+        }
+    };
+    @mkdir("$tmp/dev/nvme0", 0700, true);
+    $mk('hwmon0', ['name' => 'nvme', 'temp1_input' => 72850, 'temp1_label' => 'Composite', 'temp1_crit' => 84850]);
+    symlink("$tmp/dev/nvme0", "$sys/hwmon0/device");
+    $mk('hwmon1', ['name' => 'coretemp', 'temp1_label' => 'Package id 0', 'temp1_input' => 81000, 'temp1_max' => 80000, 'temp2_label' => 'Core 0', 'temp2_input' => 99000]);
+    $mk('hwmon2', ['name' => 'drivetemp', 'temp1_input' => 66000]);
+    $mk('hwmon3', ['name' => 'k10temp', 'temp1_label' => 'Tctl', 'temp1_input' => 90000, 'temp2_label' => 'Tdie', 'temp2_input' => 88000]);
+    $mk('hwmon4', ['name' => 'acpitz', 'temp1_input' => 99000]);
+    $ini = "$tmp/disks.ini";
+    file_put_contents($ini, "[\"parity\"]\nname=\"parity\"\ntype=\"Parity\"\ndevice=\"sdb\"\nstatus=\"DISK_OK\"\ntemp=\"40\"\nspundown=\"0\"\nrotational=\"1\"\n"
+        . "[\"disk1\"]\nname=\"disk1\"\ntype=\"Data\"\ndevice=\"sdc\"\nstatus=\"DISK_OK\"\ntemp=\"57\"\nspundown=\"0\"\nrotational=\"1\"\n"
+        . "[\"disk2\"]\nname=\"disk2\"\ntype=\"Data\"\ndevice=\"sdd\"\nstatus=\"DISK_OK\"\ntemp=\"*\"\nspundown=\"1\"\nrotational=\"1\"\n"
+        . "[\"cache\"]\nname=\"cache\"\ntype=\"Cache\"\ndevice=\"nvme0n1\"\nstatus=\"DISK_OK\"\ntemp=\"73\"\nspundown=\"0\"\nrotational=\"0\"\n"
+        . "[\"cache2\"]\nname=\"cache2\"\ntype=\"Cache\"\ndevice=\"sde\"\nstatus=\"DISK_OK\"\ntemp=\"*\"\nspundown=\"1\"\nrotational=\"0\"\n"
+        . "[\"flash\"]\nname=\"flash\"\ntype=\"Flash\"\ndevice=\"sda\"\nstatus=\"DISK_OK\"\ntemp=\"*\"\n");
+    $look = watchmanHotLook(['hwmon' => $sys, 'hot_disks' => $ini]);
+    same('hot look: NVMe by its pool, the CPU\'s package with its Tcontrol, k10temp\'s Tdie (no HTC point: no limit), the awake disks — never drivetemp, acpitz, the NVMe twice, a sleeping disk or an SSD in standby',
+        [['nvme:cache', 'nvme', 'cache', 73, null], ['cpu:0', 'cpu', 'CPU', 81, 80], ['cpu:1', 'cpu', 'CPU 1', 88, null],
+         ['disk:parity', 'disk', 'parity', 40, null], ['disk:disk1', 'disk', 'disk1', 57, null]],
+        array_map(fn ($s) => [$s['id'], $s['kind'], $s['name'], $s['c'], $s['limit']], (array) $look));
+    same('hot look: the night shift — no disks.ini (watchmanNightPaths()); nothing to read at all: null',
+        [false, true, null], [isset(watchmanNightPaths()['hot_disks']), isset(watchmanNightPaths()['hwmon']), watchmanHotLook(['hwmon' => "$tmp/none"])]);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/watchman-heat.php');
+    check('hot look: drivetemp is never read — only nvme, coretemp, k10temp; no smartctl', str_contains($src, "in_array(\$driver, ['nvme', 'coretemp', 'k10temp'], true)")
+        && !str_contains($src, "'smartctl'") && !str_contains($src, "'drivetemp'"));
+
+    // rounds every 5 minutes: disk1 at 57 °C (limit 55), parity cool, the NVMe at 73 °C (70), the CPU at 81 °C (its 80)
+    $set = watchmanHotSettings(null);
+    $t0 = strtotime('2026-11-22 08:00:00');
+    /** @var array<int, array<string, mixed>> $book */
+    $book = [];
+    /** @var array<string, mixed> $st */
+    $st = [];
+    $one = fn (string $s) => array_values(array_filter($look, fn ($x) => $x['id'] === $s));
+    $diskOnly = $one('disk:disk1');
+    $round = function (int $t, ?array $l = null) use (&$book, &$st, &$diskOnly, &$set): array {
+        return watchmanHotCompare($book, $st, $l ?? $diskOnly, $set, $t, false);
+    };
+    $added = [];
+    for ($i = 0; $i <= 24; $i++) {
+        $added[$i] = $round($t0 + 300 * $i);
+    }
+    same('hot: disk1 over 55 °C — nothing until its 120 minutes, then one hw_hot', [[], ['hw_hot'], 1],
+        [array_merge(...array_slice($added, 0, 24)), $added[24], count($book)]);
+    same('hot: … its words (the disk shape), its area, told', ['entry.hw_hot_disk', ['name' => 'disk1', 'c' => '57', 'peak' => '57', 'limit' => '55', 'time' => '2 h 00 min'], 'hw', true],
+        [watchmanEntryKey($book[0]), watchmanText($book[0]), watchmanCatOf('hw_hot'), WATCH_KINDS['hw_hot'][1]]);
+    $round($t0 + 300 * 25);
+    same('hot: … still open: brought up to date, no second entry', [1, 125], [count($book), $book[0]['p']['minutes']]);
+    $book[0]['noted'] = $t0 + 300 * 25;
+    $round($t0 + 300 * 26);
+    same('hot: … noted, the same day: nothing new', 1, count($book));
+    // the next day, still hot all along (the round every 5 minutes): a new one
+    $t1 = strtotime('2026-11-23 08:00:00');
+    for ($t = $t0 + 300 * 27; $t <= $t1; $t += 300) {
+        $round($t);
+    }
+    same('hot: … the next day, still that warm: one new entry', [2, 1], [count($book), count(array_filter($book, 'watchmanOpen'))]);
+
+    // a 10-minute peak, then cool again: nothing; a gap of three hours counts only WATCH_HOT_STEP
+    /** @var array<int, array<string, mixed>> $book */
+    $book = [];
+    /** @var array<string, mixed> $st */
+    $st = [];
+    $cool = [['id' => 'disk:disk1', 'kind' => 'disk', 'name' => 'disk1', 'c' => 45, 'limit' => null]];
+    $hot = [['id' => 'disk:disk1', 'kind' => 'disk', 'name' => 'disk1', 'c' => 62, 'limit' => null]];
+    $round($t0, $cool);
+    $round($t0 + 300, $hot);
+    $round($t0 + 600, $hot);
+    $round($t0 + 900, $cool);
+    same('hot: a 10-minute peak — 10 minutes counted, no entry', [10, []], [watchmanHotMinutes($st['hot']['sensors']['disk:disk1']['spans'], $t0 + 900), $book]);
+    $round($t0 + 900 + 3 * 3600, $hot);
+    same('hot: rounds missed for three hours — the gap counts WATCH_HOT_STEP, not three hours', 20, watchmanHotMinutes($st['hot']['sensors']['disk:disk1']['spans'], $t0 + 900 + 3 * 3600));
+    same('hot: … the highest of the window kept', 62, $st['hot']['sensors']['disk:disk1']['peak']);
+    // spans older than 24 hours go
+    $round($t0 + 900 + 3 * 3600 + 86400, $cool);
+    same('hot: a day later, cool — the old spans gone', [], $st['hot']['sensors']['disk:disk1']['spans']);
+
+    // the CPU: over its own limit 30 minutes → told; k10temp without an HTC point: never judged; NVMe over 70 °C two hours
+    /** @var array<int, array<string, mixed>> $book */
+    $book = [];
+    /** @var array<string, mixed> $st */
+    $st = [];
+    for ($i = 0; $i <= 24; $i++) {
+        $round($t0 + 300 * $i, $look);
+    }
+    $by = array_column(array_map(fn ($e) => [$e['p']['sensor'], $e['p']['minutes']], $book), 1, 0);
+    same('hot: the CPU over its own Tcontrol for 30 min, the NVMe and disk1 for 120 min — k10temp without its limit and the cool parity never',
+        ['cpu:0' => 120, 'disk:disk1' => 120, 'nvme:cache' => 120], (function () use ($by) { ksort($by); return $by; })());
+    same('hot: … the CPU booked at its 30 minutes (the entry\'s first time)', $t0 + 300 * 6, (int) array_values(array_filter($book, fn ($e) => $e['p']['sensor'] === 'cpu:0'))[0]['time']);
+    same('hot: … words for the NVMe and the CPU', ['entry.hw_hot_nvme', 'entry.hw_hot_cpu'],
+        [watchmanEntryKey(array_values(array_filter($book, fn ($e) => $e['p']['kind'] === 'nvme'))[0]), watchmanEntryKey(array_values(array_filter($book, fn ($e) => $e['p']['kind'] === 'cpu'))[0])]);
+    // taken over anew: only counted
+    $none = [];
+    $stf = [];
+    for ($i = 0; $i <= 30; $i++) {
+        watchmanHotCompare($none, $stf, $diskOnly, $set, $t0 + 300 * $i, true);
+    }
+    same('hot: taken over anew — counted, never booked', [[], 150], [$none, watchmanHotMinutes($stf['hot']['sensors']['disk:disk1']['spans'], $t0 + 9000)]);
+
+    // settings: set.hw in rules.json (concept 3.1) — a value outside its bounds or of another type counts as not set
+    @mkdir("$tmp/w", 0700);
+    file_put_contents("$tmp/w/rules.json", json_encode(['v' => 1, 'set' => ['hw' => ['hot_disk_c' => 60, 'hot_disk_min' => 5, 'hot_nvme_c' => '80', 'hot_cpu_min' => 45]]]));
+    $s2 = watchmanHotSettings(watchmanHotSet("$tmp/w"));
+    same('hot settings: from set.hw within bounds; below the lowest or a string: the default', [60, 120, 70, 45], [$s2['hot_disk_c'], $s2['hot_disk_min'], $s2['hot_nvme_c'], $s2['hot_cpu_min']]);
+    file_put_contents("$tmp/w/rules.json", json_encode(['v' => 2, 'set' => ['hw' => ['hot_disk_c' => 60]]]));
+    same('hot settings: a rules file of another v: none taken', null, watchmanHotSet("$tmp/w"));
+    $set = ['hot_disk_c' => 60] + watchmanHotSettings(null);
+    /** @var array<int, array<string, mixed>> $book */
+    $book = [];
+    /** @var array<string, mixed> $st */
+    $st = [];
+    for ($i = 0; $i <= 30; $i++) {
+        $round($t0 + 300 * $i);
+    }
+    same('hot settings: disk1 at 57 °C under a limit of 60 — nothing', [], $book);
+
+    // his book in two files: hw_hot in book-more.json, the rest in book.json as ever, read as one
+    $dir = "$tmp/book";
+    @mkdir($dir, 0700);
+    $b = [watchmanEntry('flash_user', 'flash_user:zed', $t0, ['user' => 'zed']), watchmanEntry('hw_hot', 'hw_hot:disk:disk1', $t0, ['sensor' => 'disk:disk1', 'kind' => 'disk'])];
+    watchmanSave($dir, ['book' => []], ['book' => $b]);
+    same('hot book: hw_hot in book-more.json, the others in book.json — read as one',
+        [['flash_user'], ['hw_hot'], ['flash_user', 'hw_hot']],
+        [array_column(readJson("$dir/book.json")['entries'], 'kind'), array_column(readJson("$dir/book-more.json")['entries'], 'kind'), array_column(watchmanLoad($dir)['book'], 'kind')]);
+    $mtime = filemtime("$dir/book.json");
+    touch("$dir/book.json", $mtime - 100);
+    clearstatcache();
+    $b2 = $b;
+    $b2[1]['count'] = 2;
+    watchmanSave($dir, ['book' => $b], ['book' => $b2]);
+    clearstatcache();
+    same('hot book: only the part that changed is written (book.json left as it was)', [$mtime - 100, 2], [filemtime("$dir/book.json"), readJson("$dir/book-more.json")['entries'][0]['count']]);
+    file_put_contents("$dir/book-more.json", json_encode(['entries' => [$b[0], $b[1]]]));
+    same('hot book: book-more.json holds only its own kinds — another there is left out', ['flash_user', 'hw_hot'], array_column(watchmanLoad($dir)['book'], 'kind'));
+    $dir2 = "$tmp/book2";
+    @mkdir($dir2, 0700);
+    watchmanSave($dir2, ['book' => []], ['book' => [$b[0]]]);
+    same('hot book: none of the new kinds — no book-more.json', false, is_file("$dir2/book-more.json"));
+    check('hot book: the night\'s files include it (the handover clears it)', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/watchman.php'),
+        "WATCH_NIGHT_FILES  = ['baseline.json', 'book.json', 'book-more.json',"));
+
+    // a whole round: the sensors read, the minutes kept in his state, the entry in book-more.json
+    $data = "$tmp/data";
+    $src2 = "$tmp/src";
+    foreach (['plugins', 'extra', 'ssh'] as $d) {
+        @mkdir("$src2/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src2/syslog", 'plugins' => "$src2/plugins", 'go' => "$src2/go", 'extra' => "$src2/extra", 'passwd' => "$src2/passwd",
+              'shadow' => "$src2/shadow", 'ssh' => "$src2/ssh", 'etc_passwd' => "$src2/passwd", 'hwmon' => $sys, 'hot_disks' => $ini];
+    file_put_contents($paths['syslog'], '');
+    file_put_contents($paths['go'], "#!/bin/bash\n");
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    file_put_contents($paths['shadow'], "root:*:20000:0:99999:7:::\n");
+    $docker = fn () => [];
+    for ($i = 0; $i <= 25; $i++) {
+        watchmanRound($paths, $data, 1000, $t0 + 300 * $i, $docker, false, "$tmp/acks.json");
+    }
+    $d = watchmanLoad($data);
+    same('hot round: taken over, then rounds — the three sensors booked, in book-more.json, the minutes in state.json',
+        [['cpu:0', 'disk:disk1', 'nvme:cache'], 3, true], [(function () use ($d) {
+            $x = array_column(array_column(array_filter($d['book'], fn ($e) => $e['kind'] === 'hw_hot'), 'p'), 'sensor');
+            sort($x);
+            return $x;
+        })(), count(readJson("$data/book-more.json")['entries'] ?? []), isset($d['state']['hot']['sensors']['disk:disk1']['spans'])]);
+    same('hot round: the page state names the area', 'hw', array_values(array_filter(watchmanPageState($data, $t0 + 9000, false)['book'], fn ($e) => $e['kind'] === 'hw_hot'))[0]['cat'] ?? null);
+    hardeningRm($tmp);
+}
+
+/**
  * The night watchman's areas (1.96 step 1, agent/desks/watchman-cats.php): every kind of his book and every posture tip
  * in exactly one area, the 19 areas in the page's order; the lights as a table of cases (open and important, open,
  * what an area couldn't see, advice not known, info never, grey for what isn't there); an old state.json without the
@@ -29867,8 +30053,10 @@ function testWatchmanHost(): void
     $on = array_merge($off, ['notify' => true]);        // a variable: the state goes by reference
     same('chains: with the reports off never told, also not later', [[], []], [$quiet, watchmanChainsDue($cb, $on, $now + 21300, true, 'en')]);
     putenv('OFFICE_NOTIFY_BIN');
-    same('attack: every kind has its technique, in ATT&CK\'s shape', [[], []],
-        [array_values(array_diff(array_keys(WATCH_KINDS), array_keys(WATCH_ATTACK))),
+    // the hardware's kinds (1.96, hw_*) have none: none of it is an attack (concept 11.4)
+    same('attack: every kind has its technique, in ATT&CK\'s shape — the hardware\'s none', [[], [], []],
+        [array_values(array_diff(array_keys(WATCH_KINDS), array_keys(WATCH_ATTACK), array_filter(array_keys(WATCH_KINDS), fn ($k) => str_starts_with($k, 'hw_')))),
+         array_values(array_filter(array_keys(WATCH_ATTACK), fn ($k) => str_starts_with($k, 'hw_'))),
          array_values(array_filter(WATCH_ATTACK, fn ($t) => !preg_match('/^T\d{4}(\.\d{3})?$/D', $t)))]);
     exec('rm -rf ' . escapeshellarg($tmp));
 }
@@ -67641,7 +67829,7 @@ function testSkipPlaces(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackPlan', 'testJackNoPython', 'testJackRun', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testWatchWakesPage', 'testWatchmanWakes', 'testWatchmanWakeTrail', 'testMetrics', 'testWatchmanCats', 'testWatchmanBookMore', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testWatchWakesPage', 'testWatchmanWakes', 'testWatchmanWakeTrail', 'testMetrics', 'testWatchmanCats', 'testWatchmanBookMore', 'testWatchmanHot', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testMigrateWakes', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics', 'testReportDialogOwnWords', 'testReportDialogDesk',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testBackupRunEnded', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanAtLeft', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testSkipPlaces', 'testCleanupSkipGreeting', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],
