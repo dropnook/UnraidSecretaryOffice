@@ -86,6 +86,7 @@ require __DIR__ . '/lib/supporter.php';     // the key a tip made, asked of the 
 require __DIR__ . '/lib/jobs.php';          // what the office is doing right now, for the Dashboard tile (office.jobs)
 require __DIR__ . '/lib/firsthome.php';       // a fresh server without appdata: the welcome's look and its «create»
 require __DIR__ . '/lib/import.php';        // taking over an earlier install: the folder and file checks (Jack Emby, Ms. Moverelli)
+require __DIR__ . '/lib/missedruns.php';    // scheduled runs that did not start because the array wasn't started (job.sh's marks)
 require __DIR__ . '/lib/rundir.php';        // the RAM folder: a real folder, nothing left behind, within its budget (/run is shared)
 foreach (glob(__DIR__ . '/desks/*.php') ?: [] as $deskFile) {
     require $deskFile;
@@ -575,6 +576,7 @@ function setUp(): void
         logLine('Office: ' . $GLOBALS['runDirSaid']);
         $GLOBALS['runDirSaid'] = null;
     }
+    officeMissedSay();      // scheduled runs that did not start while the array wasn't started (lib/missedruns.php)
     // what an agent before this one left in RAM (a crash, a restart in place keeps the pid: no job of this one runs yet)
     if ($gone = runDirSweep([])) {
         logLine('Office: removed from the RAM folder what the agent before left: ' . implode(', ', array_slice($gone, 0, 10)) . (count($gone) > 10 ? ' …' : ''));

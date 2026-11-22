@@ -166,3 +166,81 @@ function testAlwaysOnBackCheck(): void
         fanboyTEnd();
     }
 }
+
+/**
+ * Step S1d: a scheduled run that doesn't start because the array isn't started leaves a trace — job.sh's mark in RAM
+ * (first time, last time, how often) and one line in the syslog at the first one; the agent takes the marks at its next
+ * start and says them in its log. Snapshots leave none (caught up at the start), nor the watch.
+ */
+function testAlwaysOnMissedRuns(): void
+{
+    $tmp = hardeningTmp('ao-missed');
+    @mkdir("$tmp/plugin/scripts", 0700, true);
+    @mkdir("$tmp/run", 0700, true);
+    $script = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/job.sh');
+    $script = str_replace(['DIR=/usr/local/emhttp/plugins/unraid-secretary-office', 'RUN=/var/run/unraid-secretary-office', 'logger -t unraid-secretary-office'],
+                          ["DIR=$tmp/plugin", "RUN=$tmp/run", "echo >> $tmp/syslog"], $script, $n);
+    same('always on S1d: the copy of job.sh points to the test folder', 4, $n);
+    file_put_contents("$tmp/job.sh", $script);
+    // agent.sh's stand-in: the array as the file says; a job that would start says so instead (the copy's php is never reached)
+    file_put_contents("$tmp/plugin/scripts/agent.sh", "array_started() { [[ -e $tmp/started ]]; }\n");
+    $run = function (string $job) use ($tmp): int {
+        @unlink("$tmp/run/job-$job.minute");            // each start its own minute (the guard against a second start is testJobGuard's)
+        exec('PATH=' . escapeshellarg("$tmp/bin:" . getenv('PATH')) . ' bash ' . escapeshellarg("$tmp/job.sh") . ' ' . escapeshellarg($job) . ' >/dev/null 2>&1', $o, $code);
+        return $code;
+    };
+    // php, bash's backup.sh: stand-ins that only note they ran
+    @mkdir("$tmp/bin", 0700, true);
+    file_put_contents("$tmp/bin/php", "#!/bin/bash\necho \"php \$*\" >> $tmp/ran\nexit 0\n");
+    chmod("$tmp/bin/php", 0755);
+    $codes = [];
+    foreach (['backup', 'backup', 'backup', 'moverelli', 'snapshots', 'cleanup'] as $job) {
+        $codes[] = $run($job);
+    }
+    $mark = fn (string $job) => is_file("$tmp/run/missed-$job") ? trim((string) file_get_contents("$tmp/run/missed-$job")) : null;
+    check('always on S1d: the array not started — nothing starts, every start ends with 0', $codes === [0, 0, 0, 0, 0, 0] && !is_file("$tmp/ran"));
+    check('always on S1d: a mark per job: first time, last time, how often (backup 3, moverelli 1, cleanup 1)',
+        (bool) preg_match('/^(\d{10}) (\d{10}) 3$/D', (string) $mark('backup'), $m) && $m[1] <= $m[2] && abs((int) $m[2] - time()) < 60
+        && (bool) preg_match('/^\d{10} \d{10} 1$/D', (string) $mark('moverelli')) && (bool) preg_match('/^\d{10} \d{10} 1$/D', (string) $mark('cleanup')), json_encode([$mark('backup'), $mark('moverelli'), $mark('cleanup')]));
+    same('always on S1d: none for the snapshots (caught up at the start)', null, $mark('snapshots'));
+    same('always on S1d: one line in the syslog per job, at its first one only',
+        ["job backup: not started - the array isn't started", "job moverelli: not started - the array isn't started", "job cleanup: not started - the array isn't started"],
+        array_values(array_filter(explode("\n", (string) @file_get_contents("$tmp/syslog")))));
+    same('always on S1d: no temporary file left, nothing else written', ['missed-backup', 'missed-cleanup', 'missed-moverelli'],
+        array_values(array_filter(scandir("$tmp/run") ?: [], fn ($f) => str_starts_with($f, 'missed-'))));
+    // a mark that is a link is never written through
+    file_put_contents("$tmp/elsewhere", "keep\n");
+    @symlink("$tmp/elsewhere", "$tmp/run/missed-gather");
+    $run('gather');
+    same('always on S1d: a link in the mark\'s place — never written through', "keep\n", file_get_contents("$tmp/elsewhere"));
+    @unlink("$tmp/run/missed-gather");
+    // the array started: the job starts as ever, no mark made or touched
+    touch("$tmp/started");
+    $before = $mark('moverelli');
+    $run('moverelli');
+    same('always on S1d: the array started — the job starts (php agent.php job moverelli), its mark untouched',
+        ["php $tmp/plugin/agent/agent.php job moverelli\n", $before], [@file_get_contents("$tmp/ran"), $mark('moverelli')]);
+
+    // the agent's start: the marks taken (removed) and said in its log
+    $lines = officeMissedSay("$tmp/run");
+    check('always on S1d: the agent says each at its start — which run, how often, from when to when', count($lines) === 3
+        && (bool) preg_match('/^Office: the scheduled backup run did not start while the array wasn\'t started \(3 times, \d{4}-\d\d-\d\d \d\d:\d\d to \d{4}-\d\d-\d\d \d\d:\d\d\)$/D', $lines[0])
+        && (bool) preg_match('/^Office: Ms\. Moverelli\'s scheduled run did not start while the array wasn\'t started \(at \d{4}-\d\d-\d\d \d\d:\d\d\)$/D', $lines[1])
+        && str_starts_with($lines[2], 'Office: Ms. Dustdevil\'s scheduled tour did not start'), json_encode($lines));
+    same('always on S1d: … the marks are gone, a second start says nothing', [[], []],
+        [array_values(array_filter(scandir("$tmp/run") ?: [], fn ($f) => str_starts_with($f, 'missed-'))), officeMissedSay("$tmp/run")]);
+    // only a mark in exactly its shape counts; anything else is removed unread (a link never followed)
+    file_put_contents("$tmp/run/missed-backup", "1 2 x\n");
+    file_put_contents("$tmp/run/missed-logs", str_repeat('9', 200));
+    file_put_contents("$tmp/run/missed-gather", "200 100 1\n");
+    @symlink("$tmp/elsewhere", "$tmp/run/missed-cleanup");
+    file_put_contents("$tmp/run/missed-other", "1 2 3\n");
+    same('always on S1d: marks not in their shape (words, too long, last before first, a link) say nothing and go; a name job.sh never writes stays untouched',
+        [[], ['missed-other'], "keep\n"], [officeMissedTake("$tmp/run"), array_values(array_filter(scandir("$tmp/run") ?: [], fn ($f) => str_starts_with($f, 'missed-'))), file_get_contents("$tmp/elsewhere")]);
+    // every job job.sh marks has its words; the RAM folder's audit knows the marks
+    preg_match('/^job_missed\(\) \{.*?^        ([a-z|]+)\) ;;$/ms', (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/job.sh'), $m);
+    same('always on S1d: job.sh marks exactly the jobs the agent has words for', array_keys(MISSED_JOBS), explode('|', $m[1] ?? ''));
+    check('always on S1d: the marks are in the RAM folder\'s audit (RUNDIR_FILES)', (bool) array_filter(array_keys(RUNDIR_FILES), fn ($p) => preg_match('#^(?:' . $p . ')$#D', 'missed-backup') === 1 && preg_match('#^(?:' . $p . ')$#D', 'missed-backup.tmp') === 1));
+    check('always on S1d: the agent takes them at its start (setUp())', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/agent.php'), "    officeMissedSay();"));
+    hardeningRm($tmp);
+}

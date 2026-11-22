@@ -13939,7 +13939,8 @@ function testAgentBackupHooks(): void
     same('array states: agent.sh, agent.php and the engine agree - Formatting and Clearing run, Starting and none are neither',
         ['Started' => ['1', '1', '-'], 'Formatting' => ['1', '1', '-'], 'Clearing' => ['1', '1', '-'], 'Starting' => ['0', '0', '-'],
          'Stopping' => ['0', '0', 'stop'], 'Stopped' => ['0', '0', 'stop'], '(none)' => ['0', '0', '-']], $got);
-    check('array states: job.sh asks agent.sh\'s array_started', (bool) preg_match('/^source "\$DIR\/scripts\/agent\.sh" 2>\/dev\/null && array_started \|\| exit 0$/m',
+    // (2026-11-22: a run that doesn't start for it leaves its mark first — job_missed, testAlwaysOnMissedRuns)
+    check('array states: job.sh asks agent.sh\'s array_started', (bool) preg_match('/^source "\$DIR\/scripts\/agent\.sh" 2>\/dev\/null \|\| exit 0\narray_started \|\| \{ job_missed "\$1"; exit 0; \}$/m',
         (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/job.sh')));
     $all = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/agent.sh') . file_get_contents(OFFICE_DIR . '/plugin/scripts/job.sh') . file_get_contents(OFFICE_DIR . '/agent/agent.php');
     check('array states: no other spelling of «started» left in agent.sh, job.sh, agent.php', !str_contains($all, 'fsState="Started"') && !str_contains($all, "=== 'Started'")
@@ -24993,7 +24994,8 @@ function testCleanEnv(): void
     same('clean env: CLEAN_ENV unsets the session\'s five', ['env -u ' . implode(' -u ', $vars)],
         preg_match('/^CLEAN_ENV=\((env[^)\n]*)\)$/m', $agent, $m) ? [$m[1]] : []);
     preg_match_all('/^[^#\n]*\b(setsid|at -M)\b[^\n]*$/m', $agent, $starts);
-    check('clean env: agent.sh starts four things (both supervisors, the USO network\'s check, atd\'s --recover)', count($starts[0]) === 4,
+    // (2026-11-22: the fifth — the guard's look after a release, fanboy_back_check)
+    check('clean env: agent.sh starts five things (both supervisors, the USO network\'s check, atd\'s --recover, Fanboy\'s look after a release)', count($starts[0]) === 5,
         implode("\n", $starts[0]));
     same('clean env: every one of them through CLEAN_ENV', [], array_values(array_filter($starts[0], fn ($l) => !str_contains($l, '"${CLEAN_ENV[@]}"'))));
     $job = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/job.sh');
@@ -25180,7 +25182,7 @@ function testJobGuard(): void
     $script = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/job.sh');
     $script = str_replace(['DIR=/usr/local/emhttp/plugins/unraid-secretary-office', 'RUN=/var/run/unraid-secretary-office', 'logger -t unraid-secretary-office'],
                           ["DIR=$tmp/plugin", "RUN=$tmp/run", "echo >> $tmp/syslog"], $script, $n);
-    same('job guard: the copy points to the test folder', 3, $n);
+    same('job guard: the copy points to the test folder', 4, $n);       // DIR, RUN and both of its syslog lines (the second: job_missed, 2026-11-22)
     file_put_contents("$tmp/job.sh", $script);
     file_put_contents("$tmp/plugin/scripts/agent.sh", "echo \"\$1\" >> $tmp/ran\n");
     $run = function () use ($tmp): string {
@@ -67844,7 +67846,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                        'testFanboyBack', 'testFanboyGuardCron', 'testFanboyWaz', 'testFanboyHistoryPart', 'testFanboyMeasureProgress', 'testFanboyFanLook', 'testFanboyDesk', 'testFanboyUx', 'testFanboyOverview', 'testFanboyHistoryLeads', 'testFanboyHistoryCurves', 'testFanboyDeskWords', 'testFanboyHistoryThin', 'testFanboyAvatar', 'testFanboyCount', 'testFanboyHottestKinds', 'testFanboyRound3Words', 'testFanboyStandsKick', 'testFanboyNvmeWarm', 'testFanboyProposeKinds', 'testFanboyReact', 'testFanboyTemps', 'testFanboyCpuOwn', 'testFanboyPresetsMirror', 'testFanboyR5Subjects', 'testFanboyR5GuardZone', 'testFanboyR5TrimHeld', 'testFanboyR5Names', 'testFanboyR5ChipGone', 'testFanboyR5Moved', 'testFanboyR5NoDriftAtFull', 'testFanboyR5Obeys', 'testFanboyR5GiveBackSafe', 'testFanboyR5Sane', 'testFanboyR5Refused', 'testFanboyR5Detect', 'testFanboyR5DisksAsleep', 'testFanboyR5TwoChips', 'testFanboyR6WatchLearn', 'testFanboyR6WatchRules', 'testFanboyR6WarmNow', 'testFanboyR6ShowStep', 'testFanboyR6ShowRefused', 'testFanboyR6ShowControl', 'testFanboyR6OldDisks', 'testFanboyR7FullOnObeys', 'testFanboyR7ControlFullOn', 'testFanboyR7Fixed', 'testFanboyR7NotAController', 'testFanboyR7CardsKeepSize', 'testFanboyR7TestLongEnough', 'testFanboyR8IgnoredLate', 'testFanboyR8FullLongEnough', 'testFanboyR8Quiet', 'testFanboyR8QuietGuards', 'testFanboyR8QuietSafety', 'testFanboyR8FoundNext', 'testFanboyR8Assign', 'testFanboyR9Kick', 'testFanboyR9Safety', 'testFanboyR9Now', 'testFanboyR9CpuOwn', 'testFanboyR10Notify', 'testFanboyR11Heard', 'testFanboyR11StopVerdict', 'testFanboyR11StaleNext', 'testFanboyR11ProgressNext', 'testFanboyR12Standstill', 'testFanboyR12Warm', 'testFanboyR12Control', 'testFanboyR12CpuRole', 'testFanboyR12CpuMeasure', 'testFanboyR12CpuControl', 'testFanboyR12CpuGone', 'testFanboyR12FixSpikes', 'testFanboyR12FixControl', 'testFanboyR12FixConfirm', 'testFanboyNetDrift', 'testFanboyProposeSaves', 'testFanboyZonesWords', 'testFanboyFourPoints', 'testFanboyLookKeeps', 'testFanboyKickStartSecs', 'testFanboyReloadDrift', 'testFanboyNet', 'testFanboyNetTakeOver', 'testFanboyR12Curve', 'testFanboyR12CurveEffective', 'testFanboyR12AutoSeen', 'testFanboyR12Look', 'testFanboyR13Compat', 'testFanboyR13Curves', 'testFanboyR13Refused', 'testFanboyR13Devs', 'testFanboyR13DevsControl', 'testFanboyR14Plan', 'testFanboyR14Look', 'testFanboySetupFanPlan', 'testFanboyDashHours', 'testFanboyTimes', 'testFanboySsdSleeps', 'testFanboyCpuFloorCurve',
                        'testFanboyDashTile', 'testFanboyDashSource', 'testFanboyDashSetting', 'testFanboyDashHistory', 'testFanboyDashFans', 'testFanboyDashCards', 'testFanboyDashAsleep', 'testFanboyDashSplitter', 'testFanboyDashDefault', 'testFanboyDashCpuRest', 'testFanboyZoneSources', 'testFanboyCpuOwnWheel', 'testFanboySetupWaits', 'testFanboySetupPlaces', 'testFanboyArtClipped', 'testFanboySetupFlow', 'testFanboyEmptyOutput', 'testFanboyZonesDraft', 'testFanboyWarmOverride', 'testFanboyStartWait', 'testFanboyKindGoal',
                        'testFanboyLookReverse', 'testFanboyLookDash', 'testFanboyLookKeys', 'testFanboyLookGap', 'testFanboyLookTipAir', 'testFanboyChipTable', 'testFanboyChipRead', 'testFanboyChipState', 'testFanboyChipReport', 'testFanboyChipRisk', 'testFanboyNoFanChip', 'testFanboyTempsMissing', 'testFanboyDoctor', 'testFanboyUsbStick', 'testFanboyCurveFloorKinds', 'testFanboyCurvePush'],
-          'alwayson' => ['testAlwaysOnStopWhy', 'testAlwaysOnBackCheck'],
+          'alwayson' => ['testAlwaysOnStopWhy', 'testAlwaysOnBackCheck', 'testAlwaysOnMissedRuns'],
           'tools' => ['testReleaseHashes', 'testReleaseState', 'testReleaseClicksRetry', 'testScenarioToolsSafe']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.
