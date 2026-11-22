@@ -2769,7 +2769,7 @@ function reportError(error) {
 /**
  * The dialog about a desk: deskId, else the desk shown (the ⋯ menu, the search's item — the reception: the office as a
  * whole); opts.example: the title's example instead of the desk's (`<desk>.report_example`, else the office's).
- * 2026-11-22 (the owner: «Betrifft» said «Das Sekretariat als Ganzes» on Fanboy's page; uso-inbox #20 came with our
+ * 2026-11-22 (the owner: «Betrifft» said «Das Sekretariat als Ganzes» on a desk's page; uso-inbox #20 came with our
  * title and our text only): no desk fills in a title — the user names the matter (an example in the field, «Send» says
  * it's missing) — and «About» is the desk it was opened from, never a kept draft's. The one kept draft belongs to the
  * desk it is about: shown only in a dialog about that desk, left as it is by a dialog about another one until the user
