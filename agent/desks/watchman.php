@@ -125,6 +125,7 @@ require_once __DIR__ . '/../lib/paritywhy.php';
 require_once __DIR__ . '/../lib/arrayhold.php';     // «What holds the array?» (his page, on demand)
 require_once __DIR__ . '/watchman-diskwakes.php';    // «Who woke my disks?» (data/watchman/wakes.json): the sampler in his tick
 require_once __DIR__ . '/watchman-cats.php';         // his areas (1.96): every kind and tip in one, the lights of his page (state.cats)
+require_once __DIR__ . '/watchman-boot.php';         // what runs at the start (1.96): plugin files on the flash, stop, modprobe.d, the start line, ld.so.preload
 
 const WATCH_EVERY        = 300;              // a round every 5 minutes
 const WATCH_LOOK         = 20;               // the tick looks whether one is due this often (seconds)
@@ -182,6 +183,7 @@ const WATCH_KINDS = [
     'flash_user'           => ['flash', true],
     'flash_password'       => ['flash', true],
     'flash_ssh_key'        => ['flash', true],
+    'flash_boot'           => ['flash', true],      // what runs at the next start changed on the flash: a plugin file nothing installed, stop, modprobe.d, the start line, smb-extra.conf, a kernel file without an update (watchman-boot.php)
     'share_public'         => ['share', true],
     'cron_new'             => ['sched', true],
     'cron_twice'           => ['sched', true],
@@ -212,6 +214,7 @@ const WATCH_KINDS = [
     'door_new'             => ['host', true],       // a new way in from outside: SSH on or on another port, UPnP, Connect's remote access, a single sign-on, a WireGuard peer, the API's sandbox, origins, Unraid.net logins
     'api_key_new'          => ['host', true],       // a new key for Unraid's API (its name, roles, permissions — never its value; watchmanApiKeys())
     'api_key_changed'      => ['host', true],       // an API key's roles or permissions changed (fewer roles alone: safer, normal by itself)
+    'ld_preload'           => ['host', true],       // /etc/ld.so.preload new or changed: what it names is loaded into every program (watchman-boot.php)
     'array_stop'           => ['array', false],     // the array was stopped: a plain line, noted by himself (watchmanArrayLines())
     'array_start'          => ['array', false],     // the array was started: likewise
     'server_boot'          => ['array', false],     // the server was started (a new boot id): likewise (watchmanBootLine())
@@ -249,6 +252,9 @@ const WATCH_ATTACK = [
     'plugin_new' => 'T1543', 'plugin_source' => 'T1195.002',
     'flash_go' => 'T1037.004', 'flash_extra' => 'T1037.004', 'flash_user' => 'T1136.001', 'flash_password' => 'T1098',
     'flash_ssh_key' => 'T1098.004', 'share_public' => 'T1222',
+    // what runs at the start: Boot or Logon Initialization Scripts; a library loaded into every program: Hijack Execution
+    // Flow: Dynamic Linker Hijacking
+    'flash_boot' => 'T1037', 'ld_preload' => 'T1574.006',
     'cron_new' => 'T1053.003', 'cron_twice' => 'T1053.003', 'cron_office' => 'T1053.003', 'cron_file' => 'T1053.003',
     'cron_file_foreign' => 'T1053.003', 'script_new' => 'T1053.003', 'script_changed' => 'T1053.003',
     'at_job' => 'T1053.002', 'at_userscript' => 'T1053.002', 'at_plugin' => 'T1053.002', 'notify_agent' => 'T1546',
@@ -471,7 +477,7 @@ function watchmanPaths(): array
         'shares_ini'    => '/var/local/emhttp/shares.ini',
         'net_class'     => '/sys/class/net',
         'arp'           => '/proc/net/arp',
-    ];
+    ] + watchmanBootPaths();        // what runs at the start (watchman-boot.php)
 }
 
 function watchmanDir(): string
@@ -1149,7 +1155,7 @@ function watchmanNightRound(array $paths, string $night = WATCH_NIGHT_DIR, ?int 
         // at boot Unraid installs the plugins one after the other and starts emhttpd after them (rc.local): until then their
         // .cron files (one written anew), root's crontab and atd's queue (a job a plugin queued as it installed) are half
         // there, a plugin not installed yet — not looked at; the first round after it compares them with the baseline
-        $paths = array_diff_key($paths, array_flip(['crontabs', 'cron_d', 'cron_files', 'atjobs']));
+        $paths = array_diff_key($paths, array_flip(['crontabs', 'cron_d', 'cron_files', 'atjobs', 'flash_plg']));
     }
     // the team lead's notes lie in the pool: none in the night
     $r = watchmanRound($paths, $night, (int) ($b['hired'] ?? 0), $now, $docker ?? fn (): ?array => watchmanNightDocker(), $notify, "$night/no-acks.json");
@@ -1471,6 +1477,11 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         'host'       => $host,
         'partner'    => watchmanPartnerLook($paths),
     ];
+    // what runs at the start (watchman-boot.php): with the flash's part, a file the same as the last round's isn't read again
+    $bootLook = watchmanBootLook($paths, is_array($prevSeen['flash']['boot'] ?? null) ? $prevSeen['flash']['boot'] : null);
+    if ($bootLook !== null) {
+        $seen['flash']['boot'] = $bootLook;
+    }
     $office = watchmanOfficeLook($paths, $now);
     $facts = watchmanPostureLook($paths);
     // snapshots that vanish: only rounds write snaps.json (one at a time), so it is read out here
@@ -1531,6 +1542,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
                 watchmanContainersCompare($b['containers'], $seen['containers'], $book, $now, $office),
                 watchmanPluginsCompare($b['plugins'], $seen['plugins'], $book, $now, $office),
                 watchmanFlashCompare($b['flash'], $seen['flash'], $book, $now, isset($paths['go']) ? (string) $paths['go'] : null),
+                watchmanBootCompare($b['flash']['boot'], $seen['flash']['boot'] ?? null, $book, $now),
                 watchmanSharesCompare($b['shares'], $seen['shares'], $book, $now),
                 watchmanSchedCompare($b['sched'], $seen['sched'], $seen['plugins'], $book, $now, $office),
                 watchmanHostCompare($b['host'], $seen['host'], is_array($old['seen']) ? ($old['seen']['host'] ?? null) : null,
@@ -1653,6 +1665,11 @@ function watchmanTakeOver(int $hired, array $events, array $seen, array $book, a
 {
     $b = ['hired' => $hired, 'time' => $now, 'ips' => [], 'fail_ips' => [], 'containers' => null, 'plugins' => [],
           'flash' => $seen['flash'], 'shares' => null, 'sched' => null, 'snaps' => ['series' => []]];
+    unset($b['flash']['boot']);
+    $quiet = [];
+    if (isset($seen['flash']['boot'])) {
+        watchmanBootCompare($b['flash']['boot'], $seen['flash']['boot'], $quiet, $now);      // what runs at the start: as it is, normal
+    }
     $st['fails'] = [];
     $st['notified'] = [];
     $none = [];
@@ -9105,6 +9122,10 @@ function watchmanAdopt(array &$b, array $e, array $seen, int $now): void
                 $b['flash']['pw'][$u] = $seen['flash']['pw'][$u] ?? null;
             }
             break;
+        case 'flash_boot':
+        case 'ld_preload':
+            watchmanBootAdopt($b, $e, $seen);
+            break;
         case 'flash_ssh_key':
             $k = $seen['flash']['keys'][$p['user'] ?? ''][$p['fp'] ?? ''] ?? null;
             if ($k !== null) {
@@ -9521,6 +9542,7 @@ function watchmanText(array $e, ?string $lang = null): array
         'flash_extra'    => ['file' => (string) ($p['file'] ?? '')],
         'flash_user', 'flash_password' => ['user' => (string) ($p['user'] ?? '')],
         'flash_ssh_key'  => ['user' => (string) ($p['user'] ?? ''), 'key' => (string) ($p['comment'] ?? '') ?: substr((string) ($p['fp'] ?? ''), 0, 19)],
+        'flash_boot', 'ld_preload' => watchmanBootText($e),
         'share_public'   => ['share' => (string) ($p['share'] ?? ''), 'proto' => strtoupper((string) ($p['proto'] ?? ''))],
         'cron_new', 'cron_twice', 'cron_office'
                          => ['lines' => (int) ($p['lines'] ?? 0), 'jobs' => $jobs, 'fix' => watchmanCronFix((string) $e['kind'])],
@@ -9588,7 +9610,7 @@ function watchmanEntryVariant(array $e): ?string
         return 'at_plugin_left';        // what a removed plugin left in atd's queue (watchmanAtLeftNote())
     }
     $shape = watchmanFlowShape($e);
-    return watchnetEntryVariant($e) ?? ($shape === null ? null : $e['kind'] . '_' . $shape);
+    return watchmanBootVariant($e) ?? watchnetEntryVariant($e) ?? ($shape === null ? null : $e['kind'] . '_' . $shape);
 }
 
 /** A way in, in words: in $lang (notifications, the team lead), or '' — the page writes it itself (door.<what>) */

