@@ -1072,6 +1072,7 @@ function testFanboyState(): void
         same('fanboy state: the tick starts no control for a desk not hired', [], $GLOBALS['fanboyLaunched']);
         // the tick when hired (his desk there for the time, a staff list of the test's): it starts the control; a control that
         // dies is started again after 30 s, three deaths in 30 minutes and the BIOS keeps the fans; told once per run of deaths
+        $keepDesk = $GLOBALS['desks']['fanboy'] ?? null;
         $GLOBALS['desks']['fanboy'] = ['actions' => [], 'start' => null, 'tick' => null, 'checks' => null, 'fit' => null, 'metrics' => null];
         file_put_contents("{$t['tmp']}/staff.json", json_encode(['hired' => ['fanboy' => ['at' => 1]]]));
         $GLOBALS['agentStaffFile'] = "{$t['tmp']}/staff.json";
@@ -1105,6 +1106,9 @@ function testFanboyState(): void
         same('fanboy state: … calm for 30 minutes: started again, and a new death is told again', [4, 2],
             [count($GLOBALS['fanboyLaunched']), count(array_filter(fanboyTNotified($t), fn ($l) => str_contains($l, '-i warning')))]);
         unset($GLOBALS['desks']['fanboy'], $GLOBALS['agentStaffFile']);
+        if ($keepDesk !== null) {
+            $GLOBALS['desks']['fanboy'] = $keepDesk;
+        }
         // the page's stub state carries the part-2 keys (the click test draws it)
         $stub = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/states/fanboy.json'), true);
         check('fanboy state: the page\'s stub state has control, setup, drivers', isset($stub['control'], $stub['setup'], $stub['drivers']));

@@ -47726,6 +47726,7 @@ ROUTER);
         $launched = [];
         $p = reportPreview(['diagnostics' => true] + $ask, $ctx + ['now' => $now + 30]);
         $finish($launched[0], $files);
+        @unlink("$tmp/office/reports.json");   // the office's day cap (5): each case starts from an empty log
         $before = $count();
         $r = reportSend(['token' => $p['token'], 'parts' => ['diagnostics']] + $words, ['now' => $now + 31] + $sctx);
         $got[] = [$r['ok'] ?? false, $r['diagnostics'] ?? null, $count() - $before - 1, is_dir("$tmp/run/{$p['token']}.diag")];
@@ -47736,6 +47737,7 @@ ROUTER);
     $launched = [];
     $p = reportPreview(['diagnostics' => true] + $ask, $ctx + ['now' => $now + 40]);
     $finish($launched[0], $files);
+    @unlink("$tmp/office/reports.json");
     $before = $count();
     $r = reportSend(['token' => $p['token'], 'parts' => ['versions']] + $words, ['now' => $now + 41] + $sctx);
     same('report diagnostics: unticked — only the report, no `diagnostics` in the answer, the zip gone', [true, 1, false, false],
@@ -66061,9 +66063,12 @@ function testFanboyReport(): void
         && str_contains($js, '`${mine || T(\'report_wish\')}\n\n\n${j.report}`') && str_contains($js, 'Office.reportDialog(ID);')
         && !str_contains($js, 'office.report_send'));
     // the form takes it: a wish of his desk, the report's text within the form's limit
+    $keepDesk = $GLOBALS['desks']['fanboy'] ?? null;
     $GLOBALS['desks']['fanboy'] ??= ['actions' => []];
     $w = reportWords(['kind' => 'wish', 'desk' => 'fanboy', 'title' => 'Fanboy: what he finds on this board', 'text' => "What I'd like Fanboy to do here:\n\n\n" . $text]);
-    unset($GLOBALS['desks']['fanboy']);
+    if ($keepDesk === null) {
+        unset($GLOBALS['desks']['fanboy']);
+    }
     same('fanboy report page: the office\'s form takes it as a wish of his desk', ['wish', 'fanboy'], [$w['kind'], $w['desk']]);
 }
 

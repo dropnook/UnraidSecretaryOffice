@@ -2772,7 +2772,7 @@ Office.reportDialog = function reportDialog(deskId, opts) {
   const want = deskId || draft.desk || 'office';
   const state = { kind: REPORT_KINDS.includes(draft.kind) ? draft.kind : 'bug', preview: null, sent: false, cap: null, closed: false, inbox: null, images: [], imagesOk: null,
     // what was put into the text for the user (2026-11-22, uso-inbox #20: a wish with not one word of his own): a draft this
-    // dialog didn't keep itself (a desk filled it in — Fanboy's «Send to the developers…») is pre-filled; kept with the draft
+    // dialog didn't keep itself (a desk filled it in — a desk's «Send to the developers…») is pre-filled; kept with the draft
     prefill: typeof draft.prefill === 'string' ? draft.prefill : draft.mine === true || typeof draft.text !== 'string' ? '' : draft.text, askedOwn: false };
   const box = el('div', 'sso-report');
 
