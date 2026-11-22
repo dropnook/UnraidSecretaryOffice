@@ -30,21 +30,21 @@ const WATCH_CATS = [
     'container' => ['kinds' => ['container_new', 'container_privileged', 'container_host', 'container_ports', 'container_rights', 'drill_throwaway'],
                     'tips' => ['privileged']],
     'plugin'    => ['kinds' => ['plugin_new', 'plugin_source'], 'tips' => []],
-    'flash'     => ['kinds' => ['flash_go', 'flash_extra', 'flash_user', 'flash_password', 'flash_ssh_key', 'user_ram'], 'tips' => []],
+    'flash'     => ['kinds' => ['flash_go', 'flash_extra', 'flash_user', 'flash_password', 'flash_ssh_key', 'flash_boot', 'user_ram'], 'tips' => []],
     'share'     => ['kinds' => ['share_public'], 'tips' => ['flash', 'public']],
     'sched'     => ['kinds' => ['cron_new', 'cron_twice', 'cron_office', 'cron_file', 'cron_file_foreign', 'script_new', 'script_changed', 'at_job',
                                 'at_userscript', 'at_plugin', 'notify_agent'], 'tips' => []],
     'pull'      => ['kinds' => ['flow_client', 'flow_container'], 'tips' => []],
     'data'      => ['kinds' => ['flow_written', 'flow_gone'], 'tips' => []],
     'snap'      => ['kinds' => ['snap_gone', 'snap_hold_released', 'kopia_emptied'], 'tips' => []],
-    'host'      => ['kinds' => ['listen_new', 'proc_odd', 'log_cleared', 'host_oom', 'host_crash', 'host_flood'],
+    'host'      => ['kinds' => ['listen_new', 'proc_odd', 'log_cleared', 'host_oom', 'host_crash', 'host_flood', 'ld_preload'],
                     'tips' => ['mitigations_off', 'vmscape', 'mitigations_on']],
     'door'      => ['kinds' => ['door_new', 'api_key_new', 'api_key_changed'], 'tips' => ['telnet', 'upnp', 'ftp', 'api_admin', 'remote_access']],
     'partner'   => ['kinds' => ['partner_paired', 'door_changed', 'door_key_moved', 'door_refused'],
                     'tips' => ['partner_wide', 'partner_unknown', 'partner_public', 'partner_friend']],
     'router'    => ['kinds' => ['net_sender_new', 'net_router_login', 'net_router_login_failures', 'net_firewall_change', 'net_router_config',
                                 'net_vpn_login', 'net_log_silent', 'net_link_down', 'net_outage', 'net_router_reboot'], 'tips' => ['router_clock']],
-    'lan'       => ['kinds' => ['net_new_device', 'net_spoof', 'net_ips_server', 'net_blocked_from_server'], 'tips' => []],
+    'lan'       => ['kinds' => ['net_new_device', 'net_spoof', 'net_ips_server', 'net_blocked_from_server', 'net_gateway', 'net_dns'], 'tips' => []],
     'array'     => ['kinds' => ['array_stop', 'array_start', 'server_boot', 'parity_check'], 'tips' => []],
     'vuln'      => ['kinds' => [], 'tips' => []],          // «Known vulnerabilities» (concept 11 A): its kinds come with its step
     'hw'        => ['kinds' => ['hw_mce', 'hw_ecc', 'hw_aer', 'hw_throttle', 'hw_kernel', 'hw_wear', 'hw_hot', 'hw_io'],
@@ -220,7 +220,8 @@ function watchmanCats(array $s, ?array $parity = null): array
     $netState = is_array($net) ? (string) ($net['state'] ?? 'off') : 'off';
     foreach (['router', 'lan'] as $cat) {
         if ($netState === 'off' || !is_array($net) || !($net['senders'] ?? [])) {
-            $add($cat, 'none', 'no_router');
+            // the network still has the server's own router and DNS (no router log needed): only a part not looked at
+            $cat === 'lan' && !empty($r['lan']) ? $add($cat, 'note', 'no_router') : $add($cat, 'none', 'no_router');
         } elseif (in_array($netState, ['asleep', 'unreadable', 'unknown'], true)) {
             $add($cat, 'warn', 'router_' . $netState);
         }

@@ -129,6 +129,7 @@ require_once __DIR__ . '/watchman-heat.php';         // «too warm for hours» (
 require_once __DIR__ . '/../lib/logsigns.php';       // signs in the log: the shared patterns (1.96, concept 11.3 H)
 require_once __DIR__ . '/watchman-signs.php';        // … and what he books of them: host_oom, host_crash, hw_io, host_flood
 require_once __DIR__ . '/watchman-hw.php';           // the hardware (1.96): machine checks, memory and PCIe errors, throttling, the kernel's flags
+require_once __DIR__ . '/watchman-boot.php';         // what runs at the start (1.96): plugin files on the flash, stop, modprobe.d, the start line, ld.so.preload
 
 const WATCH_EVERY        = 300;              // a round every 5 minutes
 const WATCH_LOOK         = 20;               // the tick looks whether one is due this often (seconds)
@@ -186,6 +187,7 @@ const WATCH_KINDS = [
     'flash_user'           => ['flash', true],
     'flash_password'       => ['flash', true],
     'flash_ssh_key'        => ['flash', true],
+    'flash_boot'           => ['flash', true],      // what runs at the next start changed on the flash: a plugin file nothing installed, stop, modprobe.d, the start line, smb-extra.conf, a kernel file without an update (watchman-boot.php)
     'share_public'         => ['share', true],
     'cron_new'             => ['sched', true],
     'cron_twice'           => ['sched', true],
@@ -216,6 +218,7 @@ const WATCH_KINDS = [
     'door_new'             => ['host', true],       // a new way in from outside: SSH on or on another port, UPnP, Connect's remote access, a single sign-on, a WireGuard peer, the API's sandbox, origins, Unraid.net logins
     'api_key_new'          => ['host', true],       // a new key for Unraid's API (its name, roles, permissions — never its value; watchmanApiKeys())
     'api_key_changed'      => ['host', true],       // an API key's roles or permissions changed (fewer roles alone: safer, normal by itself)
+    'ld_preload'           => ['host', true],       // /etc/ld.so.preload new or changed: what it names is loaded into every program (watchman-boot.php)
     'array_stop'           => ['array', false],     // the array was stopped: a plain line, noted by himself (watchmanArrayLines())
     'array_start'          => ['array', false],     // the array was started: likewise
     'server_boot'          => ['array', false],     // the server was started (a new boot id): likewise (watchmanBootLine())
@@ -254,6 +257,9 @@ const WATCH_KINDS = [
     'hw_throttle'             => ['hw', false],     // the CPU slowed down for heat more than a minute in an hour: a quiet line
     'hw_kernel'               => ['hw', false],     // the kernel stumbled (tainted): told when it died, met a bad page, a machine check or a stuck CPU (the entry's `important`)
     'hw_wear'                 => ['hw', false],     // a disk's wear and errors from Unraid's SMART reading: told when they mean harm (the entry's `important`), else quiet
+    // the server's own router and DNS, without any router log (agent/lib/watchnet.php, 1.96)
+    'net_gateway'             => ['net', true],     // the default gateway's address answers with another MAC, two rounds in a row: a new router, or someone posing as it
+    'net_dns'                 => ['net', false],    // the server asks other DNS servers (resolv.conf)
 ];
 
 /**
@@ -265,6 +271,7 @@ const WATCH_KINDS = [
 const WATCH_KINDS_MORE = [
     'hw_hot', 'hw_io', 'host_oom', 'host_crash', 'host_flood',     // too warm for hours (D), signs in the log (H)
     'hw_mce', 'hw_ecc', 'hw_aer', 'hw_throttle', 'hw_kernel', 'hw_wear',     // the hardware (watchman-hw.php, steps 9–11)
+    'flash_boot', 'ld_preload', 'net_gateway', 'net_dns',     // step 13: what runs at the start (watchman-boot.php), the router and DNS (watchnet.php)
 ];
 
 /**
@@ -278,6 +285,9 @@ const WATCH_ATTACK = [
     'plugin_new' => 'T1543', 'plugin_source' => 'T1195.002',
     'flash_go' => 'T1037.004', 'flash_extra' => 'T1037.004', 'flash_user' => 'T1136.001', 'flash_password' => 'T1098',
     'flash_ssh_key' => 'T1098.004', 'share_public' => 'T1222',
+    // what runs at the start: Boot or Logon Initialization Scripts; a library loaded into every program: Hijack Execution
+    // Flow: Dynamic Linker Hijacking
+    'flash_boot' => 'T1037', 'ld_preload' => 'T1574.006',
     'cron_new' => 'T1053.003', 'cron_twice' => 'T1053.003', 'cron_office' => 'T1053.003', 'cron_file' => 'T1053.003',
     'cron_file_foreign' => 'T1053.003', 'script_new' => 'T1053.003', 'script_changed' => 'T1053.003',
     'at_job' => 'T1053.002', 'at_userscript' => 'T1053.002', 'at_plugin' => 'T1053.002', 'notify_agent' => 'T1546',
@@ -314,6 +324,9 @@ const WATCH_ATTACK = [
     // Additions, nearest); the internet away Network Denial of Service (nearest — mostly the provider); a restart System
     // Shutdown/Reboot like the server's
     'net_router_login_failures' => 'T1110', 'net_link_down' => 'T1200', 'net_outage' => 'T1498', 'net_router_reboot' => 'T1529',
+    // the router's address with another MAC: Adversary-in-the-Middle: ARP Cache Poisoning; other DNS servers: AiTM (nearest —
+    // whoever answers the names can send the server anywhere)
+    'net_gateway' => 'T1557.002', 'net_dns' => 'T1557',
 ];
 
 /**
@@ -514,7 +527,10 @@ function watchmanPaths(): array
         'hw'            => watchmanHwPaths(),
         'hw_file'       => DATA_DIR . '/watchman/hw.json',
         'smart'         => WA_SMART_DIR,                     // Unraid's own SMART reading per disk (RAM): the disks' wear, never a smartctl
-    ];
+        // the server's own router and DNS (watchnetGateway()): RAM, the night shift too
+        'route'         => '/proc/net/route',
+        'resolv'        => '/etc/resolv.conf',
+    ] + watchmanBootPaths();        // what runs at the start (watchman-boot.php)
 }
 
 function watchmanDir(): string
@@ -947,7 +963,7 @@ function watchmanNightPaths(): array
     // libvirt is left alone too (while the array stops it shuts the VMs down; his VM count for a posture tip keeps the day's word)
     return array_diff_key(watchmanPaths(), array_flip(['office_installs', 'drill_record', 'zfs', 'zpool', 'mnt', 'agent_log', 'snap_record', 'engine',
         'sec', 'sec_nfs', 'share_cfg', 'libvirt_sock', 'virsh', 'partner_pairs', 'partner_tickets', 'partner_data',
-        'rsyslog_cfg', 'shares_ini', 'arp', 'parity_log', 'parity_cron', 'pct_dir', 'boot_logs', 'domain_cfg', 'docker_cfg',
+        'rsyslog_cfg', 'shares_ini', 'parity_log', 'parity_cron', 'pct_dir', 'boot_logs', 'domain_cfg', 'docker_cfg',
         'docker_autostart', 'compose_cfg', 'compose_projects', 'office_runs', 'jack_settings', 'gather_settings', 'mover_pid',
         'moverelli_status', 'jack_progress', 'hot_disks', 'hw_file']));
 }
@@ -993,7 +1009,7 @@ function watchmanMirror(array $d, string $boot, int $now, bool $flash): array
     $b = (array) ($d['baseline'] ?? []);
     $st = (array) ($d['state'] ?? []);
     $base = ['hired' => (int) ($b['hired'] ?? 0), 'time' => (int) ($b['time'] ?? 0)];
-    foreach (['ips', 'fail_ips', 'plugins', 'flash', 'sched', 'host', 'partner', 'net'] as $k) {
+    foreach (['ips', 'fail_ips', 'plugins', 'flash', 'sched', 'host', 'partner', 'net', 'lan'] as $k) {
         $base[$k] = is_array($b[$k] ?? null) ? $b[$k] : null;
     }
     $open = [];
@@ -1227,7 +1243,7 @@ function watchmanNightRound(array $paths, string $night = WATCH_NIGHT_DIR, ?int 
         // at boot Unraid installs the plugins one after the other and starts emhttpd after them (rc.local): until then their
         // .cron files (one written anew), root's crontab and atd's queue (a job a plugin queued as it installed) are half
         // there, a plugin not installed yet — not looked at; the first round after it compares them with the baseline
-        $paths = array_diff_key($paths, array_flip(['crontabs', 'cron_d', 'cron_files', 'atjobs']));
+        $paths = array_diff_key($paths, array_flip(['crontabs', 'cron_d', 'cron_files', 'atjobs', 'flash_plg']));
     }
     // the team lead's notes lie in the pool: none in the night
     $r = watchmanRound($paths, $night, (int) ($b['hired'] ?? 0), $now, $docker ?? fn (): ?array => watchmanNightDocker(), $notify, "$night/no-acks.json");
@@ -1549,6 +1565,13 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         'host'       => $host,
         'partner'    => watchmanPartnerLook($paths),
     ];
+    // what runs at the start (watchman-boot.php): with the flash's part, a file the same as the last round's isn't read again
+    $bootLook = watchmanBootLook($paths, is_array($prevSeen['flash']['boot'] ?? null) ? $prevSeen['flash']['boot'] : null);
+    if ($bootLook !== null) {
+        $seen['flash']['boot'] = $bootLook;
+    }
+    // the server's own router and DNS (agent/lib/watchnet.php): no router log needed — the night shift too
+    $seen['lan'] = watchnetGateway($paths);
     $office = watchmanOfficeLook($paths, $now);
     $facts = watchmanPostureLook($paths);
     // snapshots that vanish: only rounds write snaps.json (one at a time), so it is read out here
@@ -1618,6 +1641,8 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
                 watchmanContainersCompare($b['containers'], $seen['containers'], $book, $now, $office),
                 watchmanPluginsCompare($b['plugins'], $seen['plugins'], $book, $now, $office),
                 watchmanFlashCompare($b['flash'], $seen['flash'], $book, $now, isset($paths['go']) ? (string) $paths['go'] : null),
+                watchmanBootCompare($b['flash']['boot'], $seen['flash']['boot'] ?? null, $book, $now),
+                watchnetGatewayCompare($b['lan'], $seen['lan'], $book, $now),
                 watchmanSharesCompare($b['shares'], $seen['shares'], $book, $now),
                 watchmanSchedCompare($b['sched'], $seen['sched'], $seen['plugins'], $book, $now, $office),
                 watchmanHostCompare($b['host'], $seen['host'], is_array($old['seen']) ? ($old['seen']['host'] ?? null) : null,
@@ -1724,6 +1749,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
                         'docker' => $seen['containers'] !== null, 'shares' => $seen['shares'] !== null, 'flow' => $look !== null,
                         'snaps' => $snapRes !== null, 'added' => count($added),
                         'signs' => count((array) ($read['signs'] ?? [])) + (int) ($read['signs_more'] ?? 0),       // signs in the log this round read
+                        'lan' => $seen['lan'] !== null,       // the server's own router and DNS looked at (watchnetGateway())
                         // snapshot automounts right now, on the host, inside the containers and in other processes' namespaces (the metric's numbers)
                         'automounts' => $automounts];
         if (is_array($st['night'] ?? null) && !isset($st['night']['until'])) {
@@ -1753,6 +1779,13 @@ function watchmanTakeOver(int $hired, array $events, array $seen, array $book, a
 {
     $b = ['hired' => $hired, 'time' => $now, 'ips' => [], 'fail_ips' => [], 'containers' => null, 'plugins' => [],
           'flash' => $seen['flash'], 'shares' => null, 'sched' => null, 'snaps' => ['series' => []]];
+    unset($b['flash']['boot']);
+    $quiet = [];
+    if (isset($seen['flash']['boot'])) {
+        watchmanBootCompare($b['flash']['boot'], $seen['flash']['boot'], $quiet, $now);      // what runs at the start: as it is, normal
+    }
+    $b['lan'] = null;
+    watchnetGatewayCompare($b['lan'], $seen['lan'] ?? null, $quiet, $now);                   // the router and DNS: likewise
     $st['fails'] = [];
     $st['notified'] = [];
     $none = [];
@@ -9226,6 +9259,14 @@ function watchmanAdopt(array &$b, array $e, array $seen, int $now): void
                 $b['flash']['pw'][$u] = $seen['flash']['pw'][$u] ?? null;
             }
             break;
+        case 'flash_boot':
+        case 'ld_preload':
+            watchmanBootAdopt($b, $e, $seen);
+            break;
+        case 'net_gateway':
+        case 'net_dns':
+            watchnetGatewayAdopt($b, $e, $seen, $now);     // the server's own router and DNS (agent/lib/watchnet.php)
+            break;
         case 'flash_ssh_key':
             $k = $seen['flash']['keys'][$p['user'] ?? ''][$p['fp'] ?? ''] ?? null;
             if ($k !== null) {
@@ -9642,6 +9683,7 @@ function watchmanText(array $e, ?string $lang = null): array
         'flash_extra'    => ['file' => (string) ($p['file'] ?? '')],
         'flash_user', 'flash_password' => ['user' => (string) ($p['user'] ?? '')],
         'flash_ssh_key'  => ['user' => (string) ($p['user'] ?? ''), 'key' => (string) ($p['comment'] ?? '') ?: substr((string) ($p['fp'] ?? ''), 0, 19)],
+        'flash_boot', 'ld_preload' => watchmanBootText($e),
         'share_public'   => ['share' => (string) ($p['share'] ?? ''), 'proto' => strtoupper((string) ($p['proto'] ?? ''))],
         'cron_new', 'cron_twice', 'cron_office'
                          => ['lines' => (int) ($p['lines'] ?? 0), 'jobs' => $jobs, 'fix' => watchmanCronFix((string) $e['kind'])],
@@ -9713,7 +9755,7 @@ function watchmanEntryVariant(array $e): ?string
     }
     $shape = watchmanFlowShape($e);
     // watchmanHwVariant(): memory or PCIe errors not corrected, the kernel's worst flag, a disk's thing (watchman-hw.php; null for the others)
-    return watchmanHwVariant($e) ?? watchmanHotVariant($e) ?? watchmanSignVariant($e) ?? watchnetEntryVariant($e) ?? ($shape === null ? null : $e['kind'] . '_' . $shape);
+    return watchmanHwVariant($e) ?? watchmanHotVariant($e) ?? watchmanSignVariant($e) ?? watchmanBootVariant($e) ?? watchnetEntryVariant($e) ?? ($shape === null ? null : $e['kind'] . '_' . $shape);
 }
 
 /** A way in, in words: in $lang (notifications, the team lead), or '' — the page writes it itself (door.<what>) */
