@@ -128,6 +128,7 @@ require_once __DIR__ . '/watchman-cats.php';         // his areas (1.96): every 
 require_once __DIR__ . '/watchman-heat.php';         // «too warm for hours» (1.96, concept 11.3 D): hw_hot
 require_once __DIR__ . '/../lib/logsigns.php';       // signs in the log: the shared patterns (1.96, concept 11.3 H)
 require_once __DIR__ . '/watchman-signs.php';        // … and what he books of them: host_oom, host_crash, hw_io, host_flood
+require_once __DIR__ . '/watchman-hw.php';           // the hardware (1.96): machine checks, memory and PCIe errors, throttling, the kernel's flags
 
 const WATCH_EVERY        = 300;              // a round every 5 minutes
 const WATCH_LOOK         = 20;               // the tick looks whether one is due this often (seconds)
@@ -246,6 +247,13 @@ const WATCH_KINDS = [
     'host_oom'                => ['host', false],   // the kernel ended a program because the memory was full
     'host_crash'              => ['host', false],   // a service of the server crashed again and again (three times in an hour)
     'host_flood'              => ['host', false],   // very many connection attempts on a port (SYN cookies), or the connection table full
+    // the hardware (watchman-hw.php, 1.96): what the kernel counts about the machine — no attack: no ATT&CK technique, no chain
+    'hw_mce'                  => ['hw', true],      // machine checks: the CPU reported hardware errors
+    'hw_ecc'                  => ['hw', false],     // memory errors (ECC): told when one wasn't corrected or a module had WATCH_HW_ECC_DAY in a day (the entry's `important`)
+    'hw_aer'                  => ['hw', false],     // PCIe errors: told when one couldn't be corrected (the entry's `important`), else many corrected in an hour
+    'hw_throttle'             => ['hw', false],     // the CPU slowed down for heat more than a minute in an hour: a quiet line
+    'hw_kernel'               => ['hw', false],     // the kernel stumbled (tainted): told when it died, met a bad page, a machine check or a stuck CPU (the entry's `important`)
+    'hw_wear'                 => ['hw', false],     // a disk's wear and errors from Unraid's SMART reading: told when they mean harm (the entry's `important`), else quiet
 ];
 
 /**
@@ -254,7 +262,10 @@ const WATCH_KINDS = [
  * never sees, so it never empties it. This version reads both as one book and writes each kind to its own file
  * (watchmanBookSplit()). Each new ability's step adds its kinds here.
  */
-const WATCH_KINDS_MORE = ['hw_hot', 'hw_io', 'host_oom', 'host_crash', 'host_flood'];
+const WATCH_KINDS_MORE = [
+    'hw_hot', 'hw_io', 'host_oom', 'host_crash', 'host_flood',     // too warm for hours (D), signs in the log (H)
+    'hw_mce', 'hw_ecc', 'hw_aer', 'hw_throttle', 'hw_kernel', 'hw_wear',     // the hardware (watchman-hw.php, steps 9–11)
+];
 
 /**
  * Each kind's nearest MITRE ATT&CK technique (attack.mitre.org) — the words a security team searches for; the page
@@ -318,6 +329,8 @@ const WATCH_POSTURE = [
     'api_admin'       => 'advice',
     'mitigations_off' => 'advice',
     'vmscape'         => 'advice',
+    'cpu_fault'       => 'advice',     // a CPU with a known fault and microcode older than its maker's correction (watchman-hw.php, watchman-cpu-faults.json)
+    'old_microcode'   => 'advice',     // the kernel says the CPU booted with microcode older than its list (vulnerabilities/old_microcode)
     'partner_wide'    => 'advice',     // a partner's door line without restrict or from= (wider than the office made it)
     'partner_unknown' => 'advice',     // a uso-partner line for a pair the office doesn't know
     'partner_public'  => 'advice',     // a pair whose address faces the internet
@@ -496,6 +509,11 @@ function watchmanPaths(): array
         'shares_ini'    => '/var/local/emhttp/shares.ini',
         'net_class'     => '/sys/class/net',
         'arp'           => '/proc/net/arp',
+        // the hardware (watchman-hw.php): the kernel's counters (RAM), this boot's last look (RAM); his hw.json (the pool: the
+        // boot his last look was in — the night shift doesn't read it)
+        'hw'            => watchmanHwPaths(),
+        'hw_file'       => DATA_DIR . '/watchman/hw.json',
+        'smart'         => WA_SMART_DIR,                     // Unraid's own SMART reading per disk (RAM): the disks' wear, never a smartctl
     ];
 }
 
@@ -699,6 +717,7 @@ function watchmanTick(): void
         if (empty($GLOBALS['wmMirrorGone'])) {
             $GLOBALS['wmMirrorGone'] = true;
             watchmanMirrorDrop();       // let go: no night shift any more, and nothing of a night to take over
+            @unlink(WATCH_HW_RAM);      // … nor this boot's hardware counters (hired anew, his first look is normal)
             if (!watchmanNightOn()) {
                 foreach (WATCH_NIGHT_FILES as $f) {
                     @unlink(WATCH_NIGHT_DIR . "/$f");
@@ -930,7 +949,7 @@ function watchmanNightPaths(): array
         'sec', 'sec_nfs', 'share_cfg', 'libvirt_sock', 'virsh', 'partner_pairs', 'partner_tickets', 'partner_data',
         'rsyslog_cfg', 'shares_ini', 'arp', 'parity_log', 'parity_cron', 'pct_dir', 'boot_logs', 'domain_cfg', 'docker_cfg',
         'docker_autostart', 'compose_cfg', 'compose_projects', 'office_runs', 'jack_settings', 'gather_settings', 'mover_pid',
-        'moverelli_status', 'jack_progress', 'hot_disks']));
+        'moverelli_status', 'jack_progress', 'hot_disks', 'hw_file']));
 }
 
 /** This server's name as the syslog writes it (short, lower case; '' — not known: every line counts) */
@@ -1154,6 +1173,7 @@ function watchmanNightBegin(array $paths, string $night, int $now, string $ram =
         writeAtomic("$night/$file", jsonEncode($data), 0600, 0, 0);
     }
     @unlink("$night/posture.json");
+    @unlink("$night/book-more.json");     // the mirror's open entries are all in book.json now: the next write splits them
     return ['hired' => $b['hired'], 'from' => $from];
 }
 
@@ -1546,10 +1566,12 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
     // too warm for hours (watchman-heat.php): the sensors now, the settings (rules.json set.hw)
     $hotLook = isset($paths['hwmon']) || isset($paths['hot_disks']) ? watchmanHotLook($paths) : null;
     $hotSet = watchmanHotSettings(watchmanHotSet($dir));
+    // the hardware's counters (watchman-hw.php: /proc and /sys, the day's rounds and the night shift's)
+    $hwLook = isset($paths['hw']) ? watchmanHwLook((array) $paths['hw']) + ['wear' => isset($paths['hw_file']) ? watchmanHwWearLook($paths) : null] : null;
 
     return watchmanLocked($dir, function () use ($dir, $hired, $now, $fresh, $events, $pos, $read, $seen, $notify, $acks, $t0, $look, $facts, $snapKnown, $snapRes,
                                                $office, $paths, $boot, $btime, $netLook, $netServer, $parity, $kopiaLook, $netContainers, $automounts,
-                                               $hotLook, $hotSet, $signHost, $signDisks): array {
+                                               $hotLook, $hotSet, $signHost, $signDisks, $hwLook): array {
         $old = watchmanLoad($dir);
         $old['seen'] = readJson("$dir/seen.json");
         $old['flow'] = readJson("$dir/flow.json");
@@ -1675,7 +1697,13 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             ? fn (array $v): bool => ($v['btime'] === null || $now - (int) $v['btime'] <= 86400) && paritywhyNotify($v, officeNotifyLang()) : null;
         $added = array_merge($added, paritywhyCompare($book, $st, $parity, (array) ($st['logins'] ?? []), $now, $fresh,
             isset($paths['array_events']) ? (string) $paths['array_events'] : null, $tell));
+        if ($hwLook !== null) {
+            // the hardware: this look against this boot's last (taken over anew: what it counts now is normal)
+            [$hwAdded, $st['hw']] = watchmanHwRound($paths, $hwLook, $boot, $btime, $fresh, $now, $book);
+            $added = array_merge($added, $hwAdded);
+        }
         // how secure it stands: from what he sees now (what Docker or emhttp didn't answer: as the last round saw it)
+        $facts['hw'] = $st['hw'] ?? null;        // the machine checks he counted: a known CPU fault's signs (watchman-hw.php)
         $st['posture'] = ['time' => $now, 'tips' => watchmanPosture($facts, $observed, (array) ($st['posture']['tips'] ?? []))];
         $old['posture'] = readJson("$dir/posture.json");
         $known = watchmanPostureKnown($old['posture'], $st['posture']['tips']);
@@ -4154,7 +4182,7 @@ function watchmanCpu(array $paths): ?array
         'off'     => preg_match('/(^|\s)mitigations=off(\s|$)/', $cmdline) === 1,
         'open'    => $open,
         'covered' => $covered,
-    ];
+    ] + watchmanHwCpuInfo($info);       // vendor_id, family, model_no, microcode: a known fault of this CPU (watchman-hw.php)
 }
 
 /** At most a few names, and how many more ("a, b, c +2") — the same in every language */
@@ -4253,6 +4281,17 @@ function watchmanPosture(array $f, array $seen, array $prev = []): array
         }
     } elseif ($cpu !== null && $cpu['covered']) {
         $add('mitigations_on', ['cpu' => $cpu['model'] ?? $cpu['vendor'] ?? 'CPU'], implode(',', $cpu['covered']), $boot);
+    }
+    // a known fault of this CPU with old microcode (watchman-hw.php, concept 11 C): a BIOS update, nothing in Unraid to click — with
+    // the machine checks he counted since the start (the signs); and the kernel's own word that the microcode is old
+    $fault = watchmanHwCpuFault($cpu);
+    if ($fault !== null) {
+        $mce = $f['hw']['mce']['mce'] ?? null;
+        $add($fault['tip'], ['cpu' => $cpu['model'] ?? $cpu['vendor'] ?? 'CPU', 'microcode' => watchmanHwMicrocode($cpu), 'min' => '0x' . $fault['min'],
+            'fault' => $fault['name'], 'mce' => is_int($mce) ? (string) $mce : '–'], $fault['id'] . '|' . watchmanHwMicrocode($cpu), null);
+    }
+    if ($cpu !== null && in_array('old_microcode', $cpu['open'], true)) {
+        $add('old_microcode', ['cpu' => $cpu['model'] ?? $cpu['vendor'] ?? 'CPU', 'microcode' => watchmanHwMicrocode($cpu)], watchmanHwMicrocode($cpu), null);
     }
     // privileged containers that run or start by themselves; one stopped and without autostart is only a quiet line in the tip
     $privileged = $quiet = [];
@@ -9654,7 +9693,8 @@ function watchmanText(array $e, ?string $lang = null): array
         'hw_io', 'host_oom', 'host_crash', 'host_flood' => watchmanSignText($e),
         'watch'          => isset($p['too_much']) ? watchnetText(['kind' => 'net_too_much', 'p' => $p])
                               : ($lang === null ? array_map('intval', $p) : watchmanCountWords($p, $lang)),     // the page words the numbers itself
-        default          => watchnetText($e, $lang),     // the network (agent/lib/watchnet.php); [] for anything else
+        default          => str_starts_with((string) $e['kind'], 'hw_') ? watchmanHwText($e)     // the hardware (watchman-hw.php)
+                            : watchnetText($e, $lang),     // the network (agent/lib/watchnet.php); [] for anything else
     };
 }
 
@@ -9672,7 +9712,8 @@ function watchmanEntryVariant(array $e): ?string
         return 'at_plugin_left';        // what a removed plugin left in atd's queue (watchmanAtLeftNote())
     }
     $shape = watchmanFlowShape($e);
-    return watchmanHotVariant($e) ?? watchmanSignVariant($e) ?? watchnetEntryVariant($e) ?? ($shape === null ? null : $e['kind'] . '_' . $shape);
+    // watchmanHwVariant(): memory or PCIe errors not corrected, the kernel's worst flag, a disk's thing (watchman-hw.php; null for the others)
+    return watchmanHwVariant($e) ?? watchmanHotVariant($e) ?? watchmanSignVariant($e) ?? watchnetEntryVariant($e) ?? ($shape === null ? null : $e['kind'] . '_' . $shape);
 }
 
 /** A way in, in words: in $lang (notifications, the team lead), or '' — the page writes it itself (door.<what>) */
@@ -10028,8 +10069,9 @@ const WATCH_CHAIN_IMPACT = ['snap_gone' => 'snap', 'snap_hold_released' => 'snap
  */
 function watchmanChains(array $book, int $now): array
 {
+    // the hardware never: a machine check or a memory error is no step of an intrusion (an MCE beside a new login is no incident)
     $list = array_values(array_filter($book, fn ($e) => watchmanOpen($e) && watchmanImportant($e)
-        && (int) $e['time'] >= $now - WATCH_CHAIN_KEEP));
+        && (int) $e['time'] >= $now - WATCH_CHAIN_KEEP && (WATCH_KINDS[$e['kind']][0] ?? '') !== 'hw'));
     usort($list, fn ($a, $b) => [(int) $a['time'], $a['id']] <=> [(int) $b['time'], $b['id']]);
     $chains = [];
     $cur = [];
@@ -10274,6 +10316,8 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
         'net'      => $onWatch ? watchnetSummary(is_array($b['net'] ?? null) ? $b['net'] : null, readJson("$dir/net.json"), !empty($st['net_lan']), $now) : null,
         'net_lan'  => !empty($st['net_lan']),
         'posture'  => $onWatch ? watchmanPosturePage($st['posture'] ?? null, readJson("$dir/posture.json")) : null,
+        // the hardware (watchman-hw.php): when he looked, what this server counts (null: not available — never «0 errors»), since the start
+        'hw'       => $onWatch ? watchmanHwPage($st['hw'] ?? null) : null,
         'grafana'  => $onWatch ? watchmanGrafana($grafana) : null,
         'notified' => $st['last_notify'] ?? null,
         'notify'   => ['on' => ($st['notify'] ?? true) !== false, 'available' => is_executable(OFFICE_NOTIFY_BIN)],
