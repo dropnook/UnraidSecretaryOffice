@@ -47466,11 +47466,11 @@ ROUTER);
     $cap = reportsAnswer(['now' => $t0 + 45] + $ctx);
     same('report: the cap counts the last 24 h only', [REPORT_CAP_DAY - 1, 1, REPORT_CAP_DAY], [$cap['n'], $cap['left'], $cap['cap']]);
 
-    // the 25th of the day goes, the 26th is refused before any request
+    // the day's last goes, one more is refused before any request
     $answer(201, ['ok' => true, 'number' => 42, 'url' => 'https://github.com/example/private-inbox/issues/42', 'ticket' => 'USO-42', 'left' => 0, 'next' => '2025-10-16T09:00:00Z']);
     $pv3 = reportPreview(['kind' => 'wish'] + $ask, $ctx + ['now' => $t0 + 50]);
     $r = $send($pv3, [], $t0 + 60, ['kind' => 'wish']);
-    same('report: the 25th today — sent, none left', [true, 42, 0], [$r['ok'], $r['number'] ?? null, $r['left'] ?? null]);
+    same('report: the last of the day (REPORT_CAP_DAY) — sent, none left', [true, 42, 0], [$r['ok'], $r['number'] ?? null, $r['left'] ?? null]);
     same('report: … the inbox took it: open again', ['open', $t0 + 60], [reportInboxRead($ctx)['state'] ?? null, reportInboxRead($ctx)['checked'] ?? null]);
     $body = json_decode(json_decode((string) @file_get_contents("$tmp/request-{$count()}.json"), true)['body'] ?? '', true) ?? [];
     same('report: … nothing ticked — only the words and the ID', [['v', 'rid', 'report_id', 'kind', 'desk', 'title', 'text', 'name', 'facts', 'parts'], [], []],
@@ -47479,10 +47479,10 @@ ROUTER);
     $pv4 = reportPreview($ask, $ctx + ['now' => $t0 + 70]);
     same('report: the preview says none are left, and from when', [0, $t0 + 5 + REPORT_DAY], [$pv4['left'], $pv4['next']]);
     $r = $send($pv4, ['log'], $t0 + 80);
-    same('report: a 26th within 24 h — report_day, nobody asked', ['report_day', ['n' => REPORT_CAP_DAY, 'next' => $t0 + 5 + REPORT_DAY], $before], [$r['key'] ?? 'ok', $r['params'] ?? null, $count()]);
+    same('report: one more within 24 h — report_day, nobody asked', ['report_day', ['n' => REPORT_CAP_DAY, 'next' => $t0 + 5 + REPORT_DAY], $before], [$r['key'] ?? 'ok', $r['params'] ?? null, $count()]);
     same('report: … a day after the first, one goes again', 1, reportsAnswer(['now' => $t0 + 5 + REPORT_DAY] + $ctx)['left']);
     $list = reportsAnswer(['now' => $t0 + 100] + $ctx);
-    same('report: «Your reports» — newest first, as kept (an entry of another shape is none), never the inbox\'s number or link', [[$t0 + 60, $t0 + 28, $t0 + 27], ['kind', 'title', 'desk', 'sent'], [$t0 + 5, $t0 + 5 - REPORT_DAY, $t0 - 3 * 86400]],
+    same('report: «Your reports» — newest first, as kept (an entry of another shape is none), never the inbox\'s number or link', [[$t0 + 60, $t0 + REPORT_CAP_DAY + 3, $t0 + REPORT_CAP_DAY + 2], ['kind', 'title', 'desk', 'sent'], [$t0 + 5, $t0 + 5 - REPORT_DAY, $t0 - 3 * 86400]],
         [array_slice(array_column($list['reports'], 'sent'), 0, 3), array_keys($list['reports'][0] ?? []), array_slice(array_column($list['reports'], 'sent'), -3)]);
     $rj = json_decode((string) @file_get_contents("$tmp/office/reports.json"), true) ?? [];
     same('report: … kept as it stood (a tolerant writer)', ['number' => 33, 'sent' => $t0], $rj['reports'][2] ?? null);

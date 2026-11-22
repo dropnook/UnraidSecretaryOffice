@@ -550,7 +550,7 @@ No GitHub account needed: *⋯ → Report a problem or a wish…* on any page.
 3. Untick what you'd rather keep. Up to three pictures can go along, redrawn without metadata.
 4. Nothing leaves the server before you click *Send*.
 
-It goes into the makers' private inbox on GitHub. *Your reports* shows where each one stands. 25 reports a day.
+It goes into the makers' private inbox on GitHub. *Your reports* shows where each one stands. 5 reports a day.
 When the makers answer, make a report a public issue or mark it done, the Team Lead tells you in Unraid's notifications
 (the office looks about every 6 hours, for reports of the last 30 days).
 

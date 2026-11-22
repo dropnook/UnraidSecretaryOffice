@@ -76,7 +76,7 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__, 2) . '/src/reportimage.php';      // shared with the web side (pure functions)
 
-const REPORT_CAP_DAY     = 25;                 // reports per office in 24 hours (the Worker's CAP_OFFICE_DAY mirrored)
+const REPORT_CAP_DAY     = 5;                  // reports per office in 24 hours (2026-11-22, the owner: 5; was 25 — the Worker's CAP_OFFICE_DAY stays the higher backstop)
 const REPORT_DAY         = 86400;
 const REPORT_TOKEN_TTL   = 600;                // a preview may be sent within 10 minutes
 const REPORT_CLOSED_FOR  = 86400;              // the Worker said «closed»: not asked again for a day
@@ -2220,7 +2220,7 @@ function reportPost(array $body, string $dir, string $token, array $ctx = []): a
  * never by the HTTP status (`closed` is a 403):
  *   ok:true + number                        → sent (the url only when it is a GitHub issue's; again:true = it was one already)
  *   closed                                  → report_closed
- *   week {next, retry_after, cap?}          → report_day (the office's cap — 25 a day since 2026-10-09; the Worker keeps the
+ *   week {next, retry_after, cap?}          → report_day (the office's cap — 5 a day since 2026-11-22, 25 from 2026-10-09; the Worker keeps the
  *                                             name `week` for the offices up to 1.47; next: when a slot frees)
  *   busy {retry_after}                      → report_busy
  *   busy {why: images} key report_images_busy → report_images_busy (the inbox's bytes of pictures for the day are used up)
