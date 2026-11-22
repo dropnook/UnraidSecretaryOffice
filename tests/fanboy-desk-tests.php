@@ -2429,7 +2429,7 @@ function testFanboyCurvePush(): void
     check('fanboy curve points: 2 to 6 points — the agent\'s FANBOY_CURVE_POINTS_MAX and the page\'s CURVE_POINTS_MAX the same, the agent checks it, the page passes it to the chart',
         str_contains($setup, 'const FANBOY_CURVE_POINTS_MAX = 6;') && str_contains($setup, "count(\$t['points']) < 2 || count(\$t['points']) > FANBOY_CURVE_POINTS_MAX")
         && str_contains($js, 'const CURVE_POINTS_MAX = 6;') && str_contains($js, 'minPoints: 2, maxPoints: CURVE_POINTS_MAX,')
-        && ($de['curve.howto'] ?? '') === 'Doppelklick auf die Kurve: Punkt dazu · auf einen Punkt: weg' && !isset($de['curve.clamp_next_t']) && !isset($de['curve.clamp_prev_v']));
+        && str_contains($de['zones.curve_sub'] ?? '', 'Doppelklick auf die Kurve setzt einen Punkt, auf einen Punkt nimmt ihn weg (2 bis 6 Punkte)') && !str_contains($js, "howto: T('curve.howto')") && !isset($de['curve.clamp_next_t']) && !isset($de['curve.clamp_prev_v']));
     check('fanboy curve points: the stored points as they are on the page (a point taken away stays away); «Eigene Kurve» starts with four on the preset\'s line',
         str_contains($js, "const pts = front.points;") && str_contains($js, "if (choose.value === 'own') cv[K] = { points: fourPoints(kept || now) };"));
     // the agent: 2..6 accepted, 1 and 7 refused (the saved shape stays a list of [t, v])

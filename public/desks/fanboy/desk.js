@@ -4392,7 +4392,7 @@ function curvePart(z, i) {
         // points added and taken away (2026-11-21): a double click on the curve or on a point; «+» and «×» for the keyboard
         added: (k, n) => T('curve.added', { i: k + 1, n }), removed: (k, n) => T('curve.removed', { i: k + 1, n }),
         full: (max) => T('curve.points_full', { max }), few: (min) => T('curve.points_few', { min }),
-        howto: T('curve.howto'), add: T('curve.add'), remove: (k) => T('curve.remove', { i: k + 1 }),
+        add: T('curve.add'), remove: (k) => T('curve.remove', { i: k + 1 }),
       },
       minPoints: 2, maxPoints: CURVE_POINTS_MAX,
       fields: true,
@@ -4419,6 +4419,9 @@ function curvePart(z, i) {
   } else cv.c.live(liveNow);
   curveFocus = null;
   cv.c.el.classList.add('fb-curve-edit');
+  // how to shape it, above the chart where it is seen (2026-11-22, the owner missed it below); with several kinds: which steers
+  if (!locked) box.appendChild(para(T('zones.curve_sub'), 'fb-hint-text fb-curve-hint'));
+  if (multi) box.appendChild(para(T('zones.curve_multi'), 'fb-hint-text'));
   box.appendChild(cv.c.el);
   // this kind's sources give no reading right now (asleep, or none): said, instead of a chart without a «now»
   if (!mine && multi) {
@@ -4426,7 +4429,7 @@ function curvePart(z, i) {
     box.appendChild(para(T(srcs.length && srcs.every((x) => x.asleep) ? 'curve.now_asleep' : 'curve.now_none', { kind: kindWord(K) }), 'fb-hint-text fb-curve-nonow'));
   }
   // a preset is fixed — said where its fields are locked; his own curve: how to shape it
-  box.appendChild(para(locked ? T(kindKept(z, K) ? 'curve.locked_kept' : 'curve.locked') : T('zones.curve_sub'), 'fb-hint-text fb-curve-hint'));
+  if (locked) box.appendChild(para(T(kindKept(z, K) ? 'curve.locked_kept' : 'curve.locked'), 'fb-hint-text fb-curve-hint'));
   // 2026-11-20 (the owner: «macht jemand eine kurve hintenraus unter 100 % gemäss unserem leise vorschlag, könnte ein kleiner
   // hinweis unten erscheinen»): his own curve still under 100 % where «Leise» reaches it — one calm line with the numbers
   const under = !rpmUnit && choice === 'own' ? underQuiet(pts, K) : null;
