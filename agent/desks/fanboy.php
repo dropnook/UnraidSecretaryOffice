@@ -17,7 +17,12 @@ declare(strict_types=1);
  *   · the control or a setup step itself — every way it ends (TERM, done, stop, the page gone, a hold), read back
  *   · the agent's tick every 5 s — a holder gone (killed hard) or hung (no beat for 30 s, ended for good first)
  *   · the guard's cron line every minute — the same, for when the agent is gone too
- *   · scripts/agent.sh stop (stop, restart, update) and release (removal, the array stopping) — every output, read back
+ *   · scripts/agent.sh stop (stop, restart, update) and release (removal) — every output, read back
+ *   · the array stopping (2026-11-22, «always on»): the control steers on — agent.sh ends only what works in the data
+ *     folder (a setup step, «show me this fan») and looks at the control from outside (fanboy-guard.php release-steps:
+ *     a control found holding something on the array or a pool is ended, every output back); while the array isn't
+ *     started the night shift looks after it as the agent's tick does (fanboy-night.php)
+ *   · the server's shutdown: every process gets TERM, then 5 s (Unraid's rc.6) — the control gives back on the TERM
  *   An agent restarting itself in place touches none of it: the control runs in a session of its own, the agent finds
  *   it again by its pid file (no flap).
  *
@@ -678,8 +683,9 @@ function fanboyEnsureControl(float $now): void
     }
     $ram = fanboyRamMode();
     $settings = $ram ? fanboyBoardRaw() : fanboySettingsCached();
+    // (the array's state is no condition any more, 2026-11-22: the control steers whatever the array does)
     if ($settings === null || ($settings['armed'] ?? false) !== true || !fanboyControlNew($settings, '', ['pid' => 0])['zones']
-        || !arrayRunning(fanboyVarIni()) || !($ram ? fanboyHiredNow() : in_array('fanboy', staffHired($GLOBALS['agentStaffFile'] ?? null), true))
+        || !($ram ? fanboyHiredNow() : in_array('fanboy', staffHired($GLOBALS['agentStaffFile'] ?? null), true))
         || fanboyStepRunning() || fanboyControlPid() !== null
         || is_file(fanboyBrakeFile())           // it stopped itself (fanboyBrake()): not again by itself
         || fanboyHandBackAsked()) {             // the user gave the fans back while no agent could hear it (fanboy-night.php)

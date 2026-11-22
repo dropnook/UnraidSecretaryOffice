@@ -249,6 +249,10 @@ const FANBOY_GUARD_AGAIN = 20;         // … seconds apart
 
 function fanboyGuardMain(string $cmd, string $reason = ''): int
 {
+    if ($cmd === 'release-steps') {
+        fanboyGuardReleaseSteps();      // (a control that never took an output has no journal — it is looked at all the same)
+        return 0;
+    }
     if (!is_file(fanboyRunDir() . '/journal.json')) {
         return 0;
     }
@@ -276,10 +280,6 @@ function fanboyGuardMain(string $cmd, string $reason = ''): int
             }
             sleep(FANBOY_GUARD_AGAIN);
         }
-    }
-    if ($cmd === 'release-steps') {
-        fanboyGuardReleaseSteps();
-        return 0;
     }
     if ($cmd === 'release') {
         $j = fanboyJournal();

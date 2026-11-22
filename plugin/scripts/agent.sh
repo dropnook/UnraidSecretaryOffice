@@ -11,7 +11,8 @@
 #   agent.sh watch     is the agent at work? (cron, every 5 minutes: job.sh watch)
 #   agent.sh array stopping|started   from the event scripts: a line for the night
 #                      watchman's book, then the agent goes and the night shift
-#                      comes (stopping) or the other way round (started); at the
+#                      comes (stopping) or the other way round (started); Fanboy's
+#                      control steers on through both (fanboy_release); at the
 #                      stop the backup engine's mounts left between runs go, at the
 #                      start what a backup run the stop ended left stopped comes
 #                      back (backup.sh --unmount / --recover, engine 2.25); a partner's
@@ -195,14 +196,19 @@ stop() {
 
 # Fanboy's fans back to the state they had before him, read back (agent/fanboy-guard.php release): after the agent is
 # gone (it starts no control any more), whatever holds an output asked to end, then every output still held given back.
-# Every stop goes through here - stop, restart, the plugin's update (stop) and removal (release), the array stopping
-# (release). Nothing held: one look at a file in RAM. At the array's stop (STOP_WHY=array_stopping, set by array_event)
-# the guard hears why: his page and his Dashboard tile then say «the array is stopped», not «the office stopped».
+# Every stop of the office goes through here - stop, restart, the plugin's update (stop) and removal (release). Nothing
+# held and no control: one look at two files in RAM.
+# The array stopping is different (STOP_WHY=array_stopping, set by array_event; «always on», 2026-11-22): his control runs
+# without the data folder and steers on through the stop. Only what works in the data folder ends (a setup step, «show me
+# this fan»: asked to end, its outputs given back), and the control is looked at from outside - holds it anything on the
+# array or a pool, or can't that be seen, it is ended and every fan goes back (fanboy-guard.php release-steps). The stop
+# itself is never held: at most 15 s, a few milliseconds when no step runs.
 fanboy_release() {
-    local why=()
-    [[ -f "$DIR/agent/fanboy-guard.php" && -s "$FANBOY_JOURNAL" ]] || return 0
-    [[ "${STOP_WHY:-}" == array_stopping ]] && why=(array_stopping)
-    timeout -k 1 15 php "$DIR/agent/fanboy-guard.php" release "${why[@]}" </dev/null >>"$LOG" 2>&1
+    local cmd=release
+    [[ -f "$DIR/agent/fanboy-guard.php" ]] || return 0
+    [[ -s "$FANBOY_JOURNAL" || -s "${FANBOY_JOURNAL%/*}/control.pid" ]] || return 0
+    [[ "${STOP_WHY:-}" == array_stopping ]] && cmd=release-steps
+    timeout -k 1 15 php "$DIR/agent/fanboy-guard.php" "$cmd" </dev/null >>"$LOG" 2>&1
     fanboy_back_check
     return 0
 }

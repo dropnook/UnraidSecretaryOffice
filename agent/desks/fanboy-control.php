@@ -2027,11 +2027,17 @@ function fanboyHistoryLoad(string $board, ?int $wall = null, ?array &$curves = n
 
 /**
  * Why the control may not steer now — the one place that decides (the process every 10 s, the agent's tick):
- *   array_stopped · no_mirror · not_hired · not_set_up · not_armed (exit) — other (stay, give back, look again)
+ *   no_mirror · not_hired · not_set_up · not_armed (exit) — other (stay, give back, look again)
+ *
+ * The array's state is no reason any more («always on», 2026-11-22, the owner: «taken over» means he steers for as long
+ * as the server runs): the control runs without the data folder, holds nothing on the array or a pool and proves it to
+ * itself every minute, so it steers while the array runs, stops, is stopped and starts. Only a control that still
+ * works WITH the data folder (not a RAM job: none is started that way any more) ends when the array isn't started —
+ * `array_stopped`, as every control did before.
  */
 function fanboyHoldReason(?array $settings): ?string
 {
-    if (function_exists('arrayRunning') && !arrayRunning(fanboyVarIni())) {
+    if (!fanboyRamMode() && function_exists('arrayRunning') && !arrayRunning(fanboyVarIni())) {
         return 'array_stopped';
     }
     // without the data folder (a RAM job) everything he knows comes from his mirror: none in its shape for this board — the
@@ -2147,9 +2153,12 @@ function fanboyBrake(array &$c, array $found): void
 /**
  * The control process: `php agent.php ramjob fanboy-control` — without the data folder (2026-11-22; `job fanboy-control`
  * before): his mirror in RAM is all it reads of it. One at a time (a flock in RAM held for its life). Ends — every output
- * given back first, read back — on TERM/INT/HUP, when the array stops, he is fired or not armed any more, without a
- * mirror, and when it finds itself holding something on the array or a pool (the brake); holds (everything with the BIOS)
- * while another controller runs.
+ * given back first, read back — on TERM/INT/HUP (every stop of the office, the plugin's update and removal, the server's
+ * shutdown), when he is fired or not armed any more, on «give the fans back» (the mark in RAM), without a mirror, and
+ * when it finds itself holding something on the array or a pool (the brake); holds (everything with the BIOS) while
+ * another controller runs. NOT when the array stops or is stopped (2026-11-22): it steers on — its disks' temperatures
+ * are «unknown» then (fanboyDisksUnknown()), and scripts/agent.sh looks at it from outside at the stop (fanboy-guard.php
+ * release-steps).
  */
 function fanboyControlMain(): int
 {

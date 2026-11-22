@@ -61,9 +61,9 @@ function testAlwaysOnStopWhy(): void
             check("always on S1b: $lang has the tile's and the page's words for it", isset($j['dash.why.array_stopped'], $j['why.array_stopped'], $j['control.array_stopped']));
         }
         $sh = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/agent.sh');
-        check('always on S1b: agent.sh — array_event names the reason, fanboy_release passes it on, and only that one',
-            str_contains($sh, "        local STOP_WHY=array_stopping   #") && str_contains($sh, '[[ "${STOP_WHY:-}" == array_stopping ]] && why=(array_stopping)')
-            && str_contains($sh, 'php "$DIR/agent/fanboy-guard.php" release "${why[@]}" </dev/null'));
+        // (since step S6a agent.sh no longer releases the control at the array's stop — it calls release-steps there,
+        // testAlwaysOnThroughStop; the guard still takes the reason: an older agent.sh in memory at an update)
+        check('always on S1b: agent.sh — array_event names the reason for everything release() calls', str_contains($sh, "        local STOP_WHY=array_stopping   #"));
     } finally {
         array_map('alwaysOnTEnd', $sleepers);
         fanboyTEnd();
@@ -158,7 +158,7 @@ function testAlwaysOnBackCheck(): void
         // agent.sh: every release ends with the look, in a session of its own, never waited for
         $sh = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/agent.sh');
         check('always on S1c: agent.sh — fanboy_release ends with fanboy_back_check: its own session, cwd /, not waited for, bounded',
-            (bool) preg_match('/^fanboy_release\(\) \{\n(?:.*\n)*?    timeout -k 1 15 php "\$DIR\/agent\/fanboy-guard\.php" release "\$\{why\[@\]\}" <\/dev\/null >>"\$LOG" 2>&1\n    fanboy_back_check\n    return 0\n\}/m', $sh)
+            (bool) preg_match('/^fanboy_release\(\) \{\n(?:.*\n)*?    timeout -k 1 15 php "\$DIR\/agent\/fanboy-guard\.php" "\$cmd" <\/dev\/null >>"\$LOG" 2>&1\n    fanboy_back_check\n    return 0\n\}/m', $sh)
             && str_contains($sh, '( cd / && setsid "${CLEAN_ENV[@]}" timeout -k 1 60 php "$DIR/agent/fanboy-guard.php" check-back </dev/null >>"$LOG" 2>&1 & )'));
         check('always on S1c: the guard\'s check-back never writes the agent\'s log (no logLine in it)',
             (bool) preg_match('/function fanboyGuardCheckBack\(\): array\n\{(?:(?!\n\}\n).)*\n\}\n/s', (string) file_get_contents(OFFICE_DIR . '/agent/fanboy-guard.php'), $m) && !str_contains($m[0], 'logLine('));
@@ -883,7 +883,8 @@ function testAlwaysOnControlRam(): void
         @unlink(fanboyMirrorFile());
         same('always on S4c: no mirror at all — «no_mirror»; the stamp says «none»', ['no_mirror', 'none'], [fanboyHoldReason(null), fanboyControlStamp()]);
         file_put_contents("{$t['root']}/var/local/emhttp/var.ini", "fsState=\"Stopped\"\n");
-        same('always on S4c: the array stopped — in this step he still ends there, as before', 'array_stopped', fanboyHoldReason(null));
+        // (step S6a: the array's state is no reason for a control without the data folder any more — only without a mirror)
+        same('always on S4c: the array stopped, no mirror — «no_mirror» (the array itself is no reason: testAlwaysOnThroughStop)', 'no_mirror', fanboyHoldReason(null));
         file_put_contents("{$t['root']}/var/local/emhttp/var.ini", "fsState=\"Started\"\n");
         unset($GLOBALS['fanboyRamMode']);
 
@@ -1298,8 +1299,7 @@ function alwaysOnTNightShift(array $t, string $data)
  * Step S5b: his control is looked after without the data folder. What the agent's tick knows of the control's deaths lies
  * in RAM (this boot's), so the night shift goes on where the agent stopped and the other way round; in the night shift
  * («RAM mode») everything he knows comes from his mirror — the data folder is never read or written; the night shift
- * calls every desk's 'night' and stays on for a desk that asks, without the night watchman's mirror too. In this step the
- * array's stop still ends the control (fanboyHoldReason()): the night shift gives back for holders gone, starts nothing.
+ * calls every desk's 'night' and stays on for a desk that asks, without the night watchman's mirror too.
  */
 function testAlwaysOnNight(): void
 {
@@ -1375,12 +1375,12 @@ function testAlwaysOnNight(): void
         $m2 = @lstat(fanboyMirrorFile());
         same('always on S5b: the night shift wrote nothing into the data folder and never the mirror (the agent\'s alone)', [$tree, $mirror['ino'] ?? null, $mirror['mtime'] ?? null],
             [alwaysOnTTree(FANBOY_DIR), $m2['ino'] ?? null, $m2['mtime'] ?? null]);
-        // the array not started: in this step nobody starts a control then (it would end at once)
+        // the array not started — where the night shift really works (since step S6a it starts the control then: he steers through the stop)
         file_put_contents("{$t['root']}/var/local/emhttp/var.ini", "fsState=\"Stopped\"\n");
         $GLOBALS['fanboyLaunched'] = [];
         fanboyCrashKeep(['launched' => null]);
         fanboyNight(4000.0);
-        same('always on S5b: the array stopped — in this step the night shift starts no control (it still ends at the stop)', [], $GLOBALS['fanboyLaunched']);
+        same('always on S5b: the array stopped — the night shift starts the control from the mirror all the same', ['fanboy-control'], $GLOBALS['fanboyLaunched']);
         file_put_contents("{$t['root']}/var/local/emhttp/var.ini", "fsState=\"Started\"\n");
         // a mirror that says «not armed», nothing held: nothing to look after
         alwaysOnTMirror(fn ($m) => ['hired' => true, 'settings' => ['armed' => false] + $settings] + $m);
@@ -1694,6 +1694,143 @@ function testAlwaysOnUnknown(): void
             $net !== null && $net > 0 && array_key_exists('disk2', $c['loose']) && $c['loose']['disk2']['c'] === null);
         fanboyLetGo($c, 'test');
     } finally {
+        fanboyTEnd();
+    }
+}
+
+// ===================================================================== step S6a: through the array's stop (decision E1)
+
+/** agent.sh's fanboy_release as the event script runs it ($set: shell before it, e.g. STOP_WHY=array_stopping;) — its log's text */
+function alwaysOnTRelease(array $t, string $data, string $set): string
+{
+    $log = "{$t['tmp']}/agent.sh.log";
+    @unlink($log);
+    $p = proc_open(['bash', '-c', 'source "$1"; DIR="$2"; RUN="$3"; FANBOY_JOURNAL="$3/fanboy/journal.json"; LOG="$4"; ' . $set . ' fanboy_release',
+        'x', OFFICE_DIR . '/plugin/scripts/agent.sh', OFFICE_DIR, TESTS_RUN_DIR, $log], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']],
+        $pipes, '/', ['OFFICE_DATA_DIR' => $data, 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'OFFICE_FANBOY_ROOT' => $t['root'], 'PATH' => (string) getenv('PATH')]);
+    proc_close($p);
+    return (string) @file_get_contents($log);
+}
+
+/**
+ * Step S6a, the switch: «taken over» means he steers for as long as the server runs. The array's state is no reason for
+ * the control to end any more (it runs without the data folder), nobody waits for the array to start it, and at the
+ * array's stop scripts/agent.sh ends only what works in the data folder and looks at the control from outside
+ * (fanboy-guard.php release-steps); every other stop of the office still gives every output back.
+ */
+function testAlwaysOnThroughStop(): void
+{
+    $t = fanboyT('ao-through');
+    $keep = alwaysOnTHire($t, true);
+    $procs = [];
+    $var = "{$t['root']}/var/local/emhttp/var.ini";
+    $state = fn (string $s) => file_put_contents($var, "fsState=\"$s\"\n");
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $settings = fanboyTSettings();
+        fanboyTStore($settings);
+        fanboyMirrorKeep(true);
+        // 1. the one place that decides
+        $got = [];
+        foreach (['Started', 'Stopping', 'Stopped', 'Starting'] as $s) {
+            $state($s);
+            $GLOBALS['fanboyRamMode'] = true;
+            $ram = fanboyHoldReason(fanboyBoardRaw());
+            $GLOBALS['fanboyRamMode'] = false;
+            $got[$s] = [$ram, fanboyHoldReason($settings) === 'array_stopped'];
+        }
+        unset($GLOBALS['fanboyRamMode']);
+        same('always on S6a: a control without the data folder may steer whatever the array does; one WITH it (none is started so any more) still ends when the array isn\'t started',
+            ['Started' => [null, false], 'Stopping' => [null, true], 'Stopped' => [null, true], 'Starting' => [null, true]], $got);
+        // 2. nobody waits for the array to start it: the agent's tick in its last seconds of a stop, the night shift after it
+        $state('Stopping');
+        $GLOBALS['fanboyLaunched'] = [];
+        fanboyEnsureControl(100.0);
+        $state('Stopped');
+        $GLOBALS['fanboyRamMode'] = true;
+        fanboyCrashKeep(['launched' => null]);
+        fanboyEnsureControl(200.0);
+        unset($GLOBALS['fanboyRamMode']);
+        same('always on S6a: a control that is gone is started again while the array stops (the agent\'s tick) and while it is stopped (the night shift)', ['fanboy-control', 'fanboy-control'], $GLOBALS['fanboyLaunched']);
+        $state('Started');
+
+        // 3. for real: the control steers, the array stops and is stopped — it steers on, the same process, the data folder untouched
+        $data = "{$t['tmp']}/data";
+        @mkdir("$data/fanboy", 0700, true);
+        file_put_contents("$data/agent.log", "2026-01-01 00:00:00  the agent's own line\n");
+        $before = alwaysOnTTree($data);
+        $was = fanboyTOut($t, 4);
+        $procs[] = $p = alwaysOnTControl($t, $data);
+        $steers = fanboyTWait(fn () => in_array(fanboyTId(4), fanboyHeld(), true) && fanboyTOut($t, 4) !== $was && (readJson(fanboyStatusFile())['who'] ?? '') === 'fanboy', 20);
+        check('always on S6a: (the control steers while the array runs)', $steers, (string) @file_get_contents("{$t['tmp']}/proc.out"));
+        $pid = readJson(fanboyStatusFile())['pid'] ?? null;
+        $wrote = fanboyTOut($t, 4);
+        $state('Stopping');
+        usleep(7000000);
+        $state('Stopped');
+        $unknown = fanboyTWait(fn () => (readJson(fanboyStatusFile())['disks_unknown'] ?? null) === 'stopped', 15);
+        usleep(6000000);            // well past its 10-second look at whether it may steer
+        $st = readJson(fanboyStatusFile()) ?? [];
+        same('always on S6a: the array stopped under it — the same control steers on: it holds the disk fan at what it wrote, the status says Fanboy, the disks\' temperatures «unknown», no alarm',
+            [true, true, $pid, 'fanboy', 'run', $wrote, [fanboyTId(4), fanboyTId(5), fanboyTId(2)], true, null],
+            [(bool) proc_get_status($p)['running'], time() - (int) ($st['time'] ?? 0) <= 6, $st['pid'] ?? null, $st['who'] ?? null, $st['phase'] ?? null, fanboyTOut($t, 4), array_values(array_intersect([fanboyTId(4), fanboyTId(5), fanboyTId(2)], fanboyHeld())), $unknown, $st['alarm'] ?? null]);
+        same('always on S6a: … and nothing in the data folder was made, written or touched through it', $before, alwaysOnTTree($data));
+        $state('Started');
+        $known = fanboyTWait(fn () => array_key_exists('disks_unknown', $s = readJson(fanboyStatusFile()) ?? ['disks_unknown' => 'x']) && $s['disks_unknown'] === null, 15);
+        same('always on S6a: the array runs again — the same process still, the disks known again', [true, $pid, true], [$known, readJson(fanboyStatusFile())['pid'] ?? null, (bool) proc_get_status($p)['running']]);
+        $ended = alwaysOnTStop($p);
+        same('always on S6a: asked to end (the office\'s stop, an update, the server\'s shutdown: TERM) — it gives every fan back as ever', [true, $was, []], [$ended, fanboyTOut($t, 4), fanboyHeld()]);
+
+        // 4. agent.sh at the array's stop: only release-steps; any other stop: the full release
+        $sh = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/agent.sh');
+        check('always on S6a: fanboy_release — the guard\'s release-steps at the array\'s stop, its release at every other stop; it looks even when only a control runs (no output taken yet)',
+            (bool) preg_match('/^fanboy_release\(\) \{\n    local cmd=release\n    \[\[ -f "\$DIR\/agent\/fanboy-guard\.php" \]\] \|\| return 0\n    \[\[ -s "\$FANBOY_JOURNAL" \|\| -s "\$\{FANBOY_JOURNAL%\/\*\}\/control\.pid" \]\] \|\| return 0\n'
+                . '    \[\[ "\$\{STOP_WHY:-\}" == array_stopping \]\] && cmd=release-steps\n    timeout -k 1 15 php "\$DIR\/agent\/fanboy-guard\.php" "\$cmd" <\/dev\/null >>"\$LOG" 2>&1\n    fanboy_back_check\n    return 0\n\}/m', $sh));
+        check('always on S6a: only array_event names that reason — stop, restart, the update and the removal give every output back',
+            substr_count($sh, 'local STOP_WHY=array_stopping') === 1 && !str_contains($sh, 'export STOP_WHY') && (bool) preg_match('/^stop\(\) \{\n    night_stop\n    agent_stop\n    fanboy_release\n\}/m', $sh)
+            && (bool) preg_match('/if \[\[ "\$what" == stop \]\]; then\n        local STOP_WHY=array_stopping[^\n]*\n        release[^\n]*\n        night_start/', $sh));
+        $guard = (string) file_get_contents(OFFICE_DIR . '/agent/fanboy-guard.php');
+        check('always on S6a: the guard looks at the control at release-steps even without a journal (a control that never took an output)',
+            strpos($guard, "if (\$cmd === 'release-steps') {") < strpos($guard, "if (!is_file(fanboyRunDir() . '/journal.json')) {\n        return 0;") && strpos($guard, "if (\$cmd === 'release-steps') {") !== false);
+        // … for real where a shell can run it (bash's `timeout`, a /proc for the holders)
+        $live = is_dir('/proc/' . getmypid()) && trim((string) @shell_exec('command -v timeout 2>/dev/null')) !== '';
+        if ($live) {
+            $before4 = fanboyTOut($t, 4);
+            $before2 = fanboyTOut($t, 2);
+            $procs[] = $step = alwaysOnTHold($t, 2, 'step');
+            $procs[] = $control = alwaysOnTHold($t, 4, 'control');
+            $cp = (int) proc_get_status($control)['pid'];
+            file_put_contents(fanboyRunDir() . '/control.pid', "$cp " . fanboyProcStart($cp));
+            alwaysOnTProc($t['root'], [$cp => []]);
+            $log = alwaysOnTRelease($t, $data, 'STOP_WHY=array_stopping;');
+            same('always on S6a: agent.sh at the array\'s stop — the step\'s output back, the control\'s kept and still its own, the control alive, no brake',
+                [$before2, [250, 1], $cp, true, false], [fanboyTOut($t, 2), fanboyTOut($t, 4), fanboyJournal()['outputs'][fanboyTId(4)]['owner']['pid'] ?? null, (bool) proc_get_status($control)['running'], is_file(fanboyBrakeFile())]);
+            check("always on S6a: … its log says both ($log)", str_contains($log, '1 outputs of a setup step back with the BIOS') && str_contains($log, "the control (PID $cp) holds nothing on the array or a pool and steers on"));
+            $log = alwaysOnTRelease($t, $data, '');
+            usleep(300000);
+            same('always on S6a: agent.sh at any other stop (update, restart, removal) — the control ends too, every output back',
+                [$before4, [], false], [fanboyTOut($t, 4), fanboyHeld(), (bool) proc_get_status($control)['running']], $log);
+            // a control that never took an output (no journal at all) is looked at too: one the look can't see is ended
+            exec('rm -rf ' . escapeshellarg(TESTS_RUN_DIR . '/fanboy'));
+            @mkdir(fanboyRunDir(), 0700, true);
+            $procs[] = $idle = proc_open(['sleep', '60'], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
+            $ip = (int) proc_get_status($idle)['pid'];
+            file_put_contents(fanboyRunDir() . '/control.pid', "$ip " . fanboyProcStart($ip));
+            $log = alwaysOnTRelease($t, $data, 'STOP_WHY=array_stopping;');
+            usleep(300000);
+            same('always on S6a: a control without any output, which the look from outside can\'t see — ended at the array\'s stop, the brake\'s mark by the stop',
+                [false, 'stop', 'no_look'], [(bool) proc_get_status($idle)['running'], readJson(fanboyBrakeFile())['by'] ?? null, readJson(fanboyBrakeFile())['why'] ?? null], $log);
+        }
+    } finally {
+        unset($GLOBALS['fanboyRamMode']);
+        foreach ($procs as $p) {
+            if (is_resource($p)) {
+                @proc_terminate($p, 9);
+                @proc_close($p);
+            }
+        }
+        @unlink(fanboyBrakeFile());
+        alwaysOnTHireEnd($keep);
         fanboyTEnd();
     }
 }

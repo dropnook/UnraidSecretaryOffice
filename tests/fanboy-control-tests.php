@@ -1041,10 +1041,12 @@ function testFanboyStopScripts(): void
             proc_close($p);
             return readJson(fanboyStatusFile())['why'] ?? null;
         };
-        same('fanboy stop: fanboy_release at the array\'s stop says «array_stopped»; a plain stop (update, restart) «released»',
-            ['array_stopped', 'released'], [$why('STOP_WHY=array_stopping;'), $why('')]);
-        check('fanboy stop: array_event names the reason for everything release() calls', str_contains($sh, "        local STOP_WHY=array_stopping   #")
-            && str_contains($sh, '[[ "${STOP_WHY:-}" == array_stopping ]] && why=(array_stopping)'));
+        // (2026-11-22, «always on»: at the array's stop the control steers on — agent.sh calls the guard's release-steps
+        // there, which touches no status while no control must end; testAlwaysOnThroughStop tries it with holders)
+        same('fanboy stop: fanboy_release at the array\'s stop leaves the control\'s status alone (release-steps); a plain stop (update, restart) says «released»',
+            [null, 'released'], [$why('STOP_WHY=array_stopping;'), $why('')]);
+        check('fanboy stop: array_event names the reason for everything release() calls; fanboy_release takes the guard\'s release-steps for it', str_contains($sh, "        local STOP_WHY=array_stopping   #")
+            && str_contains($sh, '[[ "${STOP_WHY:-}" == array_stopping ]] && cmd=release-steps'));
     } finally {
         fanboyTEnd();
     }
