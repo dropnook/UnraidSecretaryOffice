@@ -268,6 +268,8 @@
   "office.report_sent_note": {"one": "Ce secrétariat peut encore en envoyer {n} aujourd'hui.", "other": "Ce secrétariat peut encore en envoyer {n} aujourd'hui."},
   "office.report_yours": {"one": "Tes signalements ({n})", "other": "Tes signalements ({n})"},
   "office.report_yours_row": "{kind} · {desk} · {day}",
+  "office.report_yours_all": {"one": "Montrer les {n}", "other": "Montrer les {n}"},
+  "office.report_yours_fewer": "Montrer moins",
   "office.report_status.received": "Reçu",
   "office.report_status.seen": "Vu",
   "office.report_status.done": "Traité",

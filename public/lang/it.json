@@ -268,6 +268,8 @@
   "office.report_sent_note": {"one": "Oggi questa segreteria può inviarne ancora {n}.", "other": "Oggi questa segreteria può inviarne ancora {n}."},
   "office.report_yours": {"one": "Le tue segnalazioni ({n})", "other": "Le tue segnalazioni ({n})"},
   "office.report_yours_row": "{kind} · {desk} · {day}",
+  "office.report_yours_all": {"one": "Mostra tutte e {n}", "other": "Mostra tutte e {n}"},
+  "office.report_yours_fewer": "Mostra meno",
   "office.report_status.received": "Ricevuta",
   "office.report_status.seen": "Vista",
   "office.report_status.done": "Conclusa",

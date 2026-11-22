@@ -841,17 +841,19 @@
 .sso-report-sent{font-size:16px; font-weight:600; color:var(--ink)}
 .sso-report-yours{margin:6px 0 10px; font-size:13px}
 .sso-report-yours-head{color:var(--muted)}
-.sso-report-yours .shortlist{margin-top:6px}
-.sso-report-yours-title{font-family:var(--font, inherit); color:var(--ink)}
-/* each report: its title and «kind · desk · day» on the left, where it stands (chip, public issue) on the right — in the
-   page's own type, not the shortlist's monospace (the demo shots showed it right-aligned in mono, 2026-10-10) */
-.sso-report-yours .shortlist li{font-family:inherit; font-size:13px; display:grid; grid-template-columns:minmax(0, 1fr) auto; gap:2px 12px; align-items:center}
-.sso-report-yours .shortlist li > span{margin-left:0}
+/* the list grows in the dialog's one scroll (2026-11-22: no box of its own that scrolls inside it — not a .shortlist) */
+.sso-report-yours-list{margin:6px 0 0; padding:0; list-style:none; border:1px solid var(--line); border-radius:var(--radius)}
+.sso-report-yours-title{color:var(--ink)}
+/* each report: its title and «kind · desk · day» on the left, where it stands (chip, public issue) on the right */
+.sso-report-yours-list li{padding:6px 10px; border-top:1px solid var(--line); overflow-wrap:anywhere; font-size:13px; display:grid; grid-template-columns:minmax(0, 1fr) auto; gap:2px 12px; align-items:center}
+.sso-report-yours-list li:first-child{border-top:0}
+.sso-report-yours-list li[hidden]{display:none}
 .sso-report-yours .sso-report-yours-title{grid-column:1; font-weight:600}
 .sso-report-yours .sso-report-yours-meta{grid-column:1; color:var(--muted)}
 .sso-report-yours .sso-report-yours-state{grid-column:2; grid-row:1 / span 2; display:flex; flex-wrap:wrap; gap:6px; align-items:center; justify-content:flex-end; color:var(--ink)}
+.sso-report-yours-more{margin-top:4px}
 @media (max-width:520px){
-  .sso-report-yours .shortlist li{grid-template-columns:minmax(0, 1fr)}
+  .sso-report-yours-list li{grid-template-columns:minmax(0, 1fr)}
   .sso-report-yours .sso-report-yours-state{grid-column:1; grid-row:auto; justify-content:flex-start}
 }
 /* its pictures (#6): small thumbnails in the form (× takes one away), a larger one in the preview beside its tick */
