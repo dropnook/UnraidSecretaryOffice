@@ -47601,7 +47601,7 @@ JS);
     same('report dialog diagnostics: not ticked — the preview doesn\'t ask, no part', [[[null, null]], false], [$r['plain']['asked'], $r['plain']['row']]);
     same('report dialog diagnostics: ticked, disks asleep — refused, «wake» shows, no preview', [[[true, null]], true, false, true],
         [$r['asleep']['asked'], $r['asleep']['wakeShown'], $r['asleep']['row'], $r['asleep']['sendOff']]);
-    same('report dialog diagnostics: with «wake» — asked so; the wave, its part ticked but off, «Send» off; nothing of it in the draft', [[[true, true]], true, true, true, true, ['kind', 'desk', 'title', 'text', 'mine']],
+    same('report dialog diagnostics: with «wake» — asked so; the wave, its part ticked but off, «Send» off; nothing of it in the draft', [[[true, true]], true, true, true, true, ['kind', 'desk', 'title', 'text', 'mine', 'title_own']],
         [$r['running']['asked'], $r['running']['sendOff'], $r['running']['wave'], $r['running']['rowDisabled'], $r['running']['rowTicked'], array_keys($r['running']['draft'])]);
     same('report dialog diagnostics: … beside the buttons: wait for Unraid\'s diagnostics, with the wave', ['office.report_why_diag', true], $r['running']['why']);
     same('report dialog diagnostics: ready — the line gone; the files open, nothing to click', [null, ['div', 0]], [$r['ready']['why'], $r['ready']['filesOpen']]);
@@ -48177,8 +48177,10 @@ const why = () => { const w = walk(byId['sso-dialog-foot'], (n) => typeof n.clas
       links: walk(li, (n) => n.tag === 'a').map((a) => [a.href, text(a), a.target, a.rel]) })) };
   const [title] = walk(body(), (n) => n.tag === 'input' && n.className === 'input');
   const area = one((n) => n.tag === 'textarea');
-  title.value = 'Her plan ran twice'; title.oninput();
   area.value = 'It ran twice at 03:00, see the log.'; area.oninput();
+  out.noTitle = { why: why(), required: title.required, placeholder: title.placeholder };
+  title.value = 'Her plan ran twice'; title.oninput();
+  out.titled = why();
   out.draft = JSON.parse(store['office.report.draft'] || 'null');
   out.counter = text(one((n) => n.className.startsWith('sso-report-count')));
   posts.length = 0;
@@ -48275,7 +48277,9 @@ JS);
         [$o['title'], $o['desk'], $o['deskOptions'], $o['sendOff'], $o['asked'], str_contains($o['wide'], 'wide') && str_contains($o['wide'], 'sso-report-dialog')]);
     same('report dialog: … the GitHub issues for account holders (no forum yet), «Your reports» without the private inbox\'s numbers', [['https://github.com/dropnook/UnraidSecretaryOffice/issues'], true], [$o['issues'], $o['yours']]);
     same('report dialog: … «Your reports» open, nothing to click (2026-10-27): no <details> in the dialog', [['div', true, 'office.report_yours'], 0], [$o['yoursOpen'], $o['details']]);
-    same('report dialog: … beside the buttons, why «Send» is off: the preview first', [['office.report_why_preview', false]], [$o['why']]);
+    same('report dialog: … beside the buttons, why «Send» is off: a title first (2026-11-22: none filled in — the field empty, required, an example in it), then the preview',
+        [['office.report_why_title', false], ['office.report_why_title', false], true, 'office.report_subject_example', ['office.report_why_preview', false]],
+        [$o['why'], $r['noTitle']['why'], $r['noTitle']['required'], $r['noTitle']['placeholder'], $r['titled']]);
     $pub14 = 'https://github.com/dropnook/UnraidSecretaryOffice/issues/14';
     same('report dialog: «Your reports» — title, kind · desk · day, where it stands, the public issue (only the public repository\'s, a new tab)', [
         ['title' => 'Darker', 'chips' => [['chip accent', 'Looked at']], 'links' => [[$pub14, 'Issue #14', '_blank', 'noopener noreferrer']]],
@@ -48285,7 +48289,7 @@ JS);
         ['title' => 'Odd', 'chips' => [], 'links' => []]],
         array_map(fn ($row) => ['title' => $row['title'], 'chips' => $row['chips'], 'links' => $row['links']], $o['rows']));
     same('report dialog: … the row\'s kind · desk · day stays second', array_fill(0, 5, 'office.report_yours_row'), array_column($o['rows'], 'meta'));   // no strings loaded: the key
-    same('report dialog: the draft kept while typing (2026-11-22: marked as the user\'s own — testReportDialogOwnWords)', ['kind' => 'bug', 'desk' => 'snapshot', 'title' => 'Her plan ran twice', 'text' => 'It ran twice at 03:00, see the log.', 'mine' => true], $r['draft']);
+    same('report dialog: the draft kept while typing (2026-11-22: marked as the user\'s own — testReportDialogOwnWords)', ['kind' => 'bug', 'desk' => 'snapshot', 'title' => 'Her plan ran twice', 'text' => 'It ran twice at 03:00, see the log.', 'mine' => true, 'title_own' => true], $r['draft']);
     same('report dialog: the counter in bytes', 'office.report_count', $r['counter']);   // no strings loaded: the key
     $p = $r['preview'];
     same('report dialog: the preview asks with the words (no name: the field is gone), the languages and the desk\'s last error (plain params only)',
@@ -48390,6 +48394,9 @@ const button = (label) => one((n) => n.tag === 'button' && n.textContent === lab
     if (draft) store['office.report.draft'] = JSON.stringify(draft); else delete store['office.report.draft'];
     const dlg = O.reportDialog('snapshot');
     await sleep(20);
+    // no title comes from a desk any more (2026-11-22): the user gives one
+    const tf = walk(body(), (n) => n.tag === 'input' && n.className === 'input')[0];
+    if (!tf.value) { tf.value = 'In my words'; tf.oninput(); }
     if (edit !== null) { area().value = edit; area().oninput(); }
     if (kind) { const k = button(`office.report_kind_${kind}`); if (k) k.onclick(); }
     await button('office.report_preview').onclick();
@@ -48465,6 +48472,144 @@ JS);
     $de = langFile(OFFICE_WEB . '/lang/de.json');
     same('report dialog own words: the German words', ['Magst du in einem Satz sagen, was du dir wünschst?', 'Magst du in einem Satz sagen, was passiert ist?', 'Zum Text', 'Trotzdem senden'],
         [$de['office.report_own_wish'] ?? null, $de['office.report_own_bug'] ?? null, $de['office.report_own_back'] ?? null, $de['office.report_own_send'] ?? null]);
+    hardeningRm($tmp);
+}
+
+/**
+ * 2026-11-22 (the owner on Fanboy's page: «Betrifft» said «Das Sekretariat als Ganzes»; uso-inbox #20 came with our title
+ * and our text only): «About» is the desk the dialog was opened from — the ⋯ menu's and the search's item without a
+ * desk: the desk shown, the reception: the office —, never a kept draft's. The one kept draft belongs to the desk it is
+ * about: a dialog about another desk starts empty and leaves it as it is until the user writes there (then it is that
+ * desk's). No title is filled in: the field is empty, required («Send»'s line says so, the preview asks for it and
+ * puts the cursor there), with an example — the opener's, the desk's (<desk>.report_example), else the office's —
+ * that follows «About». A title in a draft counts only when the user typed it (title_own). The harness is
+ * testReportDialog()'s.
+ */
+function testReportDialogDesk(): void
+{
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('report dialog desk: node is missing here - skipped', true);
+        return;
+    }
+    $src = (string) file_get_contents(__FILE__);
+    $from = strpos($src, "const fs = require('fs');", (int) strpos($src, "\nfunction testReportDialog(): void"));
+    $to = strpos($src, "(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));", (int) $from);
+    if ($from === false || $to === false) {
+        check('report dialog desk: testReportDialog()\'s harness found', false);
+        return;
+    }
+    $tmp = hardeningTmp('reportdlgdesk');
+    file_put_contents("$tmp/t.js", substr($src, $from, $to - $from) . <<<'JS'
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const O = globalThis.Office;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const walk = (n, f, out = []) => { if (n && typeof n === 'object') { if (f(n)) out.push(n); (n.children || []).forEach((c) => walk(c, f, out)); } return out; };
+const text = (n) => (typeof n === 'string' ? n : [n.textContent || '', ...(n.children || []).map(text)].join(''));
+const body = () => byId['sso-dialog-body'];
+const one = (f) => walk(body(), f)[0];
+const button = (label) => one((n) => n.tag === 'button' && n.textContent === label);
+(async () => {
+  await sleep(30);
+  O.agent = { running: true };
+  O.desk({ id: 'snapshot' });
+  O.desk({ id: 'caretaker' });
+  O.desk({ id: 'fired' });                       // not in CONFIG: not hired, never in «About»
+  O.strings = { 'snapshot.report_example': 'e.g. Her plan ran twice', 'office.report_subject_example': 'e.g. The page stays empty' };
+  answers = { 'office.reports': { ok: true, reports: [], n: 0, left: 25, cap: 25, next: null, closed: false } };
+  const look = () => {
+    const title = walk(body(), (n) => n.tag === 'input' && n.className === 'input')[0];
+    const why = walk(byId['sso-dialog-foot'], (n) => typeof n.className === 'string' && n.className.split(' ').includes('sso-report-why'))[0];
+    return { desk: one((n) => n.tag === 'select').value, title: title.value, example: title.placeholder, text: one((n) => n.tag === 'textarea').value,
+      kind: (one((n) => n.tag === 'button' && n.attrs['aria-pressed'] === 'true') || {}).dataset.kind, why: why && !why.hidden ? text(why).trim() : null };
+  };
+  const open = async (...a) => { const d = O.reportDialog(...a); await sleep(10); return d; };
+  const draft = () => store['office.report.draft'] || null;
+  const out = {};
+  // the desk shown: the ⋯ menu's and the search's item give none
+  O.current = O.desks.get('snapshot');
+  let d = await open();
+  out.shown = look();
+  d.close();
+  O.current = null;
+  d = await open();
+  out.reception = look();
+  d.close();
+  d = await open('fired');
+  out.fired = look().desk;
+  d.close();
+  out.untouched = draft();                       // opened and closed, nothing written: nothing kept
+  // a desk's draft (as Fanboy writes it: kind, desk, its text; no title): its dialog takes it ...
+  const given = 'What I wish for here:\n\n\nSnapshot report v1';
+  store['office.report.draft'] = JSON.stringify({ kind: 'wish', desk: 'snapshot', text: given, prefill: given });
+  d = await open('snapshot', { example: 'e.g. A plan of mine' });
+  out.desk = look();
+  const sel = one((n) => n.tag === 'select');
+  sel.value = 'office'; sel.onchange();
+  out.otherAbout = look().example;
+  sel.value = 'snapshot'; sel.onchange();
+  out.backAbout = look().example;
+  // ... the preview without a title: asked for, the cursor in the field, nothing posted
+  posts.length = 0;
+  let focused = null;
+  walk(body(), (n) => n.tag === 'input' && n.className === 'input')[0].focus = () => { focused = 'title'; };
+  await button('office.report_preview').onclick();
+  out.noTitle = { posted: posts.filter((p) => p.a === 'office.report_preview').length, msg: text(one((n) => n.className === 'callout warn' && !n.hidden) || {}), focused };
+  d.close();
+  const keptSnap = draft();
+  // ... a dialog about another desk (the reception's ⋯) neither shows it nor changes it on closing
+  d = await open('office');
+  out.leak = look();
+  d.close();
+  out.leakKept = draft() === keptSnap;
+  // ... until the user writes there: then the draft is that desk's
+  d = await open('office');
+  one((n) => n.tag === 'textarea').value = 'The page stays empty after the update.'; one((n) => n.tag === 'textarea').oninput();
+  d.close();
+  out.replaced = JSON.parse(draft() || '{}').desk;
+  // a title typed comes back; an older draft's title (ours, before 2026-11-22: no title_own) doesn't — its text does
+  d = await open('office');
+  const tf = walk(body(), (n) => n.tag === 'input' && n.className === 'input')[0];
+  tf.value = 'Empty page'; tf.oninput();
+  d.close();
+  d = await open('office');
+  out.typed = [look().title, JSON.parse(draft() || '{}').title_own];
+  d.close();
+  store['office.report.draft'] = JSON.stringify({ kind: 'wish', desk: 'snapshot', title: 'Fanboy: what he finds on this board', text: 'Mine.', mine: true });
+  d = await open('snapshot');
+  out.oldTitle = [look().title, look().text];
+  d.close();
+  process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0));
+})().catch((e) => { process.stdout.write('ERR ' + e.stack + '\n', () => process.exit(1)); });
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' 2>&1');
+    $o = json_decode(trim($raw), true) ?? [];
+    same('report dialog desk: no desk given — the desk shown (the ⋯ menu, the search), at the reception the office; a desk not working here: the office',
+        ['snapshot', 'office', 'office'], [$o['shown']['desk'] ?? null, $o['reception']['desk'] ?? null, $o['fired'] ?? null], $raw);
+    same('report dialog desk: no title filled in — empty, the desk\'s example (else the office\'s), «Send»\'s line asks for a title',
+        [['', 'e.g. Her plan ran twice', 'office.report_why_title'], ['', 'e.g. The page stays empty', 'office.report_why_title']],
+        [[$o['shown']['title'] ?? null, $o['shown']['example'] ?? null, $o['shown']['why'] ?? null], [$o['reception']['title'] ?? null, $o['reception']['example'] ?? null, $o['reception']['why'] ?? null]], $raw);
+    same('report dialog desk: opened and closed without a word — nothing kept', [true, null], [array_key_exists('untouched', $o), $o['untouched'] ?? null], $raw);
+    same('report dialog desk: a desk\'s draft in its own dialog — its kind and text, no title, the opener\'s example; it follows «About» and comes back',
+        ['snapshot', 'wish', "What I wish for here:\n\n\nSnapshot report v1", '', 'e.g. A plan of mine', 'e.g. The page stays empty', 'e.g. A plan of mine'],
+        [$o['desk']['desk'] ?? null, $o['desk']['kind'] ?? null, $o['desk']['text'] ?? null, $o['desk']['title'] ?? null, $o['desk']['example'] ?? null, $o['otherAbout'] ?? null, $o['backAbout'] ?? null], $raw);
+    same('report dialog desk: the preview without a title — nothing asked of the agent, said, the cursor in the title', [0, 'errors.report_incomplete', 'title'],
+        [$o['noTitle']['posted'] ?? null, $o['noTitle']['msg'] ?? null, $o['noTitle']['focused'] ?? null], $raw);
+    same('report dialog desk: a dialog about another desk — none of that draft in it (the office, a problem, empty), the draft left as it was',
+        [['office', 'bug', '', ''], true], [[$o['leak']['desk'] ?? null, $o['leak']['kind'] ?? null, $o['leak']['title'] ?? null, $o['leak']['text'] ?? null], $o['leakKept'] ?? null], $raw);
+    same('report dialog desk: … written there, the draft is that desk\'s; a title typed comes back (title_own); an older draft\'s title doesn\'t, its text does',
+        ['office', ['Empty page', true], ['', 'Mine.']], [$o['replaced'] ?? null, $o['typed'] ?? null, $o['oldTitle'] ?? null], $raw);
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    check('report dialog desk: the search\'s item gives no desk (the dialog takes the one shown), the ⋯ menu the one shown',
+        str_contains($core, "{ kind: 'setting', key: 'office.report_menu', anchor: null, act: () => Office.reportDialog(), shown: () => !!CONFIG.report }")
+        && str_contains($core, "const asked = deskId || (Office.current && Office.current.id) || 'office';"));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $lang = langFile(OFFICE_WEB . "/lang/$code.json");
+        $fan = langFile(OFFICE_WEB . "/desks/fanboy/lang/$code.json");
+        check("report dialog desk: $code — the title's line and examples (the office's, Fanboy's, his chip read's)",
+            ($lang['office.report_why_title'] ?? '') !== '' && ($lang['office.report_subject_example'] ?? '') !== '' && ($fan['report_example'] ?? '') !== '' && ($fan['chip.report_example'] ?? '') !== '');
+    }
+    same('report dialog desk: the German example on Fanboy\'s page', 'z. B. CPU-Lüfter wird nicht gefunden', langFile(OFFICE_WEB . '/desks/fanboy/lang/de.json')['report_example'] ?? null);
     hardeningRm($tmp);
 }
 
@@ -65532,13 +65677,22 @@ function testFanboyReport(): void
     // the page: the button opens the office's report form as a wish of his desk, the report in the text — sent only by «Send»
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
     check('fanboy report page: fanboy.report, then the form\'s draft (kind wish, desk fanboy, the report under the user\'s words) and Office.reportDialog(ID)',
-        str_contains($js, "Office.api.post(`\${ID}.report`, {})") && str_contains($js, "kind: 'wish',") && str_contains($js, 'desk: ID,')
-        && str_contains($js, '`${mine || T(\'report_wish\')}\n\n\n${j.report}`') && str_contains($js, 'Office.reportDialog(ID);')
+        str_contains($js, "Office.api.post(`\${ID}.report`, {})") && str_contains($js, "kind: 'wish', desk: ID, ...own,")
+        && str_contains($js, '`${own.text ? \'\' : T(\'report_wish\')}\n\n\n${j.report}`') && str_contains($js, 'Office.reportDialog(ID);')
         && !str_contains($js, 'office.report_send'));
+    // 2026-11-22 (uso-inbox #20: our title, our text only): no title of ours — the user names the matter, the field shows
+    // Fanboy's example (core.js reads <desk>.report_example; the chip read's its own); only a title the user typed comes
+    // back from a kept draft about Fanboy (title_own), never one of another desk's draft
+    $fl = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/fanboy/lang/en.json'), true);
+    check('fanboy report page: no title of ours (report_title, chip.report_title gone), an example for the field instead',
+        !str_contains($js, 'report_title') && !isset($fl['report_title']) && !isset($fl['chip.report_title'])
+        && is_string($fl['report_example'] ?? null) && is_string($fl['chip.report_example'] ?? null)
+        && str_contains($js, "Office.reportDialog(ID, { example: T('chip.report_example') });")
+        && str_contains($js, "was.desk !== ID || was.mine !== true") && str_contains($js, "was.title_own === true"));
     // the form takes it: a wish of his desk, the report's text within the form's limit
     $keepDesk = $GLOBALS['desks']['fanboy'] ?? null;
     $GLOBALS['desks']['fanboy'] ??= ['actions' => []];
-    $w = reportWords(['kind' => 'wish', 'desk' => 'fanboy', 'title' => 'Fanboy: what he finds on this board', 'text' => "What I'd like Fanboy to do here:\n\n\n" . $text]);
+    $w = reportWords(['kind' => 'wish', 'desk' => 'fanboy', 'title' => 'The CPU fan isn\'t found', 'text' => "What I'd like Fanboy to do here:\n\n\n" . $text]);
     if ($keepDesk === null) {
         unset($GLOBALS['desks']['fanboy']);
     }
@@ -67296,7 +67450,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testWatchWakesPage', 'testWatchmanWakes', 'testWatchmanWakeTrail', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testMigrateWakes', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics', 'testReportDialogOwnWords',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testMigrateWakes', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics', 'testReportDialogOwnWords', 'testReportDialogDesk',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testBackupRunEnded', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanAtLeft', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testSkipPlaces', 'testCleanupSkipGreeting', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],
           'hardening' => ['testRequestTypes', 'testRunDirLeftovers', 'testRunDirCrashLoop', 'testRunDirLink', 'testRunDirBudget', 'testRunDirAudit', 'testRunDirRunCap', 'testRunDirReport', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerGeneration', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testCleanupPurgeEnds', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportWatch', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],

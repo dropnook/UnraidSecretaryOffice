@@ -1197,6 +1197,125 @@ async function dialogStack(browser, harness) {
   await ctx.close();
   return res;
 }
+// ------------------------------------------------------------------ «About» in the report dialog (2026-11-22)
+// The owner on Fanboy's page saw «About: the office as a whole»; uso-inbox #20 came with our title and our text only.
+// On Fanboy's page, no draft yet, the search's item («Report a problem or a wish…», it names no desk) opens it about him.
+// His «Send to the makers…» opens the dialog about him: «About» Fanboy, the title empty with his example, «Send»'s line
+// asking for a title; «Show what will be sent…» without one says so and puts the cursor in it; a title typed: the line
+// asks for the preview. Closed, the ⋯ menu at the reception opens it about the office, empty — none of Fanboy's draft in
+// it, his left as it was; on his page again (⋯ menu, then the search's item) his draft is back with the title typed.
+// Both themes at 1440 and 375 px: nothing scrolls sideways, no page error.
+async function reportDesk(browser) {
+  const res = { route: 'report desk', theme: 'both', width: 0, tested: 0, skipped: 0, capped: 0, hidden: 0, sections: 0, fails: [], ms: 0 };
+  const t0 = Date.now();
+  const fail = (what) => res.fails.push(what);
+  const en = JSON.parse(fs.readFileSync(path.join(REPO, 'public', 'lang', 'en.json'), 'utf8'));
+  const fen = JSON.parse(fs.readFileSync(path.join(REPO, 'public', 'desks', 'fanboy', 'lang', 'en.json'), 'utf8'));
+  const h = await startHarness({ report: true });
+  h.setPost('fanboy.report', () => ({ report: 'Fanboy detection report v1\nBoard: Example X570' }));
+  h.setPost('office.reports', () => ({ reports: [], n: 0, left: 25, cap: 25, next: null, closed: false }));
+  h.setPost('office.report_inbox', () => ({ inbox: 'open' }));
+  const look = () => {
+    const d = document.querySelector('#sso-dialog');
+    const s = d && !document.querySelector('#sso-dialog-backdrop').hidden ? d.querySelector('select') : null;
+    if (!s) return null;
+    const title = d.querySelector('.sso-report-form input.input');
+    const why = d.querySelector('.sso-report-why');
+    const warn = [...d.querySelectorAll('.callout.warn')].find((x) => !x.hidden);
+    return { desk: s.value, title: title.value, example: title.placeholder, text: d.querySelector('textarea').value,
+      why: why && !why.hidden ? why.textContent.trim() : null, warn: warn ? warn.textContent.trim() : null,
+      focus: document.activeElement === title, wide: document.documentElement.scrollWidth > window.innerWidth + 1 };
+  };
+  // the search (the magnifier): «Report a problem or a wish» typed, its item clicked
+  const searchReport = async (page) => {
+    const words = en['office.report_menu'].replace('…', '');
+    await page.click('#sso-search');
+    await page.fill('#sso-palette input', words);
+    await page.locator('#sso-palette .palette-item', { hasText: words }).first().click({ timeout: 5000 });
+    await page.waitForSelector('#sso-dialog select', { timeout: 10000 });
+  };
+  try {
+    for (const theme of ['dark', 'light']) {
+      for (const width of [1440, 375]) {
+        const at = `${theme} ${width}`;
+        let v = null;
+        const ctx = await browser.newContext({ viewport: { width, height: 900 }, locale: 'en-US' });
+        const page = await ctx.newPage();
+        const errors = [];
+        page.on('pageerror', (e) => errors.push(`page error: ${String(e.message).slice(0, 160)}`));
+        await page.goto(`${h.url}?theme=${theme === 'dark' ? 'black' : 'white'}#/fanboy`, { waitUntil: 'load' });
+        const mine = page.locator('#sso-desk button', { hasText: fen.report }).first();
+        await mine.waitFor({ timeout: 15000 });
+        await page.waitForFunction(() => Office.agent && Office.agent.running, null, { timeout: 15000 });
+        // no draft yet: the search's item (it names no desk) — about the desk shown, not the office
+        await searchReport(page);
+        v = await page.evaluate(look);
+        res.tested++;
+        if (!v || v.desk !== 'fanboy' || v.title !== '' || v.text !== '') fail(`${at}: the search's item on Fanboy's page, no draft — about him (${JSON.stringify(v)})`);
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(200);
+        await mine.click();
+        await page.waitForSelector('#sso-dialog select', { timeout: 10000 });
+        await page.waitForTimeout(200);
+        v = await page.evaluate(look);
+        res.tested++;
+        if (!v || v.desk !== 'fanboy' || v.title !== '' || v.example !== fen.report_example || v.why !== en['office.report_why_title']
+          || !v.text.includes('Fanboy detection report')) fail(`${at}: Fanboy's «${fen.report}» — about him, no title of ours, his example, «Send» asks for a title (${JSON.stringify(v)})`);
+        await page.click('#sso-dialog .sso-report-show .btn');
+        await page.waitForTimeout(200);
+        v = await page.evaluate(look);
+        res.tested++;
+        if (!v || v.warn !== en['errors.report_incomplete'].replace('{min}', '10') || !v.focus) fail(`${at}: the preview without a title — said, the cursor in the title (${JSON.stringify(v)})`);
+        await page.fill('#sso-dialog .sso-report-form input.input', 'CPU fan missing');
+        await page.waitForTimeout(100);
+        v = await page.evaluate(look);
+        res.tested++;
+        if (!v || v.why !== en['office.report_why_preview']) fail(`${at}: a title typed — the line asks for the preview (${JSON.stringify(v)})`);
+        if (v && v.wide) fail(`${at}: the dialog scrolls sideways`);
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(200);
+        // the reception's ⋯ menu: about the office, none of Fanboy's draft
+        await page.goto(`${h.url}?theme=${theme === 'dark' ? 'black' : 'white'}#/`, { waitUntil: 'load' });
+        await page.waitForFunction(() => Office.agent && Office.agent.running && !Office.current, null, { timeout: 15000 });
+        await page.click('#sso-more');
+        await page.locator('#sso-menu button', { hasText: en['office.report_menu'] }).click();
+        await page.waitForSelector('#sso-dialog select', { timeout: 10000 });
+        v = await page.evaluate(look);
+        res.tested++;
+        if (!v || v.desk !== 'office' || v.title !== '' || v.text !== '' || v.example !== en['office.report_subject_example']) fail(`${at}: the reception's ⋯ menu — about the office, empty (${JSON.stringify(v)})`);
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(200);
+        // Fanboy's page again: the ⋯ menu, then the search's item — his draft back, the title typed
+        await page.goto(`${h.url}?theme=${theme === 'dark' ? 'black' : 'white'}#/fanboy`, { waitUntil: 'load' });
+        await page.waitForFunction(() => Office.current && Office.current.id === 'fanboy' && Office.agent.running, null, { timeout: 15000 });
+        await page.click('#sso-more');
+        await page.locator('#sso-menu button', { hasText: en['office.report_menu'] }).click();
+        await page.waitForSelector('#sso-dialog select', { timeout: 10000 });
+        v = await page.evaluate(look);
+        res.tested++;
+        if (!v || v.desk !== 'fanboy' || v.title !== 'CPU fan missing' || !v.text.includes('Fanboy detection report') || v.example !== fen.report_example) {
+          fail(`${at}: Fanboy's ⋯ menu — about him, his draft and the title typed (${JSON.stringify(v)})`);
+        }
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(200);
+        await searchReport(page);
+        v = await page.evaluate(look);
+        res.tested++;
+        if (!v || v.desk !== 'fanboy' || v.title !== 'CPU fan missing') fail(`${at}: the search's item on Fanboy's page — about him, his draft (${JSON.stringify(v)})`);
+        await page.keyboard.press('Escape');
+        const wide = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+        if (wide) fail(`${at}: the page scrolls sideways`);
+        for (const e of [...new Set(errors)]) fail(`${at}: ${e}`);
+        await ctx.close();
+      }
+    }
+  } catch (e) {
+    fail(String(e.message || e).split('\n')[0].slice(0, 200));
+  }
+  await h.close();
+  res.ms = Date.now() - t0;
+  return res;
+}
 // ------------------------------------------------------------------ a fresh server's first start (2026-10-16)
 // No appdata and no system share (Docker never on): the messenger waits without his data folder. The page welcomes (the
 // Team Lead's icon, both shares listed, the VMs' named, «Create missing standard shares», «First start» in the top line)
@@ -2027,6 +2146,7 @@ if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(awa
 if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(await pairAddress(browser));
 if (!opt.states && (!opt.only || routes.includes('backup'))) results.push(await partnerStreams(browser));
 if (!opt.states && (!opt.only || routes.includes('snapshot'))) results.push(await busyMark(browser));
+if (!opt.states && (!opt.only || routes.includes('fanboy'))) results.push(await reportDesk(browser));
 if (!opt.states && (!opt.only || routes.includes('restore'))) results.push(await staleJob(browser));
 if (!opt.states && (!opt.only || routes.includes('restore'))) results.push(await keptFilter(browser));
 if (!opt.states && (!opt.only || routes.includes('restore'))) results.push(await journalFilter(browser));
@@ -2037,7 +2157,7 @@ await harness.close();
 // UC_FORCE_FAIL=<route>: one page of that route (the first in the table's order) gets a failure of its own - how
 // tools/release.sh shows its retry of a red page (USO_RELEASE_FLAKY there). Never set in a real run.
 const ONLY_OF = { 'cleanup map': 'cleanup/where', 'dialog stack': 'jack/setup', 'jack structure': 'jack', 'first start': 'caretaker',
-  'USO network card': 'caretaker', 'pair address': 'caretaker', 'partner streams': 'backup', 'busy mark': 'snapshot' };
+  'USO network card': 'caretaker', 'pair address': 'caretaker', 'partner streams': 'backup', 'busy mark': 'snapshot', 'report desk': 'fanboy' };
 // the --only route that runs a result's page again (a route walk, a special check: its desk's route)
 const onlyOf = (r) => ONLY_OF[r.route] || (r.route.endsWith(' routes') ? r.route.slice(0, -' routes'.length) : r.route);
 
