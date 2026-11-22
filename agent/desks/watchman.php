@@ -125,6 +125,7 @@ require_once __DIR__ . '/../lib/paritywhy.php';
 require_once __DIR__ . '/../lib/arrayhold.php';     // «What holds the array?» (his page, on demand)
 require_once __DIR__ . '/watchman-diskwakes.php';    // «Who woke my disks?» (data/watchman/wakes.json): the sampler in his tick
 require_once __DIR__ . '/watchman-cats.php';         // his areas (1.96): every kind and tip in one, the lights of his page (state.cats)
+require_once __DIR__ . '/watchman-rules.php';        // the user's exceptions and areas switched off (1.96, data/watchman/rules.json)
 
 const WATCH_EVERY        = 300;              // a round every 5 minutes
 const WATCH_LOOK         = 20;               // the tick looks whether one is due this often (seconds)
@@ -328,7 +329,7 @@ const WATCH_INSPECT     = "{{json .Name}}\t{{json .Config.Image}}\t{{json .HostC
 // start (an encrypted array waits for its key), he keeps the RAM and flash parts of his watch — nothing under /mnt, no data folder
 const WATCH_NIGHT_DIR    = RUN_DIR . '/nightshift';             // the night's book, state and log (RAM, root only)
 const WATCH_NIGHT_LOCK   = RUN_DIR . '/nightshift.lock';        // held while the night shift is on: never two of them, never with the agent
-const WATCH_NIGHT_FILES  = ['baseline.json', 'book.json', 'state.json', 'seen.json', 'posture.json'];
+const WATCH_NIGHT_FILES  = ['baseline.json', 'book.json', 'state.json', 'seen.json', 'posture.json', 'rules.json'];
 const WATCH_MIRROR_RAM   = RUN_DIR . '/watchman-mirror.json';   // what the night shift needs, after every round (RAM, for an array stop)
 const WATCH_MIRROR_FLASH = '/boot/config/plugins/' . OFFICE_PLUGIN . '/watchman-mirror.json';  // the same for a reboot, without secrets
 const WATCH_MIRROR_EVERY = 3600;                                // the flash mirror at most once an hour (the flash wears), only when it changed
@@ -357,6 +358,11 @@ desk('watchman', [
         'syslog_set' => fn (array $r) => watchmanSyslogSet($r['on'] ?? null),
         'posture_ack' => fn (array $r) => watchmanPostureAck($r['id'] ?? null, $r['on'] ?? null),
         'net_lan_set' => fn (array $r) => watchmanNetLanSet($r['on'] ?? null),
+        // 1.96: an exception from an open entry (the offer looked up anew), lifting one (undo: its entries open again),
+        // an area off (asked more clearly on the page: sure) or on
+        'rule_add'    => fn (array $r) => watchmanRuleAdd(textField($r, 'id'), textField($r, 'type'), optBool($r, 'sure')),
+        'rule_remove' => fn (array $r) => watchmanRuleRemove(textField($r, 'rule'), optBool($r, 'undo')),
+        'cat_set'     => fn (array $r) => watchmanCatSet(textField($r, 'cat'), boolField($r, 'on'), optBool($r, 'sure')),
         // «Who woke my disks?»: his switch (on unless switched off), kept on the server
         'wakes_watch' => fn (array $r) => watchmanWakeWatchSet(boolField($r, 'on')) + ['state' => watchmanPageState()],
     ],
@@ -831,6 +837,7 @@ function watchmanRun(): int
 /** The night shift's mirror after a change (a round, «I know, thanks», a switch) — a failure is logged, never in the way */
 function watchmanMirrorKeep(string $dir): void
 {
+    watchmanRulesCopy($dir);                 // his exceptions for the night shift: RAM when it differs, the flash when changed
     try {
         if (watchmanMirrorWrite($dir) === 'flash') {
             logLine('Night watchman: his baseline for the night shift written to the flash (' . WATCH_MIRROR_FLASH . ')');
@@ -1096,6 +1103,8 @@ function watchmanNightBegin(array $paths, string $night, int $now, string $ram =
         writeAtomic("$night/$file", jsonEncode($data), 0600, 0, 0);
     }
     @unlink("$night/posture.json");
+    // the user's exceptions and areas switched off (watchman-rules.php): the RAM copy, else the flash's — none: he tells all
+    watchmanRulesNight($night, dirname($ram) . '/watchman-rules.json', $flash !== null ? dirname($flash) . '/watchman-rules.json' : null);
     return ['hired' => $b['hired'], 'from' => $from];
 }
 
@@ -1609,7 +1618,10 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         $old['posture'] = readJson("$dir/posture.json");
         $known = watchmanPostureKnown($old['posture'], $st['posture']['tips']);
         if (!$fresh) {
-            watchmanSeriousAgain($book, $before, watchmanIncidents($dir), $now);     // after a serious incident: the same again is louder
+            $incidents = watchmanIncidents($dir);
+            watchmanSeriousAgain($book, $before, $incidents, $now);     // after a serious incident: the same again is louder
+            // the user's exceptions and areas switched off (watchman-rules.php): after the incidents, before anything is told
+            watchmanRulesApply($book, $before, $b, $observed, watchmanRules(watchmanRulesRaw($dir)), array_column($incidents, 'at', 'id'), $st, $now);
         }
         watchmanTidy($b, $st, $now);
         $book = watchmanPrune($book, $now);
@@ -9755,6 +9767,11 @@ function watchmanChecks(?string $dir = null): array
     if ($posture !== null && $posture['open'] > 0) {
         $out[] = finding('posture', 'hint', null, ['n' => $posture['open']], '#/watchman');
     }
+    // 1.96: areas switched off — one line, so it isn't forgotten in half a year (its «I know, thanks» as any hint)
+    $off = count(watchmanRules(watchmanRulesRaw($dir))['off']);
+    if ($off > 0) {
+        $out[] = finding('areas_off', 'hint', null, ['n' => $off], '#/watchman');
+    }
     return $out;
 }
 
@@ -10145,7 +10162,8 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
                    'open' => watchmanOpen($e), 't' => watchmanText($e),
                    'p' => array_filter((array) ($e['p'] ?? []), fn ($k) => !str_starts_with((string) $k, '_'), ARRAY_FILTER_USE_KEY),
                    'noted' => $e['noted'] ?? null, 'by' => $e['by'] ?? null, 'told' => $e['told'] ?? null, 'muted' => $e['muted'] ?? null,
-                   'night' => !empty($e['night']), 'serious' => isset($e['serious']), 'again' => isset($e['again'])];
+                   'night' => !empty($e['night']), 'serious' => isset($e['serious']), 'again' => isset($e['again']),
+                   'rule' => is_string($e['rule'] ?? null) ? $e['rule'] : null];
     }
     // his history of serious incidents, newest first: the entry as it was, the note; each makes the same louder while it is
     // there (`louder` and `until` stay for a page of 1.94 still open after the update)
@@ -10204,8 +10222,20 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
         'limits'   => ['every' => WATCH_EVERY, 'burst' => WATCH_FAIL_BURST, 'window' => WATCH_FAIL_WINDOW,
                        'quiet' => WATCH_NOTIFY_QUIET, 'keep' => WATCH_BOOK_MAX, 'days' => WATCH_BOOK_DAYS],
     ];
+    // the user's exceptions and areas switched off (watchman-rules.php), what a click may offer on each open entry
+    $rules = watchmanRulesPage($dir, $d['book'], $st);
+    foreach ($state['book'] as $i => $e) {
+        $state['book'][$i]['offers'] = $rules['offers'][$e['id']] ?? [];
+    }
+    $state['rules'] = $rules['rules'];
+    $state['off'] = $rules['off'] ?: new stdClass();
     // his areas' lights (watchman-cats.php), from what this state says; the watch book's and the schedule's light beside them
     $lights = watchmanCats($state, is_array($st['parity'] ?? null) ? $st['parity'] : null);
+    foreach ($rules['off'] as $cat => $at) {
+        $lights['areas'][$cat]['level'] = 'none';                 // switched off: grey, whatever is still open from before
+        array_unshift($lights['areas'][$cat]['why'], 'off');
+        $lights['areas'][$cat]['off'] = $at;
+    }
     $state['cats'] = $lights['areas'];
     $state['cats_cross'] = ['book' => $lights['book'], 'schedule' => $lights['schedule']];
     if ($write && is_dir(DATA_DIR)) {

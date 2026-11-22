@@ -2,6 +2,7 @@
 #sso{   /* nested in the office's element, like office.css */
 /* the watch book: an entry, its «I know, thanks» on the right (under it on a phone) */
 .row.wm-entry{grid-template-columns:minmax(0,1fr) auto}
+.row.wm-entry > .wm-entry-acts{max-width:40vw}      /* the answers wrap before they take the row's middle (1.96: an exception beside them) */
 .wm-entry:not(.wm-open) .row-name{color:var(--ink2); font-weight:500}
 .row.wm-watch{background:var(--surface2)}
 .wm-detail .kv{margin-top:2px}

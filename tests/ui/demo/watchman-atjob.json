@@ -63,7 +63,21 @@
    "night": false,
    "serious": false,
    "again": false,
-   "cat": "lan"
+   "cat": "lan",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "net_ips_server:w7a8b9c0d20"
+     },
+     "kinds": [
+      "net_ips_server"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "w7a8b9c0d1e",
@@ -104,7 +118,21 @@
    "night": false,
    "serious": false,
    "again": false,
-   "cat": "sched"
+   "cat": "sched",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "at_job:w7a8b9c0d1e"
+     },
+     "kinds": [
+      "at_job"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "w1a2b3c4d5e",
@@ -151,7 +179,21 @@
    "told": 1791562574,
    "muted": null,
    "night": false,
-   "cat": "data"
+   "cat": "data",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "flow_gone:w1a2b3c4d5e"
+     },
+     "kinds": [
+      "flow_gone"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "w2b3c4d5e6f",
@@ -189,7 +231,21 @@
    "told": 1791562574,
    "muted": null,
    "night": false,
-   "cat": "data"
+   "cat": "data",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "flow_written:w2b3c4d5e6f"
+     },
+     "kinds": [
+      "flow_written"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "wd5e04cb7da",
@@ -220,7 +276,46 @@
    "told": 1791469874,
    "muted": null,
    "night": false,
-   "cat": "login"
+   "cat": "login",
+   "offers": [
+    {
+     "type": "user_net",
+     "on": {
+      "user": "root",
+      "net": "192.168.178.0/24"
+     },
+     "kinds": [
+      "login_new_ip"
+     ],
+     "ask": false,
+     "covers": 1
+    },
+    {
+     "type": "net",
+     "on": {
+      "net": "192.168.178.0/24"
+     },
+     "kinds": [
+      "login_new_ip",
+      "smb_client",
+      "smb_hour"
+     ],
+     "ask": false,
+     "covers": 1
+    },
+    {
+     "type": "key",
+     "on": {
+      "key": "login_new_ip:wd5e04cb7da"
+     },
+     "kinds": [
+      "login_new_ip"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "w8825237f13",
@@ -257,7 +352,21 @@
    "told": 1791545474,
    "muted": null,
    "night": false,
-   "cat": "data"
+   "cat": "data",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "flow_written:w8825237f13"
+     },
+     "kinds": [
+      "flow_written"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "wfe162b7c9a",
@@ -291,7 +400,21 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "lan"
+   "cat": "lan",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "net_new_device:wfe162b7c9a"
+     },
+     "kinds": [
+      "net_new_device"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "we39e6da19f",
@@ -321,7 +444,9 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "wdc05fb1798",
@@ -351,7 +476,21 @@
    "told": 1791466274,
    "muted": null,
    "night": false,
-   "cat": "container"
+   "cat": "container",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "container_new:wdc05fb1798"
+     },
+     "kinds": [
+      "container_new"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "w41acb2239b",
@@ -383,7 +522,9 @@
    "muted": null,
    "night": false,
    "serious": true,
-   "cat": "login"
+   "cat": "login",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "wa92b5cedfc",
@@ -409,7 +550,21 @@
    "told": 1791383474,
    "muted": null,
    "night": false,
-   "cat": "plugin"
+   "cat": "plugin",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "plugin_new:wa92b5cedfc"
+     },
+     "kinds": [
+      "plugin_new"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "w3bf6add5b4",
@@ -438,7 +593,9 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "partner"
+   "cat": "partner",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w1236963b43",
@@ -471,7 +628,9 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": null
+   "cat": null,
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w7a8b9c0d1f",
@@ -503,7 +662,9 @@
    "night": false,
    "serious": false,
    "again": false,
-   "cat": "sched"
+   "cat": "sched",
+   "offers": [],
+   "rule": null
   }
  ],
  "watch": {
@@ -1939,5 +2100,7 @@
  "cats_cross": {
   "book": "danger",
   "schedule": "ok"
- }
+ },
+ "rules": [],
+ "off": {}
 }

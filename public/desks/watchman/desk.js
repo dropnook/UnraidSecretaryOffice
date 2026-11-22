@@ -113,6 +113,121 @@ async function roundNow() {
 }
 
 // ------------------------------------------------------------------ «I know, thanks»
+// ------------------------------------------------------------------ exceptions (1.96, agent/desks/watchman-rules.php)
+const OFFERS = ['key', 'ip', 'net', 'user_net', 'machine'];
+const justMade = new Set();     // exceptions made on this visit: «Undo» beside «Lift» (their entries open again)
+/**
+ * An exception in words: «192.168.1.0/24 always okay», «root from 192.168.1.0/24 …»; exactly one thing: on its own
+ * entry «This one always okay», elsewhere (the list, the dialog) «‹the entry, shortened› always okay»
+ */
+function offerName(o, e, here) {
+  const on = o.on || {};
+  if (on.user) return T('rule.offer.user_net', { user: on.user, net: on.net });
+  if (on.net) return T('rule.offer.net', { net: on.net });
+  if (on.ip) return T('rule.offer.ip', { ip: on.ip });
+  if (on.machine) return T('rule.offer.machine', { machine: on.machine });
+  if (here) return T('rule.offer.key');
+  const src = e || ((state && state.book) || []).find((x) => x && x.id === o.from);
+  const what = src ? entryName(src) : '';
+  return what ? T('rule.key_of', { what: what.length > 70 ? what.slice(0, 69) + '…' : what }) : T('rule.offer.key');
+}
+/**
+ * «… always okay» on an open entry: what it covers, what not, where it is lifted — asked once for anything wider than
+ * this one thing, and more clearly for the kinds he asks about (the button names it); the messenger looks the offer up
+ * anew from the entry (never trusts a net or a name from the page)
+ */
+async function ruleAdd(e, o, b) {
+  if (!(await Office.freshState(ID))) return;
+  const what = offerName(o, e);
+  const n = Math.max(1, Number(o.covers) || 1);
+  const go = async (sure) => {
+    b.disabled = true;
+    const j = await Office.api.post(`${ID}.rule_add`, { id: e.id, type: o.type, sure });
+    if (!j.ok) {
+      Office.toast(Office.errorText(j.error, ID), true);
+      if (j.error && j.error.key === 'watch_gone') await load(true);
+      else b.disabled = false;
+      return;
+    }
+    if (j.state) state = j.state;
+    if (j.rule) justMade.add(j.rule);
+    mood();
+    renderKeeping(e.id);
+    const more = Math.max(0, (Number(j.noted) || 1) - 1);
+    Office.toast(more ? `${T('rule.added')} ${T('rule.added_more', { n: more })}` : T('rule.added'));
+  };
+  if (!o.ask && o.type === 'key' && n === 1) { go(false); return; }
+  const body = el('div', 'wm-rule-ask');
+  const lines = [T('rule.ask_covers', { what, n }), o.type === 'net' || o.type === 'ip' ? T('rule.ask_net_not') : '',
+    o.ask ? T('rule.ask_serious') : '', e.again ? T('rule.ask_incident') : '', T('rule.ask_where')];
+  lines.filter(Boolean).forEach((x) => body.appendChild(el('p', o.ask && x === T('rule.ask_serious') ? 'callout warn' : '', x)));
+  Office.dialog({ title: T('rule.ask_title'), body, buttons: [
+    { text: o.ask ? T('rule.ask_yes', { what }) : T('rule.add'), kind: 'primary', act: () => { go(!!o.ask); } },
+    { text: Office.t('common.cancel') },
+  ] });
+}
+/** «Lift» an exception (undo: right after it was made — its entries open again) */
+async function ruleRemove(r, undo, b) {
+  if (!(await Office.freshState(ID))) return;
+  b.disabled = true;
+  const j = await Office.api.post(`${ID}.rule_remove`, { rule: r.id, undo });
+  if (!j.ok) {
+    Office.toast(Office.errorText(j.error, ID), true);
+    if (j.error && j.error.key === 'watch_rule_gone') await load(true);
+    else b.disabled = false;
+    return;
+  }
+  if (j.state) state = j.state;
+  justMade.delete(r.id);
+  mood();
+  renderAt('.wm-rules');
+  Office.toast(T(undo ? 'rule.undone' : 'rule.lifted'));
+}
+/** An area switched on again (switched off: in his setup, asked more clearly) */
+async function catOn(id, b) {
+  if (!(await Office.freshState(ID))) return;
+  b.disabled = true;
+  const j = await Office.api.post(`${ID}.cat_set`, { cat: id, on: true });
+  if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); b.disabled = false; return; }
+  if (j.state) state = j.state;
+  mood();
+  renderAt('.wm-cat');
+  Office.toast(T('rule.cat_on_done'));
+}
+/** An area's exceptions: what each lets through, since when, how often it did, «Lift» (and «Undo» right after) */
+function catRules(id) {
+  const list = ((state && state.rules) || []).filter((r) => r && r.cat === id);
+  if (!list.length) return null;
+  const box = el('div', 'wm-rules');
+  box.appendChild(el('h4', 'wm-hold-group', T('rule.list', { n: list.length })));
+  const rows = el('div', 'box');
+  list.forEach((r) => {
+    const row = el('div', 'row nocheck wm-rule');
+    const main = el('div', 'row-main');
+    main.appendChild(el('div', 'row-name text', offerName(r)));
+    const meta = el('div', 'row-meta');
+    meta.appendChild(el('span', '', T('rule.since', { when: fmt.date(r.at) })));
+    meta.appendChild(el('span', '', r.hits ? T('rule.hits', { n: r.hits, when: fmt.relative(r.hit) }) : T('rule.no_hits')));
+    main.appendChild(meta);
+    row.appendChild(main);
+    const acts = el('div', 'wm-entry-acts');
+    const mk = (undo) => {
+      const b = el('button', 'btn small plain', T(undo ? 'rule.undo' : 'rule.lift'));
+      b.type = 'button';
+      b.title = T(undo ? 'rule.undo_title' : 'rule.lift_title');
+      b.disabled = !Office.agent.running || !hired();
+      b.onclick = () => ruleRemove(r, undo, b);
+      return b;
+    };
+    if (justMade.has(r.id)) acts.appendChild(mk(true));
+    acts.appendChild(mk(false));
+    row.appendChild(acts);
+    rows.appendChild(row);
+  });
+  box.appendChild(rows);
+  return box;
+}
+
 async function ack(e, b) {
   b.disabled = true;
   const j = await Office.api.post(`${ID}.ack`, { id: e.id });
@@ -413,7 +528,10 @@ function catTip(id) {
     : Office.t('common.light.' + (Office.LIGHTS.includes(c.level) ? c.level : 'unknown'));
   const lines = [`${catName(id)}: ${first}`];
   const newest = catEntries(id).filter((e) => e.open).sort((x, y) => y.last - x.last)[0];
-  if (newest) lines.push(T('cat.tip_newest', { what: entryName(newest), when: fmt.relative(newest.last) }));
+  if (newest) {
+    const what = entryName(newest);
+    lines.push(T('cat.tip_newest', { what: what.length > 110 ? what.slice(0, 109) + '…' : what, when: fmt.relative(newest.last) }));
+  }
   (c.why || []).filter((w) => !CAT_SEEN.includes(w) && Office.has(`${ID}.cat.why.${w}`)).slice(0, 2).forEach((w) => lines.push(T('cat.why.' + w)));
   if (state && state.round && state.round.last) lines.push(T('cat.tip_checked', { when: fmt.relative(state.round.last) }));
   return lines.slice(0, 4);
@@ -998,6 +1116,14 @@ function catSection(id) {
   }
   (c.why || []).filter((w) => !CAT_SEEN.includes(w) && Office.has(`${ID}.cat.why.${w}`))
     .forEach((w) => s.appendChild(el('p', 'callout' + (CAT_CALLOUT_WARN.includes(w) ? ' warn' : ''), T('cat.why.' + w))));
+  if (c.off) {
+    const on = el('button', 'btn small', T('rule.cat_on'));
+    on.type = 'button';
+    on.disabled = !Office.agent.running || !hired();
+    on.onclick = () => catOn(id, on);
+    s.appendChild(on);
+  }
+  const rules = catRules(id);
   const all = catEntries(id);
   if (sw.active() !== id) {
     // the whole page (nothing chosen): no entries again under the book — how many, a click shows this area alone
@@ -1011,6 +1137,7 @@ function catSection(id) {
     } else s.appendChild(el('p', 'role', T('cat.empty')));
     const advice = catAdvice(id);
     if (advice) s.appendChild(advice);
+    if (rules) s.appendChild(rules);
     return s;
   }
   const bar = catBarGet(id);
@@ -1029,6 +1156,7 @@ function catSection(id) {
   bar.done(v.rows.reduce((n, r) => n + r.members.length, 0), all.length, { onlyAvail: all.some((e) => e.open) || f.only });
   const advice = catAdvice(id);
   if (advice) s.appendChild(advice);
+  if (rules) s.appendChild(rules);
   return s;
 }
 
@@ -1221,6 +1349,23 @@ function entryRow(e, owner) {
     b.disabled = !Office.agent.running;
     b.onclick = () => ack(e, b);
     acts.appendChild(b);
+    // an exception (1.96): the narrowest the messenger offers as a button, the others under «more ▾»
+    const offers = watch ? [] : (Array.isArray(e.offers) ? e.offers : []).filter((o) => o && OFFERS.includes(o.type));
+    if (offers.length) {
+      const ob = el('button', 'btn small plain wm-offer', offerName(offers[0], e, true));
+      ob.type = 'button';
+      ob.title = T('rule.offer_title');
+      ob.disabled = !Office.agent.running || !hired();
+      ob.onclick = () => ruleAdd(e, offers[0], ob);
+      acts.appendChild(ob);
+      if (offers.length > 1) {
+        const more = el('button', 'btn small plain', T('rule.more'));
+        more.type = 'button';
+        more.disabled = ob.disabled;
+        more.onclick = (ev) => Office.menu(ev, offers.slice(1).map((o) => ({ text: offerName(o, e, true), act: () => ruleAdd(e, o, more) })));
+        acts.appendChild(more);
+      }
+    }
     if (!watch) {
       const sb = el('button', 'btn small plain wm-serious', T('serious'));
       sb.type = 'button';
@@ -1716,7 +1861,7 @@ function details(e) {
   if (e.open) notes.push(T('adopt.' + (e.v === 'net_ips_server_list' ? e.v : e.kind)));     // a block list: its own words (the whole list)
   const by = e.by === 'office' && e.kind === 'partner_paired' ? 'office_partner' : e.by === 'office' && e.kind === 'drill_throwaway' ? 'office_drill' : e.by;
   if (e.noted && by === 'plugin' && e.kind === 'at_plugin' && p.left) notes.push(T('noted.plugin_left', { when: fmt.date(p.left) }));     // agent: watchmanAtLeftNote()
-  else if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office', 'office_partner', 'office_drill', 'office_cron', 'schedule', 'array', 'unraid', 'plugin', 'back', 'router', 'parity'].includes(by) ? by : 'page'), { when: fmt.date(e.noted) }));
+  else if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office', 'office_partner', 'office_drill', 'office_cron', 'schedule', 'array', 'unraid', 'plugin', 'back', 'router', 'parity', 'rule'].includes(by) ? by : 'page'), { when: fmt.date(e.noted) }));
   if (e.told) notes.push(T('detail.told', { when: fmt.date(e.told) }));
   else if (e.muted && e.tell) notes.push(T('detail.muted'));
   else if (e.open) notes.push(T(e.tell ? 'detail.not_told' : 'detail.book_only'));

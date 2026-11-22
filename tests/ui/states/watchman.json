@@ -77,7 +77,21 @@
    "told": 1791562574,
    "muted": null,
    "night": false,
-   "cat": "data"
+   "cat": "data",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "flow_gone:w1a2b3c4d5e"
+     },
+     "kinds": [
+      "flow_gone"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "w2b3c4d5e6f",
@@ -115,7 +129,21 @@
    "told": 1791562574,
    "muted": null,
    "night": false,
-   "cat": "data"
+   "cat": "data",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "flow_written:w2b3c4d5e6f"
+     },
+     "kinds": [
+      "flow_written"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "w54e6489316",
@@ -143,7 +171,21 @@
    "told": 1791480649,
    "muted": null,
    "night": false,
-   "cat": "router"
+   "cat": "router",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "net_log_silent:w54e6489316"
+     },
+     "kinds": [
+      "net_log_silent"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "wbb38aac28c",
@@ -171,7 +213,21 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "router"
+   "cat": "router",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "net_sender_new:wbb38aac28c"
+     },
+     "kinds": [
+      "net_sender_new"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "wda4a752ea7",
@@ -199,7 +255,21 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "router"
+   "cat": "router",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "net_sender_new:wda4a752ea7"
+     },
+     "kinds": [
+      "net_sender_new"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "wd3e4169d75",
@@ -227,7 +297,21 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "router"
+   "cat": "router",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "net_sender_new:wd3e4169d75"
+     },
+     "kinds": [
+      "net_sender_new"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "we39e6da19f",
@@ -263,7 +347,9 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w3b41b7080b",
@@ -293,7 +379,21 @@
    "told": 1791437018,
    "muted": null,
    "night": false,
-   "cat": "door"
+   "cat": "door",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "door_new:w3b41b7080b"
+     },
+     "kinds": [
+      "door_new"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "w2a19a76ee8",
@@ -319,7 +419,21 @@
    "told": 1791407111,
    "muted": null,
    "night": false,
-   "cat": "plugin"
+   "cat": "plugin",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "plugin_new:w2a19a76ee8"
+     },
+     "kinds": [
+      "plugin_new"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "wfd4fc19641",
@@ -346,7 +460,21 @@
    "told": 1791387527,
    "muted": null,
    "night": false,
-   "cat": "plugin"
+   "cat": "plugin",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "plugin_source:wfd4fc19641"
+     },
+     "kinds": [
+      "plugin_source"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "w2dbba062ab",
@@ -372,7 +500,21 @@
    "told": 1791306576,
    "muted": null,
    "night": false,
-   "cat": "plugin"
+   "cat": "plugin",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "plugin_new:w2dbba062ab"
+     },
+     "kinds": [
+      "plugin_new"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "wa92b5cedfc",
@@ -398,7 +540,21 @@
    "told": 1791306576,
    "muted": null,
    "night": false,
-   "cat": "plugin"
+   "cat": "plugin",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "plugin_new:wa92b5cedfc"
+     },
+     "kinds": [
+      "plugin_new"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "wb44b5c2f92",
@@ -428,7 +584,21 @@
    "told": 1791306576,
    "muted": null,
    "night": false,
-   "cat": "sched"
+   "cat": "sched",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "cron_new:wb44b5c2f92"
+     },
+     "kinds": [
+      "cron_new"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "w60263f57e5",
@@ -458,7 +628,9 @@
    "told": null,
    "muted": null,
    "night": true,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w043a3dc3dc",
@@ -498,7 +670,9 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w10eeb60ac4",
@@ -534,7 +708,9 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w915f8925c3",
@@ -564,7 +740,9 @@
    "told": null,
    "muted": null,
    "night": true,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w79d2e622c8",
@@ -606,7 +784,9 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w39b1706544",
@@ -636,7 +816,9 @@
    "told": null,
    "muted": null,
    "night": true,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "wb2dda43023",
@@ -672,7 +854,9 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w84677cd4de",
@@ -695,7 +879,9 @@
    "told": null,
    "muted": null,
    "night": true,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "wd5e04cb7da",
@@ -727,7 +913,46 @@
    "told": 1791323692,
    "muted": null,
    "night": false,
-   "cat": "login"
+   "cat": "login",
+   "offers": [
+    {
+     "type": "user_net",
+     "on": {
+      "user": "root",
+      "net": "192.168.1.0/24"
+     },
+     "kinds": [
+      "login_new_ip"
+     ],
+     "ask": false,
+     "covers": 1
+    },
+    {
+     "type": "net",
+     "on": {
+      "net": "192.168.1.0/24"
+     },
+     "kinds": [
+      "login_new_ip",
+      "smb_client",
+      "smb_hour"
+     ],
+     "ask": false,
+     "covers": 1
+    },
+    {
+     "type": "key",
+     "on": {
+      "key": "login_new_ip:wd5e04cb7da"
+     },
+     "kinds": [
+      "login_new_ip"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "w3a580811c6",
@@ -763,7 +988,9 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w93a0d0d9ea",
@@ -786,7 +1013,9 @@
    "told": null,
    "muted": null,
    "night": true,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "wfe162b7c9a",
@@ -820,7 +1049,21 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "lan"
+   "cat": "lan",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "net_new_device:wfe162b7c9a"
+     },
+     "kinds": [
+      "net_new_device"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "w8023c95ba4",
@@ -856,7 +1099,21 @@
    "told": 1791459316,
    "muted": null,
    "night": false,
-   "cat": "lan"
+   "cat": "lan",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "net_blocked_from_server:w8023c95ba4"
+     },
+     "kinds": [
+      "net_blocked_from_server"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "w8825237f13",
@@ -890,7 +1147,21 @@
    "told": 1791457951,
    "muted": null,
    "night": false,
-   "cat": "data"
+   "cat": "data",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "flow_written:w8825237f13"
+     },
+     "kinds": [
+      "flow_written"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "wf5ba8983a8",
@@ -926,7 +1197,9 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w63008f09e2",
@@ -962,7 +1235,9 @@
    "told": null,
    "muted": null,
    "night": true,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w5668eda953",
@@ -998,7 +1273,9 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "wc063e8ad2d",
@@ -1025,7 +1302,9 @@
    "told": 1791457647,
    "muted": null,
    "night": true,
-   "cat": "sched"
+   "cat": "sched",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w5a1e7f0c3b",
@@ -1057,7 +1336,9 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "sched"
+   "cat": "sched",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w8e9e664fdb",
@@ -1093,7 +1374,9 @@
    "told": null,
    "muted": null,
    "night": true,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "wee17d287f0",
@@ -1129,7 +1412,9 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w86a678e52c",
@@ -1159,7 +1444,9 @@
    "told": null,
    "muted": null,
    "night": true,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "wd3eabf582d",
@@ -1203,7 +1490,21 @@
    "told": 1791437618,
    "muted": null,
    "night": false,
-   "cat": "data"
+   "cat": "data",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "flow_gone:wd3eabf582d"
+     },
+     "kinds": [
+      "flow_gone"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "w3bf6add5b4",
@@ -1232,7 +1533,9 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "partner"
+   "cat": "partner",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w8b0797eaff",
@@ -1263,7 +1566,21 @@
    "told": 1791459316,
    "muted": null,
    "night": false,
-   "cat": "router"
+   "cat": "router",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "net_vpn_login:w8b0797eaff"
+     },
+     "kinds": [
+      "net_vpn_login"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "w5a3ee8d94c",
@@ -1297,7 +1614,9 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "router"
+   "cat": "router",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w07568b1abf",
@@ -1331,7 +1650,21 @@
    "told": 1791459316,
    "muted": null,
    "night": false,
-   "cat": "router"
+   "cat": "router",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "net_firewall_change:w07568b1abf"
+     },
+     "kinds": [
+      "net_firewall_change"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "waac5d29ba8",
@@ -1367,7 +1700,21 @@
    "told": 1791459316,
    "muted": null,
    "night": false,
-   "cat": "lan"
+   "cat": "lan",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "net_ips_server:waac5d29ba8"
+     },
+     "kinds": [
+      "net_ips_server"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "w84833d7a59",
@@ -1403,7 +1750,21 @@
    "told": 1791459316,
    "muted": null,
    "night": false,
-   "cat": "lan"
+   "cat": "lan",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "net_ips_server:w84833d7a59"
+     },
+     "kinds": [
+      "net_ips_server"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "w41acb2239b",
@@ -1436,7 +1797,9 @@
    "muted": null,
    "night": false,
    "serious": true,
-   "cat": "login"
+   "cat": "login",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w57f8cbc78b",
@@ -1467,7 +1830,21 @@
    "told": 1791459316,
    "muted": null,
    "night": false,
-   "cat": "router"
+   "cat": "router",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "net_router_login:w57f8cbc78b"
+     },
+     "kinds": [
+      "net_router_login"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "w5083c20876",
@@ -1509,7 +1886,9 @@
    "told": 1791436254,
    "muted": null,
    "night": false,
-   "cat": "snap"
+   "cat": "snap",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w4c7a66770e",
@@ -1545,7 +1924,9 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w4446c99b98",
@@ -1575,7 +1956,9 @@
    "told": null,
    "muted": null,
    "night": true,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "wcb41de23c5",
@@ -1611,7 +1994,9 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w31bf64e671",
@@ -1647,7 +2032,9 @@
    "told": null,
    "muted": null,
    "night": true,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w967f303e44",
@@ -1677,7 +2064,9 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "wbddd76b648",
@@ -1707,7 +2096,9 @@
    "told": null,
    "muted": null,
    "night": true,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "wefd5a94556",
@@ -1740,7 +2131,9 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "sched"
+   "cat": "sched",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w0ff91622ed",
@@ -1770,7 +2163,9 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w2d6da8a8cd",
@@ -1800,7 +2195,9 @@
    "told": null,
    "muted": null,
    "night": true,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w2dfd00c23e",
@@ -1836,7 +2233,9 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w7c215ef4b8",
@@ -1866,7 +2265,9 @@
    "told": null,
    "muted": null,
    "night": true,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w734cd95f15",
@@ -1902,7 +2303,9 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w44d7b19c43",
@@ -1938,7 +2341,9 @@
    "told": null,
    "muted": null,
    "night": true,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "wdba5bdde33",
@@ -1968,7 +2373,9 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w68f3698957",
@@ -1997,7 +2404,21 @@
    "told": 1791363931,
    "muted": null,
    "night": true,
-   "cat": "host"
+   "cat": "host",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "listen_new:w68f3698957"
+     },
+     "kinds": [
+      "listen_new"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "wcef47810c4",
@@ -2024,7 +2445,9 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "sched"
+   "cat": "sched",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w3935c23946",
@@ -2060,7 +2483,9 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w4b839bcde0",
@@ -2089,7 +2514,21 @@
    "told": 1791360748,
    "muted": null,
    "night": true,
-   "cat": "host"
+   "cat": "host",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "listen_new:w4b839bcde0"
+     },
+     "kinds": [
+      "listen_new"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "we2c751ce61",
@@ -2119,7 +2558,9 @@
    "told": null,
    "muted": null,
    "night": true,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "w10bd9b6781",
@@ -2146,7 +2587,9 @@
    "told": 1791358611,
    "muted": null,
    "night": false,
-   "cat": "sched"
+   "cat": "sched",
+   "offers": [],
+   "rule": null
   },
   {
    "id": "wdc05fb1798",
@@ -2176,7 +2619,21 @@
    "told": 1791322792,
    "muted": null,
    "night": false,
-   "cat": "container"
+   "cat": "container",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "container_new:wdc05fb1798"
+     },
+     "kinds": [
+      "container_new"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "w6477d0ca59",
@@ -2207,7 +2664,46 @@
    "told": 1791312892,
    "muted": null,
    "night": false,
-   "cat": "login"
+   "cat": "login",
+   "offers": [
+    {
+     "type": "user_net",
+     "on": {
+      "user": "root",
+      "net": "192.168.3.0/24"
+     },
+     "kinds": [
+      "login_new_ip"
+     ],
+     "ask": false,
+     "covers": 1
+    },
+    {
+     "type": "net",
+     "on": {
+      "net": "192.168.3.0/24"
+     },
+     "kinds": [
+      "login_new_ip",
+      "smb_client",
+      "smb_hour"
+     ],
+     "ask": false,
+     "covers": 1
+    },
+    {
+     "type": "key",
+     "on": {
+      "key": "login_new_ip:w6477d0ca59"
+     },
+     "kinds": [
+      "login_new_ip"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "w5c519c4a94",
@@ -2237,7 +2733,21 @@
    "told": 1791307476,
    "muted": null,
    "night": false,
-   "cat": "container"
+   "cat": "container",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "container_new:w5c519c4a94"
+     },
+     "kinds": [
+      "container_new"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null
   },
   {
    "id": "w1236963b43",
@@ -2270,7 +2780,9 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": null
+   "cat": null,
+   "offers": [],
+   "rule": null
   }
  ],
  "watch": {
@@ -4310,5 +4822,25 @@
  "cats_cross": {
   "book": "danger",
   "schedule": "ok"
- }
+ },
+ "rules": [
+  {
+   "id": "r0123456789",
+   "cat": "login",
+   "kinds": [
+    "login_new_ip",
+    "smb_client",
+    "smb_hour"
+   ],
+   "on": {
+    "net": "192.168.178.0/24"
+   },
+   "at": 1791304274,
+   "from": "hand",
+   "note": "",
+   "hits": 2,
+   "hit": 1791559874
+  }
+ ],
+ "off": {}
 }
