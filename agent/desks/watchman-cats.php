@@ -20,7 +20,8 @@ declare(strict_types=1);
  *   ok      green: looked, nothing open
  * Info tips (WATCH_POSTURE 'info') never colour an area. `why` lists the reasons as codes (the page's words:
  * cat.why.<code>); the light never claims anything newer than what it is made of (`hold` is as fresh as its last look).
- * The concept's two new areas (`vuln`, `hw`) are here without kinds until their steps bring them: grey.
+ * The concept's new area `vuln` is here without kinds until its step brings them: grey. `hw` (watchman-hw.php, step 9):
+ * grey until his first look at the hardware.
  */
 
 // area => its kinds and its posture tips, in the order of his page
@@ -45,15 +46,16 @@ const WATCH_CATS = [
     'lan'       => ['kinds' => ['net_new_device', 'net_spoof', 'net_ips_server', 'net_blocked_from_server'], 'tips' => []],
     'array'     => ['kinds' => ['array_stop', 'array_start', 'server_boot', 'parity_check'], 'tips' => []],
     'vuln'      => ['kinds' => [], 'tips' => []],          // «Known vulnerabilities» (concept 11 A): its kinds come with its step
-    'hw'        => ['kinds' => [], 'tips' => []],          // «Hardware» (concept 11 B–E, H): likewise
+    'hw'        => ['kinds' => ['hw_mce', 'hw_ecc', 'hw_aer', 'hw_throttle', 'hw_kernel'], 'tips' => []],    // «Hardware» (watchman-hw.php; concept 11 B–E, H)
     'hold'      => ['kinds' => [], 'tips' => []],          // «What holds the array?» (agent/lib/arrayhold.php): no entries, its own look
     'wakes'     => ['kinds' => [], 'tips' => []],          // «Who woke my disks?» (watchman-diskwakes.php): no entries, his wake list
 ];
 
 const WATCH_CAT_LEVELS = ['danger', 'warn', 'none', 'note', 'ok'];      // worst first: a combination takes the first one met
 const WATCH_CAT_HOLD_OLD = 86400;                                        // «What holds the array?» looked longer ago: green with «!»
+const WATCH_CAT_HW_OLD = 3600;                                           // the hardware looked longer ago (rounds failing): yellow
 // his files in data/watchman/ whose size the page state and the metric say (concept 5.1: measured, not guessed)
-const WATCH_CAT_FILES = ['book', 'baseline', 'state', 'seen', 'flow', 'snaps', 'net', 'wakes', 'incidents', 'posture'];
+const WATCH_CAT_FILES = ['book', 'baseline', 'state', 'seen', 'flow', 'snaps', 'net', 'wakes', 'incidents', 'posture', 'book-more', 'hw'];
 
 /** The area of a kind of his book (null: a take-over line `watch`, or a kind no area knows) */
 function watchmanCatOf(string $kind): ?string
@@ -106,7 +108,7 @@ function watchmanCatWorst(array $levels): string
 
 /**
  * Every area's light for his page, from his page state as watchmanPageState() made it ($s: hired, on_watch, round, book
- * with `tell` and `open`, posture, flow, snaps, net, hold, wakes) and the parity's state ($parity: state.json's
+ * with `tell` and `open`, posture, flow, snaps, net, hold, wakes, hw) and the parity's state ($parity: state.json's
  * `parity`). Pure: the tests hand in states. Each area: {level, why: [codes], open, tell, tips (advice not known yet),
  * entries (in his book), last (the newest entry's last time)}. Plus two of the cross-cut tiles: `book` (the worst
  * area) and `schedule` (his last round failed or broke off).
@@ -257,7 +259,19 @@ function watchmanCats(array $s, ?array $parity = null): array
         $add('wakes', 'none', 'no_hdd');
     }
     $add('vuln', 'none', 'not_yet');
-    $add('hw', 'none', 'not_yet');
+    // the hardware (watchman-hw.php): grey before his first look at it; a look over an hour old (rounds failing): yellow;
+    // a server without ECC counters says so with «!» (concept 2.2) — never «0 memory errors»
+    $hw = is_array($s['hw'] ?? null) ? $s['hw'] : null;
+    if ($hw === null || !is_int($hw['time'] ?? null)) {
+        $add('hw', 'none', 'hw_never');
+    } else {
+        if ($now - $hw['time'] > WATCH_CAT_HW_OLD) {
+            $add('hw', 'warn', 'hw_silent');
+        }
+        if (array_key_exists('ecc', $hw) && $hw['ecc'] === null) {
+            $add('hw', 'note', 'hw_no_ecc');
+        }
+    }
     $res = $out('');
     return ['areas' => $res, 'book' => watchmanCatBook($res), 'schedule' => !empty($r['failed']) || !empty($r['broken']) ? 'danger' : 'ok'];
 }

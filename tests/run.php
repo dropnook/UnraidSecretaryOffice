@@ -20922,6 +20922,345 @@ function testWatchmanCats(): void
 }
 
 /**
+ * The night watchman's hardware (1.96 step 9, agent/desks/watchman-hw.php) on invented /proc and /sys trees: what a server
+ * doesn't have is «not available» (null), never 0; the first look is normal; machine checks (never MCP); memory errors per
+ * module (corrected: quiet, ten a day or one not corrected: told), what a controller couldn't put on a module, the day's
+ * count; PCIe (corrected above 100 an hour: quiet, once an hour; not correctable: told); throttling; the kernel's flags since
+ * the boot's first look; a reboot counts from 0 (a counter at 0 is no drop, a lower one no negative); the night shift and
+ * the day share this boot's counters (nothing told twice); his area's light; no chain, no technique; the words in five
+ * languages; a whole round with it (the entries in book-more.json, the page's part).
+ */
+function testWatchmanHw(): void
+{
+    $tmp = hardeningTmp('watch-hw');
+    $hw = "$tmp/hw";
+    $paths = ['hw' => ['interrupts' => "$hw/interrupts", 'edac' => "$hw/edac", 'pci' => "$hw/pci", 'cpus' => "$hw/cpus", 'tainted' => "$hw/tainted",
+                       'ram' => "$tmp/ram/watchman-hw.json"], 'hw_file' => "$tmp/data/hw.json"];
+    @mkdir("$tmp/data", 0700, true);
+    $put = function (string $file, string $text) use ($hw): void {
+        @mkdir(dirname("$hw/$file"), 0755, true);
+        file_put_contents("$hw/$file", $text);
+    };
+    $col = fn (int $a, int $b = 0) => sprintf('%11d%11d', $a, $b);
+    $irq = fn (int $mce, int $mcp = 7, ?int $thr = null) => $put('interrupts', "            CPU0       CPU1\n   0:" . $col(36) . "   IO-APIC   2-edge      timer\n"
+        . 'NMI:' . $col(0) . "   Non-maskable interrupts\nMCE:" . $col(intdiv($mce, 2), $mce - intdiv($mce, 2)) . "   Machine check exceptions\n"
+        . 'MCP:' . $col($mcp, $mcp) . "   Machine check polls\n" . ($thr === null ? '' : 'THR:' . $col($thr) . "   Threshold APIC interrupts\n")
+        . "ERR:          0\nMIS:          0\n");
+    $ecc = function (array $dimms, int $more = 0, int $moreUe = 0) use ($put): void {        // id => [ce, ue, label]; $more: the controller's beyond them
+        $put('edac/mc0/mc_name', "ie31200\n");
+        $put('edac/mc0/ce_count', (array_sum(array_column($dimms, 0)) + $more) . "\n");
+        $put('edac/mc0/ue_count', (array_sum(array_column($dimms, 1)) + $moreUe) . "\n");
+        foreach ($dimms as $id => [$ce, $ue, $label]) {
+            $put("edac/mc0/$id/dimm_ce_count", "$ce\n");
+            $put("edac/mc0/$id/dimm_ue_count", "$ue\n");
+            $put("edac/mc0/$id/dimm_label", "$label\n");
+        }
+    };
+    $aer = function (int $cor, int $nonfatal = 0, int $fatal = 0) use ($put, $hw): void {
+        $put('pci/0000:01:00.0/aer_dev_correctable', "RxErr $cor\nBadTLP 0\nBadDLLP 0\nRollover 0\nTimeout 0\nNonFatalErr 0\nCorrIntErr 0\nHeaderOF 0\nTOTAL_ERR_COR $cor\n");
+        $put('pci/0000:01:00.0/aer_dev_nonfatal', "Undefined 0\nDLP 0\nTOTAL_ERR_NONFATAL $nonfatal\n");
+        $put('pci/0000:01:00.0/aer_dev_fatal', "Undefined 0\nDLP 0\nTOTAL_ERR_FATAL $fatal\n");
+        @mkdir("$hw/drivers/nvme", 0755, true);
+        if (!is_link("$hw/pci/0000:01:00.0/driver")) {
+            symlink("$hw/drivers/nvme", "$hw/pci/0000:01:00.0/driver");
+        }
+    };
+    $throttle = function (int $core, int $pkg) use ($put): void {
+        $put('cpus/cpu0/thermal_throttle/core_throttle_total_time_ms', "$core\n");
+        $put('cpus/cpu0/thermal_throttle/package_throttle_total_time_ms', "$pkg\n");
+        $put('cpus/cpu1/thermal_throttle/core_throttle_total_time_ms', "0\n");
+    };
+    $taint = fn (int $n) => $put('tainted', "$n\n");
+    $book = [];
+    $bootA = 'aaaaaaaa-1111-2222-3333-444444444444';
+    $bootB = 'bbbbbbbb-1111-2222-3333-444444444444';
+    $round = function (int $now, string $boot, bool $day = true, ?int $btime = null) use (&$book, $paths): array {
+        $p = $day ? $paths : array_diff_key($paths, ['hw_file' => 1]);
+        return watchmanHwRound($p, watchmanHwLook($p['hw']), $boot, $btime, false, $now, $book);
+    };
+    $anew = function () use (&$book, $paths, $hw): void {        // a scenario of its own: no RAM, no hw.json, an empty book, no tree
+        $book = [];
+        @unlink($paths['hw']['ram']);
+        @unlink($paths['hw_file']);
+        exec('rm -rf ' . escapeshellarg($hw));
+    };
+    $entry = function (string $key) use (&$book): ?array {
+        return array_values(array_filter($book, fn ($e) => $e['key'] === $key && watchmanOpen($e)))[0] ?? null;
+    };
+    $now = 1790000000;
+
+    // nothing there: not available, never 0
+    same('look: nothing there — every part not available (null), never 0', ['mce' => null, 'edac' => null, 'aer' => null, 'throttle' => null, 'taint' => null],
+        watchmanHwLook($paths['hw']));
+    $sum = watchmanHwSummary(watchmanHwLook($paths['hw']), null, $now);
+    same('look: … the page says so', [null, null, null, null, null], [$sum['mce'], $sum['ecc'], $sum['aer'], $sum['throttle'], $sum['kernel']]);
+    // where a look starts
+    $ram = ['v' => 1, 'boot' => $bootA, 'last' => []];
+    same('start: taken over anew — normal; this boot\'s RAM — on from it; another boot after a watch — from 0; the first look ever — normal',
+        ['look', 'ram', 'zero', 'look', 'look'],
+        [watchmanHwStart($ram, $bootA, true, null, true, null, $now), watchmanHwStart($ram, $bootA, false, ['boot' => $bootA], true, null, $now),
+         watchmanHwStart($ram, $bootB, false, ['boot' => $bootA], true, null, $now), watchmanHwStart(null, $bootA, false, null, true, null, $now),
+         watchmanHwStart(null, $bootA, false, ['boot' => $bootA], true, null, $now)]);
+    same('start: the night shift — from 0 right after a start, normal long after it (no RAM), on from this boot\'s RAM',
+        ['zero', 'look', 'ram', 'look'],
+        [watchmanHwStart(null, $bootB, false, null, false, $now - 300, $now), watchmanHwStart(null, $bootB, false, null, false, $now - 86400, $now),
+         watchmanHwStart($ram, $bootA, false, null, false, $now - 86400, $now), watchmanHwStart(null, $bootB, false, null, false, null, $now)]);
+
+    // the first look: normal, whatever the counters say
+    $irq(0);
+    $ecc(['dimm0' => [2, 0, 'DIMM_A1'], 'dimm1' => [0, 0, 'DIMM_B1']]);
+    $aer(5);
+    $throttle(1000, 2000);
+    $taint(4096 | 8192);
+    $look = watchmanHwLook($paths['hw']);
+    same('look: the counters — MCE summed over the CPUs (no THR without AMD), the modules with their labels, the device with its driver, the busiest CPU, the flags',
+        [['mce' => 0, 'thr' => null, 'dfr' => null], ['DIMM_A1', 2, 0], ['cor' => 5, 'nonfatal' => 0, 'fatal' => 0, 'driver' => 'nvme'], ['core' => 1000, 'pkg' => 2000], 12288],
+        [$look['mce'], [$look['edac']['mc0']['dimms']['dimm0']['label'] ?? null, $look['edac']['mc0']['ce'] ?? null, $look['edac']['mc0']['ue'] ?? null],
+         $look['aer']['0000:01:00.0'] ?? null, $look['throttle'], $look['taint']]);
+    [$a, $s] = $round($now, $bootA);
+    same('first look: nothing told, counted from here; this boot in RAM, his hw.json names it', [[], 'look', true, $bootA],
+        [$a, $s['start'], is_file($paths['hw']['ram']), readJson($paths['hw_file'])['boot'] ?? null]);
+    // machine checks: MCP grows by itself — never; MCE: any rise, told
+    $irq(0, 999);
+    same('machine checks: the routine polls (MCP) grow — nothing', [], $round($now + 300, $bootA)[0]);
+    $irq(1);
+    same('machine checks: one — hw_mce, told (its kind), one entry per boot', [['hw_mce'], true, 'MCE 1'],
+        [$round($now + 600, $bootA)[0], watchmanImportant($entry('hw_mce:aaaaaaaa') ?? []), watchmanHwText($entry('hw_mce:aaaaaaaa') ?? ['kind' => 'hw_mce'])['counts'] ?? null]);
+    $irq(3, 999, 2);
+    same('machine checks: more (and AMD\'s THR) — the open entry brought up to date', [[], 'MCE 3 · THR 2'],
+        [$round($now + 900, $bootA)[0], watchmanHwText($entry('hw_mce:aaaaaaaa') ?? [])['counts'] ?? null]);
+    // memory errors
+    $ecc(['dimm0' => [5, 0, 'DIMM_A1'], 'dimm1' => [0, 0, 'DIMM_B1']]);
+    $a = $round($now + 1200, $bootA)[0];
+    $e = $entry('hw_ecc:aaaaaaaa:mc0/dimm0');
+    same('memory: three corrected on a module — a quiet line with its name and the day\'s count', [['hw_ecc'], false, 3, 'DIMM_A1 (mc0/dimm0)', null],
+        [$a, watchmanImportant($e ?? []), $e['p']['day'] ?? null, watchmanHwText($e ?? [])['where'] ?? null, watchmanHwVariant($e ?? [])]);
+    $ecc(['dimm0' => [12, 0, 'DIMM_A1'], 'dimm1' => [0, 0, 'DIMM_B1']]);
+    $a = $round($now + 1500, $bootA)[0];
+    same('memory: ten in a day on one module — the same entry, told now', [[], true, 10], [$a, watchmanImportant($entry('hw_ecc:aaaaaaaa:mc0/dimm0') ?? []),
+        $entry('hw_ecc:aaaaaaaa:mc0/dimm0')['p']['day'] ?? null]);
+    $ecc(['dimm0' => [12, 0, 'DIMM_A1'], 'dimm1' => [0, 1, 'DIMM_B1']]);
+    $a = $round($now + 1800, $bootA)[0];
+    $e = $entry('hw_ecc:aaaaaaaa:mc0/dimm1');
+    same('memory: one not corrected — told at once, its own words', [['hw_ecc'], true, 'hw_ecc_ue'], [$a, watchmanImportant($e ?? []), watchmanHwVariant($e ?? [])]);
+    $ecc(['dimm0' => [12, 0, 'DIMM_A1'], 'dimm1' => [0, 1, 'DIMM_B1']], 4);
+    $a = $round($now + 2100, $bootA)[0];
+    same('memory: what the controller counted beyond its modules — on the controller, by its name', [['hw_ecc'], 'ie31200 (mc0)', 4],
+        [$a, watchmanHwText($entry('hw_ecc:aaaaaaaa:mc0') ?? [])['where'] ?? null, $entry('hw_ecc:aaaaaaaa:mc0')['p']['day'] ?? null]);
+    $ecc(['dimm0' => [13, 0, 'DIMM_A1'], 'dimm1' => [0, 1, 'DIMM_B1']], 4);
+    $round($now + 86400, $bootA);
+    same('memory: a new day counts from 0', ['d' => date('Y-m-d', $now + 86400), 'ce' => ['mc0/dimm0' => 1]], readJson($paths['hw']['ram'])['day'] ?? null);
+    // a counter lower within a boot (EDAC's reset_counters, a driver reloaded): from 0 on — no negative, nothing
+    $ecc(['dimm0' => [0, 0, 'DIMM_A1'], 'dimm1' => [0, 0, 'DIMM_B1']]);
+    $n = count($book);
+    same('memory: counters reset within a boot — nothing, no entry', [[], $n], [$round($now + 86700, $bootA)[0], count($book)]);
+
+    // a reboot: the counters at 0 are no drop; what counts after it is news
+    $irq(0);
+    same('reboot: a new boot, every counter at 0 — counted from 0, nothing told, its boot in his hw.json', [[], 'zero', $bootB],
+        [($r = $round($now + 90000, $bootB))[0], $r[1]['start'], readJson($paths['hw_file'])['boot'] ?? null]);
+    $irq(1);
+    same('reboot: a machine check after it — a new entry of this boot', [['hw_mce'], true], [$round($now + 90300, $bootB)[0], $entry('hw_mce:bbbbbbbb') !== null]);
+    $irq(2);
+    $put('../ram/x', '');
+    $book = [];
+    same('reboot: counters not at 0 at a new boot\'s first look (after a watch) — since the start, so told', [['hw_mce'], 'zero'],
+        [($r = $round($now + 95000, 'cccccccc-0000'))[0], $r[1]['start']]);
+
+    // PCIe: corrected ones above 100 an hour quiet, once an hour; not correctable told
+    $anew();
+    $aer(5);
+    $round($now, $bootA);
+    $aer(55);
+    same('PCIe: 50 corrected in the hour — nothing', [], $round($now + 300, $bootA)[0]);
+    $aer(110);
+    $a = $round($now + 600, $bootA)[0];
+    $e = $entry('hw_aer:aaaaaaaa:0000:01:00.0');
+    same('PCIe: 105 in the hour — a quiet line, with the device and its driver', [['hw_aer'], false, 105, '0000:01:00.0 (nvme)', null],
+        [$a, watchmanImportant($e ?? []), $e['p']['hour'] ?? null, watchmanHwText($e ?? [])['dev'] ?? null, watchmanHwVariant($e ?? [])]);
+    $book = array_map(fn (array $x): array => ['noted' => $now + 600, 'by' => 'page'] + $x, $book);
+    $aer(200);
+    same('PCIe: noted, the burst goes on — not again within the hour', [], $round($now + 900, $bootA)[0]);
+    $aer(400);
+    same('PCIe: an hour after the note, still bursting — once more', ['hw_aer'], $round($now + 4500, $bootA)[0]);
+    $aer(400, 1);
+    $a = $round($now + 4800, $bootA)[0];
+    $e = $entry('hw_aer:aaaaaaaa:0000:01:00.0');
+    same('PCIe: one not correctable — the open entry told, its own words', [[], true, 'hw_aer_bad', 1], [$a, watchmanImportant($e ?? []), watchmanHwVariant($e ?? []),
+        watchmanHwText($e ?? [])['bad'] ?? null]);
+
+    // the CPU slowed down for heat
+    $anew();
+    $throttle(1000, 2000);
+    $round($now, $bootA);
+    $throttle(31000, 2000);
+    same('throttle: half a minute in the hour — nothing', [], $round($now + 300, $bootA)[0]);
+    $throttle(71000, 2000);
+    $a = $round($now + 600, $bootA)[0];
+    $e = $entry('hw_throttle:aaaaaaaa');
+    same('throttle: 70 s in the hour — a quiet line', [['hw_throttle'], false, ['minutes' => 1, 'total' => 1]], [$a, watchmanImportant($e ?? []), $e['p'] ?? null]);
+
+    // the kernel's flags since this boot's first look
+    $anew();
+    $taint(4096 | 8192);
+    $round($now, $bootA);
+    $taint(4096 | 8192 | 512);
+    $a = $round($now + 300, $bootA)[0];
+    $e = $entry('hw_kernel:aaaaaaaa');
+    same('kernel: a warning — a quiet line (Unraid\'s own O and E never)', [['hw_kernel'], false, ['W'], 'hw_kernel_warn'],
+        [$a, watchmanImportant($e ?? []), $e['p']['flags'] ?? null, watchmanHwVariant($e ?? [])]);
+    same('kernel: the same flags next round — nothing', [], $round($now + 600, $bootA)[0]);
+    $taint(4096 | 8192 | 512 | 128);
+    $a = $round($now + 900, $bootA)[0];
+    $e = $entry('hw_kernel:aaaaaaaa');
+    same('kernel: it died (D) — the open entry told, the worst flag first', [[], true, ['D', 'W'], null], [$a, watchmanImportant($e ?? []), $e['p']['flags'] ?? null,
+        watchmanHwVariant($e ?? [])]);
+    $book = array_map(fn (array $x): array => ['noted' => $now + 900] + $x, $book);
+    same('kernel: noted, the flags stay until the next start — nothing more', [], $round($now + 1200, $bootA)[0]);
+    $taint(4096 | 8192 | 512 | 128 | 16384);
+    same('kernel: a CPU stuck (L) — a new entry, told', [['hw_kernel'], ['D', 'L', 'W']], [$round($now + 1500, $bootA)[0], $entry('hw_kernel:aaaaaaaa')['p']['flags'] ?? null]);
+
+    // the night shift and the day share this boot's counters: nothing told twice across an array stop
+    $anew();
+    $irq(0);
+    $round($now, $bootA);
+    $irq(1);
+    same('night: the day tells a machine check', ['hw_mce'], $round($now + 300, $bootA)[0]);
+    $irq(2);
+    $book = [];             // the night's own book
+    same('night: the night shift tells the next one (its book), without the pool', [['hw_mce'], $bootA], [$round($now + 600, $bootA, false, $now - 86400)[0],
+        readJson($paths['hw_file'])['boot'] ?? null]);
+    same('night: the day after it — nothing twice', [], $round($now + 900, $bootA)[0]);
+    @unlink($paths['hw']['ram']);
+    $book = [];
+    same('night: a night shift long after the start without the RAM file — normal', [[], 'look'], [($r = $round($now + 1200, $bootB, false, $now - 86400))[0], $r[1]['start']]);
+    @unlink($paths['hw']['ram']);
+    same('night: right after a start — every count since it is news', [['hw_mce'], 'zero'], [($r = $round($now + 1500, $bootB, false, $now + 1000))[0], $r[1]['start']]);
+
+    // the area's light
+    $base = ['time' => $now, 'hired' => true, 'on_watch' => $now - 86400, 'round' => ['last' => $now - 60], 'book' => []];
+    $light = function (array $change) use ($base): array {
+        $a = watchmanCats(array_replace($base, $change))['areas']['hw'];
+        return [$a['level'], $a['why']];
+    };
+    $good = ['time' => $now - 60, 'mce' => ['mce' => 0, 'thr' => null, 'dfr' => null], 'ecc' => ['ce' => 0, 'ue' => 0, 'modules' => 2, 'controllers' => 1]];
+    same('light: grey before his first look; green; no ECC counters: green with «!»; a look over an hour old: yellow; an important entry open: red',
+        [['none', ['hw_never']], ['ok', []], ['note', ['hw_no_ecc']], ['warn', ['hw_silent']], ['danger', ['open_tell']], ['warn', ['open']]],
+        [$light([]), $light(['hw' => $good]), $light(['hw' => ['ecc' => null] + $good]), $light(['hw' => ['time' => $now - 7200] + $good]),
+         $light(['hw' => $good, 'book' => [['id' => 'x', 'kind' => 'hw_mce', 'time' => $now, 'last' => $now, 'open' => true, 'tell' => true]]]),
+         $light(['hw' => $good, 'book' => [['id' => 'x', 'kind' => 'hw_throttle', 'time' => $now, 'last' => $now, 'open' => true, 'tell' => false]]])]);
+
+    // no chain: a machine check beside a new login is no incident (a flash change beside it is)
+    $login = ['noted' => null] + watchmanEntry('login_new_ip', 'ip:203.0.113.9', $now, ['ip' => '203.0.113.9']);
+    $mce = ['important' => true] + watchmanEntry('hw_mce', 'hw_mce:aaaaaaaa', $now + 60, ['mce' => 1]);
+    $go = watchmanEntry('flash_go', 'flash_go', $now + 60, []);
+    same('chains: a machine check never joins one — a flash change does', [0, 1], [count(watchmanChains([$login, $mce], $now + 120)), count(watchmanChains([$login, $go], $now + 120))]);
+
+    // the words: every kind and variant in five languages, nothing left unfilled
+    $samples = [['kind' => 'hw_mce', 'p' => ['mce' => 2, 'thr' => 1, 'dfr' => 0]], ['kind' => 'hw_ecc', 'p' => ['where' => 'mc0/dimm0', 'label' => 'DIMM_A1', 'ce' => 12, 'ue' => 0, 'day' => 10]],
+        ['kind' => 'hw_ecc', 'p' => ['where' => 'mc0/dimm1', 'label' => '', 'ce' => 0, 'ue' => 1, 'day' => 0]],
+        ['kind' => 'hw_aer', 'p' => ['dev' => '0000:01:00.0', 'driver' => 'nvme', 'cor' => 400, 'nonfatal' => 0, 'fatal' => 0, 'hour' => 200]],
+        ['kind' => 'hw_aer', 'p' => ['dev' => '0000:01:00.0', 'driver' => '', 'cor' => 400, 'nonfatal' => 1, 'fatal' => 1, 'hour' => 0]],
+        ['kind' => 'hw_throttle', 'p' => ['minutes' => 3, 'total' => 40]]];
+    foreach (array_keys(WATCH_HW_TAINT) as $f) {
+        $samples[] = ['kind' => 'hw_kernel', 'p' => ['flags' => [$f, 'W']]];
+    }
+    $left = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
+        foreach ($samples as $x) {
+            $params = ['n' => 2] + watchmanHwText($x);
+            foreach ([watchmanEntryKey($x), "check.{$x['kind']}", "notify.{$x['kind']}", "fold.{$x['kind']}"] as $key) {
+                $text = officeNotifyText('watchman', $key, $params, $lang);
+                if ($text === $key || preg_match('/\{[a-z_]+\}/', $text)) {
+                    $left[] = "$lang $key: $text";
+                }
+            }
+        }
+    }
+    same('words: every kind and shape (memory and PCIe not corrected, each of the kernel\'s flags) in five languages, every placeholder filled', [], $left);
+    same('words: the shapes — the kernel\'s worst flag', ['hw_kernel', 'hw_kernel_page', 'hw_kernel_mce', 'hw_kernel_lockup', 'hw_kernel_warn'],
+        array_map(fn ($f) => watchmanEntryKey(['kind' => 'hw_kernel', 'p' => ['flags' => [$f]]]), array_keys(WATCH_HW_TAINT)) === ['entry.hw_kernel', 'entry.hw_kernel_page',
+        'entry.hw_kernel_mce', 'entry.hw_kernel_lockup', 'entry.hw_kernel_warn'] ? ['hw_kernel', 'hw_kernel_page', 'hw_kernel_mce', 'hw_kernel_lockup', 'hw_kernel_warn'] : null);
+
+    // a whole round: the night shift's places keep the hardware (RAM) but not his hw.json (the pool); the entries in book-more.json
+    check('night paths: the hardware yes (RAM), his hw.json no (the pool)', isset(watchmanNightPaths()['hw']) && !isset(watchmanNightPaths()['hw_file']));
+    $anew();
+    $src = "$tmp/src";
+    $data = "$tmp/round";
+    foreach (['plugins', 'extra', 'ssh/root'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $rp = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+           'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini", 'share_cfg' => "$src/share.cfg",
+           'etc_passwd' => "$src/passwd", 'boot_id' => "$src/boot_id", 'stat' => "$src/stat", 'hw' => $paths['hw'], 'hw_file' => "$data/hw.json"];
+    file_put_contents($rp['syslog'], '');
+    file_put_contents($rp['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    foreach (['go', 'shadow', 'sec', 'sec_nfs', 'share_cfg'] as $k) {
+        file_put_contents($rp[$k], '');
+    }
+    file_put_contents($rp['boot_id'], "$bootA\n");
+    file_put_contents($rp['stat'], 'btime ' . ($now - 86400) . "\n");
+    $irq(0);
+    $ecc(['dimm0' => [0, 0, 'DIMM_A1']]);
+    watchmanRound($rp, $data, 1000, $now, fn () => [], false);
+    $irq(1);
+    $r = watchmanRound($rp, $data, 1000, $now + 300, fn () => [], false);
+    $page = watchmanPageState($data, $now + 310, false);
+    $mine = array_values(array_filter($page['book'], fn ($e) => $e['kind'] === 'hw_mce'))[0] ?? [];
+    same('round: a machine check — added, told, his page\'s part and light, the entry\'s area, no technique',
+        [['hw_mce'], ['hw_mce'], 1, 1, 'danger', 'hw', true],
+        [$r['added'], array_column($r['told'], 'kind'), $page['hw']['mce']['mce'] ?? null, $page['hw']['ecc']['modules'] ?? null, $page['cats']['hw']['level'] ?? null,
+         $mine['cat'] ?? null, array_key_exists('attack', $mine) && $mine['attack'] === null]);
+    same('round: the entry in book-more.json, never in book.json (an office before 1.96 never sees it)', [['hw_mce'], []],
+        [array_column(readJson("$data/book-more.json")['entries'] ?? [], 'kind'),
+         array_values(array_filter(array_column(readJson("$data/book.json")['entries'] ?? [], 'kind'), fn ($k) => str_starts_with($k, 'hw_')))]);
+    hardeningRm($tmp);
+}
+
+/**
+ * The hardware's kinds in book-more.json (1.96 steps 9–11; the split itself: testWatchmanBookMore): every hardware kind is in
+ * WATCH_KINDS_MORE, and every kind an office of 1.95 doesn't know too (the kinds of 1.95 held here) — else an older office
+ * would drop it from book.json; a hardware entry lands there and reads back; the night shift begins from the mirror with
+ * the open hardware entry and without a stale book-more.json of an earlier night.
+ */
+function testWatchmanHwBookMore(): void
+{
+    // the kinds an office of 1.95 knows (v1.95.5's WATCH_KINDS) — a kind not among them lives in book-more.json
+    $old = ['login_new_ip', 'login_failures', 'container_new', 'container_privileged', 'container_host', 'container_ports', 'container_rights', 'drill_throwaway',
+        'plugin_new', 'plugin_source', 'flash_go', 'flash_extra', 'flash_user', 'flash_password', 'flash_ssh_key', 'share_public', 'cron_new', 'cron_twice',
+        'cron_office', 'cron_file', 'cron_file_foreign', 'script_new', 'script_changed', 'at_job', 'at_userscript', 'at_plugin', 'notify_agent', 'flow_client',
+        'flow_container', 'flow_written', 'flow_gone', 'smb_user', 'smb_client', 'smb_hour', 'snap_gone', 'snap_hold_released', 'kopia_emptied', 'log_cleared',
+        'user_ram', 'listen_new', 'proc_odd', 'door_new', 'api_key_new', 'api_key_changed', 'array_stop', 'array_start', 'server_boot', 'parity_check',
+        'partner_paired', 'door_changed', 'door_key_moved', 'door_refused', 'net_sender_new', 'net_new_device', 'net_spoof', 'net_router_login',
+        'net_firewall_change', 'net_router_config', 'net_vpn_login', 'net_ips_server', 'net_blocked_from_server', 'net_log_silent', 'net_router_login_failures',
+        'net_link_down', 'net_outage', 'net_router_reboot'];
+    $more = array_values((array) json_decode((string) json_encode(WATCH_KINDS_MORE), true));
+    $hw = array_keys(array_filter(WATCH_KINDS, fn ($k) => $k[0] === 'hw'));
+    same('hw book more: every hardware kind in WATCH_KINDS_MORE; every kind not of 1.95 there, none of 1.95, none it doesn\'t have', [[], [], [], []],
+        [array_values(array_diff($hw, $more)), array_values(array_diff(array_keys(WATCH_KINDS), $old, $more)), array_values(array_intersect($old, $more)),
+         array_values(array_diff($more, array_keys(WATCH_KINDS)))]);
+    $tmp = hardeningTmp('watch-hw-bookmore');
+    $now = 1790000000;
+    $login = watchmanEntry('login_new_ip', 'ip:203.0.113.9', $now, ['ip' => '203.0.113.9']);
+    $mce = watchmanEntry('hw_mce', 'hw_mce:aaaaaaaa', $now + 1, ['mce' => 1]);
+    watchmanSave("$tmp/a", ['book' => []], ['book' => [$login, $mce]]);
+    same('hw book more: a machine check to book-more.json, the login to book.json — read as one', [['login_new_ip'], ['hw_mce'], [$login['id'], $mce['id']]],
+        [array_column(readJson("$tmp/a/book.json")['entries'], 'kind'), array_column(readJson("$tmp/a/book-more.json")['entries'], 'kind'),
+         array_column(watchmanLoad("$tmp/a")['book'], 'id')]);
+    // the night shift: the mirror carries the open hardware entry, its RAM book begins without a stale book-more.json
+    $night = "$tmp/night";
+    @mkdir($night, 0700, true);
+    file_put_contents("$night/book-more.json", jsonEncode(['entries' => [watchmanEntry('hw_ecc', 'stale', $now, [])]]));
+    $d = watchmanLoad("$tmp/a") + ['seen' => null, 'net' => null];
+    $d['baseline'] = ['hired' => 1000, 'time' => $now];
+    writeAtomic("$tmp/mirror.json", jsonEncode(watchmanMirror($d, 'boot-x', $now, false)), 0600, 0, 0);
+    $begun = watchmanNightBegin([], $night, $now, "$tmp/mirror.json", null, 'boot-x');
+    same('hw book more: the night begun from the mirror — the open machine check with it (once), no stale book-more.json', ['ram', [$login['id'], $mce['id']], false],
+        [$begun['from'] ?? null, array_column(watchmanLoad($night)['book'], 'id'), is_file("$night/book-more.json")]);
+    hardeningRm($tmp);
+}
+
+/**
  * The night watchman: his login lines, bursts of failures, the syslog by
  * offset and rotation, rights and plugin sources, and a whole watch on copies
  * — taking over (nothing reported), a night with changes (one entry each,
@@ -29867,9 +30206,11 @@ function testWatchmanHost(): void
     $on = array_merge($off, ['notify' => true]);        // a variable: the state goes by reference
     same('chains: with the reports off never told, also not later', [[], []], [$quiet, watchmanChainsDue($cb, $on, $now + 21300, true, 'en')]);
     putenv('OFFICE_NOTIFY_BIN');
-    same('attack: every kind has its technique, in ATT&CK\'s shape', [[], []],
-        [array_values(array_diff(array_keys(WATCH_KINDS), array_keys(WATCH_ATTACK))),
-         array_values(array_filter(WATCH_ATTACK, fn ($t) => !preg_match('/^T\d{4}(\.\d{3})?$/D', $t)))]);
+    // the hardware's kinds (1.96, watchman-hw.php) are no attack: none (concept 11.4)
+    $hwKinds = array_keys(array_filter(WATCH_KINDS, fn ($k) => $k[0] === 'hw'));
+    same('attack: every kind has its technique, in ATT&CK\'s shape — the hardware\'s none', [[], [], []],
+        [array_values(array_diff(array_keys(WATCH_KINDS), array_keys(WATCH_ATTACK), $hwKinds)),
+         array_values(array_filter(WATCH_ATTACK, fn ($t) => !preg_match('/^T\d{4}(\.\d{3})?$/D', $t))), array_values(array_intersect($hwKinds, array_keys(WATCH_ATTACK)))]);
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -67641,7 +67982,7 @@ function testSkipPlaces(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackPlan', 'testJackNoPython', 'testJackRun', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testWatchWakesPage', 'testWatchmanWakes', 'testWatchmanWakeTrail', 'testMetrics', 'testWatchmanCats', 'testWatchmanBookMore', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testWatchWakesPage', 'testWatchmanWakes', 'testWatchmanWakeTrail', 'testMetrics', 'testWatchmanCats', 'testWatchmanHw', 'testWatchmanBookMore', 'testWatchmanHwBookMore', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testMigrateWakes', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics', 'testReportDialogOwnWords', 'testReportDialogDesk',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testBackupRunEnded', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanAtLeft', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testSkipPlaces', 'testCleanupSkipGreeting', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],

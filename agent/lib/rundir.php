@@ -78,6 +78,7 @@ const RUNDIR_FILES = [
     'watchman-mirror\.json|watchman-hold\.json|watchman-flow-[0-9a-f]{8}\.json' => ['max' => 1 << 20, 'bound' => 'the mirror\'s caps; ≤ 5 per thing; ≤ WATCH_FLOW_CONNS 5000 connections', 'gone' => 'rewritten'],
     'watchman-round\.err|watchman-hold\.err|logs-tour\.err' => ['max' => 65536, 'bound' => 'one run\'s stderr: a fatal error\'s lines (a child of the agent; warnings never reach stderr on Unraid\'s php.ini)', 'gone' => 'truncated at the next run'],
     'logs-flood\.json|logs-flood-catch\.json' => ['max' => 1 << 20, 'bound' => '11 × 300 files', 'gone' => 'rewritten / at its end'],
+    'watchman-hw\.json'           => ['max' => 1 << 20, 'bound' => 'one boot\'s hardware counters: ≤ 16 controllers × 64 modules, 512 PCIe devices; 16 samples of the non-zero ones', 'gone' => 'rewritten every round; a reboot; his let-go'],
     'watchman-wakes\.json|watchman-wake-names\.json' => ['max' => 1 << 20, 'bound' => 'the disks\' sleep (a line each); names for WATCH_WAKE_MAX 1000 wakes', 'gone' => 'rewritten / at its end; the array\'s stop'],
     'templates'                   => ['max' => 1 << 20, 'bound' => 'the catalog\'s templates the Consultant prepared (a few KB each)', 'gone' => 'rewritten'],
     'advisor-plugin(?:\.(?:json|out|done))?' => ['max' => 262144, 'bound' => 'one plugin install\'s output (Unraid\'s installer: its lines, read back to the last 32 KB)', 'gone' => 'at the next install'],
