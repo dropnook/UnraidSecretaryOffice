@@ -167,6 +167,8 @@
   --fan-flow:color-mix(in srgb, var(--ink) 22%, transparent);
   display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 360px), 1fr)); align-items:start; gap:14px; min-width:0;
 }
+/* opts.stacks: the zones in columns, each a stack of its own (masonry: each zone in the shortest one), the grid's gap between them */
+.fan-stack{display:flex; flex-direction:column; gap:inherit; min-width:0}
 .fan-zone{border:1px solid var(--line2); border-radius:8px; background:var(--surface); padding:10px 12px 12px; min-width:0}
 .fan-zone-head{display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; margin:0 0 8px}
 .fan-zone-name{margin:0; font-size:14px; font-weight:600; color:var(--ink)}

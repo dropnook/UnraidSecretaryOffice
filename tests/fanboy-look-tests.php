@@ -115,7 +115,7 @@ function testFanboyLookKeys(): void
     // sizes (2026-11-20, the owner: «ja einschalten»): the overview's picture by the fans' sizes; the tile's symbols too,
     // inside their box (140 mm and up fill it, smaller ones less) — the rows never move
     check('fanboy look keys: the overview draws each wheel by its fan\'s size; the Dashboard tile scales the symbol inside its fixed box',
-        str_contains($js, "PIC_PX_PHONE : PIC_PX, sized: true });") && str_contains($dash, ":Math.min(' . FANBOY_DASH_SYM_PX . ',Math.round(' . FANBOY_DASH_SYM_PX . '*(28+0.3*(+f.mm||120))/70));")
+        str_contains($js, "PIC_PX_PHONE : PIC_PX, sized: true,") && str_contains($dash, ":Math.min(' . FANBOY_DASH_SYM_PX . ',Math.round(' . FANBOY_DASH_SYM_PX . '*(28+0.3*(+f.mm||120))/70));")
         && str_contains($dash, "\$k = number_format(min(1, (28 + 0.3 * (int) \$a['mm']) / 70), 2, '.', '');")      // a card's wheel (2026-11-21): the same share of its box
         && str_contains($dash, 'sso-fb-sym{flex:none;display:flex;align-items:center;justify-content:center;width:'));
     // 2026-11-20 (the owner: struts behind turning blades make one dizzy): turning more than slowly, the struts (and a
@@ -294,4 +294,53 @@ JS);
     $artJs = (string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/fan-art.js');
     check('fanboy tip air: the opening\'s shade starts at 0.97 of its radius — the air ring at the tips stays as light as between the blades',
         str_contains($artJs, "[[0, 'fan-gs-0'], [0.97, 'fan-gs-0'], [1, 'fan-gs-1']]") && !str_contains($artJs, "[0.84, 'fan-gs-0']"));
+}
+
+/**
+ * The zones in columns (2026-11-22, the owner: the overview's «Aktuell» left a big empty space under a short zone beside a
+ * tall one, the next zone only under the tall one): fan-art.js server()'s opts.stacks — each zone into the column that is
+ * shortest so far, ties the leftmost (the first ones left to right); placed when drawn, resized or when the zones change,
+ * never on the values' refresh; the BIOS's group aside, one column on a phone
+ */
+function testFanboyZoneStacks(): void
+{
+    $art = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/fan-art.js');
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    $css = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.css');
+    $artCss = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/fan-art.css');
+    check('fanboy zone stacks: the overview\'s picture asks for columns (two, one on a phone at desk.css\'s 760 px), the BIOS\'s group aside',
+        str_contains($js, "stacks: picCols, aside: (z) => z.id === '_bios' });") && str_contains($js, "matchMedia('(max-width:760px)').matches ? 1 : Math.max(1, Math.min(2, picMine))")
+        && str_contains($css, '@media (max-width:760px)'));
+    check('fanboy zone stacks: placed anew only when the zones or the columns change (the key) or the width does (a ResizeObserver) — a refresh puts each where it stood',
+        str_contains($art, "const key = `\${n}|\${main.map((b) => b.zid).join('\\u0001')}`;") && str_contains($art, 'if (measure || key !== laid.key) {')
+        && str_contains($art, 'if (!w || (w === width && laid.key)) return;') && str_contains($art, 'if (watch) watch.disconnect();'));
+    check('fanboy zone stacks: a column is a flex stack with the grid\'s gap; the BIOS\'s group in the first row of its own column (no rows to span any more)',
+        str_contains($artCss, '.fan-stack{display:flex; flex-direction:column; gap:inherit; min-width:0}')
+        && str_contains($css, '.fb-server .fan-zone[data-id="_bios"]{grid-column:-2; grid-row:1}') && !str_contains($css . $js, 'fb-rows'));
+    $node = testsNode();
+    if ($node === '') {
+        check('fanboy zone stacks: node is missing here - the placement skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('fanboy-zone-stacks');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.window = globalThis;
+globalThis.document = { currentScript: null, addEventListener() {}, getElementById: () => null, hidden: false };
+new Function(fs.readFileSync(process.argv[2], 'utf8'))();
+const m = window.FanArt.masonry;
+console.log(JSON.stringify({
+  owner: m([261, 1059, 295], 2, 16),          // Disks short, Gehäuse tall, CPU: under Disks
+  ties: m([100, 100, 100, 100], 2, 16),       // even: left to right, row by row
+  pixel: m([100, 100.6, 50], 2, 16),          // within a pixel counts as even: the leftmost
+  tall: m([500, 100, 100, 100, 100], 2, 10),  // the shorter column takes them until it is the taller
+  three: m([300, 100, 100, 100], 3, 0),
+  one: m([10, 20, 30], 1, 16),
+  none: m([], 2, 16), odd: m(null, 0, -5),
+}));
+JS);
+    $o = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/fanboy/fan-art.js') . ' 2>&1'), true);
+    same('fanboy zone stacks: each into the shortest column so far, ties (within a pixel) the leftmost — the owner\'s three zones: CPU under Disks beside Gehäuse',
+        ['owner' => [0, 1, 0], 'ties' => [0, 1, 0, 1], 'pixel' => [0, 1, 0], 'tall' => [0, 1, 1, 1, 1], 'three' => [0, 1, 2, 1], 'one' => [0, 0, 0], 'none' => [], 'odd' => []], $o);
+    hardeningRm($tmp);
 }

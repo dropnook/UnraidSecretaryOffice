@@ -10,6 +10,7 @@
      picker(opts)              → { el, set(value), destroy() }        a fan from the catalogue, or «other fan» by hand
      catalog(url?)             → Promise<{ v, fans: [...] }>           fans-catalog.json beside this file
      turns(rpm, min, max)      → turns per second the picture shows (0, or 0.12 … 1.1, eased)
+     masonry(heights, n, gap)  → each card's column: into the shortest so far, ties the leftmost (server()'s opts.stacks)
      gap() / setGap(v)         → 'light' | 'dark': the air between the blades, one choice for every fan in this browser
      openOf(mm), tipOf(mm)     → the frame's opening (frame units 0 … 100) and the blades' tips (the rotor's -50 … 50)
      COLOURS, STATES, PLACES, KINDS, FLOWS, SIDES,                     the keys the caller may pass
@@ -78,6 +79,12 @@
                  opts.sized: true — each wheel by its fan's size around px (a 120 mm one px, an 80 mm one smaller, a 140 mm
                  one bigger: sizedPx()); off by default — the overview's picture has it on (2026-11-20, the owner)
                  opts.air: false — no air at all (the zones' and the fans')
+                 opts.stacks: () → n — the zones in n columns side by side (masonry, 2026-11-22, the owner: no empty space
+                 under a short zone beside a tall one): each zone into the column that is shortest so far (ties: the
+                 leftmost — the first ones left to right). Placed when drawn first, when the zones (their ids) or n change
+                 and when the picture's width changes — never on a refresh of the values (nothing jumps); opts.aside(zone)
+                 → true: that zone stays out of the columns, after them (the caller's CSS places it). Without stacks the
+                 zones are the root's children, as before.
 
    The curve editor (curve()):
      opts = { points: [{ t: °C, v: percent or rpm }, …] (≥ 2), unit: 'percent' | 'rpm',
@@ -793,6 +800,20 @@
     stream(m, layer, axis, sign, ZONE_STREAKS, 0.32, 2, -110, 560, 1, true);
   }
 
+  /** Masonry: each card (its height) into the column that is shortest so far — ties (within a pixel) the leftmost, so the
+      first ones stand left to right; gap: the space between two cards of a column → the column (0 … n-1) of each card */
+  function masonry(heights, n, gap) {
+    const cols = Math.max(1, Math.floor(num(n, 1)));
+    const sum = new Array(cols).fill(0);
+    const g = Math.max(0, num(gap, 0));
+    return (Array.isArray(heights) ? heights : []).map((h) => {
+      let c = 0;
+      for (let i = 1; i < cols; i++) if (sum[i] < sum[c] - 1) c = i;
+      sum[c] += (sum[c] > 0 ? g : 0) + Math.max(0, num(h, 0));
+      return c;
+    });
+  }
+
   function server(picture, opts) {
     styles();
     const o = opts || {};
@@ -800,6 +821,9 @@
     const px = num(o.px, 46);
     const root = el('div', 'fan-server');
     let wheels = new Map(), flows = new Map(), last = picture;
+    // the columns (opts.stacks): which zone stands in which, kept until the zones, their number of columns or the width change
+    const stacked = typeof o.stacks === 'function';
+    let boxes = [], laid = { key: '', at: new Map() }, width = 0;
 
     function chip(s, warm) {
       const c = el('span', `fan-src fan-k-${pick(s.kind, KINDS, 'other')}`);
@@ -823,6 +847,7 @@
       const wall = narrow.matches ? WALL.tall : WALL.wide;
       const keep = new Map(), keepFlows = new Map();
       root.replaceChildren();
+      boxes = [];
       const zones = Array.isArray(p && p.zones) ? p.zones : [];
       zones.forEach((z, zi) => {
         const zid = z.id != null ? String(z.id) : String(zi);
@@ -877,13 +902,43 @@
         for (const s of list) mid.appendChild(chip(s, s.id != null && s.id === warm));
         box.appendChild(area);
         root.appendChild(box);
+        boxes.push({ zid, box, aside: typeof o.aside === 'function' && !!o.aside(z) });
         fl.m.glide(zoneRate(fans));
       });
       for (const w of wheels.values()) w.destroy();      // fans and zones that are gone
       for (const f of flows.values()) f.m.destroy();
       wheels = keep;
       flows = keepFlows;
+      if (stacked) lay(false);
     }
+    /** The zones into their columns: measured (all in the first column, at its width) when asked or when the zones or the
+        number of columns changed; else each where it stood. Not on the page yet (no height): in reading order, one per
+        column, measured once it is there (the watch below) */
+    function lay(measure) {
+      const n = Math.max(1, Math.floor(num(o.stacks(), 1)));
+      const main = boxes.filter((b) => !b.aside), aside = boxes.filter((b) => b.aside).map((b) => b.box);
+      const key = `${n}|${main.map((b) => b.zid).join('\u0001')}`;
+      const stacks = Array.from({ length: n }, () => el('div', 'fan-stack'));
+      root.classList.add('fan-stacked');
+      root.replaceChildren(...stacks, ...aside);
+      if (measure || key !== laid.key) {
+        for (const b of main) stacks[0].appendChild(b.box);
+        const hs = main.map((b) => b.box.getBoundingClientRect().height);
+        const known = hs.length > 0 && hs.every((h) => h > 0);
+        const gap = known && window.getComputedStyle ? parseFloat(window.getComputedStyle(stacks[0]).rowGap) || 0 : 0;
+        const cols = known ? masonry(hs, n, gap) : main.map((b, i) => i % n);
+        laid = { key: known ? key : '', at: new Map(main.map((b, i) => [b.zid, cols[i]])) };
+      }
+      for (const b of main) stacks[Math.min(n - 1, laid.at.has(b.zid) ? laid.at.get(b.zid) : 0)].appendChild(b.box);
+    }
+    // the width changed (a window resized, the page's breakpoints) or the picture just came onto the page: placed anew
+    const watch = stacked && window.ResizeObserver ? new ResizeObserver(() => {
+      const w = Math.round(root.getBoundingClientRect().width);
+      if (!w || (w === width && laid.key)) return;
+      width = w;
+      lay(true);
+    }) : null;
+    if (watch) watch.observe(root);
     const turn = () => draw(last);                       // phone ↔ desk: the zones stand up or lie down
     if (narrow.addEventListener) narrow.addEventListener('change', turn);
     draw(picture);
@@ -896,6 +951,7 @@
         wheels.clear();
         flows.clear();
         if (narrow.removeEventListener) narrow.removeEventListener('change', turn);
+        if (watch) watch.disconnect();
       },
     };
   }
@@ -1506,5 +1562,5 @@
   }
 
   window.FanArt = { wheel, server, curve, picker, catalog, turns, styles, lookOf, gap, setGap, COLOURS, STATES, PLACES, KINDS, FLOWS, SIDES, LOOK_COLOURS, STYLES, SHAPES, STYLE_BLADES, HUB_KINDS,
-    openOf, tipOf };        // the opening's and the blades' tips' radius (the suite pins the air between them)
+    openOf, tipOf, masonry };        // the opening's and the blades' tips' radius (the suite pins the air between them)
 })();
