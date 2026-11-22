@@ -1636,7 +1636,9 @@ final class JackRunner
 
     public function rsyncCmd(string $src, string $dst): array
     {
-        return array_merge(['rsync'], array_map('strval', (array) $this->cfg['rsync_args']), jpTrue($this->cfg['copy_progress']) ? ['--info=progress2'] : [], [$src, $dst]);
+        // MEDIACACHE_RSYNC: the tests' stand-in (an absolute path) — PHP's proc_open with an array finds a bare name on Linux without
+        // the PATH the run was started with, so a stand-in first in PATH is never asked there; the office never sets it
+        return array_merge([($this->env['MEDIACACHE_RSYNC'] ?? '') ?: 'rsync'], array_map('strval', (array) $this->cfg['rsync_args']), jpTrue($this->cfg['copy_progress']) ? ['--info=progress2'] : [], [$src, $dst]);
     }
 
     /** run_rsync()'s start: output read as it comes; progress lines go to $onProgress, the rest is the message */
