@@ -47414,7 +47414,7 @@ ROUTER);
     check('report: … nothing of this server in it but what the preview showed', !str_contains($req['body'] ?? '', 'hazel') && !str_contains($req['body'] ?? '', $guid) && !str_contains($req['body'] ?? '', 'HomeServer'));
     same('report: … no body file left in RAM, the preview gone', [[], false], [glob("$tmp/run/*.body") ?: [], is_file($kept)]);
     $rj = json_decode((string) @file_get_contents("$tmp/office/reports.json"), true) ?? ['reports' => [[]]];
-    same('report: reports.json — its shape, 0600', [['v', 'reports', 'closed_until'], ['number', 'url', 'kind', 'title', 'desk', 'sent', 'rid'], 41, '600'],
+    same('report: reports.json — its shape, 0600 (2026-11-22: a new report told from nothing)', [['v', 'reports', 'closed_until'], ['number', 'url', 'kind', 'title', 'desk', 'sent', 'rid', 'told'], 41, '600'],
         [array_keys($rj), array_keys($rj['reports'][0] ?? []), $rj['reports'][0]['number'] ?? null, decoct(@fileperms("$tmp/office/reports.json") & 0777)]);
     same('report: … logged without its words', ['Office: sent a report (#41, bug, snapshot)'], $logged);
     $r = $send($pv, ['versions'], $t0 + 6);
@@ -48164,7 +48164,7 @@ ROUTER);
     $e10 = array_values(array_filter($rj['reports'], fn ($e) => ($e['number'] ?? 0) === 10))[0] ?? [];
     $e2 = array_values(array_filter($rj['reports'], fn ($e) => ($e['number'] ?? 0) === 2))[0] ?? [];
     same('report status: kept in reports.json (status, public, checked); the eleventh not asked, the other shape untouched',
-        [['number', 'url', 'kind', 'title', 'desk', 'sent', 'rid', 'checked', 'status', 'public'], 'seen', $t0, ['number', 'url', 'kind', 'title', 'desk', 'sent', 'rid'], ['number' => 99, 'sent' => $t0], '600'],
+        [['number', 'url', 'kind', 'title', 'desk', 'sent', 'rid', 'checked', 'status', 'public', 'answered', 'updated', 'told'], 'seen', $t0, ['number', 'url', 'kind', 'title', 'desk', 'sent', 'rid'], ['number' => 99, 'sent' => $t0], '600'],      // (2026-11-22: answered, updated, told — testReportWatch)
         [array_keys($e10), $e10['status'] ?? null, $e10['checked'] ?? null, array_keys($e2), $rj['reports'][0] ?? null, decoct(@fileperms("$tmp/office/reports.json") & 0777)]);
 
     // within the hour: nobody asked
@@ -48212,6 +48212,199 @@ ROUTER);
         && str_contains($m[0], "'-K', \$file") && str_contains($m[0], 'umask(0177)') && !str_contains($m[0], 'GUID') && str_contains($m[0], 'reportId($ctx)'));
     check('report status: the doc block names the one GET office.reports does', str_contains($src, 'office.reports {}') && str_contains($src, 'ONE GET')
         && str_contains($src, 'Nothing user-written leaves the server without the user\'s click on «Send».'));
+    hardeningRm($tmp);
+}
+
+/**
+ * The makers' news on the office's reports (2026-11-22, the owner: «the office learns it by itself and the Team Lead
+ * tells»): in the background (php agent.php job report-watch, started by the Team Lead's tick through atd) ONE GET
+ * /api/status for the whole office at most every 6 hours, for the reports not done and not older than 30 days, the same
+ * shape as the dialog's (ids and X-Office, nothing else); what changed — answered, a public issue, done — told once
+ * through officeNotify() (caretaker, report_answer, normal, #/reports); the first look at a report known before seeds
+ * silently; a failure is silent; «Your reports» shows it without a GET of its own while fresh; no inbox: nothing.
+ */
+function testReportWatch(): void
+{
+    $tmp = hardeningTmp('report-watch');
+    @mkdir("$tmp/office", 0700);
+    @mkdir("$tmp/run", 0700);
+    file_put_contents("$tmp/var.ini", "regGUID=\"0781-5583-3311-A1B2C3D4E5F6\"\n");
+    $port = 0;
+    for ($i = 0; $i < 20 && !$port; $i++) {
+        $try = random_int(20000, 40000);
+        $sock = @stream_socket_server("tcp://127.0.0.1:$try");
+        if ($sock) {
+            fclose($sock);
+            $port = $try;
+        }
+    }
+    file_put_contents("$tmp/router.php", <<<'ROUTER'
+<?php
+$dir = __DIR__;
+$n = (int) @file_get_contents("$dir/count") + 1;
+file_put_contents("$dir/count", (string) $n);
+file_put_contents("$dir/request-$n.json", json_encode(['uri' => $_SERVER['REQUEST_URI'], 'method' => $_SERVER['REQUEST_METHOD'],
+    'office' => $_SERVER['HTTP_X_OFFICE'] ?? null, 'headers' => array_keys(array_filter($_SERVER, fn ($k) => str_starts_with((string) $k, 'HTTP_'), ARRAY_FILTER_USE_KEY)),
+    'body' => file_get_contents('php://input')]));
+[$code, $body] = json_decode((string) file_get_contents("$dir/answer.json"), true);
+http_response_code($code);
+header('Content-Type: application/json');
+echo json_encode($body);
+ROUTER);
+    $answer = fn (int $code, mixed $body) => file_put_contents("$tmp/answer.json", json_encode([$code, $body]));
+    $server = proc_open([PHP_BINARY, '-d', 'auto_prepend_file=', '-S', "127.0.0.1:$port", "$tmp/router.php"], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, $tmp);
+    for ($i = 0; $i < 50 && !@fsockopen('127.0.0.1', $port); $i++) {
+        usleep(100000);
+    }
+    $told = [];
+    $ctx = ['var_ini' => "$tmp/var.ini", 'report_id_file' => "$tmp/office/report-id", 'reports' => "$tmp/office/reports.json", 'run_dir' => "$tmp/run",
+            'url' => "http://127.0.0.1:$port", 'log' => "$tmp/agent.log", 'tell' => function (array $c) use (&$told): bool { $told[] = [$c['title'], $c['kinds'], $c['public']['number'] ?? null]; return true; }];
+    $count = fn (): int => (int) @file_get_contents("$tmp/count");
+    $req = fn (int $n): array => json_decode((string) @file_get_contents("$tmp/request-$n.json"), true) ?? [];
+    $kept = fn (): array => json_decode((string) @file_get_contents("$tmp/office/reports.json"), true) ?? [];
+    $byNumber = fn (int $n): array => array_values(array_filter($kept()['reports'] ?? [], fn ($e) => ($e['number'] ?? 0) === $n))[0] ?? [];
+    $pub = 'https://github.com/dropnook/UnraidSecretaryOffice/issues/';
+    $t0 = 1764000000;
+    // known before this version (no `told`): #1 … #4 within 30 days, #5 done, #6 older than 30 days, one of another shape
+    $e = fn (int $n, int $sent, array $more = []): array => ['number' => $n, 'url' => "https://github.com/example/private-inbox/issues/$n", 'kind' => 'bug',
+        'title' => "Report $n", 'desk' => 'office', 'sent' => $sent, 'rid' => str_repeat('b', 32)] + $more;
+    file_put_contents("$tmp/office/reports.json", json_encode(['v' => 1, 'closed_until' => null, 'reports' => [['number' => 77, 'sent' => $t0],
+        $e(6, $t0 - 31 * 86400), $e(5, $t0 - 5 * 86400, ['status' => 'done', 'checked' => $t0 - 86400]), $e(1, $t0 - 4 * 86400), $e(2, $t0 - 3 * 86400), $e(3, $t0 - 2 * 86400),
+        $e(4, $t0 - 86400, ['checked' => $t0 - 1800])]]));
+
+    // when it is due
+    $j = reportsRead($ctx);
+    $nums = fn (array $idx) => array_map(fn ($i) => $j['reports'][$i]['number'], $idx);
+    same('report watch: due — the reports not done and not older than 30 days, the newest first; one looked at within the hour (the dialog) not yet',
+        [3, 2, 1], $nums(reportWatchDue($j, $t0)));
+    same('report watch: … none within 6 hours of the last background look; a clock set back counts as due', [[], [], [3, 2, 1]],
+        [$nums(reportWatchDue(['watched' => $t0 - 6 * 3600 + 1] + $j, $t0)), $nums(reportWatchDue(['watched' => $t0 - 10] + $j, $t0)), $nums(reportWatchDue(['watched' => $t0 + 3600] + $j, $t0))]);
+    // no inbox: nothing asked, nothing written
+    $before = file_get_contents("$tmp/office/reports.json");
+    same('report watch: no inbox — no GET, nothing written', [0, 0, $before], [reportWatchJob(['url' => '', 'now' => $t0] + $ctx), $count(), file_get_contents("$tmp/office/reports.json")]);
+
+    // the first look after the update: what the makers did before is seeded, nothing told
+    $answer(200, ['ok' => true, 'reports' => [
+        ['number' => 3, 'state' => 'open', 'answered' => true, 'updated' => '2026-11-20T10:00:00Z', 'public' => ['number' => 14, 'url' => "{$pub}14", 'state' => 'open']],
+        ['number' => 2, 'state' => 'closed', 'answered' => true, 'updated' => '2026-11-19T10:00:00Z', 'public' => null],
+        ['number' => 1, 'state' => 'open', 'answered' => false, 'updated' => null, 'public' => null]]]);
+    reportWatchJob(['now' => $t0] + $ctx);
+    $q = $req(1);
+    same('report watch: ONE GET /api/status — the due ones\' numbers, the report ID as X-Office, no body', [1, 'GET', '/api/status?ids=3,2,1', reportId($ctx), ''],
+        [$count(), $q['method'] ?? null, $q['uri'] ?? null, $q['office'] ?? null, $q['body'] ?? null]);
+    same('report watch: … its headers: X-Office, the User-Agent, Accept, Host — nothing else', ['HTTP_ACCEPT', 'HTTP_HOST', 'HTTP_USER_AGENT', 'HTTP_X_OFFICE'],
+        (function () use ($q) { $h = $q['headers'] ?? []; sort($h); return $h; })());
+    same('report watch: the first look seeds what was already there — nothing told; `told` and `watched` kept', [[], $t0,
+        ['answered' => true, 'updated' => '2026-11-20T10:00:00Z', 'public' => 14, 'done' => false], 'done', 'received'],
+        [$told, $kept()['watched'] ?? null, $byNumber(3)['told'] ?? null, $byNumber(2)['status'] ?? null, $byNumber(1)['status'] ?? null]);
+    same('report watch: … the other shape and the old one untouched', [['number' => 77, 'sent' => $t0], false], [$kept()['reports'][0] ?? null, isset($byNumber(6)['told'])]);
+
+    // within 6 hours: nothing asked
+    reportWatchJob(['now' => $t0 + 6 * 3600 - 1] + $ctx);
+    same('report watch: within 6 hours — no GET', 1, $count());
+    // 6 hours later: #1 answered, #4 (now due) answered anew, #3 the same — the done one (#2) no longer asked
+    $answer(200, ['ok' => true, 'reports' => [
+        ['number' => 4, 'state' => 'open', 'answered' => true, 'updated' => '2026-11-24T08:00:00Z', 'public' => null],
+        ['number' => 3, 'state' => 'open', 'answered' => true, 'updated' => '2026-11-20T10:00:00Z', 'public' => ['number' => 14, 'url' => "{$pub}14", 'state' => 'open']],
+        ['number' => 1, 'state' => 'open', 'answered' => true, 'updated' => '2026-11-24T09:00:00Z', 'public' => null]]]);
+    $t1 = $t0 + 6 * 3600;
+    reportWatchJob(['now' => $t1] + $ctx);
+    same('report watch: 6 hours later — asked: #4, #3, #1 (#2 done, no more); told: #4 seeded (first look), #1 answered; #3 nothing new',
+        ['/api/status?ids=4,3,1', [['Report 1', ['answered'], null]]], [$req(2)['uri'] ?? null, $told]);
+    // again: the same answers — never twice
+    $told = [];
+    reportWatchJob(['now' => $t1 + 6 * 3600] + $ctx);
+    same('report watch: the same answers again — nothing told twice', [3, []], [$count(), $told]);
+    // a new answer (updated moved on), a public issue linked, closed
+    $answer(200, ['ok' => true, 'reports' => [
+        ['number' => 4, 'state' => 'open', 'answered' => true, 'updated' => '2026-11-25T08:00:00Z', 'public' => null],
+        ['number' => 3, 'state' => 'closed', 'answered' => true, 'updated' => '2026-11-20T10:00:00Z', 'public' => ['number' => 15, 'url' => "{$pub}15", 'state' => 'closed']],
+        ['number' => 1, 'state' => 'closed', 'answered' => true, 'updated' => '2026-11-24T09:00:00Z', 'public' => null]]]);
+    reportWatchJob(['now' => $t1 + 12 * 3600] + $ctx);
+    same('report watch: a new answer (updated moved on), another public issue that is closed (public + done in ONE notice), closed without one (done)',
+        [['Report 4', ['answered'], null], ['Report 3', ['public', 'done'], 15], ['Report 1', ['done'], null]], $told);
+    // a report sent with this version: its first answer is news
+    $told = [];
+    $rj = $kept();
+    $rj['reports'][] = $e(8, $t1 + 13 * 3600, ['told' => REPORT_TOLD_NOTHING]);
+    file_put_contents("$tmp/office/reports.json", json_encode($rj));
+    $answer(200, ['ok' => true, 'reports' => [['number' => 8, 'state' => 'open', 'answered' => true, 'updated' => '2026-11-26T08:00:00Z', 'public' => null],
+        ['number' => 4, 'state' => 'open', 'answered' => true, 'updated' => '2026-11-25T08:00:00Z', 'public' => null]]]);
+    reportWatchJob(['now' => $t1 + 18 * 3600] + $ctx);
+    same('report watch: a report sent with this version (told from nothing) — its first answer told at once', [['Report 8', ['answered'], null]], $told);
+    // a failure: silent, tried again at the next due time, what was known stays
+    $told = [];
+    $answer(500, ['ok' => false, 'error' => 'github']);
+    $t2 = $t1 + 24 * 3600;
+    reportWatchJob(['now' => $t2] + $ctx);
+    $n = $count();
+    reportWatchJob(['now' => $t2 + 3600] + $ctx);
+    same('report watch: the Worker fails — silent, nothing told, the statuses kept, not asked again before 6 hours', [[], $n, 'seen', $t2],
+        [$told, $count(), $byNumber(8)['status'] ?? null, $kept()['watched'] ?? null]);
+    // «Your reports» right after the background look: no GET of its own, what was learnt shown
+    $n = $count();
+    $list = reportsAnswer(['now' => $t2 + 600] + $ctx);
+    same('report watch: «Your reports» within the hour of the background look — no GET, its statuses and public issue shown', [$n, 'done', ['number' => 15, 'url' => "{$pub}15"], 'seen'],
+        [$count(), array_column($list['reports'], null, 'title')['Report 3']['status'] ?? null, array_column($list['reports'], null, 'title')['Report 3']['public'] ?? null,
+         array_column($list['reports'], null, 'title')['Report 8']['status'] ?? null]);
+    // the dialog's own look learns news first: kept as told without telling (the user is looking) — the background tells nothing then
+    $answer(200, ['ok' => true, 'reports' => [['number' => 8, 'state' => 'open', 'answered' => true, 'updated' => '2026-11-27T08:00:00Z', 'public' => ['number' => 20, 'url' => "{$pub}20", 'state' => 'open']],
+        ['number' => 4, 'state' => 'open', 'answered' => true, 'updated' => '2026-11-25T08:00:00Z', 'public' => null]]]);
+    reportsAnswer(['now' => $t2 + 2 * 3600] + $ctx);
+    reportWatchJob(['now' => $t2 + 6 * 3600 + 1] + $ctx);
+    same('report watch: news the dialog saw first — never told afterwards', [[], 20], [$told, $byNumber(8)['told']['public'] ?? null]);
+    proc_terminate($server);
+    proc_close($server);
+
+    // the notice: the Team Lead's, normal, behind the gate, «Your reports» linked, the public issue's address
+    $bin = "$tmp/notify";
+    file_put_contents($bin, "#!/bin/bash\nprintf '%s\\n' \"\$*\" >> " . escapeshellarg("$tmp/notify.log") . "\n");
+    chmod($bin, 0755);
+    $env = [getenv('OFFICE_NOTIFY_BIN'), getenv('OFFICE_NOTIFY_STAMP')];
+    putenv("OFFICE_NOTIFY_BIN=$bin");
+    putenv("OFFICE_NOTIFY_STAMP=$tmp/notify.second");
+    try {
+        $sent = reportWatchTell(['index' => 0, 'kinds' => ['answered', 'public'], 'title' => str_repeat('Ü', 70), 'public' => ['number' => 15, 'url' => "{$pub}15"]]);
+    } finally {
+        putenv($env[0] === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN={$env[0]}");
+        putenv($env[1] === false ? 'OFFICE_NOTIFY_STAMP' : "OFFICE_NOTIFY_STAMP={$env[1]}");
+    }
+    $line = trim((string) @file_get_contents("$tmp/notify.log"));
+    check('report watch: the notice — one, normal, the public issue first (its words and address), the title cut at 60, «Your reports» linked',
+        $sent && substr_count($line, "\n") === 0 && str_contains($line, ' -i normal') && str_contains($line, 'is public: issue #15') && str_contains($line, "The public issue: {$pub}15")
+        && str_contains($line, str_repeat('Ü', 59) . '…') && !str_contains($line, str_repeat('Ü', 60)) && str_contains($line, '#/reports'), $line);
+    $de = langFile(OFFICE_WEB . '/desks/caretaker/lang/de.json');
+    same('report watch: the German words', ['Antwort auf deine Rückmeldung «{title}»', 'Deine Rückmeldung «{title}» ist öffentlich: Issue #{number}', 'Deine Rückmeldung «{title}» ist erledigt',
+        'Wo sie steht: «Deine Rückmeldungen», unter ⋯ → «Problem oder Wunsch mitteilen…».'],
+        [$de['notify.report_answered_subject'] ?? null, $de['notify.report_public_subject'] ?? null, $de['notify.report_done_subject'] ?? null, $de['notify.report_message'] ?? null]);
+    $keys = ['notify.report_answered_subject', 'notify.report_answered_description', 'notify.report_public_subject', 'notify.report_public_description',
+        'notify.report_done_subject', 'notify.report_done_description', 'notify.report_message', 'notify.report_public_link', 'nc.note.caretaker'];
+    $missing = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $f = langFile(OFFICE_WEB . "/desks/caretaker/lang/$l.json");
+        foreach ($keys as $k) {
+            if (!is_string($f[$k] ?? null) || $f[$k] === '') {
+                $missing[] = "$l:$k";
+            }
+        }
+    }
+    same('report watch: its words in all five languages', [], $missing);
+
+    // the centre, the Team Lead's tick and job, the page's link
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/report.php');
+    $ct = (string) file_get_contents(OFFICE_DIR . '/agent/desks/caretaker.php');
+    check('report watch: the notification centre — the Team Lead sends notices (normal), his row says which (nc.note.caretaker); the notice goes through officeNotify() and its gate',
+        str_contains((string) file_get_contents(OFFICE_DIR . '/agent/lib/notifycenter.php'), "'caretaker' => ['warning', 'normal']") && preg_match('/function reportWatchTell\(.*?\n\}/s', $src, $m) && str_contains($m[0], "'normal',")
+        && str_contains($m[0], "officeNotifyLink('#/reports'),\n        'caretaker',\n        'report_answer',\n    );") && !str_contains($m[0], 'false'));
+    check('report watch: the Team Lead — a look every 10 minutes whether it is due (no GET in the tick), the job through atd, the job registered',
+        preg_match('/function caretakerReportTick\(.*?\n\}/s', $ct, $m2) && str_contains($m2[0], 'REPORT_WATCH_TICK') && str_contains($m2[0], "hostLaunch('report-watch'")
+        && !str_contains($m2[0], 'reportStatusAsk') && !str_contains($m2[0], 'reportWatchJob') && str_contains($ct, "'report-watch' => fn (array \$args) => reportWatchJob()")
+        && str_contains($ct, "caretakerReportTick(\$now);") && str_contains($src, 'const REPORT_WATCH_EVERY    = 6 * 3600;') && str_contains($src, 'const REPORT_WATCH_DAYS     = 30;')
+        && str_contains($src, 'const REPORT_WATCH_TICK     = 600;'));
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    check('report watch: the page — #/reports opens the report dialog at «Your reports» over the reception',
+        str_contains($core, "if (id === 'reports' && !Office.desks.has('reports')) {") && str_contains($core, "if (CONFIG.report) Office.reportDialog('office', { yours: true });")
+        && str_contains($core, 'if (opts && opts.yours && !yours.hidden && yours.scrollIntoView) yours.scrollIntoView({ block: \'start\' });'));
     hardeningRm($tmp);
 }
 
@@ -67380,7 +67573,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanAtLeft', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testSkipPlaces', 'testCleanupSkipGreeting', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],
-          'hardening' => ['testRequestTypes', 'testRunDirLeftovers', 'testRunDirCrashLoop', 'testRunDirLink', 'testRunDirBudget', 'testRunDirAudit', 'testRunDirRunCap', 'testRunDirReport', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerGeneration', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testCleanupPurgeEnds', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
+          'hardening' => ['testRequestTypes', 'testRunDirLeftovers', 'testRunDirCrashLoop', 'testRunDirLink', 'testRunDirBudget', 'testRunDirAudit', 'testRunDirRunCap', 'testRunDirReport', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerGeneration', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testCleanupPurgeEnds', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportWatch', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords'],
           'fanboy' => ['testFanboyPublic', 'testFanboyMetrics', 'testCaretakerNewcomers', 'testFanboyNoWrite', 'testFanboyDetect', 'testFanboySituations', 'testFanboyIdentity', 'testFanboyReport', 'testFanboyHints', 'testFanboyPage',
                        'testFanboyWrite', 'testFanboyControl', 'testFanboyAlarms', 'testFanboyChipMissing', 'testFanboyBoards', 'testFanboySteps', 'testFanboyZones',

@@ -1383,6 +1383,14 @@ function route() {
   if (moved) history.replaceState(null, '', moved);
   const parts = (location.hash.replace(/^#\/?/, '') || '').split('/');
   const id = parts[0] || '';
+  // a notice's link (2026-11-22: the Team Lead tells the makers' news on a report): «Your reports» in the report
+  // dialog, over the reception — the address goes, the dialog stays
+  if (id === 'reports' && !Office.desks.has('reports')) {
+    history.replaceState(null, '', '#/');
+    route();
+    if (CONFIG.report) Office.reportDialog('office', { yours: true });
+    return;
+  }
   const sub = parts.slice(1).join('/');
   let next = Office.desks.get(id) || null;
   if (noData()) next = null;               // the array stopped: the reception says why (the address stays for later)
@@ -2758,7 +2766,7 @@ function reportError(error) {
   return Office.errorText(error);
 }
 
-Office.reportDialog = function reportDialog(deskId) {
+Office.reportDialog = function reportDialog(deskId, opts) {
   const draft = Office.storeJson('report.draft') || {};
   const desks = [['office', t('office.report_desk_office')]].concat(Office.staffInOrder().map((d) => [d.id, t(`${d.id}.name`)]));
   const want = deskId || draft.desk || 'office';
@@ -3320,7 +3328,8 @@ Office.reportDialog = function reportDialog(deskId) {
   if (!Office.agent.running) say(t('errors.agent_away'));
   title.focus();
   loadInbox();
-  loadYours();
+  // opened from a notice (#/reports): «Your reports» in view once they are there
+  loadYours().then(() => { if (opts && opts.yours && !yours.hidden && yours.scrollIntoView) yours.scrollIntoView({ block: 'start' }); });
   return dlg;
 };
 
