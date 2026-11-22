@@ -546,6 +546,8 @@ No GitHub account needed: *⋯ → Report a problem or a wish…* on any page.
 4. Nothing leaves the server before you click *Send*.
 
 It goes into the makers' private inbox on GitHub. *Your reports* shows where each one stands. 25 reports a day.
+When the makers answer, make a report a public issue or mark it done, the Team Lead tells you in Unraid's notifications
+(the office looks about every 6 hours, for reports of the last 30 days).
 
 <a name="office-report"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/report-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/report-light.png" alt="«Your reports»: a wish, built and public as Issue #14"></picture></a>
 

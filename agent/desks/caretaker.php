@@ -97,7 +97,9 @@ desk('caretaker', [
                   'partner-address' => fn (array $args) => partnerAddressJob((string) ($args[0] ?? '')),   // «Change the address…»: the look, then stored
                   'usonet-join'  => fn (array $args) => usonetJoinJob(),
                   'usonet-leave' => fn (array $args) => usonetLeaveJob(),
-                  'usonet-fetch' => fn (array $args) => usonetFetchJob()],
+                  'usonet-fetch' => fn (array $args) => usonetFetchJob(),
+                  // the office's reports: where they stand, asked in the background, news told (lib/report.php, 2026-11-22)
+                  'report-watch' => fn (array $args) => reportWatchJob()],
     'checks'  => fn () => caretakerChecks(),
     'metrics' => fn (): array => caretakerMetrics(readJson(deskFile('caretaker')), staffHired()),
 ]);
@@ -185,6 +187,7 @@ function caretakerTick(): void
     $GLOBALS['ctNextLook'] = $now + 60;
     caretakerWatchCron($now);
     caretakerPartnerTick($now);
+    caretakerReportTick($now);
     usonetTick($now);           // the USO network: a newer pinned helper fetched when usonet.sh asks for it
     if ($now - (int) ($GLOBALS['started'] ?? 0) >= CARETAKER_TOUR_AFTER && $now - (int) ($GLOBALS['ctLastScan'] ?? 0) >= CARETAKER_TOUR_EVERY) {
         $GLOBALS['ctLastScan'] = $now;          // a tour that fails isn't tried again every minute
@@ -1185,6 +1188,27 @@ function caretakerPartnerTick(int $now): void
         hostLaunch('partner-ping', [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'partner-ping']);
     } catch (Throwable $e) {
         logLine('Partner offices: the mutual watch could not be started: ' . $e->getMessage());
+    }
+}
+
+/**
+ * The office's reports (2026-11-22, the owner: the office learns the makers' news by itself and I tell it): every
+ * REPORT_WATCH_TICK a look whether the background look is due (no inbox: nothing; else a read of reports.json,
+ * reportWatchDue()) — the GET itself in its job through atd (php agent.php job report-watch), never here in the tick
+ */
+function caretakerReportTick(int $now): void
+{
+    if ($now - (int) ($GLOBALS['ctReportLook'] ?? 0) < REPORT_WATCH_TICK) {
+        return;
+    }
+    $GLOBALS['ctReportLook'] = $now;
+    if (officeFeedbackUrl() === '' || !reportWatchDue(reportsRead(), $now)) {
+        return;
+    }
+    try {
+        hostLaunch('report-watch', [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'report-watch']);
+    } catch (Throwable $e) {
+        logLine('Caretaker: the reports\' look could not be started: ' . $e->getMessage());
     }
 }
 

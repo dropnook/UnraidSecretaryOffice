@@ -29,6 +29,12 @@ declare(strict_types=1);
  *         is older than REPORT_INBOX_FRESH — nothing of this server goes along but the office's User-Agent. Nothing else
  *         asks it: only the makers need to know (the owner, 2026-10-21 — the Worker's own daily alarm, the release's and
  *         the nightly run's look). 2026-10-21: the inbox was archived, every report «failed», and nobody knew.
+ *   in the background (2026-11-22, reportWatchJob(): php agent.php job report-watch, started by the Team Lead's tick through
+ *       atd — never in the tick itself) the same GET for the reports not done and not older than REPORT_WATCH_DAYS, ONE
+ *       for the whole office at most every REPORT_WATCH_EVERY (reportWatchDue()), the same fields, nothing more. What
+ *       changed — the makers' first answer, a public issue linked, the report done — the Team Lead tells, once each
+ *       (reportStatusApply(): `told` per report, seeded silently for reports known before), through officeNotify() and its
+ *       gate (event report_answer, normal). «Your reports» shows what it learnt; within REPORT_STATUS_EVERY no GET of its own.
  * Nothing user-written leaves the server without the user's click on «Send». What goes is shown before, in full.
  *
  * The caps: REPORT_CAP_DAY reports in 24 hours per office (2026-10-09; up to 1.47 it was 2 in 7 days), checked
@@ -104,6 +110,11 @@ const REPORT_STATUS_MAX     = 10;          // «Your reports»: where the newest
 const REPORT_STATUS_EVERY   = 3600;        // … each at most once an hour …
 const REPORT_STATUS_TIMEOUT = 8;           // … in one GET of at most this many seconds
 const REPORT_STATUSES       = ['received', 'seen', 'done'];
+// 2026-11-22 (the owner: «the office learns it by itself and the Team Lead tells»): the background look
+const REPORT_WATCH_EVERY    = 6 * 3600;    // ONE GET at most this often for the whole office (the Worker's per-IP cap never near) …
+const REPORT_WATCH_DAYS     = 30;          // … for its reports not done and not older than this many days …
+const REPORT_WATCH_TICK     = 600;         // … the Team Lead's tick looks whether it is due at most this often (a read of reports.json)
+const REPORT_WATCH_TITLE    = 60;          // characters of a report's title in a notification
 const REPORT_INBOX_FRESH    = 600;         // the makers' inbox: the dialog asks anew when the last look is older (the Worker's own look is as old) …
 const REPORT_INBOX_TIMEOUT  = 5;           // … in one GET /api/health of at most this many seconds
 const REPORT_INBOX_STATES   = ['open', 'inbox', 'github', 'closed', 'unknown'];
@@ -941,7 +952,8 @@ function reportsAnswer(array $ctx = []): array
 
 /**
  * Where the newest REPORT_STATUS_MAX reports stand, asked of the Worker for those not looked at within
- * REPORT_STATUS_EVERY — one GET for all (reportStatusAsk()). Each asked one gets `checked` (also when the ask failed:
+ * REPORT_STATUS_EVERY and still worth asking (reportAskable(): not done, at most REPORT_WATCH_DAYS old — the background
+ * look asks the same, so after it the dialog asks nothing within the hour) — one GET for all (reportStatusAsk()). Each asked one gets `checked` (also when the ask failed:
  * at most one try an hour); one the Worker answered gets `status` and `public` — one it left out (not this office's,
  * gone) keeps what it had. Written back only when something was asked; a write that fails is no failure. No inbox
  * (FEEDBACK_URL / OFFICE_FEEDBACK_URL empty): nothing asked, nothing written.
@@ -958,7 +970,8 @@ function reportStatusRefresh(array $j, int $now, array $ctx = []): array
             break;
         }
         $checked = $e['checked'] ?? null;
-        $due[$i] = $checked === null || $checked <= $now - REPORT_STATUS_EVERY || $checked > $now + 300;
+        // 2026-11-22: only what can still change — not done, not older than REPORT_WATCH_DAYS (the background look's rule)
+        $due[$i] = reportAskable($e, $now) && ($checked === null || $checked <= $now - REPORT_STATUS_EVERY || $checked > $now + 300);
     }
     $ask = array_keys(array_filter($due));
     $base = $ctx['url'] ?? officeFeedbackUrl();
@@ -966,16 +979,8 @@ function reportStatusRefresh(array $j, int $now, array $ctx = []): array
         return $j;
     }
     $answer = reportStatusAsk(array_map(fn ($i) => $j['reports'][$i]['number'], $ask), ['url' => $base] + $ctx);
-    foreach ($ask as $i) {
-        $e = &$j['reports'][$i];
-        $e['checked'] = $now;
-        $got = $answer[$e['number']] ?? null;
-        if ($got !== null) {
-            $e['status'] = $got['status'];
-            $e['public'] = $got['public'];
-        }
-        unset($e);
-    }
+    // what changed is kept as told without telling: the user is looking at it right now (2026-11-22)
+    reportStatusApply($j, $ask, $answer, $now);
     try {
         reportsWrite($j, $ctx);
     } catch (Throwable) {
@@ -1054,9 +1059,173 @@ function reportStatusAnswer(int $exit, string $out, array $asked): array
         $status = $public !== null
             ? ((($r['public']['state'] ?? null) === 'closed') ? 'done' : 'seen')
             : ($r['state'] === 'closed' ? 'done' : (($r['answered'] ?? null) === true ? 'seen' : 'received'));
-        $got[$r['number']] = ['status' => $status, 'public' => $public];
+        // 2026-11-22: what changed is told (reportStatusApply()) — answered, the time of the last answer, closed
+        $updated = $r['updated'] ?? null;
+        $got[$r['number']] = ['status' => $status, 'public' => $public, 'answered' => ($r['answered'] ?? null) === true,
+            'updated' => is_int($updated) || (is_string($updated) && preg_match('/^[0-9A-Za-z:.+ -]{1,40}$/D', $updated)) ? $updated : null];
     }
     return $got;
+}
+
+/**
+ * What a report's last told state was ({answered, updated, public: its number, done}) — in exactly that shape, else null
+ * (a report known before 2026-11-22: seeded silently at its first look)
+ *
+ * @return array{answered: bool, updated: int|string|null, public: ?int, done: bool}|null
+ */
+function reportTold(mixed $t): ?array
+{
+    if (!is_array($t) || !is_bool($t['answered'] ?? null) || !is_bool($t['done'] ?? null) || !array_key_exists('updated', $t) || !array_key_exists('public', $t)
+        || !($t['updated'] === null || is_int($t['updated']) || is_string($t['updated'])) || !($t['public'] === null || is_int($t['public']))) {
+        return null;
+    }
+    return ['answered' => $t['answered'], 'updated' => $t['updated'], 'public' => $t['public'], 'done' => $t['done']];
+}
+
+/** A report's state as it is told: nothing yet (a report just sent) */
+const REPORT_TOLD_NOTHING = ['answered' => false, 'updated' => null, 'public' => null, 'done' => false];
+
+/**
+ * The Worker's answers onto the reports asked ($ask: their indexes): each gets `checked`; one it answered its status, public
+ * issue, answered and updated (kept, never a reason to tell: GitHub moves it for any edit) — and what changed since it was
+ * last told: the makers answered (answered became true: the first comment), a public issue linked (appeared or another
+ * one), the report done (the office's «done»: the inbox closed, or with a public issue that one closed). A report without a
+ * `told` (known before 2026-11-22) is seeded with what is now, nothing told. `told` follows every look, also one that
+ * tells nothing (a public issue gone and back is told again).
+ *
+ * @return list<array{index: int, kinds: list<string>, title: string, public: ?array}> what changed, for telling
+ */
+function reportStatusApply(array &$j, array $ask, array $answer, int $now): array
+{
+    $changes = [];
+    foreach ($ask as $i) {
+        $e = &$j['reports'][$i];
+        $e['checked'] = $now;
+        $got = $answer[$e['number']] ?? null;
+        if ($got !== null) {
+            $e['status'] = $got['status'];
+            $e['public'] = $got['public'];
+            $e['answered'] = $got['answered'];
+            $e['updated'] = $got['updated'];
+            $is = ['answered' => $got['answered'], 'updated' => $got['updated'], 'public' => $got['public']['number'] ?? null, 'done' => $got['status'] === 'done'];
+            $was = reportTold($e['told'] ?? null);
+            if ($was !== null) {
+                $kinds = [];
+                if ($is['public'] !== null && $is['public'] !== $was['public']) {
+                    $kinds[] = 'public';
+                }
+                // only the first answer: the Worker's `updated` is the inbox issue's updated_at, which GitHub moves for every
+                // label, title edit, close and the Worker's own edit (the diagnostics' link) — never a sign of a new answer
+                if ($is['answered'] && !$was['answered']) {
+                    $kinds[] = 'answered';
+                }
+                if ($is['done'] && !$was['done']) {
+                    $kinds[] = 'done';
+                }
+                if ($kinds) {
+                    $changes[] = ['index' => $i, 'kinds' => $kinds, 'title' => $e['title'], 'public' => $got['public']];
+                }
+            }
+            $e['told'] = $is;
+        }
+        unset($e);
+    }
+    return $changes;
+}
+
+/** A report still worth asking about: not done, not older than REPORT_WATCH_DAYS (both looks, 2026-11-22) */
+function reportAskable(array $e, int $now): bool
+{
+    return ($e['status'] ?? null) !== 'done' && $e['sent'] > $now - REPORT_WATCH_DAYS * 86400;
+}
+
+/**
+ * The background look's due reports (their indexes, the newest first, at most REPORT_STATUS_MAX): none when the office
+ * asked in the background within REPORT_WATCH_EVERY (`watched`; a clock set back counts as due); else its reports not
+ * done, not older than REPORT_WATCH_DAYS and not looked at within REPORT_STATUS_EVERY (the dialog's own look counts)
+ *
+ * @return list<int>
+ */
+function reportWatchDue(array $j, int $now): array
+{
+    $watched = is_int($j['watched'] ?? null) ? $j['watched'] : null;
+    if ($watched !== null && $watched > $now - REPORT_WATCH_EVERY && $watched <= $now + 300) {
+        return [];
+    }
+    $due = [];
+    foreach (array_reverse(array_keys($j['reports'])) as $i) {
+        $e = $j['reports'][$i];
+        if (count($due) >= REPORT_STATUS_MAX) {
+            break;
+        }
+        if (!reportEntryValid($e) || !reportAskable($e, $now)) {
+            continue;
+        }
+        $checked = $e['checked'] ?? null;
+        if ($checked === null || $checked <= $now - REPORT_STATUS_EVERY || $checked > $now + 300) {
+            $due[] = $i;
+        }
+    }
+    return $due;
+}
+
+/**
+ * The background look (php agent.php job report-watch, one at a time: a flock in RAM): the due reports asked in ONE GET
+ * (reportStatusAsk()), `watched` set (a failure too: tried again at the next due time, silent), what changed kept as told
+ * — written first, then told: never twice, a notice that can't be written isn't sent. No inbox, nothing due: nothing.
+ */
+function reportWatchJob(array $ctx = []): int
+{
+    $now = $ctx['now'] ?? time();
+    $dir = reportRunDir($ctx);
+    if (($ctx['url'] ?? officeFeedbackUrl()) === '' || !reportRunDirReady($dir)) {
+        return 0;
+    }
+    $lock = @fopen("$dir/watch.lock", 'c');
+    if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) {
+        return 0;
+    }
+    $j = reportsRead($ctx);
+    $ask = reportWatchDue($j, $now);
+    if (!$ask) {
+        return 0;
+    }
+    $answer = reportStatusAsk(array_map(fn ($i) => $j['reports'][$i]['number'], $ask), $ctx);
+    $j['watched'] = $now;
+    $changes = reportStatusApply($j, $ask, $answer, $now);
+    try {
+        reportsWrite($j, $ctx);
+    } catch (Throwable $e) {
+        reportLogLine('Office: the reports\' look could not be kept: ' . $e->getMessage(), $ctx);
+        return 1;
+    }
+    foreach ($changes as $c) {
+        $sent = ($ctx['tell'] ?? 'reportWatchTell')($c);
+        reportLogLine('Office: the makers\' news on a report (' . implode(', ', $c['kinds']) . ') — ' . ($sent ? 'told' : 'could not tell') . ' Unraid\'s notifications', $ctx);
+    }
+    return 0;
+}
+
+/**
+ * The Team Lead tells a report's news (one notification, normal, event report_answer, behind the centre's gate): a public
+ * issue linked, else the makers answered, else done — with «Your reports» to open (#/reports) and the public issue's link
+ */
+function reportWatchTell(array $c): bool
+{
+    $lang = officeNotifyLang();
+    $kind = in_array('public', $c['kinds'], true) ? 'public' : (in_array('answered', $c['kinds'], true) ? 'answered' : 'done');
+    $title = mb_strlen($c['title']) > REPORT_WATCH_TITLE ? rtrim(mb_substr($c['title'], 0, REPORT_WATCH_TITLE - 1)) . '…' : $c['title'];
+    $params = ['title' => $title, 'number' => (string) ($c['public']['number'] ?? ''), 'url' => (string) ($c['public']['url'] ?? '')];
+    return officeNotify(
+        officeNotifyText('caretaker', "notify.report_{$kind}_subject", $params, $lang),
+        officeNotifyText('caretaker', "notify.report_{$kind}_description", $params, $lang),
+        'normal',
+        officeNotifyText('caretaker', 'notify.report_message', $params, $lang)
+            . ($c['public'] !== null ? "\n" . officeNotifyText('caretaker', 'notify.report_public_link', $params, $lang) : ''),
+        officeNotifyLink('#/reports'),
+        'caretaker',
+        'report_answer',
+    );
 }
 
 /** A link to an issue the Worker answered — only https://github.com/<owner>/<repo>/issues/<n>; anything else '' */
@@ -1921,7 +2090,7 @@ function reportSend(array $r, array $ctx = []): array
         throw new Problem($answer['key'], $answer['params']);
     }
     $entry = ['number' => $answer['number'], 'url' => $answer['url'], 'kind' => $words['kind'], 'title' => $words['title'],
-              'desk' => $words['desk'], 'sent' => $now, 'rid' => (string) $kept['rid']];
+              'desk' => $words['desk'], 'sent' => $now, 'rid' => (string) $kept['rid'], 'told' => REPORT_TOLD_NOTHING];
     try {
         writeAtomic("$dir/$token.sent", jsonEncode(['number' => $answer['number'], 'url' => $answer['url']]), 0600, 0, 0);
     } catch (Throwable) {

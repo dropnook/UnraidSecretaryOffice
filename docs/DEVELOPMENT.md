@@ -378,7 +378,12 @@ active, `backup/` is left alone.
   a private inbox repository. To test against a Worker of your own (e.g. `wrangler dev` on your machine) put
   `FEEDBACK_URL="http://<host>:<port>"` into `/boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cfg`
   (scheme, host and port only; read at every send, no restart) and remove the line afterwards. The dialog's other ways:
-  `OFFICE_ISSUES_URL` and `OFFICE_FORUM_URL` (`''` = not shown) in `src/bootstrap.php`. Tests: `testReport` (scrubber,
+  `OFFICE_ISSUES_URL` and `OFFICE_FORUM_URL` (`''` = not shown) in `src/bootstrap.php`. **The makers' news** (2026-11-22):
+  the Team Lead's tick starts `php agent.php job report-watch` through atd when `reportWatchDue()` says so — ONE
+  `GET /api/status` for the whole office at most every 6 hours (`watched` in reports.json), for the reports not done and
+  not older than 30 days; what changed (answered, a public issue, done) is told once (`told` per report, seeded silently
+  for older ones) by `officeNotify()` (caretaker, `report_answer`, normal); the notice links `#/reports` (the dialog at
+  «Your reports»). Tests: `testReportWatch`. Tests: `testReport` (scrubber,
   label map, a stand-in inbox with `php -S`), `testReportDialog` (node). **Unraid's diagnostics** (a tick in the dialog,
   never pre-ticked or remembered): the preview runs `/usr/local/sbin/diagnostics <zip>` — exactly Tools → Diagnostics
   with «Anonymize» (never `-a`) — through atd into RAM (`office.report_diag` polled; a sleeping disk refuses without the
