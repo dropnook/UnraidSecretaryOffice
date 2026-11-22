@@ -20680,7 +20680,7 @@ function testUnraidPath(): void
         [$agent['lock'] ?? null, $agent['flow'] ?? null]);
     check('data folder: nothing was made in /mnt/user/appdata', !file_exists(dirname($user)));
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/agent.php');
-    check('data folder: the night shift never looks under /mnt for it', str_contains($src, "define('DATA_DIR', NIGHT_MODE ? DATA_DIR_USER : officeUnraidPath(DATA_DIR_USER));"));
+    check('data folder: the night shift never looks under /mnt for it', str_contains($src, "define('DATA_DIR', RAM_JOB !== '' ? OFFICE_NO_DATA : (NIGHT_MODE ? DATA_DIR_USER : officeUnraidPath(DATA_DIR_USER)));"));
     check('data folder: Ms. Dustdevil and the Consultant use the one helper', !preg_match('/readlink\("\/mnt\/user|realpath\(\$userPath/', (string) file_get_contents(OFFICE_DIR . '/agent/lib/where.php'))
         && !str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/advisor.php'), 'function advisorUnraidPath'));
     hardeningRm($tmp);
@@ -33623,7 +33623,7 @@ function testOfficeLanguage(): void
     officeNotifyLangKeep("$tmp/lang.json", "$tmp/notify.lang");
     check('night shift: no language kept — no copy', !file_exists("$tmp/notify.lang"));
     $house = (string) file_get_contents(OFFICE_DIR . '/agent/lib/house.php');
-    check('night shift: reads the RAM copy, never the data folder', str_contains($house, 'NIGHT_MODE ? OFFICE_NOTIFY_LANG_RAM : OFFICE_LANG_FILE'));
+    check('night shift: reads the RAM copy, never the data folder', str_contains($house, "NIGHT_MODE || (defined('RAM_JOB') && RAM_JOB !== '') ? OFFICE_NOTIFY_LANG_RAM : OFFICE_LANG_FILE"));
     check('agent: keeps the copy fresh once a minute', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/agent.php'), 'officeNotifyLangKeep();'));
     check('agent: restarts when src/words.php changes', in_array(OFFICE_DIR . '/src/words.php', codeFiles(), true));
 
