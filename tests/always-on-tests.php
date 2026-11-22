@@ -441,3 +441,160 @@ function testAlwaysOnHoldLook(): void
         !preg_match('/\b(logLine|readJson|writeAtomic|RUN_DIR|DATA_DIR|run\()\b/', (string) preg_replace('~/\*.*?\*/|//[^\n]*~s', '', (string) file_get_contents(OFFICE_DIR . '/agent/lib/holdsnothing.php'))));
     hardeningRm($tmp);
 }
+
+// ===================================================================== step S3: Fanboy's mirror in RAM (agent/desks/fanboy-mirror.php)
+
+/** Fanboy hired or not for the time of a test: his desk there, a staff list of the test's; returns what to put back */
+function alwaysOnTHire(array $t, bool $hired): array
+{
+    $keep = ['desk' => $GLOBALS['desks']['fanboy'] ?? null, 'staff' => $GLOBALS['agentStaffFile'] ?? null];
+    $GLOBALS['desks']['fanboy'] ??= ['actions' => [], 'start' => null, 'tick' => null, 'checks' => null, 'fit' => null, 'metrics' => null];
+    file_put_contents("{$t['tmp']}/staff.json", json_encode(['hired' => $hired ? ['fanboy' => ['at' => 1]] : new stdClass()]));
+    $GLOBALS['agentStaffFile'] = "{$t['tmp']}/staff.json";
+    return $keep;
+}
+
+function alwaysOnTHireEnd(array $keep): void
+{
+    if ($keep['desk'] === null) {
+        unset($GLOBALS['desks']['fanboy']);
+    }
+    if ($keep['staff'] === null) {
+        unset($GLOBALS['agentStaffFile']);
+    } else {
+        $GLOBALS['agentStaffFile'] = $keep['staff'];
+    }
+    unset($GLOBALS['fanboyMirrorSeen']);
+}
+
+/**
+ * Step S3: his mirror in RAM says what the data folder says — written by the agent as a reconciliation (whoever changed a
+ * source), read only in exactly its shape, for this board, its sum right. Nothing reads it yet.
+ */
+function testAlwaysOnMirror(): void
+{
+    $t = fanboyT('ao-mirror');
+    $keep = alwaysOnTHire($t, false);
+    try {
+        unset($GLOBALS['fanboyMirrorSeen']);
+        $file = fanboyMirrorFile();
+        $ino = function () use ($file): ?int {
+            clearstatcache(true, $file);
+            return @lstat($file)['ino'] ?? null;
+        };
+        // nothing set up, not hired: a mirror all the same — it says exactly that
+        same('always on S3: the first look writes it', 'written', fanboyMirrorKeep());
+        $m = fanboyMirrorRead(FANBOY_T_KEY);
+        same('always on S3: nothing set up, not hired — the mirror says so: this board, not hired, no settings, nothing kept from before him, the watch on (its default)',
+            [1, FANBOY_T_KEY, false, true, [], true], [$m['v'] ?? null, $m['board'] ?? null, $m['hired'] ?? null, is_array($m) && array_key_exists('settings', $m) && $m['settings'] === null, $m['initial'] ?? null, $m['watch'] ?? null]);
+        same('always on S3: in RAM, his folder, root only (0600), nothing temporary left', [fanboyRunDir() . '/mirror.json', 0600, []],
+            [$file, fileperms($file) & 0777, array_values(array_filter(scandir(fanboyRunDir()) ?: [], fn ($f) => str_ends_with($f, '.tmp')))]);
+        $first = $ino();
+        same('always on S3: nothing changed — the same, and the file is not written again', ['same', 'same', $first], [fanboyMirrorKeep(), fanboyMirrorKeep(true), $ino()]);
+
+        // the store written past the agent (a restore of appdata, a hand): the next look mirrors it
+        $settings = fanboyTSettings();
+        fanboyTStore($settings);
+        same('always on S3: the store changed behind the agent\'s back (a restore, a hand) — mirrored at the next look', 'written', fanboyMirrorKeep());
+        $m = fanboyMirrorRead(FANBOY_T_KEY);
+        same('always on S3: … the board\'s entry as it is written: what the control would make of it is the same from the mirror as from the store',
+            [fanboyBoardRaw(), true, array_keys(fanboyControlNew(fanboyBoardRaw() ?? [], FANBOY_T_KEY, ['pid' => 0])['zones'])],
+            [$m['settings'] ?? null, ($m['settings']['armed'] ?? null) === true, array_keys(fanboyControlNew($m['settings'] ?? [], FANBOY_T_KEY, ['pid' => 0])['zones'])]);
+        // his own saves mirror at once (no tick in between)
+        fanboyStoreUpdate(function (array $e): array {
+            $e['armed'] = false;
+            return $e;
+        });
+        same('always on S3: his own save («hand back») is in the mirror at once', false, fanboyMirrorRead(FANBOY_T_KEY)['settings']['armed'] ?? null);
+        // what an output had before him, kept across boots (initial.json): mirrored too — the control asks it for a chip's automatic mode
+        fanboyInitialKeep(FANBOY_T_KEY, fanboyTId(4), ['value' => 77, 'enable' => 2]);
+        fanboyInitialKeep('Other Boards Inc. | X1', fanboyTId(4), ['value' => 1, 'enable' => 5]);
+        $m = fanboyMirrorKeep() === 'written' ? fanboyMirrorRead(FANBOY_T_KEY) : null;
+        same('always on S3: an output\'s state before him (kept across boots) — this board\'s in the mirror, another board\'s not',
+            [[fanboyTId(4)], 77, 2], [array_keys($m['initial'] ?? []), $m['initial'][fanboyTId(4)]['value'] ?? null, $m['initial'][fanboyTId(4)]['enable'] ?? null]);
+        // hired on the web side (it writes the staff list, never the agent): the next look
+        alwaysOnTHire($t, true);
+        same('always on S3: hired on the page (the web side writes the staff list) — mirrored at the next look', ['written', true], [fanboyMirrorKeep(), fanboyMirrorRead(FANBOY_T_KEY)['hired'] ?? null]);
+        // the watch's switch
+        @mkdir(FANBOY_DIR, 0700, true);
+        file_put_contents(fanboyWatchFile(), json_encode(['v' => 1, 'on' => false]));
+        same('always on S3: «watch fans I don\'t steer» switched off — mirrored', ['written', false], [fanboyMirrorKeep(), fanboyMirrorRead(FANBOY_T_KEY)['watch'] ?? null]);
+        // another writer left an older mirror there (a setup step saving at the same moment): not this process's file — compared, written anew
+        $good = (string) file_get_contents($file);
+        $stale = json_decode($good, true);
+        $stale['hired'] = false;
+        $stale['sum'] = fanboyMirrorSum($stale);
+        file_put_contents("$file.new", json_encode($stale));
+        rename("$file.new", $file);
+        same('always on S3: a mirror someone else wrote that says something older — seen (not this process\'s file), written anew', ['written', true], [fanboyMirrorKeep(), fanboyMirrorRead(FANBOY_T_KEY)['hired'] ?? null]);
+        // the whole comparison once a minute, whatever the times say
+        $seen = $GLOBALS['fanboyMirrorSeen'];
+        same('always on S3: within the minute a quiet look reads nothing; after it the whole comparison (and still the same)',
+            ['same', $seen['full'], 'same', true], [fanboyMirrorKeep(false, $seen['full'] + 30), $GLOBALS['fanboyMirrorSeen']['full'], fanboyMirrorKeep(false, $seen['full'] + FANBOY_MIRROR_FULL_EVERY + 1),
+             $GLOBALS['fanboyMirrorSeen']['full'] > $seen['full']]);
+        // while another holds the lock: not now, the next tick
+        $lock = fopen(fanboyRunDir() . '/mirror.lock', 'c');
+        flock($lock, LOCK_EX);
+        same('always on S3: the lock held by another writer — «busy», nothing written, the next tick', ['busy', $ino()], [fanboyMirrorKeep(true), $ino()]);
+        flock($lock, LOCK_UN);
+        fclose($lock);
+
+        // readers: only exactly its shape, this board, the sum right
+        $good = (string) file_get_contents($file);
+        $j = json_decode($good, true);
+        $try = function (callable $change, ?string $board = FANBOY_T_KEY) use ($file, $j): ?array {
+            $x = $change($j);
+            file_put_contents($file, is_string($x) ? $x : json_encode($x));
+            return fanboyMirrorRead($board);
+        };
+        $resum = function (array $x): array {
+            $x['sum'] = fanboyMirrorSum($x);
+            return $x;
+        };
+        check('always on S3: read — as written: yes; with a key it doesn\'t know (a newer agent\'s): yes, the rest as it is',
+            $try(fn ($x) => $x) !== null && ($try(fn ($x) => $x + ['later' => ['x' => 1]])['hired'] ?? null) === true);
+        same('always on S3: no mirror — another `v` (never migrated), another board\'s, a field of the wrong type, no settings key, a changed value (the sum), a cut file, an empty one, no JSON',
+            array_fill(0, 10, null),
+            [$try(fn ($x) => $resum(['v' => 2] + $x)), $try(fn ($x) => $x, 'Other Boards Inc. | X1'), $try(fn ($x) => $resum(['hired' => 'yes'] + $x)), $try(fn ($x) => $resum(['watch' => 1] + $x)), $try(fn ($x) => $resum(['initial' => null] + $x)),
+             $try(function ($x) use ($resum) { unset($x['settings']); return $resum($x); }), $try(fn ($x) => ['hired' => false] + $x), $try(fn ($x) => substr((string) json_encode($x), 0, -40)), $try(fn ($x) => ''), $try(fn ($x) => 'not json')]);
+        same('always on S3: … any board when the reader names none (the agent\'s own comparison)', FANBOY_T_KEY, $try(fn ($x) => $x, null)['board'] ?? null);
+        file_put_contents("{$t['tmp']}/elsewhere.json", $good);
+        @unlink($file);
+        @symlink("{$t['tmp']}/elsewhere.json", $file);
+        same('always on S3: a link in its place is no mirror — and the agent writes a real file there, never through the link', [null, 'written', false, $good],
+            [fanboyMirrorRead(FANBOY_T_KEY), fanboyMirrorKeep(true), is_link($file), file_get_contents("{$t['tmp']}/elsewhere.json")]);
+        // a mirror of the version before (the same `v`, a board entry without the keys added since): read, and the control makes of it what it made then
+        $old = $settings;
+        foreach ($old['zones'] as $i => $z) {
+            unset($old['zones'][$i]['curves'], $old['zones'][$i]['kinds'], $old['zones'][$i]['react']);
+        }
+        $x = $resum(['settings' => $old] + $j);
+        file_put_contents($file, json_encode($x));
+        $read = fanboyMirrorRead(FANBOY_T_KEY);
+        same('always on S3: a mirror whose board entry lacks keys added since (an update with the array stopped) — read, its zones and fans as the control takes them',
+            [['disks', 'case'], 3], [array_keys(fanboyControlNew($read['settings'] ?? [], FANBOY_T_KEY, ['pid' => 0])['zones']), count(fanboyControlNew($read['settings'] ?? [], FANBOY_T_KEY, ['pid' => 0])['fans'])]);
+
+        // too large to mirror: no mirror (never half of one), said once
+        $big = $settings;
+        $big['note'] = str_repeat('x', FANBOY_MIRROR_MAX);
+        fanboyTStore($big);
+        $log0 = substr_count((string) @file_get_contents(AGENT_LOG), 'too large to mirror in RAM');
+        same('always on S3: an entry larger than the mirror may be — not mirrored: the mirror is gone (never half of one), said in the log once',
+            ['too_big', false, null, 'too_big', 1], [fanboyMirrorKeep(), is_file($file), fanboyMirrorRead(), fanboyMirrorKeep(true), substr_count((string) @file_get_contents(AGENT_LOG), 'too large to mirror in RAM') - $log0]);
+        fanboyTStore($settings);
+        same('always on S3: … small again: mirrored again', ['written', true], [fanboyMirrorKeep(), fanboyMirrorRead(FANBOY_T_KEY) !== null]);
+
+        // who keeps it: the agent's start and tick, his saves — and nothing reads the data folder for it but the agent
+        $src = fn (string $f) => (string) file_get_contents(OFFICE_DIR . "/agent/desks/$f");
+        check('always on S3: kept at the agent\'s start, in his tick, at his own saves and the watch\'s switch',
+            str_contains($src('fanboy.php'), "    fanboyMirrorKeep(true);         // his mirror in RAM says what the data folder says")
+            && str_contains($src('fanboy.php'), '        fanboyMirrorKeep(false, $now);') && str_contains($src('fanboy-setup.php'), "            fanboyMirrorKeep(true);\n")
+            && str_contains($src('fanboy-watch.php'), '    fanboyMirrorKeep(true);'));
+        check('always on S3: the guard never writes it (it has no data folder to mirror)', !str_contains((string) file_get_contents(OFFICE_DIR . '/agent/fanboy-guard.php'), 'fanboyMirror'));
+        check('always on S3: his RAM folder\'s line in the audit names the mirror and its bound', str_contains(RUNDIR_FILES['fan[b]oy']['bound'], 'the mirror of its settings ≤ 256 KB')
+            && FANBOY_MIRROR_MAX === 256 * 1024 && 2 * FANBOY_MIRROR_MAX + 1100 * 1024 < RUNDIR_FILES['fan[b]oy']['max']);
+    } finally {
+        alwaysOnTHireEnd($keep);
+        fanboyTEnd();
+    }
+}

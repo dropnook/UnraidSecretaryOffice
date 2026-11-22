@@ -420,6 +420,11 @@ function fanboyStoreUpdate(callable $fn, ?array $board = null): array
         }
         @mkdir(dirname(fanboyStoreFile()), 0700, true);
         writeAtomic(fanboyStoreFile(), jsonEncode($raw), 0600);
+        // his mirror in RAM follows at once (fanboy-mirror.php; the agent's tick would within seconds) — never in a save's way
+        try {
+            fanboyMirrorKeep(true);
+        } catch (Throwable) {
+        }
         return $entry;
     } finally {
         flock($lock, LOCK_UN);

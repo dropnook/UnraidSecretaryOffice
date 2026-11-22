@@ -62,6 +62,7 @@ function fanboyWatchSet(array $r): array
     $j['at'] = time();
     @mkdir(FANBOY_DIR, 0700, true);
     writeAtomic(fanboyWatchFile(), jsonEncode($j), 0600);
+    fanboyMirrorKeep(true);         // his mirror in RAM carries the switch (fanboy-mirror.php)
     if (!$on) {
         @unlink(fanboyWatchRunFile());
     }

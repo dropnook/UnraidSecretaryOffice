@@ -10,7 +10,8 @@ declare(strict_types=1);
  * every output's state before him; fanboy-setup.php — the setup's steps as actions; fanboy-control.php — the control
  * service (one process for all zones); fanboy-drivers.php — «load drivers» on the user's click;
  * agent/fanboy-guard.php — what gives the fans back when nobody else can (scripts/agent.sh stop|release, his own cron
- * line while he is armed). testFanboyNoWrite holds who may write what.
+ * line while he is armed). testFanboyNoWrite holds who may write what. fanboy-mirror.php — what the control needs of
+ * the data folder, mirrored in RAM by the agent (2026-11-22, «always on»).
  *
  * Who gives the fans back (the safety design, docs: fanboy-control-notes in the hand-over):
  *   · the control or a setup step itself — every way it ends (TERM, done, stop, the page gone, a hold), read back
@@ -404,6 +405,7 @@ const FANBOY_CRASH_MAX = 3;
 /** At the agent's start: the drivers that helped on this board loaded again (before the control steers), holders gone given back */
 function fanboyStart(): void
 {
+    fanboyMirrorKeep(true);         // his mirror in RAM says what the data folder says (fanboy-mirror.php)
     fanboyDriversBoot();
     fanboyWatch();
     fanboyGuardCron((fanboyBoardRaw()['armed'] ?? false) === true);       // the guard's line only while he is armed
@@ -458,6 +460,11 @@ function fanboyTick(?float $now = null): void
         return;
     }
     $next = $now + FANBOY_TICK_EVERY;
+    try {
+        fanboyMirrorKeep(false, $now);      // the mirror follows the data folder, whoever changed it (fanboy-mirror.php)
+    } catch (Throwable $e) {
+        logLine('Fanboy: his mirror in RAM could not be kept: ' . $e->getMessage());
+    }
     fanboyWatch();
     fanboyBackCheck();
     fanboyEnsureControl($now);

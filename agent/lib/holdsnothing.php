@@ -4,7 +4,7 @@ declare(strict_types=1);
 /*
  * «Holds nothing» — the self-check of what keeps working while the array is stopped («always on», 2026-11-22, step S2).
  *
- * Whatever of the office outlives the array's stop (Fanboy's control; the night shift) must never keep the array or a
+ * Whatever of the office outlives the array's stop (the fan desk's control; the night shift) must never keep the array or a
  * pool from unmounting. What keeps one is not a file read for a moment but something HELD: a working directory, an open
  * file, a mapped file, a process of ours started from it — or a mount table of its own: on 2026-11-22 a php left behind
  * in a private mount namespace (a copy of the mount table made when it started) kept /etc/libvirt, and with it a pool,
