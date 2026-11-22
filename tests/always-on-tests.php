@@ -911,7 +911,7 @@ function testAlwaysOnControlRam(): void
         $src = fn (string $f) => (string) file_get_contents(OFFICE_DIR . "/agent/desks/$f");
         check('always on S4c: the agent\'s start, «Take over» and «Look now» take the mark away — nothing else does',
             substr_count($src('fanboy.php') . $src('fanboy-setup.php') . $src('fanboy-control.php') . $src('fanboy-mirror.php'), '@unlink(fanboyBrakeFile());') === 3
-            && (bool) preg_match('/function fanboyStart\(\): void\n\{\n    @unlink\(fanboyBrakeFile\(\)\);/', $src('fanboy.php'))
+            && (bool) preg_match('/function fanboyStart\(\): void\n\{(?:(?!\n\}\n).)*@unlink\(fanboyBrakeFile\(\)\);/s', $src('fanboy.php'))
             && (bool) preg_match('/function fanboyLookNow\(\): array\n\{(?:(?!\n\}\n).)*@unlink\(fanboyBrakeFile\(\)\);/s', $src('fanboy.php'))
             && (bool) preg_match('/function fanboyTakeOver\(array \$r = \[\]\): array\n\{(?:(?!\n\}\n).)*@unlink\(fanboyBrakeFile\(\)\);/s', $src('fanboy-setup.php')));
         // the control looks at itself before its first write and every minute — only without the data folder
@@ -1157,6 +1157,129 @@ function testAlwaysOnLaunch(): void
         same('always on S4d: … small again: mirrored and started', ['fanboy-control'], $GLOBALS['fanboyLaunched']);
     } finally {
         alwaysOnTHireEnd($keep);
+        fanboyTEnd();
+    }
+}
+
+// ===================================================================== step S5a: the guard's release-steps (the array stops, the control stays)
+
+/**
+ * Step S5a: `fanboy-guard.php release-steps` — what agent.sh will call at the array's stop once the control steers through
+ * it. Everything of his but the control ends and gives back (a step works in the data folder: asked to end, ended for
+ * good when it is still there after 3 s); the control stays and keeps its output — unless the look at it from outside
+ * finds it holding something on the array or a pool, or can't be made: then it ends like a full release, every output
+ * goes back, and the brake's mark keeps everybody from starting it again by itself (the agent tells at its next start).
+ * The holders' processes are looked up in the real /proc: where there is none (a Mac) only the parts without them run.
+ */
+function testAlwaysOnReleaseSteps(): void
+{
+    $t = fanboyT('ao-steps');
+    $data = "{$t['tmp']}/data";
+    @mkdir($data, 0700, true);
+    $live = is_dir('/proc/' . getmypid());
+    $procs = [];
+    $pidOf = fn ($p) => (int) proc_get_status($p)['pid'];
+    $owner = fn (int $n) => fanboyJournal()['outputs'][fanboyTId($n)]['owner'] ?? null;
+    $given = fn (int $n) => fanboyJournal()['outputs'][fanboyTId($n)]['given']['why'] ?? null;
+    try {
+        $before = [fanboyTOut($t, 2), fanboyTOut($t, 4)];
+        same('always on S5a: nothing held, no control — release-steps does nothing and says nothing', '', fanboyTGuard($t, $data, 'release-steps'));
+        // a step holds output 2: given back whoever else is there
+        $procs[] = $step = alwaysOnTHold($t, 2, 'step');
+        $procs[] = $control = alwaysOnTHold($t, 4, 'control');
+        $cp = $pidOf($control);
+        same('always on S5a: (the test\'s board: a step holds output 2 at 250, the control output 4)', [[250, 1], [250, 1]], [fanboyTOut($t, 2), fanboyTOut($t, 4)]);
+        if ($live) {
+            file_put_contents(fanboyRunDir() . '/control.pid', "$cp " . fanboyProcStart($cp));
+            alwaysOnTProc($t['root'], [$cp => []]);         // as the kernel would show a clean control: cwd /, RAM only, init's namespace
+        }
+        $out = fanboyTGuard($t, $data, 'release-steps');
+        same('always on S5a: the step\'s output is back as before him, its holder gone from the journal, given back as a release', [$before[0], null, 'release'],
+            [fanboyTOut($t, 2), $owner(2), $given(2)]);
+        check("always on S5a: … said for agent.sh's log in RAM, never the agent's log in the data folder ($out)", str_contains($out, '1 outputs of a setup step back with the BIOS')
+            && !is_file("$data/agent.log"));
+        if ($live) {
+            same('always on S5a: the control stays: its output as it wrote it, still its own, no brake, its status untouched', [[250, 1], $cp, false, false],
+                [fanboyTOut($t, 4), $owner(4)['pid'] ?? null, is_file(fanboyBrakeFile()), is_file(fanboyStatusFile())]);
+            check("always on S5a: … and the line says it steers on ($out)", str_contains($out, "the control (PID $cp) holds nothing on the array or a pool and steers on")
+                && (bool) proc_get_status($control)['running'] && !proc_get_status($step)['running']);
+            // the same control, now with its working directory on a pool: it must not outlive the stop
+            fanboyStatusWrite(['v' => 1, 'pid' => $cp, 'who' => 'fanboy', 'why' => null, 'phase' => 'run', 'time' => time()]);
+            exec('rm -rf ' . escapeshellarg("{$t['root']}/proc/$cp"));
+            alwaysOnTProc($t['root'], [$cp => ['cwd' => '/mnt/tank/appdata/UnraidSecretaryOffice']]);
+            $out = fanboyTGuard($t, $data, 'release-steps');
+            usleep(300000);
+            $b = readJson(fanboyBrakeFile()) ?? [];
+            $s = readJson(fanboyStatusFile()) ?? [];
+            same('always on S5a: a control with its working directory on a pool is ended at the stop: its output back as before him, nobody holds it',
+                [$before[1], null, false], [fanboyTOut($t, 4), $owner(4), (bool) proc_get_status($control)['running']]);
+            same('always on S5a: … the brake\'s mark says who found what (the stop, the working directory, the mount), the status says why the BIOS has the fans',
+                [1, 'stop', 'cwd', '/mnt/tank/appdata', $cp, 'bios', 'holds', 'ended'],
+                [$b['v'] ?? null, $b['by'] ?? null, $b['why'] ?? null, $b['mount'] ?? null, $b['pid'] ?? null, $s['who'] ?? null, $s['why'] ?? null, $s['phase'] ?? null]);
+            check("always on S5a: … said in agent.sh's log ($out)", str_contains($out, "the control (PID $cp) must not outlive it: its working directory") && str_contains($out, 'released'));
+            // a control that can't be looked at (nothing of it in /proc): the same — never a guess
+            @unlink(fanboyBrakeFile());
+            $procs[] = $blind = alwaysOnTHold($t, 4, 'control');
+            $bp = $pidOf($blind);
+            file_put_contents(fanboyRunDir() . '/control.pid', "$bp " . fanboyProcStart($bp));
+            $out = fanboyTGuard($t, $data, 'release-steps');
+            usleep(300000);
+            same('always on S5a: a control the look can\'t see is ended too (no look counts as held)', [$before[1], null, 'no_look', false],
+                [fanboyTOut($t, 4), $owner(4), readJson(fanboyBrakeFile())['why'] ?? null, (bool) proc_get_status($blind)['running']]);
+            // a step that doesn't end on the TERM: ended for good after the wait — it works in the data folder
+            @unlink(fanboyBrakeFile());
+            @unlink(fanboyRunDir() . '/control.pid');
+            $deaf = proc_open([PHP_BINARY, '-r', 'pcntl_signal(SIGTERM, SIG_IGN); pcntl_signal(SIGHUP, SIG_IGN); sleep(60);', '--', 'agent.php', 'job', 'fanboy-step'],
+                [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
+            $procs[] = $deaf;
+            $dp = $pidOf($deaf);
+            usleep(500000);
+            $holder = ['kind' => 'step', 'pid' => $dp, 'start' => fanboyProcStart($dp), 'since' => time()];
+            fanboyBeat($dp);
+            fanboyTake(['id' => fanboyTId(2), 'chip' => FANBOY_T_CHIP, 'address' => FANBOY_T_ADDR, 'device' => 'platform/' . FANBOY_T_ADDR, 'output' => 2], $holder, FANBOY_T_KEY);
+            fanboySet(fanboyTId(2), 120, $holder);
+            $t0 = fanboyMono();
+            fanboyTGuard($t, $data, 'release-steps');
+            $took = fanboyMono() - $t0;
+            usleep(300000);
+            check('always on S5a: a step deaf to the TERM is waited for 3 s, then ended for good, its output back (' . round($took, 1) . ' s)',
+                $took >= 2.9 && $took < 8 && !proc_get_status($deaf)['running'] && fanboyTOut($t, 2) === $before[0] && $owner(2) === null);
+        }
+        // the agent's next start tells what the guard's brake found, once, and takes the mark away
+        $keep = alwaysOnTHire($t, true);
+        try {
+            fanboyTStore(fanboyTSettings());
+            @mkdir(fanboyRunDir(), 0700, true);
+            file_put_contents(fanboyBrakeFile(), json_encode(['v' => 1, 'at' => time(), 'pid' => 4711, 'by' => 'stop', 'why' => 'cwd', 'what' => '/mnt/tank/appdata/x', 'mount' => '/mnt/tank/appdata', 'holder' => 4711]));
+            $n0 = count(fanboyTNotified($t));
+            $log0 = strlen((string) @file_get_contents(AGENT_LOG));
+            fanboyStart();
+            $told = array_slice(fanboyTNotified($t), $n0);
+            check('always on S5a: the agent\'s next start says what the guard found at the stop (a warning, the log names the working directory) and takes the mark away',
+                count($told) === 1 && str_contains($told[0], '-i warning') && !is_file(fanboyBrakeFile())
+                && str_contains(substr((string) @file_get_contents(AGENT_LOG), $log0), 'its working directory (PID 4711) is /mnt/tank/appdata/x on /mnt/tank/appdata'));
+            // the control's own brake was told by the control: the start says nothing more
+            file_put_contents(fanboyBrakeFile(), json_encode(['v' => 1, 'at' => time(), 'pid' => 4711, 'why' => 'file', 'what' => '/mnt/x', 'mount' => '/mnt/x', 'holder' => 4711]));
+            fanboyUntellOnce('holds');
+            $n0 = count(fanboyTNotified($t));
+            fanboyStart();
+            same('always on S5a: … a brake the control pulled itself was told by it: the start only takes the mark away', [0, false], [count(fanboyTNotified($t)) - $n0, is_file(fanboyBrakeFile())]);
+        } finally {
+            alwaysOnTHireEnd($keep);
+        }
+        // the plain release is what it was: everybody ends, the control too
+        $procs[] = alwaysOnTHold($t, 2, 'step');
+        $procs[] = alwaysOnTHold($t, 4, 'control');
+        fanboyTGuard($t, $data, 'release');
+        same('always on S5a: `release` (stop, restart, update, removal) still gives every output back — the control\'s too', [$before[0], $before[1], null, null],
+            [fanboyTOut($t, 2), fanboyTOut($t, 4), $owner(2), $owner(4)]);
+        $src = (string) file_get_contents(OFFICE_DIR . '/agent/fanboy-guard.php');
+        check('always on S5a: release-steps never writes the agent\'s log (the data folder is about to go)',
+            (bool) preg_match('/function fanboyGuardReleaseSteps\(\): array\n\{(?:(?!\n\}\n).)*\n\}\n/s', $src, $m) && !str_contains($m[0], 'logLine(') && str_contains($m[0], "fanboyGuardSay('released', \$all, 'holds', false)"));
+    } finally {
+        foreach ($procs as $p) {
+            alwaysOnTEnd($p);
+        }
         fanboyTEnd();
     }
 }

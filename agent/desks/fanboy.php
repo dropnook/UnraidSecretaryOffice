@@ -410,6 +410,15 @@ const FANBOY_CRASH_MAX = 3;
 /** At the agent's start: the drivers that helped on this board loaded again (before the control steers), holders gone given back */
 function fanboyStart(): void
 {
+    // the guard ended the control at the array's stop because it held something there (fanboy-guard.php release-steps): no
+    // agent ran to say so — said now, once
+    $brake = readJson(fanboyBrakeFile());
+    if (is_array($brake) && ($brake['by'] ?? null) === 'stop') {
+        logLine('Fanboy: at the array\'s stop his control was ended — it must never keep the array from stopping, and '
+            . officeHoldSay(['why' => $brake['why'] ?? '', 'what' => (string) ($brake['what'] ?? ''), 'mount' => (string) ($brake['mount'] ?? '')]
+                + (is_int($brake['holder'] ?? null) ? ['pid' => $brake['holder']] : [])));
+        fanboyTellOnce('holds', 'holds', [], 'warning');
+    }
     @unlink(fanboyBrakeFile());     // a control that stopped itself (fanboyBrake()) may be started again: the agent starts anew
     fanboyHistorySync(true);        // after a boot: the data folder's history into RAM, for the control and the page (fanboy-mirror.php)
     fanboyMirrorKeep(true);         // his mirror in RAM says what the data folder says (fanboy-mirror.php)

@@ -523,16 +523,19 @@ function fanboySet(string $id, int $value, array $owner): ?array
 /**
  * Gives outputs back: each to the state taken down before Fanboy, read back; the holder gone from the journal.
  * $ids null = every output held (by anyone: the stop, the release); $only = only those of this holder; $dead = only
- * those whose holder is gone or hung (the watch). Returns [id => {ok, why, now, owner}].
+ * those whose holder is gone or hung (the watch); $spare = a kind of holder left alone ('control': the guard's
+ * release-steps at the array's stop — decided under the journal's lock, so an output the control takes meanwhile is
+ * never taken from it). Returns [id => {ok, why, now, owner}].
  */
-function fanboyGiveBack(?array $ids, string $why, ?array $only = null, bool $dead = false): array
+function fanboyGiveBack(?array $ids, string $why, ?array $only = null, bool $dead = false, ?string $spare = null): array
 {
-    return fanboyLocked(function (array $j) use ($ids, $why, $only, $dead): array {
+    return fanboyLocked(function (array $j) use ($ids, $why, $only, $dead, $spare): array {
         $out = [];
         $mono = fanboyMono();
         foreach ($j['outputs'] as $id => $o) {
             if (!is_array($o['owner']) || ($ids !== null && !in_array($id, $ids, true))
-                || ($only !== null && !fanboySameOwner($o['owner'], $only))) {
+                || ($only !== null && !fanboySameOwner($o['owner'], $only))
+                || ($spare !== null && ($o['owner']['kind'] ?? null) === $spare)) {
                 continue;
             }
             // round 12: a holder that keeps an output standing at 0 counts as hung sooner (a standing fan never waits 30 s)
