@@ -337,6 +337,22 @@ function officeDashJobLine(array $s, array $job): ?array
     return null;
 }
 
+/**
+ * The Messenger's row from the agent's info (agentInfo()): [the text's key, the tone]. At work: green. The array stopped
+ * (the night shift on, or no data folder while the array isn't started): its plain word in no colour — the office waits
+ * for the array on purpose, nothing is wrong (2026-11-22; it stood in red before). Away while the array runs: red.
+ *
+ * @return array{0: string, 1: string}
+ */
+function officeDashAgentWord(array $agent): array
+{
+    if (!empty($agent['running'])) {
+        return ['agent.label_on', 'green'];
+    }
+    $stopped = is_array($agent['night'] ?? null) || (is_array($agent['no_data'] ?? null) && ($agent['no_data']['array'] ?? '') !== 'Started');
+    return $stopped ? ['agent.label_array', ''] : ['agent.label_off', 'red'];
+}
+
 /** The tile's rows as HTML (escaped); $jobs: what runs right now (officeDashJobs()), null: not known — the state files only */
 function officeDashRows(string $lang, ?array $jobs = null): string
 {
@@ -348,7 +364,7 @@ function officeDashRows(string $lang, ?array $jobs = null): string
         return '<a class="sso-dash-row" href="' . $h($url . '#/' . $desk) . '">'
             . '<img class="sso-dash-icon" src="' . $h($icon) . '" alt="">'
             . '<span class="sso-dash-name">' . $h($name) . ($sub !== '' ? '<small>' . $h($sub) . '</small>' : '') . '</span>'
-            . '<span class="sso-dash-state ' . $tone . '-text">' . $h($state) . '</span></a>';
+            . '<span class="sso-dash-state' . ($tone !== '' ? " $tone-text" : '') . '">' . $h($state) . '</span></a>';
     };
     $out = '';
     $agent = agentInfo();
@@ -366,10 +382,8 @@ function officeDashRows(string $lang, ?array $jobs = null): string
         return $html;
     };
     $night = !$agent['running'] && is_array($agent['night'] ?? null) ? $agent['night'] : null;
-    $out .= $row('', officeDashAsset('assets/messenger.svg'), officeDashT($s, 'dash.messenger'),
-        officeDashT($s, $agent['running'] ? 'agent.label_on'
-            : ($night || (isset($agent['no_data']) && ($agent['no_data']['array'] ?? '') !== 'Started') ? 'agent.label_array' : 'agent.label_off')),
-        $agent['running'] ? 'green' : 'red');
+    [$word, $tone] = officeDashAgentWord($agent);
+    $out .= $row('', officeDashAsset('assets/messenger.svg'), officeDashT($s, 'dash.messenger'), officeDashT($s, $word), $tone);
 
     // the array isn't started: the night watchman's night shift keeps watch (RAM and flash only) — since when, its rounds, what is new
     if ($night) {

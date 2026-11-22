@@ -31405,6 +31405,7 @@ function testNightUi(): void
         . ' set_error_handler(function (int $no, string $s, string $file, int $line): bool { if (error_reporting() & $no) { fwrite(STDERR, "PHP: $s ($file:$line)\n"); } return true; });'
         . ' if ($argv[1] === "read") { $out = []; foreach (json_decode($argv[2], true) as $n) { $out[$n] = officeNightShift(' . var_export($tmp, true) . ' . "/run-$n"); }'
         . ' echo json_encode($out); exit; }'
+        . ' if ($argv[1] === "word") { echo json_encode(array_map("officeDashAgentWord", json_decode($argv[2], true))); exit; }'
         . ' if ($argv[1] === "api") { $_SERVER["REQUEST_METHOD"] = "GET"; $_GET = ["a" => $argv[2], "lang" => "en", "desk" => $argv[3] ?? ""]; api_main(); }'
         . ' echo json_encode(["agent" => agentInfo(), "config" => officePageConfig()["agent"], "en" => officeDashRows("en"), "de" => officeDashRows("de"),'
         . ' "fr" => officeDashRows("fr")]);');
@@ -31437,6 +31438,17 @@ function testNightUi(): void
     check('night ui: the tile — the messenger says the array, his line with since, rounds and what is new',
         str_contains($en, 'Array stopped') && str_contains($en, 'desks/watchman/avatar.svg') && str_contains($en, 'The Night Watchman')
         && ($at === null || str_contains($en, "Night shift since $at")) && str_contains($en, '7 rounds, 1 new entry') && str_contains($en, 'orange-text'), $raw);
+    // 2026-11-22: the array stopped on purpose is no alarm — the Messenger's word in no colour (red before), and no empty tone class
+    check('night ui: the tile — «Array stopped» in no colour: nothing is wrong',
+        (bool) preg_match('~<span class="sso-dash-state">Array stopped</span>~', $en) && !str_contains($en, 'red-text') && !str_contains($en, '"sso-dash-state -text"'), $en);
+    [$words, $err] = $web(['word', json_encode([
+        'on' => ['running' => true], 'night' => ['running' => false, 'night' => ['since' => 1]],
+        'stopped' => ['running' => false, 'no_data' => ['array' => 'Stopped']], 'stopping' => ['running' => false, 'no_data' => ['array' => 'Stopping']],
+        'boot' => ['running' => false, 'no_data' => ['array' => '']], 'no_folder' => ['running' => false, 'no_data' => ['array' => 'Started']],
+        'away' => ['running' => false]])], 'on');
+    same('night ui: the Messenger\'s word and tone — at work green; night shift, stopped, stopping, booting: the array\'s word, no colour; away with the array started: red',
+        ['on' => ['agent.label_on', 'green'], 'night' => ['agent.label_array', ''], 'stopped' => ['agent.label_array', ''], 'stopping' => ['agent.label_array', ''],
+         'boot' => ['agent.label_array', ''], 'no_folder' => ['agent.label_off', 'red'], 'away' => ['agent.label_off', 'red'], 'err' => ''], ($words ?? []) + ['err' => $err]);
     check('night ui: the tile in German and French', str_contains((string) ($o['de'] ?? ''), '7 Rundgänge, 1 neuer Eintrag') && str_contains((string) ($o['de'] ?? ''), 'Der Nachtwächter')
         && str_contains((string) ($o['fr'] ?? ''), '7 rondes, 1 nouvelle entrée'), $raw);
     check('night ui: the tile links to the office\'s reception', (bool) preg_match('~<a class="sso-dash-row" href="[^"]*#/"><img class="sso-dash-icon" src="[^"]*desks/watchman/avatar\.svg~', $en), $en);
