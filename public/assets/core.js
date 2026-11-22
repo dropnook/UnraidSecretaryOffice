@@ -852,13 +852,38 @@ function updateNotice() {
 }
 
 /**
- * What keeps working while the array isn't started (the agent's info `still`: [{desk}], src/mailbox.php — from RAM only):
- * a sentence each in the «array stopped» notice, the desk's own string `<desk>.still`. A desk without that string: nothing.
+ * What keeps working while the array isn't started (the agent's info `still`: [{desk, state?, ask?}], src/mailbox.php —
+ * from RAM only): a sentence each in the «array stopped» notice, the desk's own string `<desk>.still` (with `state`:
+ * `<desk>.still_<state>`). A desk without that string: nothing.
+ * `ask: {action, words}` — the ONE thing the user can ask of that desk meanwhile, which the web side hears without the
+ * agent (src/api.php): a button after the sentence, asked first in a dialog (the desk's strings `<desk>.<words>`,
+ * `…_title`, `…_text`, `…_yes`), then `<desk>.<action>`; the answer brings the messenger's info anew, and with it this notice.
  */
 function stillLines(into) {
+  const name = /^[a-z][a-z0-9_]{0,31}$/;
   (Array.isArray(Office.agent.still) ? Office.agent.still : []).forEach((k) => {
-    const key = k && typeof k.desk === 'string' ? `${k.desk}.still` : '';
-    if (key && Office.has(key)) into.append(' ', t(key));
+    const desk = k && typeof k.desk === 'string' && name.test(k.desk) ? k.desk : '';
+    const key = desk ? `${desk}.still${typeof k.state === 'string' && name.test(k.state) ? '_' + k.state : ''}` : '';
+    if (!key || !Office.has(key)) return;
+    into.append(' ', t(key));
+    const ask = k.ask && typeof k.ask === 'object' ? k.ask : null;
+    const words = ask && typeof ask.words === 'string' && /^[a-z][a-z0-9_.]{0,47}$/.test(ask.words) ? `${desk}.${ask.words}` : '';
+    if (!ask || typeof ask.action !== 'string' || !name.test(ask.action) || !words || ![words, `${words}_title`, `${words}_text`, `${words}_yes`].every(Office.has)) return;
+    const b = el('button', 'btn small', t(words));
+    b.type = 'button';
+    b.onclick = () => Office.dialog({
+      title: t(`${words}_title`),
+      body: t(`${words}_text`),
+      buttons: [
+        { text: t('common.cancel') },
+        { text: t(`${words}_yes`), kind: 'danger', act: async () => {
+          const j = await Office.api.post(`${desk}.${ask.action}`, {});
+          if (!j.ok) { Office.toast(Office.errorText(j.error || { key: 'bad_answer' }, desk), true); return false; }
+          return true;
+        } },
+      ],
+    });
+    into.append(' ', b);
   });
 }
 

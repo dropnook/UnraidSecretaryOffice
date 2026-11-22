@@ -394,8 +394,9 @@ His fans' biggest fan: he steers the fans on the mainboard's fan connectors by w
   Unraid's management is up (on the same board, Unraid version and kernel — else the mainboard runs the fans until the
   array starts). He never holds up an array stop. Unraid doesn't update the disks' temperatures then, so he takes them
   as unknown: a zone that goes by disks keeps its level for 30 minutes, then its fans' lowest speed, and none of its
-  fans stands; zones with live sensors (CPU, NVMe, board) steer as ever. His Dashboard tile shows it and has *Give the
-  fans back to the mainboard…*; *Take over* on his page gives them to him again once the array runs. Stopping, updating
+  fans stands; zones with live sensors (CPU, NVMe, board) steer as ever. His Dashboard tile shows it, and both the tile and
+  the office's «array stopped» notice have *Give the fans back to the mainboard…*; *Take over* on his page gives them
+  to him again once the array runs. Stopping, updating
   or removing the office, and shutting the server down, give every fan back.
 - **Your own fans:** for the picture, a fan takes the look of its model — models of ten makers in their sizes, with
   colours, blade shape and reverse blade to change; *See all…* shows every one. The air between the blades is light;

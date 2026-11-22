@@ -1364,6 +1364,7 @@
   "notify.holds_subject": "Fanboy: la sua regolazione si è fermata da sola",
   "notify.holds": "La regolazione di Fanboy si è accorta di tenere occupato qualcosa sull'array o su un pool. Non deve mai trattenere l'arresto dell'array, perciò si è fermata. Ogni ventola che teneva è restituita come stabilito per lei (il suo stato prima di lui o l'automatico della scheda madre). Non la riavvia da solo — solo quando il messaggero riparte (al prossimo avvio dell'array, dopo un aggiornamento) oppure dopo «Restituisci» e «Affida a lui». Nel registro della segreteria c'è scritto che cosa teneva occupato.",
   "still": "Fanboy continua a regolare le ventole. Le sue impostazioni aspettano l'array.",
+  "still_back": "Fanboy ha restituito le ventole alla scheda madre. Con «Affida a lui» sulla sua pagina le riprende, quando l'array è in funzione.",
   "dash.stopped": "L'array non è in funzione — lui continua a regolare.",
   "dash.stopped_disks": "Nel frattempo nessuno conosce le temperature dei dischi: le loro ventole tengono una velocità minima, nessuna si ferma.",
   "pic.unknown_stopped": "temperatura sconosciuta finché l'array è fermo",

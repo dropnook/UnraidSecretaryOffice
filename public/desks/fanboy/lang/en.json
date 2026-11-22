@@ -1364,6 +1364,7 @@
   "notify.holds_subject": "Fanboy: his control stopped itself",
   "notify.holds": "Fanboy's control found itself holding something on the array or a pool. It must never keep the array from stopping, so it ended. Every fan it held is given back as set for it (its state before him or the mainboard's automatic). He does not start it again by himself — only once the messenger starts anew (at the array's next start, after an update), or after «Hand back» and «Take over». The office's log says what it held.",
   "still": "Fanboy keeps steering the fans meanwhile. His settings wait for the array.",
+  "still_back": "Fanboy has given the fans back to the mainboard. «Take over» on his page gives them to him again once the array runs.",
   "dash.stopped": "The array isn't running — he steers on.",
   "dash.stopped_disks": "Nobody knows the disks' temperatures meanwhile: their fans keep a minimum speed, none stands.",
   "pic.unknown_stopped": "temperature not known while the array is stopped",

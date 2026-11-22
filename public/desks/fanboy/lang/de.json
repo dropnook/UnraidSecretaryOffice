@@ -1364,6 +1364,7 @@
   "notify.holds_subject": "Fanboy: seine Regelung hat sich selbst beendet",
   "notify.holds": "Fanboys Regelung hat bemerkt, dass sie etwas auf dem Array oder einem Pool festhält. Sie darf den Stopp des Arrays nie aufhalten, darum hat sie sich beendet. Jeder Lüfter, den sie hielt, ist so zurückgegeben, wie es für ihn festgelegt ist (sein Zustand vor ihm oder die Automatik des Mainboards). Er startet sie nicht von selbst wieder — erst wenn der Hausbote neu startet (beim nächsten Start des Arrays, nach einem Update) oder nach «Zurückgeben» und «Übernehmen». Im Log des Sekretariats steht, was sie festhielt.",
   "still": "Fanboy regelt die Lüfter weiter. Seine Einstellungen warten auf das Array.",
+  "still_back": "Fanboy hat die Lüfter dem Mainboard zurückgegeben. Mit «Übernehmen» auf seiner Seite bekommt er sie wieder, sobald das Array läuft.",
   "dash.stopped": "Das Array läuft nicht — er regelt weiter.",
   "dash.stopped_disks": "Die Temperaturen der Festplatten kennt solange niemand: Die Lüfter der Platten halten eine Mindestdrehzahl, keiner steht.",
   "pic.unknown_stopped": "Temperatur unbekannt, solange das Array gestoppt ist",

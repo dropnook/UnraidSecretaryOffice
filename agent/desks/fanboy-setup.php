@@ -2197,8 +2197,12 @@ function fanboyTakeOver(array $r = []): array
     return ['ok' => true, 'dashboard' => fanboyDashDefault()];
 }
 
-/** «Hand back»: not armed — the control ends and gives every output back (read back), at once */
-function fanboyHandBack(): array
+/**
+ * «Hand back»: not armed — the control ends and gives every output back (read back), at once. $say false: the agent
+ * making a hand-back true that was asked for while the array wasn't started (fanboyHandBackTake() — the control gave the
+ * outputs back then; that caller says its own line, never «0 outputs»).
+ */
+function fanboyHandBack(bool $say = true): array
 {
     fanboyStoreUpdate(function (array $e): array {
         $e['armed'] = false;
@@ -2206,7 +2210,9 @@ function fanboyHandBack(): array
     });
     $back = fanboyControlStop('hand_back');
     fanboyGuardCron(false);
-    logLine('Fanboy: handed back to the BIOS on the user\'s click (' . count($back) . ' outputs)');
+    if ($say) {
+        logLine('Fanboy: handed back to the BIOS on the user\'s click (' . count($back) . ' outputs)');
+    }
     return ['ok' => true, 'given' => count($back)];
 }
 
