@@ -66,6 +66,12 @@
 .wm-setting-num{width:8em}
 .wm-settings > .wm-entry-acts{justify-content:flex-start; padding:8px 12px}
 .wm-setup-acts{display:flex; gap:8px; flex-wrap:wrap}
+/* re-learn (step 17): at the end of an area's setup, «everything» above the tiles; its question's checkboxes wrap */
+.wm-relearn{margin-top:14px}
+.wm-relearn .callout{display:flex; flex-direction:column; gap:6px; align-items:flex-start; margin-bottom:8px}
+.wm-relearn .callout p{margin:0}
+.wm-relearn-all{justify-content:flex-end; margin-bottom:8px}
+.wm-relearn-check{white-space:normal; align-items:flex-start; margin:6px 0}
 .wm-hand-row{display:flex; flex-direction:column; gap:4px; margin:0 0 10px}
 .wm-known-head{align-self:flex-start}
 .wm-setup-to{padding-left:0}

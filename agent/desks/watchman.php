@@ -133,6 +133,7 @@ require_once __DIR__ . '/watchman-hw.php';           // the hardware (1.96): mac
 require_once __DIR__ . '/watchman-boot.php';         // what runs at the start (1.96): plugin files on the flash, stop, modprobe.d, the start line, ld.so.preload
 require_once __DIR__ . '/watchman-rules.php';        // the user's exceptions and areas switched off (1.96, data/watchman/rules.json)
 require_once __DIR__ . '/watchman-journal.php';      // his history (1.96): what he notes himself, by month (data/watchman/journal/)
+require_once __DIR__ . '/watchman-relearn.php';      // «Re-learn this area…», «Re-learn everything…» (1.96 step 17), «Bring back…»
 
 const WATCH_EVERY        = 300;              // a round every 5 minutes
 const WATCH_LOOK         = 20;               // the tick looks whether one is due this often (seconds)
@@ -432,6 +433,10 @@ desk('watchman', [
         // «Who woke my disks?»: his switch (on unless switched off), kept on the server
         'wakes_watch' => fn (array $r) => watchmanWakeWatchSet(boolField($r, 'on')) + ['state' => watchmanPageState()],
         'journal'     => fn (array $r) => watchmanJournalAction(optText($r, 'month'), (int) optInt($r, 'offset', 0)),    // his history, a page of it (1.96)
+        // 1.96 step 17: one area or all of them learned anew (set aside first, never deleted), and brought back within 7 days
+        'relearn'      => fn (array $r) => watchmanRelearn(textField($r, 'cat') === 'all' ? watchmanRelearnCats() : [textField($r, 'cat')],
+                                                           optBool($r, 'rules'), optBool($r, 'settings')),
+        'relearn_back' => fn (array $r) => watchmanRelearnBack(textField($r, 'name')),
     ],
     'jobs'    => ['watchman-round' => fn (array $args) => watchmanRun(), 'watchman-hold' => fn (array $args) => watchmanHoldRun(),
                   'watchman-wake-name' => fn (array $args) => watchmanWakeNameRun(), 'watchman-feeds' => fn (array $args) => watchmanVulnFetchRun()],
@@ -1143,7 +1148,7 @@ function watchmanMirrorWrite(string $dir, string $ram = WATCH_MIRROR_RAM, ?strin
     // within the hour starts the night shift on the old normal, and it tells again what was just noted
     $acked = 0;
     foreach ((array) $d['book'] as $e) {
-        if (in_array($e['by'] ?? null, ['page', 'teamlead'], true)) {
+        if (in_array($e['by'] ?? null, ['page', 'teamlead', 'relearn'], true)) {
             $acked = max($acked, (int) ($e['noted'] ?? 0));
         }
     }
@@ -1574,6 +1579,9 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         $from = ['ino' => -1, 'size' => 0];
     }
     [$events, $pos, $read] = watchmanReadLogins($paths['syslog'], $from, $fresh, $known, $now);
+    // a re-learn of the logins or the partner doors (watchman-relearn.php): the addresses of the syslog's history, as at a take-over
+    $relearnEvents = $fresh ? [] : (array_intersect_key((array) ($snap['state']['relearn_pending'] ?? []), ['login' => 1, 'partner' => 1])
+        ? watchmanReadLogins($paths['syslog'], null, true, $known, $now)[0] : []);
     $read['full'] = watchmanSyslogFull($paths);
     if (is_array($pos) && $boot !== '') {
         $pos['boot'] = $boot;
@@ -1648,7 +1656,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
     return watchmanLocked($dir, function () use ($dir, $hired, $now, $fresh, $events, $pos, $read, $seen, $notify, $acks, $t0, $look, $facts, $snapKnown, $snapRes,
                                                $office, $paths, $boot, $btime, $netLook, $netServer, $parity, $kopiaLook, $netContainers, $automounts,
                                                $hotLook, $hotSet, $signHost, $signDisks, $hwLook,
-                                               $vuln, $vulnSet, $vulnImagesCache): array {
+                                               $vuln, $vulnSet, $vulnImagesCache, $relearnEvents): array {
         $old = watchmanLoad($dir);
         $set = watchmanSettings(watchmanRulesRaw($dir));        // his settings (1.96 step 5: the defaults are what he did up to 1.95)
         $old['seen'] = readJson("$dir/seen.json");
@@ -1668,7 +1676,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             $observed['partner']['pairs'] = $old['seen']['partner']['pairs'] ?? null;    // the pairs not looked at (the night): as the last round saw them
         }
         $observed['host'] = watchmanHostObserved($seen['host'], $old['seen']['host'] ?? null);
-        $added = $told = [];
+        $added = $told = $relearned = [];
         $before = array_flip(array_column($book, 'id'));
         if ($fresh) {
             [$b, $book, $st] = watchmanTakeOver($hired, $events, $seen, $book, $st, $now);
@@ -1682,6 +1690,8 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             $b['shares'] = is_array($b['shares'] ?? null) ? $b['shares'] : null;
             $b['sched'] = is_array($b['sched'] ?? null) ? $b['sched'] : null;
             $b['snaps'] = is_array($b['snaps'] ?? null) ? $b['snaps'] : ['series' => []];
+            // an area re-learned since the last round (his setup page): learned from this look, before anything is compared
+            $relearned = watchmanRelearnApply($b, $st, $observed, $relearnEvents, $look, $now);
             watchmanTeamLeadNotes($b, $book, is_array($old['seen']) ? $old['seen'] : $observed, $now, $acks);
             watchmanKnownNote($dir, $book, is_array($old['seen']) ? $old['seen'] : $observed, $now);       // his notes hold too (1.96)
             // partner doors: the office's own new line is noted (and its key known) before the flash watch looks at the keys
@@ -1811,7 +1821,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             isset($paths['array_events']) ? (string) $paths['array_events'] : null, $tell));
         if ($hwLook !== null) {
             // the hardware: this look against this boot's last (taken over anew: what it counts now is normal)
-            [$hwAdded, $st['hw']] = watchmanHwRound($paths, $hwLook, $boot, $btime, $fresh, $now, $book, $set['hw']);
+            [$hwAdded, $st['hw']] = watchmanHwRound($paths, $hwLook, $boot, $btime, $fresh || isset($relearned['hw']), $now, $book, $set['hw']);
             $added = array_merge($added, $hwAdded);
         }
         if (!$set['array']['scheduled']) {
@@ -10827,6 +10837,8 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
     $state['journal'] = ['moved' => (int) ($jr['moved'] ?? 0), 'cut' => array_sum(array_map('intval', (array) ($jr['cut'] ?? []))),
                          'has' => watchmanJournalDir($dir, false) !== null && (bool) glob("$dir/" . WATCH_JOURNAL_DIR . '/*.jsonl')];
     $state['off'] = $rules['off'] ?: new stdClass();
+    // re-learned areas (step 17): since when, until when «Bring back…», the round still to learn it
+    $state['relearn'] = watchmanRelearnPage($st, $now) ?: new stdClass();
     // his areas' lights (watchman-cats.php), from what this state says; the watch book's and the schedule's light beside them
     $lights = watchmanCats($state, is_array($st['parity'] ?? null) ? $st['parity'] : null);
     foreach ($rules['off'] as $cat => $at) {

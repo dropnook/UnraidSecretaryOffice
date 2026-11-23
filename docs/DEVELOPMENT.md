@@ -876,7 +876,16 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   once), `rules` (≤ 300, ≤ 50 an area; `on` in one of its shapes — key, ip, net, user+net, machine, source, file, cmd,
   share, disk, open, prog, tunnel, pair/admin + ip|net, vpn, sender (+iface), network, series (+dataset), dataset, vm, script,
   cause, thing (+max_c: the new abilities' thing across days and boots, below); `opt` makes it a threshold where the data flow is judged), `off` (areas switched off: what comes there is made
-  normal, the Team Lead says `areas_off`), `known` (your lasting answers, a fingerprint each, 3.4). **One place lets
+  normal, the Team Lead says `areas_off`), `known` (your lasting answers, a fingerprint each, 3.4). **Re-learn** (step 17,
+  agent/desks/watchman-relearn.php, actions `relearn` {cat|all, rules, settings} and `relearn_back` {name}): a take-over in
+  small, never keys simply deleted — what it takes is written to `data/watchman/aside/<Ymd-His>-<area|all>/relearn.json`
+  first (never deleted; brought back within 7 days, then renamed `…-back`); open entries of the area noted `by: relearn`
+  (they stay in the book, `WATCH_JOURNAL_HUMAN`); what needs a look is learned by the round it starts (`state.relearn_pending`
+  → `watchmanRelearnApply()` before anything is compared: logins from the syslog's start plus the partner doors' addresses,
+  the containers, the flash cut from the server itself's ld.so.preload, the host by sub-part …); the data flow's series and
+  marks, the router files' positions (read again in learning mode), the hardware (its round as at a take-over) by the action;
+  `state.relearn[cat].at` is each flow area's own learning start (its light `relearn_flow`), the mirror goes to the flash at
+  once (`by: relearn` counts like an ack). **One place lets
   through:** `watchmanRulesApply()` in the round after the serious incidents, before anything is told — only new entries,
   never one with `again` older than the decision, never one of a chain forming, never `_must` («always tell»: half a share,
   200 000 files in an hour, `WATCH_FLOW_MUST_PART`/`WATCH_FILES_MUST`); a rule's line counts up (a state met again unchanged:

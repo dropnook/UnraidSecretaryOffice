@@ -240,6 +240,21 @@ function watchmanCats(array $s, ?array $parity = null): array
     }
     $look = is_array($s['hold']['look'] ?? null) ? $s['hold']['look'] : null;
     $now = (int) ($s['time'] ?? time());
+    // re-learned (step 17): green with «!» — a day long, the data flow's two areas for their learning time again (each its own:
+    // the other one's tile never says «learning» for it)
+    foreach (is_array($s['relearn'] ?? null) ? $s['relearn'] : [] as $cat => $rl) {
+        $at = is_array($rl) ? (int) ($rl['at'] ?? 0) : 0;
+        if (!isset($areas[$cat]) || $at <= 0) {
+            continue;
+        }
+        if (in_array($cat, ['pull', 'data'], true)) {
+            if ($now - $at < WATCH_FLOW_LEARN) {
+                $add($cat, 'note', 'relearn_flow');
+            }
+        } elseif ($now - $at < WATCH_RELEARN_SHOW) {
+            $add($cat, 'note', 'relearn');
+        }
+    }
     if ($look === null) {
         $add('hold', 'none', 'hold_never');
     } elseif (empty($look['started'])) {

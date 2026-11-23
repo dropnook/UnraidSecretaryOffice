@@ -24,7 +24,7 @@ const WATCH_JOURNAL_MONTHS = 13;                 // months kept
 const WATCH_JOURNAL_MAX    = 8 * 1024 * 1024;    // bytes of one month's file
 const WATCH_JOURNAL_PAGE   = 100;                // lines the page gets at a time
 const WATCH_JOURNAL_FILE   = '/^(\d{4})-(\d{2})\.jsonl$/D';
-const WATCH_JOURNAL_HUMAN  = ['page', 'teamlead'];      // noted by a person: stays in the book
+const WATCH_JOURNAL_HUMAN  = ['page', 'teamlead', 'relearn'];      // noted by a person (a re-learn: his click): stays in the book
 const WATCH_JOURNAL_NEWEST = ['parity_check'];          // the newest line of these stays in the book: «Array and parity» reads its errors there
 
 /** A line noted by himself or by an exception — one for the history (open ones, a person's answers, serious incidents: never) */

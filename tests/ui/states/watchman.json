@@ -4983,7 +4983,7 @@
   "pull": {
    "level": "note",
    "why": [
-    "learning"
+    "relearn_flow"
    ],
    "open": 0,
    "tell": 0,
@@ -5004,8 +5004,10 @@
    "last": 1791562874
   },
   "snap": {
-   "level": "ok",
-   "why": [],
+   "level": "note",
+   "why": [
+    "relearn"
+   ],
    "open": 0,
    "tell": 0,
    "tips": 0,
@@ -5521,5 +5523,19 @@
   "gone_min": "gb",
   "written_min": "gb",
   "files_min": "n"
+ },
+ "relearn": {
+  "pull": {
+   "at": 1791390674,
+   "aside": "20261021-101500-pull",
+   "until": 1791995474,
+   "pending": false
+  },
+  "snap": {
+   "at": 1791559874,
+   "aside": "20261023-091000-snap",
+   "until": 1792164674,
+   "pending": true
+  }
  }
 }

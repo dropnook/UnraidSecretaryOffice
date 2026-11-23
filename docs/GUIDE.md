@@ -327,6 +327,10 @@ degrees and hours a sensor may be warm, how many memory or PCIe errors count, an
 whether out-of-memory, floods and DNS changes are told), its exceptions, your
 lasting answers, and the switch to watch it at all — off only after one clear question naming what you won't see.
 *Everything changed* lists all of it: the one place to see what he no longer says.
+*Re-learn this area…* (at the end of each area) and *Re-learn everything…* (at the top) make what is there now normal and
+let him learn what is usual anew (the data flow: its 7 days again) — after one clear question; the area's open entries are
+noted as done by it, your answers there go, and with its checkboxes its exceptions and settings too. Nothing is deleted: it
+is set aside first and *Bring back…* puts it back within 7 days.
 
 **Exceptions:** *… always okay* on an entry, or *Add an exception…* in his setup — a net for logins, a container's ports,
 a share whose deletions aren't judged, a snapshot series that may be thinned, a router's admin from your net, a sensor

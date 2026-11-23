@@ -142,6 +142,7 @@ function renderSetup(root) {
     [T('help.setup_rules'), T('help.setup_rules_text')],
   ]));
   if (!state) { root.appendChild(el('p', 'empty', Office.t('common.loading'))); return; }
+  root.appendChild(relearnAllBar());
   root.appendChild(setupSw.el);
   setupSw.render();
 }
@@ -226,6 +227,7 @@ function setupSection(id) {
   }
   const known = catKnown(id);
   if (known) s.appendChild(known);
+  s.appendChild(relearnBox(id));
   return s;
 }
 /** A setting's value in words: a number with its unit, a switch on or off, a choice by its name */
@@ -619,6 +621,117 @@ async function knownRemove(k, b) {
   Office.toast(T('known.taken_back'));
 }
 
+// ------------------------------------------------------------------ re-learn (1.96 step 17)
+/*
+ * «Re-learn this area…» at the end of an area's setup, «Re-learn everything…» at the top of the setup — never on the watch
+ * page, so it isn't hit by chance. One clear question (what becomes normal, how many open entries are noted as done, the
+ * warning), two checkboxes for the exceptions and the settings; what he takes is set aside on the server (never deleted)
+ * and can be brought back for seven days (agent: watchman-relearn.php).
+ */
+const relearnOf = (id) => (state && state.relearn && state.relearn[id] && typeof state.relearn[id] === 'object' ? state.relearn[id] : null);
+const relearnFlow = (cats) => cats.some((c) => c === 'pull' || c === 'data');
+function relearnAllBar() {
+  const bar = el('div', 'wm-setup-acts wm-relearn-all');
+  const b = el('button', 'btn small plain', T('setup.relearn_all'));
+  b.type = 'button';
+  b.title = T('setup.relearn_title');
+  b.disabled = !Office.agent.running || !hired() || !state.on_watch;
+  b.onclick = () => relearnAsk(null, b);
+  bar.appendChild(b);
+  return bar;
+}
+function relearnBox(id) {
+  const box = el('div', 'wm-relearn');
+  const r = relearnOf(id);
+  if (r) {
+    const all = /-all(-\d+)?$/.test(String(r.aside || ''));
+    const note = el('div', 'callout');
+    note.appendChild(el('p', '', T(all ? 'setup.relearn_since_all' : 'setup.relearn_since', { when: fmt.date(r.at) })
+      + (r.pending ? ' ' + T('setup.relearn_pending') : '')));
+    note.appendChild(el('p', '', T('setup.relearn_until', { until: fmt.date(r.until) })));
+    const back = el('button', 'btn small plain', T('setup.relearn_back'));
+    back.type = 'button';
+    back.title = T('setup.relearn_back_title');
+    back.disabled = !Office.agent.running || !hired();
+    back.onclick = () => relearnBackAsk(id, r, all, back);
+    note.appendChild(back);
+    box.appendChild(note);
+  }
+  const acts = el('div', 'wm-setup-acts');
+  const b = el('button', 'btn small plain', T('setup.relearn'));
+  b.type = 'button';
+  b.title = T('setup.relearn_title');
+  b.disabled = !Office.agent.running || !hired() || !state.on_watch;
+  b.onclick = () => relearnAsk(id, b);
+  acts.appendChild(b);
+  box.appendChild(acts);
+  return box;
+}
+/** The clear question: id one area, null all of them */
+function relearnAsk(id, b) {
+  const cats = id ? [id] : setupAreas();
+  const open = ((state && state.book) || []).filter((e) => e && e.open && cats.includes(e.cat)).length;
+  const rules = cats.reduce((n, c) => n + rulesOf(c).length, 0);
+  const changed = cats.reduce((n, c) => n + changedOf(c).length, 0);
+  const area = id ? catName(id) : '';
+  const body = el('div', 'wm-rule-ask');
+  body.appendChild(el('p', '', T(id ? 'setup.relearn_ask' : 'setup.relearn_all_ask')));
+  if (open) body.appendChild(el('p', '', T('setup.relearn_open', { n: open })));
+  if (relearnFlow(cats)) body.appendChild(el('p', '', T('setup.relearn_flow', { n: (state.flow && state.flow.learn) || 7 })));
+  body.appendChild(el('p', 'callout warn', T('setup.relearn_warn')));
+  body.appendChild(el('p', 'wm-note', T('setup.relearn_keep')));
+  const check = (text) => {
+    const label = el('label', 'switch wm-relearn-check');
+    const cb = el('input');
+    cb.type = 'checkbox';
+    label.append(cb, el('span', '', text));
+    body.appendChild(label);
+    return cb;
+  };
+  const cbRules = rules ? check(T('setup.relearn_rules', { n: rules })) : null;
+  const cbSet = changed ? check(T('setup.relearn_settings')) : null;
+  Office.dialog({ title: id ? T('setup.relearn_ask_title', { area }) : T('setup.relearn_all_ask_title'), body, buttons: [
+    { text: id ? T('setup.relearn_yes', { area }) : T('setup.relearn_all_yes'), kind: 'danger',
+      act: () => relearnGo(id, !!(cbRules && cbRules.checked), !!(cbSet && cbSet.checked), b) },
+    { text: Office.t('common.cancel') },
+  ] });
+}
+async function relearnGo(id, rules, settings, b) {
+  if (!(await Office.freshState(ID))) return;
+  b.disabled = true;
+  const j = await Office.api.post(`${ID}.relearn`, { cat: id || 'all', rules, settings });
+  if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); b.disabled = false; return; }
+  if (j.state) state = j.state;
+  mood();
+  renderAt('.wm-setup');
+  Office.toast(T('setup.relearn_done'));
+  load(true);         // the round he started learns what needs its look
+}
+function relearnBackAsk(id, r, all, b) {
+  const body = el('div', 'wm-rule-ask');
+  body.append(el('p', '', T(all ? 'setup.relearn_back_ask_all' : 'setup.relearn_back_ask', { area: catName(id), when: fmt.date(r.at) })),
+    el('p', 'wm-note', T('setup.relearn_back_note')));
+  Office.dialog({ title: T('setup.relearn_back_ask_title'), body, buttons: [
+    { text: T('setup.relearn_back_yes'), kind: 'danger', act: () => relearnBack(r, b) },
+    { text: Office.t('common.cancel') },
+  ] });
+}
+async function relearnBack(r, b) {
+  if (!(await Office.freshState(ID))) return;
+  b.disabled = true;
+  const j = await Office.api.post(`${ID}.relearn_back`, { name: r.aside });
+  if (!j.ok) {
+    Office.toast(Office.errorText(j.error, ID), true);
+    if (j.error && ['watch_relearn_gone', 'watch_relearn_old'].includes(j.error.key)) await load(true);
+    else b.disabled = false;
+    return;
+  }
+  if (j.state) state = j.state;
+  mood();
+  renderAt('.wm-setup');
+  Office.toast(T('setup.relearn_back_done'));
+}
+
 /** An area's exceptions: what each lets through, since when, how often it did, «Lift» (and «Undo» right after) */
 function catRules(id) {
   const list = ((state && state.rules) || []).filter((r) => r && r.cat === id);
@@ -973,9 +1086,18 @@ function catTip(id) {
     const what = entryName(newest);
     lines.push(T('cat.tip_newest', { what: what.length > 110 ? what.slice(0, 109) + '…' : what, when: fmt.relative(newest.last) }));
   }
-  (c.why || []).filter((w) => !CAT_SEEN.includes(w) && Office.has(`${ID}.cat.why.${w}`)).slice(0, 2).forEach((w) => lines.push(T('cat.why.' + w)));
+  (c.why || []).filter((w) => !CAT_SEEN.includes(w) && Office.has(`${ID}.cat.why.${w}`)).slice(0, 2).forEach((w) => lines.push(whyWords(id, w)));
   if (state && state.round && state.round.last) lines.push(T('cat.tip_checked', { when: fmt.relative(state.round.last) }));
   return lines.slice(0, 4);
+}
+/** A reason of an area's light in words — a re-learn says since when (the data flow: how many days it still learns) */
+function whyWords(id, w) {
+  const r = relearnOf(id);
+  if ((w === 'relearn' || w === 'relearn_flow') && r) {
+    const learn = ((state && state.flow && state.flow.learn) || 7) * 86400;
+    return T('cat.why.' + w, { when: fmt.date(r.at), n: Math.max(1, Math.ceil((r.at + learn - ((state && state.time) || Date.now() / 1000)) / 86400)) });
+  }
+  return T('cat.why.' + w);
 }
 /** An area's entries in his book (each entry's `cat`, from the messenger) */
 const catEntries = (id) => ((state && state.book) || []).filter((e) => e && typeof e.id === 'string' && e.cat === id);
@@ -1534,7 +1656,7 @@ function bookSection() {
  */
 const journal = { open: false, data: null, loading: false };
 const NOTED_BY = ['teamlead', 'baseline', 'auto', 'office', 'office_partner', 'office_drill', 'office_cron', 'schedule', 'array', 'unraid', 'plugin', 'back',
-  'router', 'parity', 'rule', 'known'];
+  'router', 'parity', 'rule', 'known', 'relearn'];
 function journalBox() {
   const j = state.journal || {};
   if (!j.has && !Number(j.cut)) return null;
@@ -1632,7 +1754,7 @@ function catSection(id) {
     return s;
   }
   (c.why || []).filter((w) => !CAT_SEEN.includes(w) && Office.has(`${ID}.cat.why.${w}`))
-    .forEach((w) => s.appendChild(el('p', 'callout' + (CAT_CALLOUT_WARN.includes(w) ? ' warn' : ''), T('cat.why.' + w))));
+    .forEach((w) => s.appendChild(el('p', 'callout' + (CAT_CALLOUT_WARN.includes(w) ? ' warn' : ''), whyWords(id, w))));
   if (c.off) {
     const on = el('button', 'btn small', T('rule.cat_on'));
     on.type = 'button';
@@ -1815,6 +1937,9 @@ function chainCallout(c) {
 function entryName(e) {
   if (e.kind === 'watch' && e.p && e.p.too_much) {
     return T(e.p.ros ? 'entry.net_too_much_mikrotik' : 'entry.net_too_much', { sender: e.p.sender || '', size: fmt.size(e.p.skipped || 0) });
+  }
+  if (e.kind === 'watch' && e.p && (e.p.relearn || e.p.relearn_back)) {      // an area re-learned, or brought back (step 17)
+    return T(e.p.relearn ? 'entry.watch_relearn' : 'entry.watch_relearn_back', { area: catName(e.p.relearn || e.p.relearn_back) });
   }
   return T('entry.' + (e.v || atVariant(e) || e.kind), entryParams(e));     // e.v: the shape a network entry has now (agent: watchnetEntryVariant())
 }
@@ -2383,7 +2508,7 @@ function details(e) {
   if (e.open) notes.push(T('adopt.' + (e.v === 'net_ips_server_list' || e.v === 'login_new_user' ? e.v : e.kind)));     // a block list: its own words (the whole list)
   const by = e.by === 'office' && e.kind === 'partner_paired' ? 'office_partner' : e.by === 'office' && e.kind === 'drill_throwaway' ? 'office_drill' : e.by;
   if (e.noted && by === 'plugin' && e.kind === 'at_plugin' && p.left) notes.push(T('noted.plugin_left', { when: fmt.date(p.left) }));     // agent: watchmanAtLeftNote()
-  else if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office', 'office_partner', 'office_drill', 'office_cron', 'schedule', 'array', 'unraid', 'plugin', 'back', 'router', 'parity', 'rule', 'known'].includes(by) ? by : 'page'),
+  else if (e.noted) notes.push(T('noted.' + (NOTED_BY.includes(by) ? by : 'page'),
     { when: fmt.date(e.noted), at: fmt.date(Number(e.p && e.p.known_at) || e.noted) }));
   // you knew it — as it was then: something has changed since (1.96, the answer's fingerprint differs)
   if (e.open && e.p && Number(e.p.known_at) > 0) notes.push(T('known.changed', { when: fmt.date(Number(e.p.known_at)) }));
