@@ -67,6 +67,9 @@ const WATCH_RULE_ROUTER = ['net_sender_new', 'net_router_login', 'net_router_log
                            'net_log_silent', 'net_link_down', 'net_outage', 'net_router_reboot'];       // «don't judge this sender» (6e)
 // «What holds the array?» and «Who woke my disks?» have no book entries: their exceptions name a side kind (6f) — never in
 // the rules' pass (no entry has it), read by their lights and lists (watchmanHoldKnown())
+// an area switched off never makes these normal (watchmanRulesApply()): the data flow's «usual» (an «I know» raises it to the
+// pull's peak for good), an SMB machine's hours, an address guessing passwords (counted quietly for ever) — dropped only
+const WATCH_OFF_LEARN_NOT = ['flow_client', 'flow_container', 'flow_written', 'flow_gone', 'smb_hour', 'login_failures', 'net_router_login_failures'];
 const WATCH_RULE_SIDE   = ['hold' => 'hold', 'wakes' => 'wakes'];
 const WATCH_RULE_SERIES = '/^[^\x00-\x1f]{1,255}$/D';                                    // a snapshot series (its name, digits as #)
 const WATCH_RULE_DS     = '#^[A-Za-z0-9_.:-][^@\x00-\x1f]{0,254}$#D';                    // a ZFS dataset (pool/…, never the pool alone: watchmanRuleOn())
@@ -600,7 +603,12 @@ function watchmanRulesApply(array &$book, array $before, array &$b, array $seen,
         }
         $cat = watchmanCatOf((string) $e['kind']);
         if ($cat !== null && isset($rules['off'][$cat]) && $newer($rules['off'][$cat], $e)) {
-            watchmanAdopt($b, $e, $seen, $now);       // what is there now is normal: switched on again, he starts from here
+            // what is there now is normal: switched on again, he starts from here — a state only (a container, a plugin, a
+            // file, the address of a login that worked); never what he learns as usual (the data flow's pulls, an SMB
+            // machine's hours) or a burst of failed logins: «off» never quietly allows (concept 12.1, gap 1)
+            if (!in_array($e['kind'], WATCH_OFF_LEARN_NOT, true)) {
+                watchmanAdopt($b, $e, $seen, $now);
+            }
             $drop[$i] = true;
             $res['off']++;
             continue;

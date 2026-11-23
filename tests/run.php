@@ -22459,6 +22459,17 @@ function testWatchmanRules(): void
     watchmanRound($paths, $data, 1000, $t0 + 1500, $docker, true, "$tmp/acks.json");
     same('lifted: the next login from that net is open again (the baseline never learnt it)', true,
         (bool) array_filter(watchmanLoad($data)['book'], fn ($x) => ($x['p']['ip'] ?? '') === '192.168.50.7' && watchmanOpen($x)));
+    // gap 1 (concept 12.1): an area off makes a state normal (a login's address), never a usual value (a pull, an SMB
+    // machine's hours) or failed logins — a big pull while off never raises the threshold for good
+    $ob = ['ips' => [], 'fail_ips' => [], 'flow' => ['since' => 1, 'smb_users' => [], 'smb_clients' => [], 'ack' => []]];
+    $obk = [watchmanEntry('flow_client', 'flow_client:192.168.1.9|smb', 100, ['ip' => '192.168.1.9', 'service' => 'smb', 'peak' => 80 * 1024 ** 3, 'hour' => 80 * 1024 ** 3]),
+            watchmanEntry('login_failures', 'login_failures:203.0.113.4', 100, ['ip' => '203.0.113.4', 'users' => [], 'services' => ['ssh']]),
+            watchmanEntry('login_new_ip', 'login_new_ip:192.168.1.7', 100, ['ip' => '192.168.1.7', 'users' => ['root'], 'services' => ['web']])];
+    $ost = [];
+    $ores = watchmanRulesApply($obk, [], $ob, [], ['rules' => [], 'off' => ['pull' => 50, 'login' => 50], 'known' => []], [], $ost, 200);
+    same('area off: all three dropped; the pull\'s «usual» untouched, the guessing address never known; the login\'s address normal',
+        [3, [], [], ['192.168.1.7']], [$ores['off'], $obk, $ob['flow']['ack'], array_keys($ob['ips']) === [] ? [] : array_keys($ob['ips'])]);
+    same('area off: failed logins never counted quietly afterwards', [], $ob['fail_ips']);
     same('cat_off: off only with the clear yes', 'watch_rule_ask', $err(fn () => watchmanCatOff('plugin', true, false, $data, null, false)));
     watchmanCatOff('plugin', true, true, $data, $t0 + 1600, false);
     file_put_contents("$src/plugins/new.plg", "<PLUGIN name=\"new\" version=\"1\" pluginURL=\"https://evil.example/new.plg\">\n");
