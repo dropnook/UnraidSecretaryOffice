@@ -294,6 +294,16 @@ When you hire him he learns what is normal. Then he walks his round every five m
   It goes to the notifications once, when it appears.
   A plugin's own job he notes himself. Removed while its job still waits or runs, the plugin leaves that job behind:
   he notes that too, as long as the job is unchanged. It ends with the next reboot.
+- The hardware, from what the kernel and Unraid already count (no tool, no disk woken): machine checks, memory errors
+  (ECC), PCIe errors, the CPU slowing down for heat, the kernel stumbling, a sensor too warm for hours, read or write
+  errors in the log, an SSD's wear and a disk's SMART values growing (one point a day, 90 days). A CPU with a known fault
+  and old microcode (Intel's 13th/14th Gen) is advice. What a server doesn't count is «not available», never «0 errors».
+- Signs in the log: a program ended because the memory was full, a service crashing again and again, a flood of
+  connection attempts.
+- What runs at the next start (a plugin file nothing installed, `stop`, modprobe.d, the start line, ld.so.preload) and the
+  router or DNS suddenly different (the gateway with another MAC).
+- Only if you switch on «Known vulnerabilities»: an actively exploited vulnerability that applies to a version running here
+  (only when the versions compare cleanly; else «maybe»), an Unraid or software without security updates.
 
 **How:**
 
@@ -306,17 +316,22 @@ When you hire him he learns what is normal. Then he walks his round every five m
 
 **Areas and lights:** his page is a row of small tiles, one for each area he watches — logins, containers, plugins, the
 flash and accounts, open shares, what starts by itself, who pulls data, data in the shares, snapshots and offsite, the
-server itself, ways in, the partner door, the router, the network, array and parity, what holds the array, disk wakes —
+server itself, ways in, the partner door, the router, the network, array and parity, known vulnerabilities, hardware,
+what holds the array, disk wakes —
 and the watch book, how securely it stands, serious incidents, what he keeps an eye on and his schedule. Each tile is a
 light: red, look now; yellow, worth a look; «!», advice; green, fine; grey, nothing to look at (switched off, not there,
 not looked at yet). The mouse says why; a click shows that area alone.
 
-**Setup** (his second tab): for each area its settings (the default is always what he did before), its exceptions, your
+**Setup** (his second tab): for each area its settings (the default is always what he did before — for the hardware the
+degrees and hours a sensor may be warm, how many memory or PCIe errors count, an SSD's wear; a service's crashes an hour;
+whether out-of-memory, floods and DNS changes are told), its exceptions, your
 lasting answers, and the switch to watch it at all — off only after one clear question naming what you won't see.
 *Everything changed* lists all of it: the one place to see what he no longer says.
 
 **Exceptions:** *… always okay* on an entry, or *Add an exception…* in his setup — a net for logins, a container's ports,
-a share whose deletions aren't judged, a snapshot series that may be thinned, a router's admin from your net. What it
+a share whose deletions aren't judged, a snapshot series that may be thinned, a router's admin from your net, a sensor
+that may get warm up to so many degrees, a service whose crashes you know, a vulnerability that doesn't apply here (a
+whole product only with a clear yes), a disk not to judge. What it
 names is noted, never told; lifted in his setup, the next round tells what is still different. Never let through: the same
 as a serious incident on your list (unless you decided after it), part of a chain forming, and — unless you switch it off —
 more than half of a share gone or 200 000 files deleted in one hour. For what an attacker does first he asks more clearly

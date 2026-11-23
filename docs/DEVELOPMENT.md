@@ -875,7 +875,7 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   `WATCH_SETTINGS`: numbers with bounds and unit, switches, choices — a choice with `kinds` makes new entries told or normal at
   once), `rules` (≤ 300, ≤ 50 an area; `on` in one of its shapes — key, ip, net, user+net, machine, source, file, cmd,
   share, disk, open, prog, tunnel, pair/admin + ip|net, vpn, sender (+iface), network, series (+dataset), dataset, vm, script,
-  cause; `opt` makes it a threshold where the data flow is judged), `off` (areas switched off: what comes there is made
+  cause, thing (+max_c: the new abilities' thing across days and boots, below); `opt` makes it a threshold where the data flow is judged), `off` (areas switched off: what comes there is made
   normal, the Team Lead says `areas_off`), `known` (your lasting answers, a fingerprint each, 3.4). **One place lets
   through:** `watchmanRulesApply()` in the round after the serious incidents, before anything is told — only new entries,
   never one with `again` older than the decision, never one of a chain forming, never `_must` («always tell»: half a share,
@@ -892,6 +892,19 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   `data/watchman/journal/YYYY-MM.jsonl` (append only, 13 months, 8 MB a month — what doesn't fit is counted and said); the
   book keeps what is open and what a person answered; the page reads it on demand (action `journal`). No migration step:
   everything new is a new file or key with a default.
+  **The new abilities (1.96, the concept's 11):** each in a file of its own — watchman-hw.php (B the hardware's counters:
+  hw_mce, hw_ecc, hw_aer, hw_throttle, hw_kernel from /proc and /sys, this boot's counts in `RUN_DIR/watchman-hw.json`
+  shared by day and night; C known CPU faults: watchman-cpu-faults.json, tips cpu_fault, old_microcode; E the disks' wear:
+  hw_wear from Unraid's SMART files via `waSmart()`, data/watchman/hw.json a point a day, 90 days), watchman-heat.php (D
+  hw_hot), agent/lib/logsigns.php + watchman-signs.php (H: host_oom, host_crash, host_flood, hw_io), watchman-boot.php (F
+  flash_boot, ld_preload) and watchnet.php (G net_gateway, net_dns), watchman-vuln.php (A vuln_known, vuln_maybe, tips
+  unraid_eol, software_eol; off until switched on). Their entries live in **book-more.json** (`WATCH_KINDS_MORE`, every kind
+  newer than 1.95 — an older office never reads it, so never drops them; `watchmanLoad()`/`watchmanSave()` treat both as one
+  book). The hardware has no ATT&CK technique and never joins a chain. Settings (`WATCH_SETTINGS` hw, host, lan.dns,
+  vuln.maybe; the defaults the constants the steps hard-coded — the heat reads its keys of set.hw itself); the rule shape
+  `{thing}` names what an entry is about across days and boots (`watchmanRuleThings()`: a sensor, disk, program, port,
+  module, device, the CPU, a CVE, a product), `{thing, max_c}` a sensor up to so many °C; asked more clearly: flash_boot,
+  ld_preload, net_gateway, vuln_known, hw_mce, hw_ecc, a whole product.
 * **`cleanup` — Ms. Dustdevil.** «Where is what» (operational advice, **never security**; read only) and «Tidying up» (what a
   drill or restore left: only what his journals name). **Her tour on schedule** (1.78, off by default): job `cleanup`
   (`job.sh cleanup` → `job cleanup-tour-due`, a mark in RAM); her tick (`clScheduledTick()`) tours as «Tour» does —

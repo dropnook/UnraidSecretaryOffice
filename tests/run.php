@@ -23417,6 +23417,143 @@ function testWatchmanRules6f(): void
 }
 
 /**
+ * Settings and exceptions for 1.96's new abilities (task/nw-196, after the rule engine of step 4 and the settings of step 5):
+ * the defaults are what the capability branches hard-coded (the heat's own keys of set.hw with their bounds, the hardware's
+ * counters, a service's crashes, «maybe» of the vulnerabilities); each setting does what it says; every new kind's thing
+ * across days and boots (a sensor, a disk, a program, a port, a module, a device, the CPU, a CVE, a product), the offers on
+ * an entry (a sensor up to a few degrees over its hottest reading; the product asked clearly), what they cover and what not,
+ * the rules' pass; the exceptions by hand; the words in five languages.
+ */
+function testWatchmanRulesNew(): void
+{
+    // the defaults: what the branches hard-coded
+    $hot = [];
+    foreach (WATCH_HOT_SET as $k => [$def, $lo, $hi]) {
+        $hot[$k] = [$def, $lo, $hi];
+    }
+    $hw = (array) json_decode((string) json_encode(WATCH_SETTINGS['hw']), true);
+    same('settings: the heat\'s keys of set.hw — the same defaults and bounds as watchman-heat.php reads them', $hot,
+        array_map(fn ($d) => [$d['def'], $d['min'], $d['max']], array_intersect_key($hw, $hot)));
+    same('settings: the hardware\'s counters, the disks\' wear, a service\'s crashes, «maybe» — the constants',
+        [WATCH_HW_ECC_DAY, WATCH_HW_AER_HOUR, WATCH_HW_THROTTLE_HOUR, WATCH_HW_WEAR_USED[0], WATCH_SIGN_CRASHES, false, 'quiet', 'quiet', 'quiet'],
+        [$hw['ecc_day']['def'], $hw['aer_hour']['def'], $hw['throttle_min']['def'] * 60000, $hw['worn']['def'], WATCH_SETTINGS['host']['crashes']['def'],
+         WATCH_SETTINGS['vuln']['maybe']['def'], WATCH_SETTINGS['host']['oom']['def'], WATCH_SETTINGS['host']['flood']['def'], WATCH_SETTINGS['lan']['dns']['def']]);
+    same('settings: one his setup writes is what the heat and «maybe» read (set.hw, set.vuln)', [62, true],
+        [watchmanHotSettings((array) watchmanSettings(['set' => ['hw' => ['hot_nvme_c' => 62]]])['hw'])['hot_nvme_c'],
+         watchmanSettings(['set' => ['vuln' => ['maybe' => true]]])['vuln']['maybe']]);
+    $modes = watchmanKindModes(watchmanSettings(['set' => ['host' => ['oom' => 'tell', 'flood' => 'none'], 'lan' => ['dns' => 'tell']]]));
+    ksort($modes);
+    same('settings: a choice sets its kinds (out of memory told, floods not at all, DNS told)', ['host_flood' => 'none', 'host_oom' => 'tell', 'net_dns' => 'tell'], $modes);
+
+    // each setting does what it says: memory errors told from 3 a day; a service's crashes from 2 in an hour
+    $now = 1790000000;
+    $book = [];
+    $look = ['mce' => null, 'edac' => ['mc0' => ['name' => 'x', 'ce' => 0, 'ue' => 0, 'dimms' => ['dimm0' => ['label' => 'A1', 'ce' => 0, 'ue' => 0]]]],
+             'aer' => null, 'throttle' => null, 'taint' => null];
+    [, $ram] = watchmanHwCompare(null, 'look', $look, 'b', $now, $book, ['ecc_day' => 3]);
+    $look['edac']['mc0']['ce'] = $look['edac']['mc0']['dimms']['dimm0']['ce'] = 3;
+    watchmanHwCompare($ram, 'ram', $look, 'b', $now + 300, $book, ['ecc_day' => 3]);
+    same('setting hw.ecc_day 3: three corrected errors on a module — told', [1, true], [count($book), watchmanImportant($book[0] ?? [])]);
+    $book = [];
+    $st = [];
+    $sign = fn (int $t) => ['kind' => 'host_crash', 'thing' => 'smbd', 'line' => 'kernel: smbd[1]: segfault', 'time' => $t, 'host' => 'tower', 'sign' => 'segfault'];
+    watchmanSignsCompare($book, $st, [$sign($now), $sign($now + 60)], 'tower', [], $now + 120, 2);
+    same('setting host.crashes 2: two crashes in an hour — a line (three by default)', [['host_crash'], 2], [array_column($book, 'kind'), $book[0]['count'] ?? null]);
+
+    // the things across days and boots, and what is offered on an entry
+    $e = fn (string $kind, string $key, array $p) => ['noted' => null] + watchmanEntry($kind, $key, $now, $p);
+    $hotE = $e('hw_hot', 'hw_hot:nvme:cache', ['sensor' => 'nvme:cache', 'kind' => 'nvme', 'name' => 'cache', 'c' => 71, 'peak' => 72, 'limit' => 70, 'minutes' => 130]);
+    $cases = [
+        'hw_hot'     => [$hotE, ['sensor:nvme:cache']],
+        'hw_io'      => [$e('hw_io', 'hw_io:sdc:2026-11-22', ['dev' => 'sdc', 'disk' => 'disk1']), ['disk:disk1']],
+        'hw_wear'    => [$e('hw_wear', 'hw_wear:WDC_X:a5', ['what' => 'a5', 'name' => 'disk1', 'id' => 'WDC_X']), ['disk:WDC_X']],
+        'host_oom'   => [$e('host_oom', 'host_oom:emby:2026-11-22', ['prog' => 'emby']), ['prog:emby']],
+        'host_crash' => [$e('host_crash', 'host_crash:smbd:2026-11-22', ['prog' => 'smbd']), ['prog:smbd']],
+        'host_flood' => [$e('host_flood', 'host_flood:conntrack:2026-11-22', ['port' => null]), ['port:conntrack']],
+        'hw_ecc'     => [$e('hw_ecc', 'hw_ecc:aaaaaaaa:mc0/dimm0', ['where' => 'mc0/dimm0', 'label' => 'A1']), ['module:mc0/dimm0']],
+        'hw_aer'     => [$e('hw_aer', 'hw_aer:aaaaaaaa:0000:01:00.0', ['dev' => '0000:01:00.0']), ['dev:0000:01:00.0']],
+        'hw_mce'     => [$e('hw_mce', 'hw_mce:aaaaaaaa', ['mce' => 1]), ['cpu']],
+        'vuln_known' => [$e('vuln_known', 'vuln_known:CVE-2024-4577:php:web', ['cve' => 'CVE-2024-4577', 'product' => 'php', 'where' => 'web']), ['cve:CVE-2024-4577', 'product:php']],
+        'flash_boot' => [$e('flash_boot', 'flash_boot:plg:x', ['what' => 'plg', 'file' => 'x.plg']), []],
+    ];
+    same('things: each new kind\'s, across days and boots (none where the key is the thing already)', array_map(fn ($c) => $c[1], $cases),
+        array_map(fn ($c) => watchmanRuleThings($c[0]), $cases));
+    $offers = fn (array $x) => array_map(fn ($o) => [$o['type'], $o['on'], $o['ask']], watchmanRuleOffers($x, [$x]));
+    same('offers: a sensor — exactly this one, up to 75 °C (its hottest 72), always', [
+        ['key', ['key' => 'hw_hot:nvme:cache'], false], ['max_c', ['thing' => 'sensor:nvme:cache', 'max_c' => 75], false], ['thing', ['thing' => 'sensor:nvme:cache'], false]],
+        $offers($hotE));
+    same('offers: a vulnerability — the CVE, the whole product: asked clearly (security); a «maybe»\'s product too', [true, true, true],
+        [$offers($cases['vuln_known'][0])[1][2] ?? null, $offers($cases['vuln_known'][0])[2][2] ?? null,
+         $offers($e('vuln_maybe', 'vuln_maybe:CVE-1:php:web', ['cve' => 'CVE-2024-1', 'product' => 'php', 'where' => 'web']))[2][2] ?? null]);
+    same('offers: memory errors and machine checks asked clearly; a crash plainly', [true, true, false],
+        [$offers($cases['hw_ecc'][0])[1][2] ?? null, $offers($cases['hw_mce'][0])[1][2] ?? null, $offers($cases['host_crash'][0])[1][2] ?? null]);
+    // what a rule covers: the thing on another day, not another thing; a sensor within its degrees, not over them
+    $rule = fn (string $kind, array $on) => watchmanRuleShaped(['id' => 'r0123456789', 'cat' => watchmanCatOf($kind), 'kinds' => [$kind], 'on' => $on, 'at' => $now]);
+    $crash = $rule('host_crash', ['thing' => 'prog:smbd']);
+    $warm = $rule('hw_hot', ['thing' => 'sensor:nvme:cache', 'max_c' => 75]);
+    $hotter = ['p' => ['peak' => 78] + $hotE['p']] + $hotE;
+    same('covers: smbd\'s crashes the next day — yes; nginx\'s — no; the sensor at 72 °C — yes, at 78 °C — no', [true, false, true, false],
+        [watchmanRuleCovers($crash, $e('host_crash', 'host_crash:smbd:2026-11-23', ['prog' => 'smbd'])), watchmanRuleCovers($crash, $e('host_crash', 'host_crash:nginx:2026-11-23', ['prog' => 'nginx'])),
+         watchmanRuleCovers($warm, $hotE), watchmanRuleCovers($warm, $hotter)]);
+    same('shapes: a limit only on a sensor and within 30–120 °C; a thing in its shape', [null, null, null],
+        [$rule('host_crash', ['thing' => 'prog:smbd', 'max_c' => 75]), $rule('hw_hot', ['thing' => 'sensor:nvme:cache', 'max_c' => 200]), $rule('hw_io', ['thing' => "disk:\x01"])]);
+    // the rules' pass: a new crash line of smbd noted by the rule, never told
+    $book = [$e('host_crash', 'host_crash:smbd:2026-11-23', ['prog' => 'smbd'])];
+    $b = [];
+    $st = [];
+    $res = watchmanRulesApply($book, [], $b, [], ['rules' => [$crash], 'off' => [], 'known' => [], 'set' => []], [], $st, $now);
+    same('pass: a new crash line of smbd — noted by the rule, never told', [1, 'rule', false], [$res['noted'], $book[0]['by'] ?? null, watchmanOpen($book[0])]);
+
+    // by hand
+    $err = function (callable $f): ?string {
+        try {
+            $f();
+            return null;
+        } catch (Problem $p) {
+            return $p->key;
+        }
+    };
+    same('by hand: a service\'s crashes, a program out of memory, a CVE (written as people do), a whole product (wide)', [
+        [['host_crash'], ['thing' => 'prog:smbd'], false], [['host_oom'], ['thing' => 'prog:emby'], false],
+        [['vuln_known', 'vuln_maybe'], ['thing' => 'cve:CVE-2024-4577'], false], [['vuln_known', 'vuln_maybe'], ['thing' => 'product:php'], true]],
+        array_map(fn ($m) => [$m['kinds'], $m['on'], $m['wide']], [watchmanRuleHandMake('host', 'crash', 'smbd', ''), watchmanRuleHandMake('host', 'oom', 'emby', ''),
+            watchmanRuleHandMake('vuln', 'cve', 'cve-2024-4577', ''), watchmanRuleHandMake('vuln', 'product', 'PHP', '')]));
+    same('by hand: refused — not a CVE, a product not on the list, a program with a slash', ['watch_value_bad', 'watch_value_bad', 'watch_value_bad'],
+        [$err(fn () => watchmanRuleHandMake('vuln', 'cve', 'CVE-12', '')), $err(fn () => watchmanRuleHandMake('vuln', 'product', 'nonsense', '')),
+         $err(fn () => watchmanRuleHandMake('host', 'crash', 'a/b', ''))]);
+
+    // the words
+    $keys = ['setup.unit.c', 'rule.offer.max_c', 'rule.offer.thing.conntrack', 'rule.offer.thing.cve', 'rule.offer.thing.product', 'setup.add_wide.vuln'];
+    foreach (['hw_hot', 'hw_io', 'hw_wear', 'host_oom', 'host_crash', 'host_flood', 'hw_ecc', 'hw_aer', 'hw_mce', 'hw_throttle'] as $k) {
+        $keys[] = "rule.offer.thing.$k";
+    }
+    foreach (['crash', 'oom', 'cve', 'product'] as $k) {
+        $keys[] = "setup.add_type.$k";
+        $keys[] = "setup.add_value.$k";
+    }
+    foreach (['host' => ['oom', 'flood'], 'lan' => ['dns']] as $cat => $ks) {
+        foreach ($ks as $k) {
+            foreach (WATCH_SETTINGS[$cat][$k]['of'] as $v) {
+                $keys[] = "setting.$cat.$k.$v";
+            }
+        }
+    }
+    $missing = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $lang = langFile(OFFICE_WEB . "/desks/watchman/lang/$code.json");
+        foreach ($keys as $k) {
+            if (!is_string($lang[$k] ?? null)) {
+                $missing[] = "$code $k";
+            }
+        }
+    }
+    same('words: the new offers, the exceptions by hand, the choices, the unit — in five languages', [], $missing);
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/watchman/desk.js');
+    check('page: the offers «thing» and «max_c» are shown, the hand types have their examples', str_contains($js, "'network', 'thing', 'max_c'];")
+        && str_contains($js, "crash: 'smbd', oom: 'emby', cve: 'CVE-2024-4577'"));
+}
+
+/**
  * 1.96 step 6g — the two broad built-in excuses narrowed (concept 9, points 1 and 2): the engine's lock excuses what
  * vanishes only in the office's own shares (a restore: all of it, as before); rsync --remove-source-files and the
  * storeroom's purge only in the shares their paths name — like the movers.
@@ -70577,7 +70714,7 @@ function testSkipPlaces(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackPlan', 'testJackNoPython', 'testJackRun', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testWatchWakesPage', 'testWatchmanWakes', 'testWatchmanWakeTrail', 'testMetrics', 'testWatchmanCats', 'testWatchmanRules', 'testWatchmanKnown', 'testWatchmanSettings', 'testWatchmanRules6a', 'testWatchmanRules6b', 'testWatchmanRules6c', 'testWatchmanRules6d', 'testWatchmanRules6e', 'testWatchmanRules6f', 'testWatchmanRules6g', 'testWatchmanJournal', 'testWatchmanBookMore', 'testWatchmanVuln', 'testWatchmanVulnSoftware', 'testWatchmanHot', 'testLogsigns', 'testWatchmanSigns', 'testWatchmanHw', 'testWatchmanCpuFaults', 'testWatchmanWear', 'testWatchmanHwBookMore', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanStartFiles', 'testWatchmanGateway', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testWatchWakesPage', 'testWatchmanWakes', 'testWatchmanWakeTrail', 'testMetrics', 'testWatchmanCats', 'testWatchmanRules', 'testWatchmanKnown', 'testWatchmanSettings', 'testWatchmanRules6a', 'testWatchmanRules6b', 'testWatchmanRules6c', 'testWatchmanRules6d', 'testWatchmanRules6e', 'testWatchmanRules6f', 'testWatchmanRules6g', 'testWatchmanRulesNew', 'testWatchmanJournal', 'testWatchmanBookMore', 'testWatchmanVuln', 'testWatchmanVulnSoftware', 'testWatchmanHot', 'testLogsigns', 'testWatchmanSigns', 'testWatchmanHw', 'testWatchmanCpuFaults', 'testWatchmanWear', 'testWatchmanHwBookMore', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanStartFiles', 'testWatchmanGateway', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testMigrateWakes', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics', 'testReportDialogOwnWords', 'testReportDialogDesk',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testBackupRunEnded', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanAtLeft', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testSkipPlaces', 'testCleanupSkipGreeting', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testLights', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],

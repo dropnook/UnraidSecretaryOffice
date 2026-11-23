@@ -75,13 +75,20 @@ const WATCH_RULE_DS     = '#^[A-Za-z0-9_.:-][^@\x00-\x1f]{0,254}$#D';           
 const WATCH_RULE_ASK    = ['flash_go', 'flash_user', 'flash_password', 'flash_ssh_key', 'user_ram', 'log_cleared', 'plugin_source',
                            'cron_office', 'cron_twice', 'cron_file_foreign', 'notify_agent', 'api_key_new', 'api_key_changed', 'door_new',
                            'door_changed', 'door_refused', 'smb_user', 'login_failures', 'kopia_emptied', 'net_spoof', 'net_firewall_change',
-                           'net_ips_server', 'net_log_silent', 'flow_written', 'flow_gone', 'snap_gone', 'snap_hold_released'];
+                           'net_ips_server', 'net_log_silent', 'flow_written', 'flow_gone', 'snap_gone', 'snap_hold_released',
+                           // 1.96's new abilities (concept 3.3): what runs at the start, a library in every program, the router posing, an
+                           // exploited vulnerability that applies here, the CPU's own hardware errors, memory errors
+                           'flash_boot', 'ld_preload', 'net_gateway', 'vuln_known', 'hw_mce', 'hw_ecc'];
 const WATCH_RULE_PLAIN  = ['login_new_ip', 'smb_client', 'smb_hour', 'container_new', 'container_privileged', 'container_host', 'container_ports',
                            'container_rights', 'container_plain', 'drill_throwaway', 'plugin_new', 'plugin_version', 'flash_extra', 'share_public', 'cron_new', 'cron_file', 'script_new',
                            'script_changed', 'at_job', 'at_userscript', 'at_plugin', 'flow_client', 'flow_container', 'listen_new', 'proc_odd',
                            'array_stop', 'array_start', 'server_boot', 'parity_check', 'partner_paired', 'door_key_moved', 'net_sender_new',
                            'net_new_device', 'net_router_login', 'net_router_config', 'net_vpn_login', 'net_blocked_from_server',
-                           'net_router_login_failures', 'net_link_down', 'net_outage', 'net_router_reboot'];
+                           'net_router_login_failures', 'net_link_down', 'net_outage', 'net_router_reboot',
+                           'hw_hot', 'hw_io', 'hw_aer', 'hw_throttle', 'hw_kernel', 'hw_wear', 'host_oom', 'host_crash', 'host_flood', 'net_dns', 'vuln_maybe'];
+// what an exception names as «this thing» across days and boots (1.96's new kinds, watchmanRuleThings()): a sensor, a disk, a
+// program, a port, a memory module, a PCIe device, the CPU, a CVE, a product — <what>:<name>
+const WATCH_RULE_THING  = '/^(?:cpu|(?:sensor|disk|prog|port|module|dev|cve|product):[^\x00-\x1f]{1,200})$/D';
 
 /** rules.json as it lies (tolerant: whatever it holds stays; not a JSON object: nothing) */
 function watchmanRulesRaw(string $dir): array
@@ -221,6 +228,10 @@ function watchmanRuleOn(mixed $on): ?array
         ['network']     => is_string($on['network']) && preg_match(WATCH_RULE_NAME, $on['network']) ? ['network' => $on['network']] : null,
         ['series']      => is_string($on['series']) && preg_match(WATCH_RULE_SERIES, $on['series']) ? ['series' => $on['series']] : null,
         ['dataset']     => watchmanRuleDsOk($on['dataset']) ? ['dataset' => $on['dataset']] : null,
+        // 1.96's new kinds: this thing across days and boots; a sensor up to so many °C (hw_hot)
+        ['thing']       => is_string($on['thing']) && preg_match(WATCH_RULE_THING, $on['thing']) ? ['thing' => $on['thing']] : null,
+        ['max_c', 'thing'] => is_string($on['thing']) && str_starts_with($on['thing'], 'sensor:') && preg_match(WATCH_RULE_THING, $on['thing'])
+                              && is_int($on['max_c']) && $on['max_c'] >= 30 && $on['max_c'] <= 120 ? ['thing' => $on['thing'], 'max_c' => $on['max_c']] : null,
         ['dataset', 'series'] => watchmanRuleDsOk($on['dataset']) && is_string($on['series']) && preg_match(WATCH_RULE_SERIES, $on['series'])
                                  ? ['series' => $on['series'], 'dataset' => $on['dataset']] : null,
         ['cmd', 'owner', 'user'] => is_string($on['cmd']) && preg_match(WATCH_RULE_CMD, $on['cmd']) && is_string($on['user']) && is_string($on['owner'])
@@ -228,6 +239,33 @@ function watchmanRuleOn(mixed $on): ?array
                                     ? ['cmd' => $on['cmd'], 'user' => $on['user'], 'owner' => $on['owner']] : null,
         default         => null,
     };
+}
+
+/**
+ * The things an entry of 1.96's new kinds is about, across days and boots (its key carries the day or the boot): a sensor
+ * (hw_hot), a disk (hw_io by Unraid's name, else its device; hw_wear by its id), a program (host_oom, host_crash), a port or
+ * the connection table (host_flood), a memory module or controller (hw_ecc), a PCIe device (hw_aer), the CPU (hw_mce,
+ * hw_throttle), the CVE and the product (vuln_known, vuln_maybe). Others: none (their key is their thing already).
+ *
+ * @return list<string>
+ */
+function watchmanRuleThings(array $e): array
+{
+    $p = (array) ($e['p'] ?? []);
+    $str = fn (string $k): ?string => is_string($p[$k] ?? null) && $p[$k] !== '' ? $p[$k] : null;
+    $out = match ((string) ($e['kind'] ?? '')) {
+        'hw_hot'      => [$str('sensor') !== null ? 'sensor:' . $str('sensor') : null],
+        'hw_io'       => [($str('disk') ?? $str('dev')) !== null ? 'disk:' . ($str('disk') ?? $str('dev')) : null],
+        'hw_wear'     => [$str('id') !== null ? 'disk:' . $str('id') : null],
+        'host_oom', 'host_crash' => [$str('prog') !== null ? 'prog:' . $str('prog') : null],
+        'host_flood'  => ['port:' . (is_int($p['port'] ?? null) ? (string) $p['port'] : 'conntrack')],
+        'hw_ecc'      => [$str('where') !== null ? 'module:' . $str('where') : null],
+        'hw_aer'      => [$str('dev') !== null ? 'dev:' . $str('dev') : null],
+        'hw_mce', 'hw_throttle' => ['cpu'],
+        'vuln_known', 'vuln_maybe' => [$str('cve') !== null ? 'cve:' . $str('cve') : null, $str('product') !== null ? 'product:' . $str('product') : null],
+        default       => [],
+    };
+    return array_values(array_filter($out, fn ($t) => is_string($t) && preg_match(WATCH_RULE_THING, $t) === 1));
 }
 
 /** A ZFS dataset a snapshot rule may name: below a pool (pool/…), never the pool itself (concept 3.2: never a whole pool) */
@@ -307,6 +345,11 @@ function watchmanRuleCovers(array $rule, array $e): bool
     if (isset($on['key'])) {
         return ($e['key'] ?? null) === $on['key'];
     }
+    if (isset($on['thing'])) {
+        // the thing as the entry names it; a sensor with a limit only while its hottest reading stays within it
+        return in_array($on['thing'], watchmanRuleThings($e), true)
+            && (!isset($on['max_c']) || (is_int($p['peak'] ?? null) && $p['peak'] <= $on['max_c']));
+    }
     // the network and the partner door (6e) — their ip/net is checked here, never by the logins' shapes below
     $inNet = fn (): bool => $ip !== '' && (isset($on['net']) ? watchmanIpInNet($ip, $on['net']) : @inet_pton($ip) !== false && @inet_pton($ip) === @inet_pton((string) $on['ip']));
     if (isset($on['pair'])) {
@@ -384,6 +427,7 @@ function watchmanRuleAskThis(array $e, array $o): bool
         'container_rights'     => (bool) array_filter((array) ($p['tokens'] ?? []), fn ($t) => preg_match('#^-v (?:/var)?/run/docker\.sock|^-v /$#', (string) $t)),
         'proc_odd'             => str_starts_with((string) ($e['key'] ?? ''), 'proc_odd:host:') && (bool) preg_match('#/memfd:|^proc_odd:host:/dev/shm/#', (string) $e['key']),
         'share_public'         => ($p['share'] ?? null) === 'flash',
+        'vuln_maybe'           => str_starts_with((string) ($o['on']['thing'] ?? ''), 'product:'),     // a whole product: its known lists too
         default                => isset($o['on']['sender']) && !isset($o['on']['iface']),       // a whole sender: its firewall's changes, its silence too
     };
 }
@@ -500,6 +544,16 @@ function watchmanRuleOffers(array $e, array $book): array
             $out[] = ['type' => 'prog', 'on' => ['prog' => $p['prog']], 'kinds' => ['listen_new']];    // this program on any port
         }
         $out[] = ['type' => 'key', 'on' => ['key' => $e['key']], 'kinds' => [$kind]];
+    }
+    // 1.96's new kinds: the thing across days and boots (a sensor, a disk, a program …) — a sensor also up to a few degrees over
+    // its hottest reading; the CVE, then the product (wider: asked)
+    foreach (watchmanRuleThings($e) as $t) {
+        if (str_starts_with($t, 'sensor:') && is_int($p['peak'] ?? null)) {
+            $c = min(120, max(30, (int) (ceil(($p['peak'] + 1) / 5) * 5)));
+            $out[] = ['type' => 'max_c', 'on' => ['thing' => $t, 'max_c' => $c], 'kinds' => [$kind], 'what' => mb_strcut((string) ($p['name'] ?? ''), 0, 200, 'UTF-8')];
+        }
+        $out[] = ['type' => 'thing', 'on' => ['thing' => $t], 'kinds' => str_starts_with($t, 'cve:') || str_starts_with($t, 'product:') ? ['vuln_known', 'vuln_maybe'] : [$kind]]
+            + (str_starts_with($t, 'sensor:') && is_string($p['name'] ?? null) && $p['name'] !== '' ? ['what' => mb_strcut($p['name'], 0, 200, 'UTF-8')] : []);
     }
     if (in_array($kind, WATCH_RULE_ROUTER, true) && is_string($p['sender'] ?? null) && preg_match(WATCH_RULE_SENDER, $p['sender'])) {
         $out[] = ['type' => 'sender', 'on' => ['sender' => $p['sender']], 'kinds' => WATCH_RULE_ROUTER];       // «don't judge this sender» (widest last)
@@ -1257,6 +1311,7 @@ const WATCH_SETTINGS = [
     ],
     'lan' => [
         'random' => ['def' => false],       // devices on a made-up Wi-Fi address: learned without a line of their own
+        'dns'    => ['def' => 'quiet', 'of' => ['quiet', 'tell', 'none'], 'kinds' => ['net_dns']],     // the server asks other DNS servers (1.96)
     ],
     // 6f: array and parity, what holds the array, who woke the disks
     'array' => [
@@ -1267,6 +1322,29 @@ const WATCH_SETTINGS = [
     ],
     'wakes' => [
         'warn_at' => ['def' => 0, 'min' => 0, 'max' => 100, 'unit' => 'n0'],   // yellow from this many wakes of a disk a day (0: no judgement)
+    ],
+    // 1.96's new abilities (the defaults: what their steps hard-coded; a test holds them equal)
+    'hw' => [
+        // too warm for hours (watchman-heat.php reads these keys of set.hw itself: WATCH_HOT_SET, its bounds the same)
+        'hot_nvme_c'   => ['def' => 70, 'min' => 40, 'max' => 95, 'unit' => 'c'],
+        'hot_nvme_min' => ['def' => 120, 'min' => 10, 'max' => 1440, 'unit' => 'min'],
+        'hot_disk_c'   => ['def' => 55, 'min' => 35, 'max' => 70, 'unit' => 'c'],
+        'hot_disk_min' => ['def' => 120, 'min' => 10, 'max' => 1440, 'unit' => 'min'],
+        'hot_cpu_min'  => ['def' => 30, 'min' => 10, 'max' => 1440, 'unit' => 'min'],
+        // the hardware's counters and the disks' wear (watchman-hw.php)
+        'ecc_day'      => ['def' => 10, 'min' => 1, 'max' => 1000, 'unit' => 'n'],      // corrected memory errors of a module in a day: told (WATCH_HW_ECC_DAY)
+        'aer_hour'     => ['def' => 100, 'min' => 10, 'max' => 10000, 'unit' => 'n'],   // corrected PCIe errors of a device in an hour: a line (WATCH_HW_AER_HOUR)
+        'throttle_min' => ['def' => 1, 'min' => 1, 'max' => 60, 'unit' => 'min'],      // the CPU slowed for heat this long in an hour: a line (WATCH_HW_THROTTLE_HOUR)
+        'worn'         => ['def' => 90, 'min' => 50, 'max' => 100, 'unit' => 'pct'],     // an SSD's life used from this: a line, the light yellow (WATCH_HW_WEAR_USED)
+    ],
+    'host' => [
+        // signs in the log (watchman-signs.php)
+        'crashes' => ['def' => 3, 'min' => 2, 'max' => 20, 'unit' => 'n'],          // a service's crashes within an hour: host_crash (WATCH_SIGN_CRASHES)
+        'oom'     => ['def' => 'quiet', 'of' => ['quiet', 'tell', 'none'], 'kinds' => ['host_oom']],     // a program ended: memory full
+        'flood'   => ['def' => 'quiet', 'of' => ['quiet', 'tell', 'none'], 'kinds' => ['host_flood']],   // very many connection attempts
+    ],
+    'vuln' => [
+        'maybe' => ['def' => false],       // «maybe affected» told too (watchman-vuln.php reads set.vuln.maybe)
     ],
 ];
 
@@ -1381,7 +1459,7 @@ const WATCH_HAND = [
     // a port, a program on any port; new peers of a WireGuard tunnel
     'flash'     => ['extra'],
     'share'     => ['guest_read', 'guest_write'],
-    'host'      => ['port', 'prog'],
+    'host'      => ['port', 'prog', 'crash', 'oom'],
     'door'      => ['tunnel'],
     // 6e: an admin from a net (the second field: the admin), a VPN user from anywhere, a router's port (the second field: the
     // router), a sender not judged; a network whose new devices need no line
@@ -1391,6 +1469,9 @@ const WATCH_HAND = [
     // (<kind>:<name>, the second field: the kind), a disk isn't counted
     'hold'      => ['vm', 'userscript'],
     'wakes'     => ['cause', 'disk'],
+    // 1.96's new abilities: a service's crashes known, a program running out of memory known (signs in the log); a CVE not
+    // relevant here, a product not judged (the second only with the clear yes)
+    'vuln'      => ['cve', 'product'],
 ];
 const WATCH_HAND_AMOUNT = ['client_min' => 'gb', 'gone_min' => 'gb', 'written_min' => 'gb', 'files_min' => 'n'];      // the types with an amount
 const WATCH_HAND_NAME = '/^[A-Za-z0-9][A-Za-z0-9 _.+()-]{0,99}$/D';        // a container's or a User Script's name
@@ -1591,6 +1672,24 @@ function watchmanRuleHandMake(string $cat, string $type, string $value, string $
                 throw new Problem(preg_match(WATCH_RULE_DS, $value) && !str_contains($value, '/') ? 'watch_pool_whole' : 'watch_value_bad');
             }
             return ['cat' => $cat, 'kinds' => [$type === 'dataset' ? 'snap_gone' : 'snap_hold_released'], 'on' => ['dataset' => $value], 'wide' => true];
+        case 'crash':
+        case 'oom':
+            if (!preg_match(WATCH_RULE_PROG, $value)) {
+                throw new Problem('watch_value_bad');
+            }
+            return ['cat' => $cat, 'kinds' => [$type === 'crash' ? 'host_crash' : 'host_oom'], 'on' => ['thing' => "prog:$value"], 'wide' => false];
+        case 'cve':
+            $value = strtoupper($value);
+            if (!preg_match('/^CVE-\d{4}-\d{4,7}$/D', $value)) {
+                throw new Problem('watch_value_bad');
+            }
+            return ['cat' => $cat, 'kinds' => ['vuln_known', 'vuln_maybe'], 'on' => ['thing' => "cve:$value"], 'wide' => false];
+        case 'product':
+            $value = strtolower($value);
+            if (!defined('WATCH_VULN_PRODUCTS') || !isset(WATCH_VULN_PRODUCTS[$value])) {
+                throw new Problem('watch_value_bad');
+            }
+            return ['cat' => $cat, 'kinds' => ['vuln_known', 'vuln_maybe'], 'on' => ['thing' => "product:$value"], 'wide' => true];
         default:        // crond
             $value = preg_replace('#^/?etc/cron\.d/#', '', $value) ?? '';
             if (!preg_match(WATCH_RULE_CROND, $value) || $value === 'root') {

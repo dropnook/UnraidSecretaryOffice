@@ -269,8 +269,12 @@ function watchmanHwStart(?array $ram, string $boot, bool $fresh, ?array $pool, b
  *
  * @return array{0: list<string>, 1: array, 2: array}  the kinds added, the RAM state to keep, the page's summary (state.json hw)
  */
-function watchmanHwCompare(?array $ram, string $start, array $look, string $boot, int $now, array &$book): array
+function watchmanHwCompare(?array $ram, string $start, array $look, string $boot, int $now, array &$book, array $set = []): array
 {
+    // his settings (1.96 step 5, WATCH_SETTINGS hw): the defaults are the constants
+    $eccDay = (int) ($set['ecc_day'] ?? WATCH_HW_ECC_DAY);
+    $aerHour = (int) ($set['aer_hour'] ?? WATCH_HW_AER_HOUR);
+    $throttleMs = (int) ($set['throttle_min'] ?? intdiv(WATCH_HW_THROTTLE_HOUR, 60000)) * 60000;
     $flat = watchmanHwFlat($look);
     $taint = $look['taint'];
     if ($start === 'ram') {
@@ -334,7 +338,7 @@ function watchmanHwCompare(?array $ram, string $start, array $look, string $boot
             $d = str_contains($w, '/') ? $m['dimms'][explode('/', $w)[1]] : null;
             $p = ['where' => $w, 'label' => $d !== null ? $d['label'] : $m['name'], 'ce' => $d !== null ? $d['ce'] : $m['ce'], 'ue' => $d !== null ? $d['ue'] : $m['ue'],
                   'day' => $day['ce'][$w]];
-            $note('hw_ecc', "hw_ecc:$b8:$w", $p, isset($g['ue']) || $day['ce'][$w] >= WATCH_HW_ECC_DAY);
+            $note('hw_ecc', "hw_ecc:$b8:$w", $p, isset($g['ue']) || $day['ce'][$w] >= $eccDay);
         }
     }
     $day['ce'] = array_slice((array) $day['ce'], 0, WATCH_HW_MAX['dimm'] + WATCH_HW_MAX['mc'], true);
@@ -342,7 +346,7 @@ function watchmanHwCompare(?array $ram, string $start, array $look, string $boot
     foreach ((array) ($look['aer'] ?? []) as $bdf => $a) {
         $bad = ($grew["aer:$bdf:nonfatal"] ?? 0) + ($grew["aer:$bdf:fatal"] ?? 0);
         $hour = $inHour("aer:$bdf:cor");
-        if ($bad > 0 || $hour > WATCH_HW_AER_HOUR) {
+        if ($bad > 0 || $hour > $aerHour) {
             $note('hw_aer', "hw_aer:$b8:$bdf", ['dev' => $bdf, 'driver' => $a['driver'], 'cor' => $a['cor'], 'nonfatal' => $a['nonfatal'], 'fatal' => $a['fatal'],
                                                'hour' => $hour], $bad > 0, $bad > 0 ? 0 : WATCH_HW_HOUR);
         }
@@ -350,7 +354,7 @@ function watchmanHwCompare(?array $ram, string $start, array $look, string $boot
     // the CPU slowed down for heat: quiet, once an hour
     if (is_array($look['throttle'] ?? null)) {
         $ms = max($inHour('thr:core'), $inHour('thr:pkg'));
-        if ($ms > WATCH_HW_THROTTLE_HOUR) {
+        if ($ms > $throttleMs) {
             $note('hw_throttle', "hw_throttle:$b8", ['minutes' => intdiv($ms, 60000), 'total' => intdiv(max($look['throttle']['core'], $look['throttle']['pkg']), 60000)],
                 false, WATCH_HW_HOUR);
         }
@@ -431,20 +435,22 @@ function watchmanHwSummary(array $look, ?int $taint0, int $now): array
  *
  * @return array{0: list<string>, 1: array}  the kinds added, the summary for state.json
  */
-function watchmanHwRound(array $paths, array $look, string $boot, ?int $btime, bool $fresh, int $now, array &$book): array
+function watchmanHwRound(array $paths, array $look, string $boot, ?int $btime, bool $fresh, int $now, array &$book, array $set = []): array
 {
     $ramFile = (string) ($paths['hw']['ram'] ?? WATCH_HW_RAM);
     $poolFile = isset($paths['hw_file']) ? (string) $paths['hw_file'] : null;
     $ram = readJson($ramFile);
     $pool = $poolFile !== null ? readJson($poolFile) : null;
     $start = watchmanHwStart($ram, $boot, $fresh, $pool, $poolFile !== null, $btime, $now);
-    [$added, $state, $summary] = watchmanHwCompare($start === 'ram' ? $ram : null, $start, $look, $boot, $now, $book);
+    [$added, $state, $summary] = watchmanHwCompare($start === 'ram' ? $ram : null, $start, $look, $boot, $now, $book, $set);
+    $summary['worn'] = (int) ($set['worn'] ?? WATCH_HW_WEAR_USED[0]);        // the light's yellow (watchmanCats())
     @mkdir(dirname($ramFile), 0700, true);
     writeAtomic($ramFile, jsonEncode($state), 0600, 0, 0);
     // the disks' wear (the day's rounds: the history lies in hw.json) — taken over anew, what they say now is normal
     $wear = null;
     if ($poolFile !== null && is_array($look['wear'] ?? null)) {
-        [$more, $wear, $summary['wear']] = watchmanHwWearCompare($fresh ? null : (is_array($pool['wear'] ?? null) ? $pool['wear'] : null), $look['wear'], $now, $book);
+        [$more, $wear, $summary['wear']] = watchmanHwWearCompare($fresh ? null : (is_array($pool['wear'] ?? null) ? $pool['wear'] : null), $look['wear'], $now, $book,
+            $summary['worn']);
         $added = array_merge($added, $more);
     }
     $file = ['v' => 1, 'boot' => $boot] + ($wear !== null ? ['wear' => $wear] : []) + array_diff_key((array) $pool, ['v' => 1, 'boot' => 1]);
@@ -637,8 +643,9 @@ function watchmanHwWearValues(array $s): array
  *
  * @return array{0: list<string>, 1: array, 2: list<array>}  kinds added, hw.json's `wear`, the page's disks
  */
-function watchmanHwWearCompare(?array $known, array $look, int $now, array &$book): array
+function watchmanHwWearCompare(?array $known, array $look, int $now, array &$book, int $worn = WATCH_HW_WEAR_USED[0]): array
 {
+    $used = array_values(array_unique([$worn, 100]));        // the life used from his setting, and at 100 %
     $disks = is_array($known['disks'] ?? null) ? $known['disks'] : [];
     $today = date('Y-m-d', $now);
     $since = date('Y-m-d', $now - WATCH_HW_WEAR_DAYS * 86400);
@@ -668,7 +675,7 @@ function watchmanHwWearCompare(?array $known, array $look, int $now, array &$boo
             if ((int) ($v['media'] ?? 0) > (int) ($last['media'] ?? 0)) {
                 $note('media', ['media' => (int) $v['media'], 'grew' => (int) $v['media'] - (int) ($last['media'] ?? 0)], true);
             }
-            foreach (WATCH_HW_WEAR_USED as $t) {
+            foreach ($used as $t) {
                 if ((int) ($v['used'] ?? 0) >= $t && (int) ($last['used'] ?? 0) < $t) {
                     $note('used', ['used' => (int) $v['used']], false);
                 }
@@ -702,5 +709,5 @@ function watchmanHwWearCompare(?array $known, array $look, int $now, array &$boo
 /** The page's part `hw` from his state (state.json hw) — null before his first look at the hardware */
 function watchmanHwPage(mixed $hw): ?array
 {
-    return is_array($hw) && is_int($hw['time'] ?? null) ? array_intersect_key($hw, array_flip(['time', 'mce', 'ecc', 'aer', 'throttle', 'kernel', 'start', 'wear'])) : null;
+    return is_array($hw) && is_int($hw['time'] ?? null) ? array_intersect_key($hw, array_flip(['time', 'mce', 'ecc', 'aer', 'throttle', 'kernel', 'start', 'wear', 'worn'])) : null;
 }

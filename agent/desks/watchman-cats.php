@@ -297,7 +297,7 @@ function watchmanCats(array $s, ?array $parity = null): array
             if ((int) ($d['cw'] ?? 0) !== 0) {
                 $add('hw', 'danger', 'hw_nvme_warning');
             }
-            if ((int) ($d['used'] ?? 0) >= 90) {
+            if ((int) ($d['used'] ?? 0) >= (int) ($hw['worn'] ?? 90)) {        // his setting (hw.worn)
                 $add('hw', 'warn', 'hw_worn');
             }
             if (($d['read'] ?? null) === null) {

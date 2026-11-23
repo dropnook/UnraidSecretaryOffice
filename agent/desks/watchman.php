@@ -1773,7 +1773,8 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         }
         // signs in the log: what this round read (taken over anew: the log's history, none of it booked)
         if (!$fresh) {
-            $added = array_merge($added, watchmanSignsCompare($book, $st, (array) ($read['signs'] ?? []), $signHost, $signDisks, $now));
+            $added = array_merge($added, watchmanSignsCompare($book, $st, (array) ($read['signs'] ?? []), $signHost, $signDisks, $now,
+                $set['host']['crashes']));
         }
         // too warm for hours: the minutes over per sensor; taken over anew, only counted
         $added = array_merge($added, watchmanHotCompare($book, $st, $hotLook, $hotSet, $now, $fresh));
@@ -1808,7 +1809,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             isset($paths['array_events']) ? (string) $paths['array_events'] : null, $tell));
         if ($hwLook !== null) {
             // the hardware: this look against this boot's last (taken over anew: what it counts now is normal)
-            [$hwAdded, $st['hw']] = watchmanHwRound($paths, $hwLook, $boot, $btime, $fresh, $now, $book);
+            [$hwAdded, $st['hw']] = watchmanHwRound($paths, $hwLook, $boot, $btime, $fresh, $now, $book, $set['hw']);
             $added = array_merge($added, $hwAdded);
         }
         if (!$set['array']['scheduled']) {

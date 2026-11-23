@@ -325,9 +325,10 @@ const HAND_EXAMPLE = { net: '192.168.1.0/24', ip: '203.0.113.7', user_net: '192.
   script: '…', cron_file: '…/….cron', crond: '…', client: '192.168.1.20', client_min: '192.168.1.20', container: 'plex', disk_gone: 'disk1',
   disk_written: 'disk1', series: 'zfs-auto-snap_hourly-#', series_ds: 'tank/Media', dataset: 'tank/Media', hold: 'tank/Media', extra: '….txz',
   guest_read: 'Media', guest_write: 'Media', port: '8384', prog: 'syncthing', tunnel: 'wg0', admin: '192.168.1.0/24', vpn: '…', link: 'ether5',
-  sender: '192.168.1.1', network: '…', vm: '…', userscript: '…', cause: 'plex', disk: 'disk3' };
+  sender: '192.168.1.1', network: '…', vm: '…', userscript: '…', cause: 'plex', disk: 'disk3', crash: 'smbd', oom: 'emby', cve: 'CVE-2024-4577',
+  product: 'php' };
 const HAND_WIDE = { login: 'setup.add_public', plugin: 'setup.add_wide.plugin', data: 'setup.add_wide.data', snap: 'setup.add_wide.snap', share: 'setup.add_wide.share',
-  router: 'setup.add_wide.router' };
+  router: 'setup.add_wide.router', vuln: 'setup.add_wide.vuln' };
 // a second field: a user from a net, a series on a dataset
 const HAND_SECOND = { user_net: ['setup.add_user', 'root'], series_ds: ['setup.add_second.series_ds', 'zfs-auto-snap_hourly-#'],
   guest_read: ['setup.add_second.proto', 'SMB'], guest_write: ['setup.add_second.proto', 'SMB'], admin: ['setup.add_second.admin', 'admin'],
@@ -416,7 +417,7 @@ function ruleHandDialog(id, b) {
 
 // ------------------------------------------------------------------ exceptions (1.96, agent/desks/watchman-rules.php)
 const OFFERS = ['key', 'ip', 'net', 'user_net', 'machine', 'source', 'file', 'cmd', 'share', 'disk', 'min', 'kept', 'layers', 'series_ds', 'series', 'hold', 'open',
-  'prog', 'tunnel', 'pair_ip', 'pair_net', 'admin_ip', 'admin_net', 'vpn', 'link', 'sender', 'network'];
+  'prog', 'tunnel', 'pair_ip', 'pair_net', 'admin_ip', 'admin_net', 'vpn', 'link', 'sender', 'network', 'thing', 'max_c'];
 // kinds whose key is «<kind>:<the thing's name>»: an exception for exactly it reads «The ports of plex may change» (6a)
 const KEY_NAMED = ['container_ports', 'container_rights', 'script_changed', 'cron_file', 'flow_client', 'flow_container', 'flash_extra', 'listen_new',
   'container_privileged', 'net_blocked_from_server'];
@@ -450,6 +451,14 @@ const justMade = new Set();     // exceptions made on this visit: «Undo» besid
  */
 function offerName(o, e, here) {
   const on = o.on || {};
+  // 1.96's new kinds: this thing across days and boots (a sensor, a disk, a program, a CVE …); a sensor up to so many °C
+  if (typeof on.thing === 'string') {
+    const what = on.thing.split(':')[0];
+    const name = o.what || on.thing.slice(what.length + 1);
+    if (on.max_c) return T('rule.offer.max_c', { name, c: on.max_c });
+    if (on.thing === 'port:conntrack') return T('rule.offer.thing.conntrack');
+    return T(`rule.offer.thing.${what === 'cve' || what === 'product' ? what : (o.kinds || [])[0] || what}`, { name });
+  }
   // what holds the array, the wakes (6f)
   if (on.vm) return T('rule.offer.vm', { name: on.vm });
   if (on.script) return T('rule.offer.script', { name: on.script });

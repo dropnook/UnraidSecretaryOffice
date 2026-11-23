@@ -73,7 +73,7 @@ function watchmanSignBump(array &$book, string $kind, string $key, int $time, in
  *
  * @return list<string>  the kinds booked new
  */
-function watchmanSignsCompare(array &$book, array &$st, array $signs, string $host, array $disks, int $now): array
+function watchmanSignsCompare(array &$book, array &$st, array $signs, string $host, array $disks, int $now, int $crashes = WATCH_SIGN_CRASHES): array
 {
     $mine = is_array($st['signs'] ?? null) ? $st['signs'] : [];
     $crash = [];
@@ -108,7 +108,7 @@ function watchmanSignsCompare(array &$book, array &$st, array $signs, string $ho
                 }
                 $crash[$thing] = array_slice([...($crash[$thing] ?? []), $t], -20);
                 $recent = count(array_filter($crash[$thing], fn ($x) => $x > $t - WATCH_SIGN_WINDOW));
-                if ($recent < WATCH_SIGN_CRASHES) {
+                if ($recent < $crashes) {        // his setting (host.crashes), WATCH_SIGN_CRASHES by default
                     break;
                 }
                 // the first time: all the hour's crashes; after that one each
