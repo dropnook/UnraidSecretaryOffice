@@ -176,8 +176,10 @@ const WATCH_KINDS = [
     'container_ports'      => ['container', false],
     'container_rights'     => ['container', false],
     'drill_throwaway'      => ['container', false],     // Mr. Restori's drill made it (his record, name, label and image agree): noted by himself (by office)
+    'container_plain'      => ['container', false],     // a new container without special rights: noted by himself, only when the setting says so (1.96)
     'plugin_new'           => ['plugin', true],
     'plugin_source'        => ['plugin', true],
+    'plugin_version'       => ['plugin', false],        // a plugin's new version from the same source: noted by himself, only when the setting says so (1.96)
     'flash_go'             => ['flash', true],
     'flash_extra'          => ['flash', true],
     'flash_user'           => ['flash', true],
@@ -246,8 +248,8 @@ const WATCH_KINDS = [
 const WATCH_ATTACK = [
     'login_new_ip' => 'T1078', 'login_failures' => 'T1110',
     'container_new' => 'T1610', 'container_privileged' => 'T1611', 'container_host' => 'T1611', 'container_ports' => 'T1133',
-    'container_rights' => 'T1611', 'drill_throwaway' => 'T1610',
-    'plugin_new' => 'T1543', 'plugin_source' => 'T1195.002',
+    'container_rights' => 'T1611', 'container_plain' => 'T1610', 'drill_throwaway' => 'T1610',
+    'plugin_new' => 'T1543', 'plugin_source' => 'T1195.002', 'plugin_version' => 'T1195.002',
     'flash_go' => 'T1037.004', 'flash_extra' => 'T1037.004', 'flash_user' => 'T1136.001', 'flash_password' => 'T1098',
     'flash_ssh_key' => 'T1098.004', 'share_public' => 'T1222',
     'cron_new' => 'T1053.003', 'cron_twice' => 'T1053.003', 'cron_office' => 'T1053.003', 'cron_file' => 'T1053.003',
@@ -1554,11 +1556,11 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             $doors += watchmanTicketDoors($seen['partner']);
             $added = array_merge(
                 watchmanLogins($b, $book, $st, $events, false, $doors, $set['login']['burst'], $set['login']['window']),
-                watchmanContainersCompare($b['containers'], $seen['containers'], $book, $now, $office),
-                watchmanPluginsCompare($b['plugins'], $seen['plugins'], $book, $now, $office),
+                watchmanContainersCompare($b['containers'], $seen['containers'], $book, $now, $office, $set['container']['plain']),
+                watchmanPluginsCompare($b['plugins'], $seen['plugins'], $book, $now, $office, $set['plugin']['versions']),
                 watchmanFlashCompare($b['flash'], $seen['flash'], $book, $now, isset($paths['go']) ? (string) $paths['go'] : null),
                 watchmanSharesCompare($b['shares'], $seen['shares'], $book, $now),
-                watchmanSchedCompare($b['sched'], $seen['sched'], $seen['plugins'], $book, $now, $office),
+                watchmanSchedCompare($b['sched'], $seen['sched'], $seen['plugins'], $book, $now, $office, $set['sched']['at_late'] * 86400),
                 watchmanHostCompare($b['host'], $seen['host'], is_array($old['seen']) ? ($old['seen']['host'] ?? null) : null,
                     (array) ($seen['flash']['users'] ?? []), $book, $now),
                 watchmanPartnerCompare($b, $seen['partner'], $book, $st, $now),
@@ -2372,7 +2374,7 @@ function watchmanTokenKind(string $t): string
  * rights; a known one with new rights gets an entry per kind; rights that went
  * are the new normal. Gone ones are remembered for WATCH_FORGET.
  */
-function watchmanContainersCompare(?array &$known, ?array $seen, array &$book, int $now, array $office = []): array
+function watchmanContainersCompare(?array &$known, ?array $seen, array &$book, int $now, array $office = [], bool $plain = false): array
 {
     if ($seen === null) {
         return [];                  // Docker didn't answer: nothing to compare
@@ -2393,6 +2395,10 @@ function watchmanContainersCompare(?array &$known, ?array $seen, array &$book, i
             }
             if (!watchmanRights($tokens)) {
                 $known[$name] = ['tokens' => $tokens, 'seen' => $now];
+                if ($plain) {
+                    // his setting «a new container without special rights too» (1.96): a line, noted by himself
+                    watchmanAutoNote($book, 'container_plain', "container_plain:$name", $now, ['name' => (string) $name, 'image' => (string) ($c['image'] ?? ''), 'tokens' => $tokens]);
+                }
                 continue;
             }
             if (watchmanOfficeContainer($office, (string) $name, (array) $c)) {
@@ -2624,6 +2630,15 @@ function watchmanOfficeNoteOwnCron(array &$book, string $file, int $now, array $
     $e = watchmanEntry('cron_file', "cron_file:$file", $now, $p);
     $e['noted'] = $now;
     $e['by'] = 'office_cron';
+    $book[] = $e;
+}
+
+/** What a setting asks him to note (1.96): a line in the book, noted by himself (`by` auto) — never open, never told */
+function watchmanAutoNote(array &$book, string $kind, string $key, int $now, array $p): void
+{
+    $e = watchmanEntry($kind, $key, $now, $p);
+    $e['noted'] = $now;
+    $e['by'] = 'auto';
     $book[] = $e;
 }
 
@@ -3034,7 +3049,7 @@ function watchmanSource(?string $url): string
 }
 
 /** Plugins against what is normal: a new one, or one whose source moved; a new version from the same place is normal */
-function watchmanPluginsCompare(array &$known, array $seen, array &$book, int $now, array $office = []): array
+function watchmanPluginsCompare(array &$known, array $seen, array &$book, int $now, array $office = [], bool $versions = false): array
 {
     $added = [];
     foreach ($seen as $name => $p) {
@@ -3055,6 +3070,11 @@ function watchmanPluginsCompare(array &$known, array $seen, array &$book, int $n
             $added[] = watchmanSet($book, 'plugin_source', "plugin_source:$name", $now,
                 ['name' => (string) $name, 'source' => $p['source'], 'old' => (string) ($k['source'] ?? '')]);
             continue;
+        }
+        if ($versions && is_string($k['version'] ?? null) && $k['version'] !== $p['version']) {
+            // his setting «a new version too» (1.96): a line per update, noted by himself
+            watchmanAutoNote($book, 'plugin_version', "plugin_version:$name", $now,
+                ['name' => (string) $name, 'source' => $p['source'], 'version' => $p['version'], 'old' => $k['version']]);
         }
         $known[$name] = $p + ['seen' => $now];
     }
@@ -4790,7 +4810,7 @@ function watchmanAtJobs(array $paths, ?array $prev): ?array
     }
     $pst = isset($paths['plugins']) ? @stat($paths['plugins']) : false;
     $pm = $pst ? (int) $pst['mtime'] : null;
-    if (is_array($prev) && ($prev['m'] ?? null) === (int) $st['mtime'] && ($prev['pm'] ?? null) === $pm && ($prev['v'] ?? null) === 5
+    if (is_array($prev) && ($prev['m'] ?? null) === (int) $st['mtime'] && ($prev['pm'] ?? null) === $pm && ($prev['v'] ?? null) === 6
         && is_array($prev['jobs'] ?? null)) {
         // a job in a plugin's shape and the file it runs can change without the folder: looked at again (a few small files) —
         // the job's file another: all of the queue read again
@@ -4834,6 +4854,11 @@ function watchmanAtJobs(array $paths, ?array $prev): ?array
                           // the job as it is (its whole file) and, in a plugin's shape, the file it runs (null: no such file) — a
                           // plugin's own job stays known by them after its plugin is removed (watchmanAtLeft())
                           'h' => watchmanHash($text)];
+            // the one clean command's fingerprint (v 6, 1.96: an exception «exactly this command»); none: an odd environment or more
+            $one = watchmanAtOnlyCommand($text);
+            if ($one !== null) {
+                $jobs[$f]['one'] = substr(hash('sha256', 'uso-watchman-at:' . $one), 0, 16);
+            }
             $own = watchmanAtPluginProgram($text, $paths);
             if ($own !== null) {
                 $jobs[$f]['ph'] = watchmanAtFileHash($own);
@@ -4851,7 +4876,7 @@ function watchmanAtJobs(array $paths, ?array $prev): ?array
     }
     ksort($jobs);
     // helper: the installed plugin whose copy the Plugin-Update-Helper is
-    return ['v' => 5, 'm' => (int) $st['mtime'], 'pm' => $pm, 'jobs' => $jobs, 'helper' => $helper];
+    return ['v' => 6, 'm' => (int) $st['mtime'], 'pm' => $pm, 'jobs' => $jobs, 'helper' => $helper];
 }
 
 /**
@@ -5118,7 +5143,7 @@ function watchmanAgents(array $paths, array $prev): ?array
  *
  * @return list<string>  the kinds of new entries
  */
-function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, array &$book, int $now, array $office = []): array
+function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, array &$book, int $now, array $office = [], int $atLate = WATCH_AT_LATE): array
 {
     if ($seen === null) {
         return [];
@@ -5151,9 +5176,22 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
                 'cron_twice'  => array_diff_key($c['twice'], (array) $k['twice']),
                 'cron_new'    => $new,
             ];
+            // where the new lines are (1.96: an exception «lines from /etc/cron.d/<file> are mine» covers them when all are from it)
+            $from = [];
+            foreach (array_keys($new) as $h) {
+                $at = 'crontab';
+                foreach ((array) ($c['cron_d'] ?? []) as $file => $hashes) {
+                    if (in_array($h, (array) $hashes, true)) {
+                        $at = "cron.d/$file";
+                        break;
+                    }
+                }
+                $from[$at] = true;
+            }
+            ksort($from);
             foreach ($lists as $kind => $list) {
                 if ($list) {
-                    $added[] = watchmanSet($book, $kind, $kind, $now, watchmanJobs($list) + $ev);
+                    $added[] = watchmanSet($book, $kind, $kind, $now, watchmanJobs($list) + $ev + ($kind === 'cron_new' ? ['_from' => array_keys($from)] : []));
                 }
             }
             // (up to 1.28 also 'dead': lines whose program went with its plugin — Ms. Dustdevil's now; dropped here)
@@ -5288,7 +5326,7 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
             foreach ($foreign as $f => $j) {
                 if (!isset($nums[watchmanAtNum((string) $f)]) || watchmanAtBooked($book, (string) $f)) {
                     // new — or its open line brought up to date
-                    $added[] = watchmanAtSet($book, (string) $f, $j, $now, isset($changed[watchmanAtNum((string) $f)]));
+                    $added[] = watchmanAtSet($book, (string) $f, $j, $now, isset($changed[watchmanAtNum((string) $f)]), $atLate);
                 }
             }
             $known['at'] = array_fill_keys(array_keys($foreign), true);
@@ -5386,13 +5424,15 @@ function watchmanAtBooked(array $book, string $job): bool
  * 1.81.0 S6: from 1.72.0 to 1.81.0 that was the only time it was told, so a job queued for now or minutes ahead, the usual
  * way to run something once as root, ran and left the queue untold); a closed line stays as it is. The kind when new.
  */
-function watchmanAtSet(array &$book, string $f, array $j, int $now, bool $changed = false): ?string
+function watchmanAtSet(array &$book, string $f, array $j, int $now, bool $changed = false, int $atLate = WATCH_AT_LATE): ?string
 {
     $run = $f[0] === '=';
     $p = ['job' => $f, 'when' => (int) $j['when'], 'cmd' => (string) $j['cmd'], 'uid' => $j['uid'] ?? null, 'user' => $j['user'] ?? null,
           'queued' => is_int($j['q'] ?? null) ? $j['q'] : null, 'run' => $run, 'since' => $run && is_int($j['c'] ?? null) ? $j['c'] : null,
-          'prog' => $j['prog'] ?? null, 'owner' => $j['owner'] ?? null];
-    $late = !$run && $now - (int) $j['when'] >= WATCH_AT_LATE;
+          'prog' => $j['prog'] ?? null, 'owner' => $j['owner'] ?? null]
+        // its one clean command's fingerprint (watchmanAtOnlyCommand()): what an exception «exactly this command» matches (1.96)
+        + (is_string($j['one'] ?? null) ? ['_one' => $j['one']] : []);
+    $late = !$run && $now - (int) $j['when'] >= $atLate;    // WATCH_AT_LATE, or his setting (1.96)
     if ($changed) {
         $p['_changed'] = true;      // a plugin's job not as he knew it: never the plugin's quiet line later (watchmanAtNote())
     }
@@ -9094,6 +9134,7 @@ function watchmanAdopt(array &$b, array $e, array $seen, int $now): void
             $b['fail_ips'][$p['ip']] = ['since' => $now, 'last' => (int) $e['last'], 'n' => (int) $e['count'], 'quiet' => 0];
             break;
         case 'container_new':
+        case 'container_plain':
             $b['containers'] ??= [];
             if (isset($seen['containers'][$name])) {
                 $b['containers'][$name] = ['tokens' => (array) $seen['containers'][$name]['tokens'], 'seen' => $now];
@@ -9112,6 +9153,7 @@ function watchmanAdopt(array &$b, array $e, array $seen, int $now): void
             break;
         case 'plugin_new':
         case 'plugin_source':
+        case 'plugin_version':
             if (isset($seen['plugins'][$name])) {
                 $b['plugins'][$name] = $seen['plugins'][$name] + ['seen' => $now];
             }
@@ -9544,11 +9586,12 @@ function watchmanText(array $e, ?string $lang = null): array
     return match ((string) $e['kind']) {
         'login_new_ip'   => ['ip' => (string) ($p['ip'] ?? ''), 'user' => $list('users') ?: '?', 'service' => $services],
         'login_failures' => ['ip' => (string) ($p['ip'] ?? ''), 'service' => $services],
-        'container_new', 'container_privileged', 'container_host', 'container_ports', 'container_rights'
+        'container_new', 'container_privileged', 'container_host', 'container_ports', 'container_rights', 'container_plain'
                          => ['name' => (string) ($p['name'] ?? ''), 'rights' => implode(' ', (array) ($p['tokens'] ?? []))],
         'drill_throwaway' => ['names' => $list('names'), 'id' => (string) ($p['id'] ?? '')],
         'plugin_new'     => ['name' => (string) ($p['name'] ?? ''), 'source' => (string) ($p['source'] ?? '') ?: '–'],
         'plugin_source'  => ['name' => (string) ($p['name'] ?? ''), 'source' => (string) ($p['source'] ?? '') ?: '–', 'old' => (string) ($p['old'] ?? '') ?: '–'],
+        'plugin_version' => ['name' => (string) ($p['name'] ?? ''), 'version' => (string) ($p['version'] ?? '') ?: '–', 'old' => (string) ($p['old'] ?? '') ?: '–'],
         'flash_go'       => ['added' => (int) ($p['added'] ?? 0), 'removed' => (int) ($p['removed'] ?? 0)],
         'flash_extra'    => ['file' => (string) ($p['file'] ?? '')],
         'flash_user', 'flash_password' => ['user' => (string) ($p['user'] ?? '')],
@@ -10252,6 +10295,7 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
     $state['settings'] = $rules['settings'];      // his setup page: per area each setting with its value, default, bounds
     $state['known'] = $rules['known'];             // your lasting answers (4b), each with its words for its line
     $state['known_full'] = $rules['known_full'];
+    $state['hand'] = $rules['hand'];               // his setup page: per area the exceptions made by hand (types)
     $state['off'] = $rules['off'] ?: new stdClass();
     // his areas' lights (watchman-cats.php), from what this state says; the watch book's and the schedule's light beside them
     $lights = watchmanCats($state, is_array($st['parity'] ?? null) ? $st['parity'] : null);

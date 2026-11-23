@@ -99,5 +99,8 @@
   .row.wm-item{padding-left:14px}
   .row.wm-member{padding-left:20px}
   .wm-flow-note{padding-left:14px}
+  .row.wm-setting{grid-template-columns:minmax(0,1fr)}     /* a setting's field under its words */
+  .row.wm-setting > select{justify-self:stretch}
+  .row.wm-setting > input[type=checkbox]{justify-self:start}
 }
 }

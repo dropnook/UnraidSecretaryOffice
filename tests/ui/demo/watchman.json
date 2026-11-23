@@ -448,6 +448,17 @@
    "cat": "plugin",
    "offers": [
     {
+     "type": "source",
+     "on": {
+      "source": "raw.githubusercontent.com/unraid"
+     },
+     "kinds": [
+      "plugin_new"
+     ],
+     "ask": false,
+     "covers": 1
+    },
+    {
      "type": "key",
      "on": {
       "key": "plugin_new:wa92b5cedfc"
@@ -2450,6 +2461,21 @@
    "note": "",
    "hits": 2,
    "hit": 1791559874
+  },
+  {
+   "id": "r0123456790",
+   "cat": "container",
+   "kinds": [
+    "container_ports"
+   ],
+   "on": {
+    "key": "container_ports:mediabox"
+   },
+   "at": 1791390674,
+   "from": "hand",
+   "note": "",
+   "hits": 0,
+   "hit": null
   }
  ],
  "off": {},
@@ -2479,14 +2505,73 @@
     "value": 8,
     "def": 5,
     "min": 3,
-    "max": 50
+    "max": 50,
+    "unit": "n"
    },
    "window": {
     "value": 600,
     "def": 600,
     "min": 60,
-    "max": 3600
+    "max": 3600,
+    "unit": "s"
+   }
+  },
+  "container": {
+   "ports": {
+    "value": "tell",
+    "def": "quiet",
+    "of": [
+     "quiet",
+     "tell",
+     "none"
+    ]
+   },
+   "plain": {
+    "value": true,
+    "def": false
+   }
+  },
+  "plugin": {
+   "versions": {
+    "value": false,
+    "def": false
+   }
+  },
+  "sched": {
+   "scripts": {
+    "value": "quiet",
+    "def": "quiet",
+    "of": [
+     "quiet",
+     "tell"
+    ]
+   },
+   "at_late": {
+    "value": 2,
+    "def": 2,
+    "min": 1,
+    "max": 14,
+    "unit": "d"
    }
   }
+ },
+ "hand": {
+  "login": [
+   "net",
+   "ip",
+   "user_net"
+  ],
+  "container": [
+   "ports",
+   "rights"
+  ],
+  "plugin": [
+   "source"
+  ],
+  "sched": [
+   "script",
+   "cron_file",
+   "crond"
+  ]
  }
 }

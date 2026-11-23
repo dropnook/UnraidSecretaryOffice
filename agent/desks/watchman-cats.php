@@ -26,9 +26,9 @@ declare(strict_types=1);
 // area => its kinds and its posture tips, in the order of his page
 const WATCH_CATS = [
     'login'     => ['kinds' => ['login_new_ip', 'login_failures', 'smb_user', 'smb_client', 'smb_hour'], 'tips' => []],
-    'container' => ['kinds' => ['container_new', 'container_privileged', 'container_host', 'container_ports', 'container_rights', 'drill_throwaway'],
+    'container' => ['kinds' => ['container_new', 'container_privileged', 'container_host', 'container_ports', 'container_rights', 'container_plain', 'drill_throwaway'],
                     'tips' => ['privileged']],
-    'plugin'    => ['kinds' => ['plugin_new', 'plugin_source'], 'tips' => []],
+    'plugin'    => ['kinds' => ['plugin_new', 'plugin_source', 'plugin_version'], 'tips' => []],
     'flash'     => ['kinds' => ['flash_go', 'flash_extra', 'flash_user', 'flash_password', 'flash_ssh_key', 'user_ram'], 'tips' => []],
     'share'     => ['kinds' => ['share_public'], 'tips' => ['flash', 'public']],
     'sched'     => ['kinds' => ['cron_new', 'cron_twice', 'cron_office', 'cron_file', 'cron_file_foreign', 'script_new', 'script_changed', 'at_job',

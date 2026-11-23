@@ -14,7 +14,11 @@ declare(strict_types=1);
  *    …}                                       keys and rules it doesn't know are kept as they are (a newer office's)
  * A rule's `on`, the shapes (watchmanRuleOn()): {"key": "<an entry's key>"} — exactly this thing (every kind can have
  * it); {"ip": "<address>"}; {"net": "<a private /24 or /64>"}; {"user": "<name>", "net": "<net>"}; {"machine": "<SMB
- * machine name>"}. Only a rule in exactly its shape is applied; anything else stays in the file and does nothing.
+ * machine name>"}; {"source": "<host>/<owner>"} — a plugin's source (6a); {"file": "<a file in /etc/cron.d>"} — cron
+ * lines that all come from it; {"cmd": "<16 hex>", "user": "…", "owner": "…"} — an at job running exactly one clean
+ * command (watchmanAtOnlyCommand(): its fingerprint), as this user, its program owned by that one. A rule may carry
+ * `what` (its words for the page, ≤ 300 bytes). Only a rule in exactly its shape is applied; anything else stays in the
+ * file and does nothing.
  *
  * What a rule does: a new entry it covers is noted at once (`by: rule`, `rule: <id>`) — never told, never counted for
  * the light; the same thing again (the same key) brings that line up to date instead of a new one. The baseline stays
@@ -39,6 +43,9 @@ const WATCH_RULE_ID     = '/^r[0-9a-f]{10}$/D';
 const WATCH_RULE_USER   = '/^[A-Za-z0-9._@-]{1,64}$/D';
 const WATCH_RULE_TEXT   = 300;            // bytes of a key or a machine name
 const WATCH_RULE_LOGIN  = ['login_new_ip', 'smb_client', 'smb_hour'];     // what an address or a net covers (never failures, never a new SMB user)
+const WATCH_RULE_SOURCE = '/^[a-z0-9][a-z0-9.-]{0,99}(\/[A-Za-z0-9._-]{1,100})?$/D';    // a plugin's source as watchmanPluginSource() writes it
+const WATCH_RULE_CROND  = '/^[A-Za-z0-9._-]{1,100}$/D';                                  // a file in /etc/cron.d
+const WATCH_RULE_CMD    = '/^[0-9a-f]{16}$/D';                                           // an at job's one command, its fingerprint
 // the kinds he asks about more clearly before an exception (concept 3.3: what an attacker does first, or what points to
 // damage — and comes rarely); every other kind is in WATCH_RULE_PLAIN (testWatchmanRules: each kind in exactly one)
 const WATCH_RULE_ASK    = ['flash_go', 'flash_user', 'flash_password', 'flash_ssh_key', 'user_ram', 'log_cleared', 'plugin_source',
@@ -46,7 +53,7 @@ const WATCH_RULE_ASK    = ['flash_go', 'flash_user', 'flash_password', 'flash_ss
                            'door_changed', 'door_refused', 'smb_user', 'login_failures', 'kopia_emptied', 'net_spoof', 'net_firewall_change',
                            'net_ips_server', 'net_log_silent', 'flow_written', 'flow_gone', 'snap_gone', 'snap_hold_released'];
 const WATCH_RULE_PLAIN  = ['login_new_ip', 'smb_client', 'smb_hour', 'container_new', 'container_privileged', 'container_host', 'container_ports',
-                           'container_rights', 'drill_throwaway', 'plugin_new', 'flash_extra', 'share_public', 'cron_new', 'cron_file', 'script_new',
+                           'container_rights', 'container_plain', 'drill_throwaway', 'plugin_new', 'plugin_version', 'flash_extra', 'share_public', 'cron_new', 'cron_file', 'script_new',
                            'script_changed', 'at_job', 'at_userscript', 'at_plugin', 'flow_client', 'flow_container', 'listen_new', 'proc_odd',
                            'array_stop', 'array_start', 'server_boot', 'parity_check', 'partner_paired', 'door_key_moved', 'net_sender_new',
                            'net_new_device', 'net_router_login', 'net_router_config', 'net_vpn_login', 'net_blocked_from_server',
@@ -62,7 +69,7 @@ function watchmanRulesRaw(string $dir): array
 /**
  * What applies: the rules in exactly their shape (the first 300, each area's first 50), the areas switched off.
  *
- * @return array{rules: list<array>, off: array<string, int>, known: list<array>}
+ * @return array{rules: list<array>, off: array<string, int>, known: list<array>, set: array<string, array<string, mixed>>}
  */
 function watchmanRules(array $raw): array
 {
@@ -84,7 +91,7 @@ function watchmanRules(array $raw): array
             $off[$cat] = $o['at'];
         }
     }
-    return ['rules' => $rules, 'off' => $off, 'known' => watchmanKnown($raw)];
+    return ['rules' => $rules, 'off' => $off, 'known' => watchmanKnown($raw), 'set' => watchmanSettings($raw)];
 }
 
 /** A rule in exactly its shape (normalized), else null */
@@ -105,7 +112,8 @@ function watchmanRuleShaped(mixed $r): ?array
     }
     return ['id' => $r['id'], 'cat' => $r['cat'], 'kinds' => array_values(array_unique($r['kinds'])), 'on' => $on, 'at' => $r['at'],
             'from' => is_string($r['from'] ?? null) && (preg_match(WATCH_ID, $r['from']) || $r['from'] === 'hand') ? $r['from'] : 'hand',
-            'note' => is_string($r['note'] ?? null) ? mb_substr($r['note'], 0, WATCH_NOTE_MAX) : ''];
+            'note' => is_string($r['note'] ?? null) ? mb_substr($r['note'], 0, WATCH_NOTE_MAX) : '']
+           + (is_string($r['what'] ?? null) && $r['what'] !== '' && strlen($r['what']) <= WATCH_RULE_TEXT ? ['what' => $r['what']] : []);
 }
 
 /** A rule's `on` in exactly one of its shapes, else null */
@@ -123,6 +131,11 @@ function watchmanRuleOn(mixed $on): ?array
         ['net']         => watchmanNetValid($on['net']) ? ['net' => $on['net']] : null,
         ['net', 'user'] => watchmanNetValid($on['net']) && is_string($on['user']) && preg_match(WATCH_RULE_USER, $on['user']) ? ['user' => $on['user'], 'net' => $on['net']] : null,
         ['machine']     => $str('machine') ? ['machine' => $on['machine']] : null,
+        ['source']      => is_string($on['source']) && preg_match(WATCH_RULE_SOURCE, $on['source']) ? ['source' => $on['source']] : null,
+        ['file']        => is_string($on['file']) && preg_match(WATCH_RULE_CROND, $on['file']) ? ['file' => $on['file']] : null,
+        ['cmd', 'owner', 'user'] => is_string($on['cmd']) && preg_match(WATCH_RULE_CMD, $on['cmd']) && is_string($on['user']) && is_string($on['owner'])
+                                    && strlen($on['user']) <= 64 && strlen($on['owner']) <= 64
+                                    ? ['cmd' => $on['cmd'], 'user' => $on['user'], 'owner' => $on['owner']] : null,
         default         => null,
     };
 }
@@ -198,6 +211,12 @@ function watchmanRuleCovers(array $rule, array $e): bool
     if (isset($on['key'])) {
         return ($e['key'] ?? null) === $on['key'];
     }
+    if (isset($on['cmd'])) {
+        // exactly this one clean command (never one with an odd environment or more commands: no fingerprint then), as
+        // this user, its program owned by that one — and never a plugin's job no longer as he knew it
+        return ($p['_one'] ?? null) === $on['cmd'] && (string) ($p['user'] ?? '') === $on['user'] && (string) ($p['owner'] ?? '') === $on['owner']
+            && empty($p['_changed']);
+    }
     if (isset($on['user'])) {
         $users = array_values(array_filter((array) ($p['users'] ?? []), 'is_string'));
         return $ip !== '' && watchmanIpInNet($ip, $on['net']) && $users && !array_diff($users, [$on['user']]);
@@ -211,6 +230,13 @@ function watchmanRuleCovers(array $rule, array $e): bool
     if (isset($on['machine'])) {
         return ($p['machine'] ?? null) === $on['machine'];
     }
+    if (isset($on['source'])) {
+        return is_string($p['source'] ?? null) && $p['source'] === $on['source'];
+    }
+    if (isset($on['file'])) {
+        // every new line from that file (the lines of an entry come from where watchmanSchedCompare() found them)
+        return ($p['_from'] ?? null) === ['cron.d/' . $on['file']];
+    }
     return false;
 }
 
@@ -219,7 +245,7 @@ function watchmanRuleCovers(array $rule, array $e): bool
  * first is the narrowest that covers more than «I know, thanks» would. Each: {type, on, kinds, ask, covers (open
  * entries it would note, this one too)}. Every kind has `key` (exactly this thing); the logins (the pilot) more.
  *
- * @return list<array{type: string, on: array, kinds: list<string>, ask: bool, covers: int}>
+ * @return list<array{type: string, on: array, kinds: list<string>, ask: bool, covers: int, what?: string}>
  */
 function watchmanRuleOffers(array $e, array $book): array
 {
@@ -246,6 +272,17 @@ function watchmanRuleOffers(array $e, array $book): array
             array_unshift($out, ['type' => 'machine', 'on' => ['machine' => $p['machine']], 'kinds' => ['smb_hour']]);
         }
     }
+    if ($kind === 'plugin_new' && is_string($p['source'] ?? null) && str_contains($p['source'], '/') && preg_match(WATCH_RULE_SOURCE, $p['source'])) {
+        $out[] = ['type' => 'source', 'on' => ['source' => $p['source']], 'kinds' => ['plugin_new']];      // github.com/<owner>: a code host's owner
+    }
+    if ($kind === 'cron_new' && is_array($p['_from'] ?? null) && count($p['_from']) === 1 && is_string($p['_from'][0])
+        && str_starts_with($p['_from'][0], 'cron.d/') && preg_match(WATCH_RULE_CROND, substr($p['_from'][0], 7))) {
+        $out[] = ['type' => 'file', 'on' => ['file' => substr($p['_from'][0], 7)], 'kinds' => ['cron_new']];
+    }
+    if ($kind === 'at_job' && is_string($p['_one'] ?? null) && preg_match(WATCH_RULE_CMD, $p['_one']) && empty($p['_changed'])) {
+        $out[] = ['type' => 'cmd', 'on' => ['cmd' => $p['_one'], 'user' => (string) ($p['user'] ?? ''), 'owner' => (string) ($p['owner'] ?? '')],
+                  'kinds' => ['at_job'], 'what' => mb_strcut((string) ($p['cmd'] ?? ''), 0, 200, 'UTF-8')];
+    }
     $out[] = ['type' => 'key', 'on' => ['key' => $e['key']], 'kinds' => [$kind]];
     foreach ($out as $i => $o) {
         $rule = ['kinds' => $o['kinds'], 'on' => $o['on']];
@@ -265,9 +302,10 @@ function watchmanRuleOffers(array $e, array $book): array
  */
 function watchmanRulesApply(array &$book, array $before, array &$b, array $seen, array $rules, array $incidents, array &$st, int $now): array
 {
-    $res = ['noted' => 0, 'merged' => 0, 'off' => 0, 'known' => 0];
-    $rules += ['known' => []];
-    if (!$rules['rules'] && !$rules['off'] && !$rules['known']) {
+    $res = ['noted' => 0, 'merged' => 0, 'off' => 0, 'known' => 0, 'quiet' => 0];
+    $rules += ['known' => [], 'set' => []];
+    $modes = watchmanKindModes((array) $rules['set']);
+    if (!$rules['rules'] && !$rules['off'] && !$rules['known'] && !$modes) {
         return $res;
     }
     $chained = [];
@@ -292,6 +330,15 @@ function watchmanRulesApply(array &$book, array $before, array &$b, array $seen,
             $res['off']++;
             continue;
         }
+        // a kind set to «not at all» (WATCH_SETTINGS, a choice with `kinds`): normal at once, like an area switched off —
+        // never the same as a serious incident, never part of a chain forming
+        $mode = $modes[(string) $e['kind']] ?? null;
+        if ($mode === 'none' && !isset($e['again']) && !isset($chained[$e['id']])) {
+            watchmanAdopt($b, $e, $seen, $now);
+            $drop[$i] = true;
+            $res['quiet']++;
+            continue;
+        }
         if (isset($chained[$e['id']])) {
             continue;
         }
@@ -301,11 +348,12 @@ function watchmanRulesApply(array &$book, array $before, array &$b, array $seen,
             $res['known']++;
             continue;
         }
+        $ruled = false;
         foreach ($rules['rules'] as $r) {
             if (!watchmanRuleCovers($r, $e) || !$newer($r['at'], $e)) {
                 continue;
             }
-            $hits[$r['id']] = ['n' => (int) ($hits[$r['id']]['n'] ?? 0) + 1, 'last' => $now, 'key' => mb_strcut((string) $e['key'], 0, WATCH_RULE_TEXT, 'UTF-8')];
+            $ruled = true;
             $line = null;
             foreach ($book as $j => $x) {
                 if ($j !== $i && !isset($drop[$j]) && ($x['by'] ?? null) === 'rule' && ($x['key'] ?? null) === $e['key'] && !watchmanOpen($x)) {
@@ -313,9 +361,16 @@ function watchmanRulesApply(array &$book, array $before, array &$b, array $seen,
                     break;
                 }
             }
+            // a state (not an event that counts up) the rule lets through stays a new entry each round — the baseline never
+            // learns it: the same state again is no hit and counts nothing, only a changed one (6a)
+            $bump = in_array($e['kind'], WATCH_BUMP_KINDS, true);
+            $same = $line !== null && !$bump && (array) ($book[$line]['p'] ?? []) === (array) ($e['p'] ?? []);
+            if (!$same) {
+                $hits[$r['id']] = ['n' => (int) ($hits[$r['id']]['n'] ?? 0) + 1, 'last' => $now, 'key' => mb_strcut((string) $e['key'], 0, WATCH_RULE_TEXT, 'UTF-8')];
+            }
             if ($line !== null) {
                 $x = $book[$line];
-                $x['count'] = (int) $x['count'] + (int) $e['count'];
+                $x['count'] = (int) $x['count'] + ($bump ? (int) $e['count'] : ($same ? 0 : 1));
                 $x['time'] = min((int) $x['time'], (int) $e['time']);
                 $x['last'] = max((int) $x['last'], (int) $e['last']);
                 $x['p'] = in_array($e['kind'], WATCH_BUMP_KINDS, true) ? watchmanMerge((array) ($x['p'] ?? []), (array) ($e['p'] ?? [])) : (array) ($e['p'] ?? []);
@@ -331,6 +386,9 @@ function watchmanRulesApply(array &$book, array $before, array &$b, array $seen,
                 $res['noted']++;
             }
             break;
+        }
+        if (!$ruled && $mode === 'tell') {
+            $book[$i]['important'] = true;          // a quiet kind set to «tell me»: told like an important one
         }
     }
     if ($drop) {
@@ -412,7 +470,8 @@ function watchmanRuleAdd(string $id, string $type, bool $sure, ?string $dir = nu
         if (count($have['rules']) >= WATCH_RULES_MAX || count(array_filter($have['rules'], fn ($r) => $r['cat'] === $cat)) >= WATCH_RULES_CAT) {
             throw new Problem('watch_rules_full');
         }
-        $rule = ['id' => watchmanRuleNewId($raw), 'cat' => $cat, 'kinds' => $offer['kinds'], 'on' => $offer['on'], 'at' => $now, 'from' => $id, 'note' => ''];
+        $rule = ['id' => watchmanRuleNewId($raw), 'cat' => $cat, 'kinds' => $offer['kinds'], 'on' => $offer['on'], 'at' => $now, 'from' => $id, 'note' => '']
+              + (isset($offer['what']) && $offer['what'] !== '' ? ['what' => $offer['what']] : []);
         $raw['rules'] = array_merge(is_array($raw['rules'] ?? null) && array_is_list($raw['rules']) ? $raw['rules'] : [], [$rule]);
         $book = $d['book'];
         $noted = 0;
@@ -566,7 +625,7 @@ function watchmanRulesNight(string $night, string $ram = WATCH_RULES_RAM, ?strin
  * For his page: the rules (each with its hits), the areas switched off, and per open entry what a click may offer
  * (watchmanRuleOffers(); covers counted on the book as it is now)
  *
- * @return array{rules: list<array>, off: array<string, int>, offers: array<string, list<array>>, known: list<array>, known_full: bool, settings: array}
+ * @return array{rules: list<array>, off: array<string, int>, offers: array<string, list<array>>, known: list<array>, known_full: bool, settings: array, hand: array}
  */
 function watchmanRulesPage(string $dir, array $book, array $st): array
 {
@@ -585,7 +644,7 @@ function watchmanRulesPage(string $dir, array $book, array $st): array
         $r['known']);
     $raw = watchmanRulesRaw($dir);
     return ['rules' => $rules, 'off' => $r['off'], 'offers' => $offers, 'known' => $known, 'known_full' => is_int($raw['known_full'] ?? null),
-            'settings' => watchmanSettingsPage($raw)];
+            'settings' => watchmanSettingsPage($raw), 'hand' => WATCH_HAND];
 }
 
 // ===================================================================== «I know, thanks» holds until taken back (1.96 step 4b)
@@ -912,28 +971,70 @@ function watchmanKnownRemove(string $kid, ?string $dir = null, bool $page = true
  * words setting.<area>.<key> ×5 is all a new one needs (testWatchmanSettings).
  */
 const WATCH_SETTINGS = [
+    // each key: a number (def, min, max, unit), a switch (def: bool) or a choice (def, of); a choice with `kinds` says how
+    // new entries of those kinds go: quiet (open, not told — what he did up to 1.95), tell (told like an important one),
+    // none (normal at once, like an area switched off) — watchmanRulesApply()
     'login' => [
         // this file loads before watchman.php: the defaults as numbers — WATCH_FAIL_BURST and WATCH_FAIL_WINDOW (a test holds them equal)
-        'burst'  => ['def' => 5, 'min' => 3, 'max' => 50],            // failed logins from one address …
-        'window' => ['def' => 600, 'min' => 60, 'max' => 3600],       // … within this many seconds: a burst
+        'burst'  => ['def' => 5, 'min' => 3, 'max' => 50, 'unit' => 'n'],            // failed logins from one address …
+        'window' => ['def' => 600, 'min' => 60, 'max' => 3600, 'unit' => 's'],       // … within this many seconds: a burst
+    ],
+    'container' => [
+        'ports' => ['def' => 'quiet', 'of' => ['quiet', 'tell', 'none'], 'kinds' => ['container_ports']],   // new ports of a known container
+        'plain' => ['def' => false],        // a new container without special rights: a line noted by himself (container_plain)
+    ],
+    'plugin' => [
+        'versions' => ['def' => false],     // a plugin's new version from the same source: a line noted by himself (plugin_version)
+    ],
+    'sched' => [
+        'scripts' => ['def' => 'quiet', 'of' => ['quiet', 'tell'], 'kinds' => ['script_new', 'script_changed']],    // User Scripts
+        'at_late' => ['def' => 2, 'min' => 1, 'max' => 14, 'unit' => 'd'],          // an at job still waiting this many days past its time: stuck (WATCH_AT_LATE)
     ],
 ];
 
-/** The settings in effect: every area's every key, the file's value where it is in range, else the default */
+/** A setting's value as the file has it, when it fits its key (type, bounds, choices) */
+function watchmanSettingOk(array $d, mixed $v): bool
+{
+    return match (true) {
+        is_bool($d['def'])   => is_bool($v),
+        is_string($d['def']) => is_string($v) && in_array($v, $d['of'], true),
+        default              => is_int($v) && $v >= $d['min'] && $v <= $d['max'],
+    };
+}
+
+/** The settings in effect: every area's every key, the file's value where it fits, else the default */
 function watchmanSettings(array $raw): array
 {
     $out = [];
     foreach (WATCH_SETTINGS as $cat => $keys) {
         foreach ($keys as $k => $d) {
             $v = $raw['set'][$cat][$k] ?? null;
-            $out[$cat][$k] = is_int($v) && $v >= $d['min'] && $v <= $d['max'] ? $v : $d['def'];
+            $out[$cat][$k] = watchmanSettingOk($d, $v) ? $v : $d['def'];
+        }
+    }
+    return $out;
+}
+
+/** The kinds a choice sets to «tell» or «not at all» (the settings in effect, watchmanSettings()): kind => tell|none */
+function watchmanKindModes(array $set): array
+{
+    $out = [];
+    foreach (WATCH_SETTINGS as $cat => $keys) {
+        foreach ($keys as $k => $d) {
+            $v = $set[$cat][$k] ?? $d['def'];
+            if (isset($d['kinds']) && ($v === 'tell' || $v === 'none')) {
+                foreach ($d['kinds'] as $kind) {
+                    $out[$kind] = $v;
+                }
+            }
         }
     }
     return $out;
 }
 
 /**
- * «Apply» on an area's settings (his setup page): each key it knows, an integer in its bounds — anything else refused,
+ * «Apply» on an area's settings (his setup page): each key it knows, an integer in its bounds, a switch true or false, a
+ * choice one of its own — anything else refused,
  * nothing half saved; a value equal to the default isn't kept (the file holds only differences). $reset: «Back to the
  * defaults» — the area's entry goes.
  */
@@ -945,10 +1046,10 @@ function watchmanCatSettings(string $cat, mixed $set, bool $reset, ?string $dir 
     $keep = [];
     foreach ($reset ? [] : (array) $set as $k => $v) {
         $d = WATCH_SETTINGS[$cat][(string) $k] ?? null;
-        if ($d === null || !is_int($v)) {
+        if ($d === null || (is_int($d['def']) ? !is_int($v) : !watchmanSettingOk($d, $v))) {
             throw new Problem('bad_request');
         }
-        if ($v < $d['min'] || $v > $d['max']) {
+        if (is_int($d['def']) && ($v < $d['min'] || $v > $d['max'])) {
             throw new Problem('watch_setting_range', ['min' => $d['min'], 'max' => $d['max']]);
         }
         if ($v !== $d['def']) {
@@ -979,51 +1080,99 @@ function watchmanCatSettings(string $cat, mixed $set, bool $reset, ?string $dir 
 }
 
 /**
- * An exception made by hand (his setup page, the pilot «Logins»): a net (a private one of any size from /8; a public one
- * at most a /24, only with the clear yes), an address (a public one with the clear yes), or a user from a net. It covers
- * new addresses and SMB machines — never failures, never a new SMB user (those are their own, more clearly asked).
+ * The exceptions made by hand in his setup, per area: type => what is typed. Logins: a net (a private one of any size from
+ * /8; a public one at most a /24, only with the clear yes), an address (a public one with the clear yes), a user from a
+ * net — covering new addresses and SMB machines, never failures, never a new SMB user. Containers: «the ports of X may
+ * change», «X may change devices and capabilities». Plugins: «new plugins from <host>/<owner>» (a whole host only with the
+ * clear yes). What starts by itself: «the User Script X may change», «the .cron file <plugin>/<file> may change» (only
+ * while its plugin is installed: cron_file), «lines from /etc/cron.d/<file> are mine».
  */
-function watchmanRuleHand(string $cat, string $type, string $value, string $user, bool $sure, ?string $dir = null, ?int $now = null, bool $page = true): array
+const WATCH_HAND = [
+    'login'     => ['net', 'ip', 'user_net'],
+    'container' => ['ports', 'rights'],
+    'plugin'    => ['source'],
+    'sched'     => ['script', 'cron_file', 'crond'],
+];
+const WATCH_HAND_NAME = '/^[A-Za-z0-9][A-Za-z0-9 _.+()-]{0,99}$/D';        // a container's or a User Script's name
+
+/**
+ * An exception made by hand (his setup page, WATCH_HAND): the type's value checked, the rule written; $user only for a
+ * user from a net. A wide one only with the clear yes ($sure).
+ *
+ * @return array{cat: string, kinds: list<string>, on: array, wide: bool}
+ */
+function watchmanRuleHandMake(string $cat, string $type, string $value, string $user): array
 {
-    if ($cat !== 'login' || !in_array($type, ['net', 'ip', 'user_net'], true) || strlen($value) > 64) {
+    if (!in_array($type, WATCH_HAND[$cat] ?? [], true) || strlen($value) > 210) {
         throw new Problem('bad_request');
     }
     $value = trim($value);
-    if ($type === 'ip') {
-        if (filter_var($value, FILTER_VALIDATE_IP) === false) {
-            throw new Problem('watch_net_bad');
-        }
-        $public = !watchmanIpPrivate($value);
-        $on = ['ip' => $value];
-    } else {
-        if (!watchmanNetValid($value)) {
-            throw new Problem('watch_net_bad');
-        }
-        [$addr, $bits] = explode('/', $value);
-        $public = !watchmanIpPrivate($addr);
-        if ($public && (int) $bits < (str_contains($addr, ':') ? 48 : 24)) {
-            throw new Problem('watch_net_wide');
-        }
-        $on = ['net' => $value];
-        if ($type === 'user_net') {
+    $name = fn (string $kind) => preg_match(WATCH_HAND_NAME, $value) ? ['cat' => $cat, 'kinds' => [$kind], 'on' => ['key' => "$kind:$value"], 'wide' => false]
+        : throw new Problem('watch_value_bad');
+    switch ($type) {
+        case 'ip':
+            if (filter_var($value, FILTER_VALIDATE_IP) === false) {
+                throw new Problem('watch_net_bad');
+            }
+            return ['cat' => $cat, 'kinds' => WATCH_RULE_LOGIN, 'on' => ['ip' => $value], 'wide' => !watchmanIpPrivate($value)];
+        case 'net':
+        case 'user_net':
+            if (!watchmanNetValid($value)) {
+                throw new Problem('watch_net_bad');
+            }
+            [$addr, $bits] = explode('/', $value);
+            $public = !watchmanIpPrivate($addr);
+            if ($public && (int) $bits < (str_contains($addr, ':') ? 48 : 24)) {
+                throw new Problem('watch_net_wide');
+            }
+            if ($type === 'net') {
+                return ['cat' => $cat, 'kinds' => WATCH_RULE_LOGIN, 'on' => ['net' => $value], 'wide' => $public];
+            }
             if (!preg_match(WATCH_RULE_USER, $user)) {
                 throw new Problem('watch_net_bad');
             }
-            $on = ['user' => $user, 'net' => $value];
-        }
+            return ['cat' => $cat, 'kinds' => ['login_new_ip'], 'on' => ['user' => $user, 'net' => $value], 'wide' => $public];
+        case 'ports':
+            return $name('container_ports');
+        case 'rights':
+            return $name('container_rights');
+        case 'script':
+            return $name('script_changed');
+        case 'source':
+            $value = strtolower(preg_replace('#^https?://#', '', $value) ?? '');
+            if (!preg_match(WATCH_RULE_SOURCE, $value)) {
+                throw new Problem('watch_value_bad');
+            }
+            return ['cat' => $cat, 'kinds' => ['plugin_new'], 'on' => ['source' => $value], 'wide' => !str_contains($value, '/')];
+        case 'cron_file':
+            if (!preg_match('#^[A-Za-z0-9._+-]{1,100}/[A-Za-z0-9._+-]{1,100}$#D', $value)) {
+                throw new Problem('watch_value_bad');
+            }
+            return ['cat' => $cat, 'kinds' => ['cron_file'], 'on' => ['key' => "cron_file:$value"], 'wide' => false];
+        default:        // crond
+            $value = preg_replace('#^/?etc/cron\.d/#', '', $value) ?? '';
+            if (!preg_match(WATCH_RULE_CROND, $value) || $value === 'root') {
+                throw new Problem('watch_value_bad');       // /etc/cron.d/root is Unraid's own: its lines twice are cron_twice, never «mine»
+            }
+            return ['cat' => $cat, 'kinds' => ['cron_new'], 'on' => ['file' => $value], 'wide' => false];
     }
-    if ($public && !$sure) {
+}
+
+/** «Add an exception…» (his setup page): watchmanRuleHandMake()'s rule written; a wide one only with the clear yes */
+function watchmanRuleHand(string $cat, string $type, string $value, string $user, bool $sure, ?string $dir = null, ?int $now = null, bool $page = true): array
+{
+    $made = watchmanRuleHandMake($cat, $type, $value, $user);
+    if ($made['wide'] && !$sure) {
         throw new Problem('watch_rule_ask');
     }
     $dir ??= watchmanDir();
     $now ??= time();
-    $rule = watchmanRulesChange($dir, function (array $raw, array $d) use ($on, $type, $now): array {
+    $rule = watchmanRulesChange($dir, function (array $raw, array $d) use ($made, $now): array {
         $have = watchmanRules($raw);
-        if (count($have['rules']) >= WATCH_RULES_MAX || count(array_filter($have['rules'], fn ($r) => $r['cat'] === 'login')) >= WATCH_RULES_CAT) {
+        if (count($have['rules']) >= WATCH_RULES_MAX || count(array_filter($have['rules'], fn ($r) => $r['cat'] === $made['cat'])) >= WATCH_RULES_CAT) {
             throw new Problem('watch_rules_full');
         }
-        $rule = ['id' => watchmanRuleNewId($raw), 'cat' => 'login', 'kinds' => $type === 'user_net' ? ['login_new_ip'] : WATCH_RULE_LOGIN, 'on' => $on,
-                 'at' => $now, 'from' => 'hand', 'note' => ''];
+        $rule = ['id' => watchmanRuleNewId($raw), 'cat' => $made['cat'], 'kinds' => $made['kinds'], 'on' => $made['on'], 'at' => $now, 'from' => 'hand', 'note' => ''];
         $raw['rules'] = array_merge(is_array($raw['rules'] ?? null) && array_is_list($raw['rules']) ? $raw['rules'] : [], [$rule]);
         return [$raw, null, $rule];
     });
@@ -1035,14 +1184,14 @@ function watchmanRuleHand(string $cat, string $type, string $value, string $user
     return ['ok' => true, 'rule' => $rule['id'], 'state' => watchmanPageState()];
 }
 
-/** For his setup page: per area of WATCH_SETTINGS each key with its value now, its default and its bounds */
+/** For his setup page: per area of WATCH_SETTINGS each key with its value now, its default, its bounds and unit or its choices */
 function watchmanSettingsPage(array $raw): array
 {
     $now = watchmanSettings($raw);
     $out = [];
     foreach (WATCH_SETTINGS as $cat => $keys) {
         foreach ($keys as $k => $d) {
-            $out[$cat][$k] = ['value' => $now[$cat][$k], 'def' => $d['def'], 'min' => $d['min'], 'max' => $d['max']];
+            $out[$cat][$k] = ['value' => $now[$cat][$k], 'def' => $d['def']] + array_intersect_key($d, ['min' => 1, 'max' => 1, 'unit' => 1, 'of' => 1]);
         }
     }
     return $out;

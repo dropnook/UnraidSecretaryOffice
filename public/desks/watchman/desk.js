@@ -168,7 +168,7 @@ function changedSection() {
   setupAreas().forEach((id) => {
     const lines = [];
     if (offAt(id)) lines.push(T('setup.off_since', { when: fmt.date(offAt(id)) }));
-    changedOf(id).forEach(([k, v]) => lines.push(T('setup.changed_line', { what: T(`setting.${id}.${k}`), value: v.value, def: v.def })));
+    changedOf(id).forEach(([k, v]) => lines.push(T('setup.changed_line', { what: T(`setting.${id}.${k}`), value: settingWords(id, k, v, v.value), def: settingWords(id, k, v, v.def) })));
     rulesOf(id).forEach((r) => lines.push(offerName(r)));
     if (!lines.length) return;
     any = true;
@@ -203,7 +203,7 @@ function setupSection(id) {
   if (set && Object.keys(set).length) s.appendChild(settingsBox(id, set));
   const rules = catRules(id);
   if (rules) s.appendChild(rules);
-  if (id === 'login') {
+  if (handTypes(id).length) {
     const add = el('button', 'btn small', T('setup.add'));
     add.type = 'button';
     add.disabled = !Office.agent.running || !hired();
@@ -216,23 +216,44 @@ function setupSection(id) {
   if (known) s.appendChild(known);
   return s;
 }
-/** An area's settings: a field each with its default in words, «Apply» and «Back to the defaults» */
+/** A setting's value in words: a number with its unit, a switch on or off, a choice by its name */
+function settingWords(id, k, v, x) {
+  if (typeof x === 'boolean') return T(x ? 'setup.switch_on' : 'setup.switch_off');
+  if (typeof x === 'string') return T(`setting.${id}.${k}.${x}`);
+  return T(`setup.unit.${v.unit || 'n'}`, { n: x });
+}
+/** An area's settings: a field each (a number, a switch, a choice) with its default in words, «Apply» and «Back to the defaults» */
 function settingsBox(id, set) {
   const box = el('div', 'box wm-settings');
   const fields = {};
   Object.entries(set).forEach(([k, v]) => {
     const row = el('div', 'row nocheck wm-setting');
-    const inp = el('input', 'search wm-setting-num');
-    inp.type = 'number';
-    inp.min = String(v.min);
-    inp.max = String(v.max);
-    inp.step = '1';
-    inp.value = String(v.value);
+    let inp;
+    if (typeof v.def === 'boolean') {
+      inp = el('input');
+      inp.type = 'checkbox';
+      inp.checked = !!v.value;
+      fields[k] = () => inp.checked;
+    } else if (typeof v.def === 'string') {
+      inp = el('select', 'picker');
+      (v.of || []).forEach((x) => inp.appendChild(new Option(T(`setting.${id}.${k}.${x}`), x)));
+      inp.value = v.value;
+      fields[k] = () => inp.value;
+    } else {
+      inp = el('input', 'search wm-setting-num');
+      inp.type = 'number';
+      inp.min = String(v.min);
+      inp.max = String(v.max);
+      inp.step = '1';
+      inp.value = String(v.value);
+      fields[k] = () => { const n = Number(inp.value); return Number.isInteger(n) ? n : null; };
+    }
     inp.setAttribute('aria-label', T(`setting.${id}.${k}`));
-    fields[k] = inp;
     const main = el('div', 'row-main');
     main.appendChild(el('div', 'row-name text', T(`setting.${id}.${k}`)));
-    main.appendChild(el('div', 'row-meta', T('setup.def', { value: v.def, min: v.min, max: v.max })));
+    main.appendChild(el('div', 'row-meta', typeof v.def === 'number'
+      ? T('setup.def', { value: settingWords(id, k, v, v.def), min: settingWords(id, k, v, v.min), max: settingWords(id, k, v, v.max) })
+      : T('setup.def_value', { value: settingWords(id, k, v, v.def) })));
     row.append(main, inp);
     box.appendChild(row);
   });
@@ -242,10 +263,10 @@ function settingsBox(id, set) {
   apply.disabled = !Office.agent.running || !hired();
   apply.onclick = () => {
     const out = {};
-    for (const [k, inp] of Object.entries(fields)) {
-      const n = Number(inp.value);
-      if (!Number.isInteger(n)) { Office.toast(T('setup.not_number'), true); return; }
-      out[k] = n;
+    for (const [k, get] of Object.entries(fields)) {
+      const x = get();
+      if (x === null) { Office.toast(T('setup.not_number'), true); return; }
+      out[k] = x;
     }
     catSet(id, { set: out }, apply);
   };
@@ -285,36 +306,52 @@ function catOffAsk(id, off, cb) {
     { text: Office.t('common.cancel') },
   ] });
 }
+/** The exceptions an area takes by hand (the messenger's list, WATCH_HAND) */
+const handTypes = (id) => ((state && state.hand && state.hand[id]) || []).filter((x) => typeof x === 'string');
+const HAND_EXAMPLE = { net: '192.168.1.0/24', ip: '203.0.113.7', user_net: '192.168.1.0/24', ports: 'plex', rights: 'plex', source: 'github.com/…',
+  script: '…', cron_file: '…/….cron', crond: '…' };
+const HAND_WIDE = { login: 'setup.add_public', plugin: 'setup.add_wide.plugin' };
 /**
- * «Add an exception…» by hand (the pilot: logins): a net, an address, a user from a net — typed, the messenger checks it
- * (a public net at most a /24, a public address or net only with the clear yes, said in the dialog)
+ * «Add an exception…» by hand: what kind of exception (the area's types), its value typed, a user for «a user from a net»
+ * — the messenger checks it (a public net at most a /24, a public address or net or a whole plugin source only with the
+ * clear yes, said in the dialog)
  */
 function ruleHandDialog(id, b) {
+  const types = handTypes(id);
   const body = el('div', 'wm-rule-hand');
   const type = el('select', 'picker');
-  ['net', 'ip', 'user_net'].forEach((x) => type.appendChild(new Option(T('setup.add_type.' + x), x)));
+  types.forEach((x) => type.appendChild(new Option(T('setup.add_type.' + x), x)));
   type.setAttribute('aria-label', T('setup.add_type_label'));
   const value = el('input', 'search');
   value.type = 'text';
-  value.placeholder = '192.168.1.0/24';
-  value.setAttribute('aria-label', T('setup.add_value'));
   const user = el('input', 'search');
   user.type = 'text';
   user.placeholder = 'root';
   user.setAttribute('aria-label', T('setup.add_user'));
   const userRow = el('label', 'wm-hand-row');
   userRow.append(el('span', '', T('setup.add_user')), user);
-  const sync = () => { userRow.hidden = type.value !== 'user_net'; value.placeholder = type.value === 'ip' ? '203.0.113.7' : '192.168.1.0/24'; };
+  const valueName = el('span', '');
+  const login = ['net', 'ip', 'user_net'];
+  const netNot = el('p', 'role', T('rule.ask_net_not'));
+  const sync = () => {
+    const t = type.value;
+    userRow.hidden = t !== 'user_net';
+    netNot.hidden = !login.includes(t);
+    value.placeholder = HAND_EXAMPLE[t] || '';
+    valueName.textContent = login.includes(t) ? T('setup.add_value') : T('setup.add_value.' + t);
+    value.setAttribute('aria-label', valueName.textContent);
+  };
   type.addEventListener('change', sync);
   const sure = el('input');
   sure.type = 'checkbox';
   const sureRow = el('label', 'switch');
-  sureRow.append(sure, el('span', '', T('setup.add_public')));
+  sureRow.append(sure, el('span', '', HAND_WIDE[id] ? T(HAND_WIDE[id]) : ''));
+  sureRow.hidden = !HAND_WIDE[id];
   const tr = el('label', 'wm-hand-row');
   tr.append(el('span', '', T('setup.add_type_label')), type);
   const vr = el('label', 'wm-hand-row');
-  vr.append(el('span', '', T('setup.add_value')), value);
-  body.append(tr, vr, userRow, el('p', 'role', T('rule.ask_net_not')), sureRow);
+  vr.append(valueName, value);
+  body.append(tr, vr, userRow, netNot, sureRow);
   sync();
   Office.dialog({ title: T('setup.add'), body, buttons: [
     { text: T('rule.add'), kind: 'primary', act: () => {
@@ -334,7 +371,9 @@ function ruleHandDialog(id, b) {
 }
 
 // ------------------------------------------------------------------ exceptions (1.96, agent/desks/watchman-rules.php)
-const OFFERS = ['key', 'ip', 'net', 'user_net', 'machine'];
+const OFFERS = ['key', 'ip', 'net', 'user_net', 'machine', 'source', 'file', 'cmd'];
+// kinds whose key is «<kind>:<the thing's name>»: an exception for exactly it reads «The ports of plex may change» (6a)
+const KEY_NAMED = ['container_ports', 'container_rights', 'script_changed', 'cron_file'];
 const justMade = new Set();     // exceptions made on this visit: «Undo» beside «Lift» (their entries open again)
 /**
  * An exception in words: «192.168.1.0/24 always okay», «root from 192.168.1.0/24 …»; exactly one thing: on its own
@@ -346,6 +385,11 @@ function offerName(o, e, here) {
   if (on.net) return T('rule.offer.net', { net: on.net });
   if (on.ip) return T('rule.offer.ip', { ip: on.ip });
   if (on.machine) return T('rule.offer.machine', { machine: on.machine });
+  if (on.source) return T('rule.offer.source', { source: on.source });
+  if (on.file) return T('rule.offer.file', { file: on.file });
+  if (on.cmd) return T('rule.offer.cmd', { cmd: o.what || '…' });
+  const named = typeof on.key === 'string' ? KEY_NAMED.find((k) => on.key.startsWith(`${k}:`)) : null;
+  if (named && (o.kinds || []).length === 1 && o.kinds[0] === named) return T(`rule.key.${named}`, { name: on.key.slice(named.length + 1) });
   if (here) return T('rule.offer.key');
   const src = e || ((state && state.book) || []).find((x) => x && x.id === o.from);
   const what = src ? entryName(src) : '';
