@@ -355,6 +355,42 @@ async function rules() {
   wm.unmount();
 }
 
+// ------------------------------------------------------------------ «Known vulnerabilities»: what he looked at, one filter over all
+/*
+ * 2026-11-23 (nostromo: «php2shell» → «0 of 39»): the area says how many of the list's entries concern programs here, by
+ * product; its filter searches every list — what waits, «checked: doesn't concern you», «can't be checked for sure» —
+ * by CVE, product, name, where; a list holding hits stands open while the words are typed.
+ */
+async function vulnPage() {
+  state = JSON.parse(JSON.stringify(base));
+  const r = new FakeNode('div');
+  desk.replaceChildren(r);
+  await wm.mount(r, 'vuln');
+  await tick();
+  await tick();
+  const sec = sectionOf(r, 'area.vuln');
+  const counted = sec && sec.querySelector('.wm-vuln-counted');
+  same('vulnerabilities: how many of the list concern programs here, by product',
+    counted && tx(counted), T('vuln.counted', { n: 47, total: O.fmt.number(1484), list: 'Linux kernel 39 · PHP 5 · Bash 3' }));
+  const typed = async (words) => {
+    const input = barIn(sectionOf(r, 'area.vuln')).querySelector('.filter-words');
+    input.value = words;
+    input.dispatch('input');
+    await tick();
+    const s2 = sectionOf(r, 'area.vuln');
+    return [s2.querySelectorAll('.wm-vuln-not').map((x) => tx(x.querySelector('.row-name'))).length,
+      tx(barIn(s2).querySelector('.filter-note') || new FakeNode('span'))];
+  };
+  const bash = await typed('bash');
+  const ssh = await typed('regreSSHion');
+  const cve = await typed('CVE-2016-5195');
+  const none = await typed('php2shell');
+  same('vulnerabilities: the filter searches both calm lists (product, name, CVE) — the list with hits open; nothing found says so',
+    [bash[0], ssh[0], cve[0], none[0]], [1, 1, 1, 0]);
+  same('vulnerabilities: the filter\'s count is over all the lines (4 here)', /\b4\b/.test(none[1]), true);
+  wm.unmount();
+}
+
 // ------------------------------------------------------------------ a data folder as the 1.96 test stand left it (5th argument «stand»)
 /*
  * tests/run.php testWatchmanStandRender hands in the page state the messenger made from a data folder with what the
@@ -393,5 +429,5 @@ async function stand() {
   wm.unmount();
 }
 
-(process.argv[5] === 'stand' ? stand() : run().then(rules)).then(() => { console.log(JSON.stringify(out)); process.exit(0); },
+(process.argv[5] === 'stand' ? stand() : run().then(rules).then(vulnPage)).then(() => { console.log(JSON.stringify(out)); process.exit(0); },
   (e) => { out.fail.push(['ran', String(e && e.stack || e).slice(0, 600), 'no error']); console.log(JSON.stringify(out)); process.exit(0); });
