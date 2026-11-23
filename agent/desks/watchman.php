@@ -425,6 +425,9 @@ desk('watchman', [
         'rule_add'    => fn (array $r) => watchmanRuleAdd(textField($r, 'id'), textField($r, 'type'), optBool($r, 'sure')),
         'rule_remove' => fn (array $r) => watchmanRuleRemove(textField($r, 'rule'), optBool($r, 'undo')),
         'cat_off'     => fn (array $r) => watchmanCatOff(textField($r, 'cat'), boolField($r, 'off'), optBool($r, 'sure')),
+        // 1.96 «einfacher»: a tile of his page off or on (all its areas); «Undo» right after «In order, remember it»
+        'tile_off'    => fn (array $r) => watchmanTileOff(textField($r, 'tile'), boolField($r, 'off'), optBool($r, 'sure')),
+        'ack_undo'    => fn (array $r) => watchmanAckUndo(textField($r, 'id')),
         // 1.96 step 5, his setup page: an area's settings (integers in their bounds; reset: the defaults), an exception by hand
         'cat_set'     => fn (array $r) => watchmanCatSettings(textField($r, 'cat'), $r['set'] ?? null, optBool($r, 'reset')),
         'rule_hand'   => fn (array $r) => watchmanRuleHand(textField($r, 'cat'), textField($r, 'type'), textField($r, 'value'), optText($r, 'user'),
@@ -434,7 +437,8 @@ desk('watchman', [
         'wakes_watch' => fn (array $r) => watchmanWakeWatchSet(boolField($r, 'on')) + ['state' => watchmanPageState()],
         'journal'     => fn (array $r) => watchmanJournalAction(optText($r, 'month'), (int) optInt($r, 'offset', 0)),    // his history, a page of it (1.96)
         // 1.96 step 17: one area or all of them learned anew (set aside first, never deleted), and brought back within 7 days
-        'relearn'      => fn (array $r) => watchmanRelearn(textField($r, 'cat') === 'all' ? watchmanRelearnCats() : [textField($r, 'cat')],
+        'relearn'      => fn (array $r) => watchmanRelearn(optText($r, 'tile') !== '' ? (WATCH_TILES[optText($r, 'tile')] ?? ['?'])      // a tile: its areas
+                                                           : (textField($r, 'cat') === 'all' ? watchmanRelearnCats() : [textField($r, 'cat')]),
                                                            optBool($r, 'rules'), optBool($r, 'settings')),
         'relearn_back' => fn (array $r) => watchmanRelearnBack(textField($r, 'name')),
     ],
@@ -1794,7 +1798,8 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             $added = array_merge($added, watchmanVulnCompare($book, $vuln['found'], $vulnSet['maybe'], $now, $vulnSeen, $vuln['fresh'], $vuln['pending']));
             $st['vuln_seen'] = $vulnSeen;           // what he found and still finds, by key (not by the book: gap 3)
             $st['vuln_look'] = ['time' => $now, 'kev' => $vuln['kev'], 'fresh' => $vuln['fresh'], 'checked' => $vuln['checked'], 'found' => array_map(
-                fn ($x) => ['verdict' => $x['verdict']], $vuln['found']), 'software' => $vuln['software'], 'unknown' => $vuln['unknown']];
+                fn ($x) => ['verdict' => $x['verdict']], $vuln['found']), 'software' => $vuln['software'], 'unknown' => $vuln['unknown'],
+                'not' => $vuln['not']];
             if ($vulnImagesCache !== null) {
                 $st['vuln_images'] = $vulnImagesCache;
             }
@@ -4692,7 +4697,8 @@ function watchmanPosturePage(?array $posture, ?array $file): ?array
     foreach ($posture['tips'] as $t) {
         if (is_array($t) && isset(WATCH_POSTURE[$t['id'] ?? ''])) {
             $tips[] = ['id' => $t['id'], 'level' => WATCH_POSTURE[$t['id']], 'p' => (array) ($t['p'] ?? []), 'link' => $t['link'] ?? null,
-                       'known' => watchmanPostureIsKnown($t, $file), 'cat' => watchmanCatOfTip((string) $t['id'])];      // its area (1.96)
+                       'known' => watchmanPostureIsKnown($t, $file), 'cat' => watchmanCatOfTip((string) $t['id']),      // its area (1.96)
+                       'tile' => watchmanTileOfCat((string) watchmanCatOfTip((string) $t['id']))];                          // … and tile
         }
     }
     return ['time' => (int) ($posture['time'] ?? 0), 'tips' => $tips,
@@ -10740,6 +10746,7 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
     $book = [];
     foreach ($d['book'] as $e) {
         $book[] = ['id' => $e['id'], 'kind' => $e['kind'], 'group' => WATCH_KINDS[$e['kind']][0] ?? 'watch', 'cat' => watchmanCatOf((string) $e['kind']),
+                   'tile' => watchmanTileOf((string) $e['kind']),      // his tile (1.96, watchman-cats.php)
                    'tell' => watchmanImportant($e),
                    'attack' => WATCH_ATTACK[$e['kind']] ?? null, 'v' => watchmanEntryVariant($e),
                    'time' => (int) $e['time'], 'last' => (int) $e['last'], 'count' => (int) $e['count'],
@@ -10838,7 +10845,8 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
         $lights['areas'][$cat]['off'] = $at;
     }
     $lights['book'] = watchmanCatBook($lights['areas']);           // … and the watch book's light without them (gap 5)
-    $state['cats'] = $lights['areas'];
+    $state['cats'] = $lights['areas'];                              // the 19 areas (an older page reads them)
+    $state['tiles'] = watchmanTiles($lights['areas'], $state['book']);     // his page's 12 tiles over them (1.96, watchman-cats.php)
     $state['cats_cross'] = ['book' => $lights['book'], 'schedule' => $lights['schedule']];
     if ($write && is_dir(DATA_DIR)) {
         writeAtomic(deskFile('watchman'), jsonEncode($state));

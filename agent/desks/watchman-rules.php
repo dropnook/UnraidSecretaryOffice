@@ -858,6 +858,70 @@ function watchmanCatOff(string $cat, bool $off, bool $sure, ?string $dir = null,
     return ['ok' => true, 'state' => watchmanPageState()];
 }
 
+/** A tile of his page switched off or on (1.96): every area of it (WATCH_TILES), the clear question as for one */
+function watchmanTileOff(string $tile, bool $off, bool $sure, ?string $dir = null, ?int $now = null, bool $page = true): array
+{
+    $cats = WATCH_TILES[$tile] ?? null;
+    if ($cats === null) {
+        throw new Problem('bad_request');
+    }
+    foreach ($cats as $cat) {
+        watchmanCatOff($cat, $off, $sure, $dir, $now, false);
+    }
+    if (!$page) {
+        return ['ok' => true];
+    }
+    watchmanMirrorKeep($dir ?? watchmanDir());
+    return ['ok' => true, 'state' => watchmanPageState()];
+}
+
+/**
+ * «Undo» on the line after «In order, remember it» (1.96, his page): the entry open again, what the answer made normal
+ * taken out (watchmanUnadopt(), as «Forget that again» does), the lasting answer it made gone — only one noted by the
+ * page (never the team lead's, never a serious incident's, never one noted by himself).
+ */
+function watchmanAckUndo(string $id, ?string $dir = null, ?int $now = null, bool $page = true): array
+{
+    if (!preg_match(WATCH_ID, $id)) {
+        throw new Problem('bad_request');
+    }
+    $dir ??= watchmanDir();
+    watchmanRulesChange($dir, function (array $raw, array $d) use ($id): array {
+        $book = $d['book'];
+        $i = null;
+        foreach ($book as $j => $e) {
+            if (($e['id'] ?? null) === $id && !watchmanOpen($e) && ($e['by'] ?? null) === 'page' && empty($e['serious']) && isset(WATCH_KINDS[$e['kind'] ?? ''])) {
+                $i = $j;
+            }
+        }
+        if ($i === null) {
+            throw new Problem('watch_gone');
+        }
+        $e = $book[$i];
+        $b = $d['baseline'];
+        watchmanUnadopt($b, (string) $e['kind'], (array) ($e['p'] ?? []) + ['key' => (string) ($e['key'] ?? '')]);
+        $book[$i]['noted'] = null;
+        $book[$i]['by'] = null;
+        // the lasting answer this click made (the same kind and key, given at the same second)
+        $list = is_array($raw['known'] ?? null) && array_is_list($raw['known']) ? $raw['known'] : [];
+        $raw['known'] = array_values(array_filter($list, fn ($k) => !is_array($k) || ($k['kind'] ?? null) !== $e['kind'] || ($k['key'] ?? null) !== ($e['key'] ?? null)
+            || (int) ($k['at'] ?? 0) !== (int) $e['noted']));
+        if (!$raw['known'] && !$list) {
+            unset($raw['known']);
+        }
+        $d2 = $d;
+        $d2['baseline'] = $b;
+        $d2['book'] = $book;
+        return [$raw, $d2, null];
+    });
+    logLine('Night watchman: an answer undone at once — its entry open again');
+    if (!$page) {
+        return ['ok' => true];
+    }
+    watchmanMirrorKeep($dir);
+    return ['ok' => true, 'state' => watchmanPageState()];
+}
+
 /** Each change in the messenger's log and, with the SIEM switch on, as a line in the syslog (never a note's words) */
 function watchmanRuleSay(string $what, array $rule): void
 {
@@ -921,8 +985,9 @@ function watchmanRulesPage(string $dir, array $book, array $st): array
 {
     $r = watchmanRules(watchmanRulesRaw($dir));
     $hits = is_array($st['rule_hits'] ?? null) ? $st['rule_hits'] : [];
-    $rules = array_map(fn ($x) => $x + ['hits' => (int) ($hits[$x['id']]['n'] ?? 0), 'hit' => is_int($hits[$x['id']]['last'] ?? null) ? $hits[$x['id']]['last'] : null],
-        $r['rules']);
+    // each with its tile (1.96): its kinds' — the flash's extra files on «Plugins and scripts» — else its area's
+    $rules = array_map(fn ($x) => $x + ['hits' => (int) ($hits[$x['id']]['n'] ?? 0), 'hit' => is_int($hits[$x['id']]['last'] ?? null) ? $hits[$x['id']]['last'] : null,
+        'tile' => (string) (watchmanTileOf((string) ($x['kinds'][0] ?? '')) ?? watchmanTileOfCat($x['cat']))], $r['rules']);
     $offers = [];
     foreach ($book as $e) {
         if (is_array($e) && watchmanOpen($e) && is_string($e['id'] ?? null) && ($o = watchmanRuleOffers($e, $book))) {
@@ -1010,7 +1075,8 @@ function watchmanKnown(array $raw): array
         if (is_array($k) && is_string($k['id'] ?? null) && preg_match(WATCH_KNOWN_ID, $k['id']) && is_string($k['kind'] ?? null) && watchmanAckLasts($k['kind'])
             && is_string($k['key'] ?? null) && is_string($k['sig'] ?? null) && is_int($k['at'] ?? null)) {
             $out[] = ['id' => $k['id'], 'kind' => $k['kind'], 'key' => $k['key'], 'sig' => $k['sig'], 'at' => $k['at'],
-                      'cat' => (string) watchmanCatOf($k['kind']), 'p' => is_array($k['p'] ?? null) ? $k['p'] : [], 't' => is_array($k['t'] ?? null) ? $k['t'] : []];
+                      'cat' => (string) watchmanCatOf($k['kind']), 'tile' => (string) watchmanTileOf($k['kind']),
+                      'p' => is_array($k['p'] ?? null) ? $k['p'] : [], 't' => is_array($k['t'] ?? null) ? $k['t'] : []];
         }
     }
     return $out;
