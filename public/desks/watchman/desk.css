@@ -88,6 +88,7 @@
 .wm-quiet-row:hover, .wm-quiet-row:focus-visible{border-color:var(--accent)}
 .wm-quiet-row b{font-weight:600; white-space:nowrap}
 .wm-quiet-words{color:var(--muted); min-width:0; overflow-wrap:anywhere}
+.wm-vuln-nvd-note{margin:2px 0 8px; font-size:.85em; color:var(--ink2)}
 /* «By disk»: a disk unfolds its wakes right beneath its row */
 .wm-wake-disk-fold{padding:0 0 6px 18px; border-bottom:1px solid var(--line)}
 .wm-wake-disk-more{margin:6px 12px}

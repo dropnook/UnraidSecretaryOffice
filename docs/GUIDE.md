@@ -534,7 +534,8 @@ You need Unraid **7.3.2 or a newer 7.x**. Nothing else to install.
   (Unraid's releases and their support), endoflife.date (which release lines still get fixes). Every office asks the
   same; nothing of your server goes along. Then services.nvd.nist.gov (NIST's NVD), only for the vulnerabilities that
   concern a program here and that the CVE record can't settle: the request names the CVE id and nothing else, at most 40
-  a day, one every 6.5 seconds (NVD's limit without a key).
+  a day, one every 6.5 seconds (NVD's limit without a key). This product uses the NVD API but is not endorsed or certified
+  by the NVD.
 - It sends a report only when you send one. No telemetry.
 - The desks never wake a sleeping disk unless you ask. The scheduled backup does, unless you leave sleeping pools out.
 

@@ -21372,6 +21372,11 @@ function testWatchmanVulnPhp(): void
 function testWatchmanVulnNvd(): void
 {
     $plg = (string) file_get_contents(OFFICE_DIR . '/plugin/unraid-secretary-office.plg');
+    // NVD's terms of use: «display the following notice prominently» — its own English words, in every language, the README, the guide
+    $notice = 'This product uses the NVD API but is not endorsed or certified by the NVD.';
+    same('vuln nvd: the notice NVD\'s terms ask for — word for word in all five languages (the area, its help), the README, the guide', [],
+        array_values(array_filter(['en', 'de', 'it', 'fr', 'es', 'README.md', 'docs/GUIDE.md'], fn ($x) => !str_contains((string) preg_replace('/\s+/', ' ',
+            (string) file_get_contents(OFFICE_DIR . (str_contains($x, '.') ? "/$x" : "/public/desks/watchman/lang/$x.json"))), $notice))));
     same('vuln nvd: the floor\'s Unraid is the .plg\'s min (what the office installs on)', true,
         (bool) preg_match('/\bmin="' . preg_quote(WATCH_VULN_FLOOR_UNRAID, '/') . '"/', $plg));
     $tmp = hardeningTmp('vuln-nvd');

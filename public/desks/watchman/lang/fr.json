@@ -38,6 +38,7 @@
   "vuln.unsure_nvd_asked": "La NVD ne donne pas non plus de versions qu'il puisse comparer.",
   "vuln.unsure_nvd_wait": "Il se renseigne encore auprès de la NVD (40 failles par jour au plus).",
   "vuln.src_nvd": "Comparée aux versions de la NVD.",
+  "vuln.nvd_notice": "This product uses the NVD API but is not endorsed or certified by the NVD. (Ce produit utilise l'API de la NVD, mais il n'est ni approuvé ni certifié par la NVD.)",
   "vuln.source.kev": "La liste de la CISA",
   "vuln.source.cve": "La liste CVE (GitHub)",
   "vuln.source.nvd": "La NVD",
