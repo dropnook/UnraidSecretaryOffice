@@ -1573,6 +1573,7 @@
   "cat.vuln_sub": "Vulnerabilità note in ciò che gira qui.",
   "cat.hw_sub": "Errori dell'hardware, calore e usura.",
   "cat.why.syslog_full": "/var/log è pieno: il syslog non cresce più — i nuovi accessi restano invisibili.",
+  "cat.why.syslog_signs": "Nell'ultimo giro non ha potuto leggere tutto il syslog: possono mancare segni nel log.",
   "cat.why.docker_off": "Docker non è in esecuzione — nessun container da guardare.",
   "cat.why.shares_silent": "Unraid non ha risposto sulle condivisioni nell'ultimo giro — al momento non controllato.",
   "cat.why.flow_silent": "Il flusso di dati non è stato letto nell'ultimo giro — al momento non controllato.",

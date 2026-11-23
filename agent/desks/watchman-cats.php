@@ -188,6 +188,11 @@ function watchmanCats(array $s, ?array $parity = null): array
     if (!empty($r['syslog_full'])) {
         $add('login', 'warn', 'syslog_full');
     }
+    if (!empty($r['syslog_full']) || (int) ($r['skipped'] ?? 0) > 0) {
+        // the signs in the log (the server itself, the hardware) come from the same syslog: not all of it read (concept 12.1)
+        $add('host', 'note', 'syslog_signs');
+        $add('hw', 'note', 'syslog_signs');
+    }
     if (($r['docker'] ?? null) === false) {
         $add('container', 'none', 'docker_off');
     }

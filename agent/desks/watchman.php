@@ -8585,8 +8585,9 @@ function watchmanFlowUsualText(array $p, string $kind, ?string $lang): string
 }
 
 /** "What I keep an eye on" of the data flow: per client and service, container, share the last 24 h and what is normal now */
-function watchmanFlowSummary(?array $bf, ?array $flow, int $now): ?array
+function watchmanFlowSummary(?array $bf, ?array $flow, int $now, ?array $set = null): ?array
 {
+    $set ??= watchmanSettings([]);      // his settings in effect (1.96): the help says what he judges by, never the old constants
     if (!is_array($bf) || !is_array($flow)) {
         return null;
     }
@@ -8672,9 +8673,9 @@ function watchmanFlowSummary(?array $bf, ?array $flow, int $now): ?array
         'gone'       => array_slice($gone, 0, 60),
         'disks'      => array_slice($disks, 0, 40),
         'smb'        => ['users' => array_slice($users, 0, 60), 'clients' => array_slice($smbClients, 0, 40)],
-        'limits'     => ['factor' => WATCH_FLOW_FACTOR, 'min' => WATCH_FLOW_MIN, 'new' => WATCH_FLOW_NEW, 'part' => (int) round(WATCH_FLOW_PART * 100),
-                         'keep' => intdiv(WATCH_FLOW_KEEP, 86400), 'gone_new' => WATCH_GONE_NEW, 'gone_part' => (int) round(WATCH_GONE_PART * 100),
-                         'files_min' => WATCH_FILES_MIN, 'files_new' => WATCH_FILES_NEW],
+        'limits'     => ['factor' => (int) $set['pull']['factor'], 'min' => (int) $set['pull']['min'] * 1024 ** 3, 'new' => (int) $set['pull']['new'] * 1024 ** 3,
+                         'part' => (int) round(WATCH_FLOW_PART * 100), 'keep' => intdiv(WATCH_FLOW_KEEP, 86400), 'gone_new' => WATCH_GONE_NEW,
+                         'gone_part' => (int) round(WATCH_GONE_PART * 100), 'files_min' => (int) $set['data']['files_min'], 'files_new' => WATCH_FILES_NEW],
     ];
 }
 
@@ -10787,7 +10788,8 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
         'open'     => watchmanOpenCounts($d['book']),
         'book'     => $book,
         'watch'    => $onWatch ? watchmanSummary($b, readJson("$dir/seen.json")) : null,
-        'flow'     => $onWatch ? watchmanFlowSummary(is_array($b['flow'] ?? null) ? $b['flow'] : null, readJson("$dir/flow.json"), $now) : null,
+        'flow'     => $onWatch ? watchmanFlowSummary(is_array($b['flow'] ?? null) ? $b['flow'] : null, readJson("$dir/flow.json"), $now,
+                                                     watchmanSettings(watchmanRulesRaw($dir))) : null,
         'snaps'    => $onWatch ? watchmanSnapSummary($st['snaps'] ?? null, is_array($b['snaps'] ?? null) ? $b['snaps'] : null) : null,
         // the network (agent/lib/watchnet.php): Unraid's syslog server, the senders, counts — never another client's address
         'net'      => $onWatch ? watchnetSummary(is_array($b['net'] ?? null) ? $b['net'] : null, readJson("$dir/net.json"), !empty($st['net_lan']), $now) : null,

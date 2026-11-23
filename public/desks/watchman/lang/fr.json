@@ -1573,6 +1573,7 @@
   "cat.vuln_sub": "Les failles connues de ce qui tourne ici.",
   "cat.hw_sub": "Erreurs matérielles, chaleur et usure.",
   "cat.why.syslog_full": "/var/log est plein : le syslog ne grandit plus — les nouvelles connexions passent inaperçues.",
+  "cat.why.syslog_signs": "Il n'a pas pu lire tout le syslog lors de sa dernière ronde : des signes dans le journal peuvent manquer.",
   "cat.why.docker_off": "Docker ne tourne pas — aucun conteneur à regarder.",
   "cat.why.shares_silent": "Unraid n'a pas répondu sur les partages lors de la dernière ronde — pas vérifié pour l'instant.",
   "cat.why.flow_silent": "Le flux de données n'a pas été lu lors de la dernière ronde — pas vérifié pour l'instant.",

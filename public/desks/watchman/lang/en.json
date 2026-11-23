@@ -1573,6 +1573,7 @@
   "cat.vuln_sub": "Known vulnerabilities in what runs here.",
   "cat.hw_sub": "Hardware errors, heat and wear.",
   "cat.why.syslog_full": "/var/log is full: the syslog stopped growing — new logins go unseen.",
+  "cat.why.syslog_signs": "He couldn't read all of the syslog in his last round: signs in the log may be missing.",
   "cat.why.docker_off": "Docker isn't running — no containers to look at.",
   "cat.why.shares_silent": "Unraid didn't answer about the shares in his last round — not checked right now.",
   "cat.why.flow_silent": "The data flow wasn't read in his last round — not checked right now.",
