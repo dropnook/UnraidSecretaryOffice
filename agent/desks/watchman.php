@@ -1600,7 +1600,13 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             // snapshots gone or released that the office didn't do (taken over anew: all of it normal)
             $b['snaps'] = is_array($b['snaps'] ?? null) ? $b['snaps'] : ['series' => []];
             if (!$fresh) {
-                $added = array_merge($added, watchmanSnapCompare($b['snaps'], $snapRes, $book, $now));
+                // your exceptions on a series or a dataset (6c) take out what they cover, snapshot by snapshot — their hits
+                $snapHits = [];
+                $added = array_merge($added, watchmanSnapCompare($b['snaps'], $snapRes, $book, $now, watchmanRules(watchmanRulesRaw($dir))['rules'], $snapHits));
+                foreach ($snapHits as $rid => $h) {
+                    $was = is_array($st['rule_hits'][$rid] ?? null) ? $st['rule_hits'][$rid] : [];
+                    $st['rule_hits'][$rid] = ['n' => (int) ($was['n'] ?? 0) + (int) $h['n'], 'last' => (int) $h['last'], 'key' => (string) $h['key']];
+                }
             }
             $st['snaps'] = $snapRes['summary'];
         }
@@ -1612,7 +1618,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             if ($fresh) {
                 [, $st['kopia']] = watchmanKopiaCompare($kopiaKnown, $kopiaLook, $engineCount, $none, $now);
             } else {
-                [$k, $st['kopia']] = watchmanKopiaCompare($kopiaKnown, $kopiaLook, $engineCount, $book, $now);
+                [$k, $st['kopia']] = watchmanKopiaCompare($kopiaKnown, $kopiaLook, $engineCount, $book, $now, $set['snap']['offsite']);
                 if ($k !== null) {
                     $added[] = $k;
                 }
@@ -9043,21 +9049,61 @@ function watchmanSnapEvidence(array $paths, array $g, int $now, string $verbs): 
  *
  * @return list<string>  the kinds of new entries
  */
-function watchmanSnapCompare(array &$bs, array $res, array &$book, int $now): array
+function watchmanSnapCompare(array &$bs, array $res, array &$book, int $now, array $rules = [], array &$hits = []): array
 {
     $series = (array) ($bs['series'] ?? []);
     $added = [];
     foreach ($res['gone'] as $g) {
-        $list = watchmanSnapUnlearned($g['list'], $series);
+        $list = watchmanSnapRuled(watchmanSnapUnlearned($g['list'], $series), 'snap_gone', $rules, $hits, $now);
         if (!$list) {
             continue;
         }
         $added[] = watchmanBump($book, 'snap_gone', "snap_gone:{$g['fs']}:{$g['where']}", $now, count($list), watchmanSnapWords($g, $list));
     }
     foreach ($res['released'] as $g) {
-        $added[] = watchmanBump($book, 'snap_hold_released', "snap_hold_released:{$g['fs']}:{$g['where']}", $now, count($g['list']), watchmanSnapWords($g, $g['list']));
+        $list = watchmanSnapRuled($g['list'], 'snap_hold_released', $rules, $hits, $now);
+        if ($list) {
+            $added[] = watchmanBump($book, 'snap_hold_released', "snap_hold_released:{$g['fs']}:{$g['where']}", $now, count($list), watchmanSnapWords($g, $list));
+        }
     }
     return array_values(array_filter($added));
+}
+
+/**
+ * What of a list of snapshots gone (or released) no exception of yours covers (1.96 step 6c, watchman-rules.php): a series
+ * may be thinned — on one dataset or everywhere — only while a newer one of it stays (the last one stays news, unless its
+ * dataset has its own rule); on a dataset snapshots may go altogether; on a dataset a hold may be released. Each rule
+ * that took some out: a hit.
+ */
+function watchmanSnapRuled(array $list, string $kind, array $rules, array &$hits, int $now): array
+{
+    $out = [];
+    foreach ($list as $x) {
+        $by = null;
+        foreach ($rules as $r) {
+            if (!in_array($kind, (array) ($r['kinds'] ?? []), true) || isset($r['opt'])) {
+                continue;
+            }
+            $on = (array) ($r['on'] ?? []);
+            $ds = (string) ($x['ds'] ?? '');
+            $ok = match (true) {
+                isset($on['series'], $on['dataset']) => !empty($x['left']) && ($x['series'] ?? null) === $on['series'] && $ds === $on['dataset'],
+                isset($on['series'])                  => !empty($x['left']) && ($x['series'] ?? null) === $on['series'],
+                isset($on['dataset'])                 => $ds !== '' && $ds === $on['dataset'],
+                default                               => false,
+            };
+            if ($ok) {
+                $by = $r;
+                break;
+            }
+        }
+        if ($by === null) {
+            $out[] = $x;
+            continue;
+        }
+        $hits[$by['id']] = ['n' => (int) ($hits[$by['id']]['n'] ?? 0) + 1, 'last' => $now, 'key' => mb_strcut((string) ($x['ds'] ?? '') . '@' . (string) ($x['name'] ?? ''), 0, WATCH_RULE_TEXT, 'UTF-8')];
+    }
+    return $out;
 }
 
 /** An entry's words: where, the datasets, a few of the snapshots, their series, how many were held, the evidence */
@@ -9130,9 +9176,9 @@ function watchmanKopiaCount(mixed $j): ?array
 }
 
 /** Far fewer: none left, or less than half (the engine's kopia_emptied says the same) */
-function watchmanKopiaEmptied(int $before, int $now): bool
+function watchmanKopiaEmptied(int $before, int $now, int $pct = 50): bool
 {
-    return $before > 0 && ($now === 0 || $now * 2 < $before);
+    return $before > 0 && ($now === 0 || $now * 100 < $before * $pct);      // less than $pct % left (his setting, 1.96; up to 1.95: half)
 }
 
 /**
@@ -9144,7 +9190,7 @@ function watchmanKopiaEmptied(int $before, int $now): bool
  *
  * @return array{0: ?string, 1: array}  the kind when its entry is new, his record (state.json kopia)
  */
-function watchmanKopiaCompare(?array $known, ?array $look, ?array $engine, array &$book, int $now): array
+function watchmanKopiaCompare(?array $known, ?array $look, ?array $engine, array &$book, int $now, int $pct = 50): array
 {
     $known = is_array($known) ? $known : [];
     if ($look === null) {
@@ -9181,7 +9227,7 @@ function watchmanKopiaCompare(?array $known, ?array $look, ?array $engine, array
         }
     }
     $added = null;
-    if ($base !== null && watchmanKopiaEmptied($base['snapshots'], $count['snapshots'])) {
+    if ($base !== null && watchmanKopiaEmptied($base['snapshots'], $count['snapshots'], $pct)) {
         $added = watchmanSet($book, 'kopia_emptied', 'kopia_emptied:' . substr($count['repo'], 0, 16), $now,
             ['before' => $base['snapshots'], 'now' => $count['snapshots'], 'when' => $base['time'], 'sources_before' => $base['sources'],
              'sources_now' => $count['sources'], 'identity' => $count['identity']]);

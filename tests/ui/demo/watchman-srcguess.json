@@ -1819,6 +1819,15 @@
     "value": true,
     "def": true
    }
+  },
+  "snap": {
+   "offsite": {
+    "value": 50,
+    "def": 50,
+    "min": 25,
+    "max": 75,
+    "unit": "pct"
+   }
   }
  },
  "hand": {
@@ -1854,6 +1863,12 @@
    "layers",
    "disk_gone",
    "disk_written"
+  ],
+  "snap": [
+   "series",
+   "series_ds",
+   "dataset",
+   "hold"
   ]
  },
  "hand_amount": {

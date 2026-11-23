@@ -4990,6 +4990,22 @@
    "note": "",
    "hits": 0,
    "hit": null
+  },
+  {
+   "id": "r0123456793",
+   "cat": "snap",
+   "kinds": [
+    "snap_gone"
+   ],
+   "on": {
+    "series": "hourly-#",
+    "dataset": "tank/Familienfilme"
+   },
+   "at": 1791217874,
+   "from": "hand",
+   "note": "",
+   "hits": 12,
+   "hit": 1791559874
   }
  ],
  "off": {},
@@ -5128,6 +5144,15 @@
     "value": true,
     "def": true
    }
+  },
+  "snap": {
+   "offsite": {
+    "value": 50,
+    "def": 50,
+    "min": 25,
+    "max": 75,
+    "unit": "pct"
+   }
   }
  },
  "hand": {
@@ -5163,6 +5188,12 @@
    "layers",
    "disk_gone",
    "disk_written"
+  ],
+  "snap": [
+   "series",
+   "series_ds",
+   "dataset",
+   "hold"
   ]
  },
  "hand_amount": {

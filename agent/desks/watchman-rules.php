@@ -18,7 +18,10 @@ declare(strict_types=1);
  * lines that all come from it; {"cmd": "<16 hex>", "user": "…", "owner": "…"} — an at job running exactly one clean
  * command (watchmanAtOnlyCommand(): its fingerprint), as this user, its program owned by that one; {"share": "<share>"}
  * and {"disk": "<disk>"} — the data flow's entries of that share or XFS/btrfs disk (6b, by the entry's key). A rule may
- * carry `what` (its words for the page, ≤ 300 bytes).
+ * carry `what` (its words for the page, ≤ 300 bytes). Snapshots (6c, applied where the gone ones are listed — watchmanSnapRuled(),
+ * never in the rules' pass): {"series": S} — a series may be thinned everywhere, {"series": S, "dataset": D} — on that
+ * dataset (both only while a newer one of it stays); {"dataset": D} — on D snapshots may go altogether (snap_gone) or a hold
+ * be released (snap_hold_released). Never a whole pool: D is pool/…
  * A rule with `opt` is no «let through» but a threshold where the data flow is judged (6b, watchmanFlowRule()): {"min":
  * <bytes>} or {"files": <n>} — unusual only from this much in the hour; {"kept": false} — what a snapshot still holds
  * doesn't count as gone; {"layers": false} — new Docker image layers don't count as written. Its hit: a round it kept
@@ -54,6 +57,8 @@ const WATCH_RULE_CMD    = '/^[0-9a-f]{16}$/D';                                  
 const WATCH_RULE_SHARE  = '/^[^\/\x00-\x1f]{1,100}$/D';                                  // a share's name (any but a slash)
 const WATCH_RULE_DISK   = '/^[a-z][a-z0-9_-]{0,39}$/D';                                   // an array disk or a pool (disk1, cache …)
 const WATCH_RULE_FLOW   = ['flow_client', 'flow_container', 'flow_written', 'flow_gone'];   // what a threshold (`opt`) may be on
+const WATCH_RULE_SERIES = '/^[^\x00-\x1f]{1,255}$/D';                                    // a snapshot series (its name, digits as #)
+const WATCH_RULE_DS     = '#^[A-Za-z0-9_.:-][^@\x00-\x1f]{0,254}$#D';                    // a ZFS dataset (pool/…, never the pool alone: watchmanRuleOn())
 // the kinds he asks about more clearly before an exception (concept 3.3: what an attacker does first, or what points to
 // damage — and comes rarely); every other kind is in WATCH_RULE_PLAIN (testWatchmanRules: each kind in exactly one)
 const WATCH_RULE_ASK    = ['flash_go', 'flash_user', 'flash_password', 'flash_ssh_key', 'user_ram', 'log_cleared', 'plugin_source',
@@ -184,11 +189,21 @@ function watchmanRuleOn(mixed $on): ?array
         ['file']        => is_string($on['file']) && preg_match(WATCH_RULE_CROND, $on['file']) ? ['file' => $on['file']] : null,
         ['share']       => is_string($on['share']) && preg_match(WATCH_RULE_SHARE, $on['share']) ? ['share' => $on['share']] : null,
         ['disk']        => is_string($on['disk']) && preg_match(WATCH_RULE_DISK, $on['disk']) ? ['disk' => $on['disk']] : null,
+        ['series']      => is_string($on['series']) && preg_match(WATCH_RULE_SERIES, $on['series']) ? ['series' => $on['series']] : null,
+        ['dataset']     => watchmanRuleDsOk($on['dataset']) ? ['dataset' => $on['dataset']] : null,
+        ['dataset', 'series'] => watchmanRuleDsOk($on['dataset']) && is_string($on['series']) && preg_match(WATCH_RULE_SERIES, $on['series'])
+                                 ? ['series' => $on['series'], 'dataset' => $on['dataset']] : null,
         ['cmd', 'owner', 'user'] => is_string($on['cmd']) && preg_match(WATCH_RULE_CMD, $on['cmd']) && is_string($on['user']) && is_string($on['owner'])
                                     && strlen($on['user']) <= 64 && strlen($on['owner']) <= 64
                                     ? ['cmd' => $on['cmd'], 'user' => $on['user'], 'owner' => $on['owner']] : null,
         default         => null,
     };
+}
+
+/** A ZFS dataset a snapshot rule may name: below a pool (pool/…), never the pool itself (concept 3.2: never a whole pool) */
+function watchmanRuleDsOk(mixed $ds): bool
+{
+    return is_string($ds) && preg_match(WATCH_RULE_DS, $ds) && str_contains($ds, '/') && !str_ends_with($ds, '/') && !str_contains($ds, '//');
 }
 
 /** «a.b.c.0/24» or «x:x:x:x::/64» and the like: an address and a prefix that fits it, the address the net's own */
@@ -359,14 +374,29 @@ function watchmanRuleOffers(array $e, array $book): array
     } elseif ($kind === 'flow_client' && (int) ($p['peak'] ?? 0) > 0) {
         $out[] = ['type' => 'min', 'on' => ['key' => $e['key']], 'kinds' => ['flow_client'], 'opt' => ['min' => (int) (ceil(2 * (int) $p['peak'] / 1024 ** 3) * 1024 ** 3)]];
     }
-    if ($thing === null) {
+    if ($kind === 'snap_gone') {
+        // a series (only one named in the entry): on its dataset (only one), or everywhere — never the pool's key (6c)
+        $series = array_values(array_filter((array) ($p['series'] ?? []), 'is_string'));
+        $ds = array_values(array_filter((array) ($p['datasets'] ?? []), 'is_string'));
+        if (count($series) === 1 && preg_match(WATCH_RULE_SERIES, $series[0])) {
+            if (count($ds) === 1 && watchmanRuleDsOk($ds[0])) {
+                $out[] = ['type' => 'series_ds', 'on' => ['series' => $series[0], 'dataset' => $ds[0]], 'kinds' => ['snap_gone']];
+            }
+            $out[] = ['type' => 'series', 'on' => ['series' => $series[0]], 'kinds' => ['snap_gone']];
+        }
+    } elseif ($kind === 'snap_hold_released') {
+        $ds = array_values(array_filter((array) ($p['datasets'] ?? []), 'is_string'));
+        if (count($ds) === 1 && watchmanRuleDsOk($ds[0])) {
+            $out[] = ['type' => 'hold', 'on' => ['dataset' => $ds[0]], 'kinds' => ['snap_hold_released']];
+        }
+    } elseif ($thing === null) {
         $out[] = ['type' => 'key', 'on' => ['key' => $e['key']], 'kinds' => [$kind]];
     }
     foreach ($out as $i => $o) {
         $rule = ['kinds' => $o['kinds'], 'on' => $o['on']];
         $out[$i]['ask'] = (bool) array_intersect($o['kinds'], WATCH_RULE_ASK);
-        // a threshold notes nothing open at once (it works where the flow is judged): it covers this one only
-        $out[$i]['covers'] = isset($o['opt']) ? 1 : count(array_filter($book, fn ($x) => is_array($x) && watchmanOpen($x) && watchmanRuleCovers($rule, $x)));
+        // a threshold or a snapshot rule notes nothing open at once (it works where the flow is judged, the snapshots listed): this one only
+        $out[$i]['covers'] = isset($o['opt']) || isset($o['on']['series']) || isset($o['on']['dataset']) ? 1 : count(array_filter($book, fn ($x) => is_array($x) && watchmanOpen($x) && watchmanRuleCovers($rule, $x)));
     }
     return $out;
 }
@@ -561,7 +591,8 @@ function watchmanRuleAdd(string $id, string $type, bool $sure, ?string $dir = nu
         $noted = 0;
         foreach ($book as $i => $x) {
             // a threshold notes only the entry it was made from (it works where the flow is judged); «always tell» stays open
-            if (watchmanOpen($x) && (isset($rule['opt']) ? $x['id'] === $id : watchmanRuleCovers($rule, $x)) && empty($x['p']['_must'])) {
+            $own = isset($rule['opt']) || isset($rule['on']['series']) || isset($rule['on']['dataset']);
+            if (watchmanOpen($x) && ($own ? $x['id'] === $id : watchmanRuleCovers($rule, $x)) && empty($x['p']['_must'])) {
                 $book[$i]['noted'] = $now;
                 $book[$i]['by'] = 'rule';
                 $book[$i]['rule'] = $rule['id'];
@@ -1089,6 +1120,9 @@ const WATCH_SETTINGS = [
         'kept'        => ['def' => true],       // what a snapshot still holds counts as gone (off: it is taken off the loss)
         'must'        => ['def' => true],       // always tell, whatever exception: half a share gone or 200 000 files deleted in an hour
     ],
+    'snap' => [
+        'offsite' => ['def' => 50, 'min' => 25, 'max' => 75, 'unit' => 'pct'],      // offsite: told when less than this part of the snapshots is left
+    ],
 ];
 
 /** A setting's value as the file has it, when it fits its key (type, bounds, choices) */
@@ -1195,6 +1229,9 @@ const WATCH_HAND = [
     // writing not judged, or from an amount; its snapshots, new Docker images not counted; an XFS/btrfs disk likewise
     'pull'      => ['client', 'client_min', 'container'],
     'data'      => ['gone', 'written', 'gone_min', 'written_min', 'files_min', 'kept', 'layers', 'disk_gone', 'disk_written'],
+    // snapshots (6c): a series may be thinned (everywhere, or on a dataset: the second field), on a dataset they may go
+    // altogether, on a dataset a hold may be released — never a whole pool
+    'snap'      => ['series', 'series_ds', 'dataset', 'hold'],
 ];
 const WATCH_HAND_AMOUNT = ['client_min' => 'gb', 'gone_min' => 'gb', 'written_min' => 'gb', 'files_min' => 'n'];      // the types with an amount
 const WATCH_HAND_NAME = '/^[A-Za-z0-9][A-Za-z0-9 _.+()-]{0,99}$/D';        // a container's or a User Script's name
@@ -1289,6 +1326,25 @@ function watchmanRuleHandMake(string $cat, string $type, string $value, string $
             return $flow('disk', ['flow_gone'], null);
         case 'disk_written':
             return $flow('disk', ['flow_written'], null);
+        case 'series':
+        case 'series_ds':
+            $s = $type === 'series' ? $value : trim($user);
+            if (!preg_match(WATCH_RULE_SERIES, $s)) {
+                throw new Problem('watch_value_bad');
+            }
+            if ($type === 'series') {
+                return ['cat' => $cat, 'kinds' => ['snap_gone'], 'on' => ['series' => $s], 'wide' => true];
+            }
+            if (!watchmanRuleDsOk($value)) {
+                throw new Problem(str_contains($value, '/') ? 'watch_value_bad' : 'watch_pool_whole');
+            }
+            return ['cat' => $cat, 'kinds' => ['snap_gone'], 'on' => ['series' => $s, 'dataset' => $value], 'wide' => true];
+        case 'dataset':
+        case 'hold':
+            if (!watchmanRuleDsOk($value)) {
+                throw new Problem(preg_match(WATCH_RULE_DS, $value) && !str_contains($value, '/') ? 'watch_pool_whole' : 'watch_value_bad');
+            }
+            return ['cat' => $cat, 'kinds' => [$type === 'dataset' ? 'snap_gone' : 'snap_hold_released'], 'on' => ['dataset' => $value], 'wide' => true];
         default:        // crond
             $value = preg_replace('#^/?etc/cron\.d/#', '', $value) ?? '';
             if (!preg_match(WATCH_RULE_CROND, $value) || $value === 'root') {

@@ -310,8 +310,10 @@ function catOffAsk(id, off, cb) {
 const handTypes = (id) => ((state && state.hand && state.hand[id]) || []).filter((x) => typeof x === 'string');
 const HAND_EXAMPLE = { net: '192.168.1.0/24', ip: '203.0.113.7', user_net: '192.168.1.0/24', ports: 'plex', rights: 'plex', source: 'github.com/…',
   script: '…', cron_file: '…/….cron', crond: '…', client: '192.168.1.20', client_min: '192.168.1.20', container: 'plex', disk_gone: 'disk1',
-  disk_written: 'disk1' };
-const HAND_WIDE = { login: 'setup.add_public', plugin: 'setup.add_wide.plugin', data: 'setup.add_wide.data' };
+  disk_written: 'disk1', series: 'zfs-auto-snap_hourly-#', series_ds: 'tank/Media', dataset: 'tank/Media', hold: 'tank/Media' };
+const HAND_WIDE = { login: 'setup.add_public', plugin: 'setup.add_wide.plugin', data: 'setup.add_wide.data', snap: 'setup.add_wide.snap' };
+// a second field: a user from a net, a series on a dataset
+const HAND_SECOND = { user_net: ['setup.add_user', 'root'], series_ds: ['setup.add_second.series_ds', 'zfs-auto-snap_hourly-#'] };
 const handAmount = (t) => (state && state.hand_amount && state.hand_amount[t]) || null;
 /**
  * «Add an exception…» by hand: what kind of exception (the area's types), its value typed, a user for «a user from a net»
@@ -331,7 +333,8 @@ function ruleHandDialog(id, b) {
   user.placeholder = 'root';
   user.setAttribute('aria-label', T('setup.add_user'));
   const userRow = el('label', 'wm-hand-row');
-  userRow.append(el('span', '', T('setup.add_user')), user);
+  const userName = el('span', '', T('setup.add_user'));
+  userRow.append(userName, user);
   const valueName = el('span', '');
   const amount = el('input', 'search wm-setting-num');
   amount.type = 'number';
@@ -344,7 +347,12 @@ function ruleHandDialog(id, b) {
   const netNot = el('p', 'role', T('rule.ask_net_not'));
   const sync = () => {
     const t = type.value;
-    userRow.hidden = t !== 'user_net';
+    userRow.hidden = !HAND_SECOND[t];
+    if (HAND_SECOND[t]) {
+      userName.textContent = T(HAND_SECOND[t][0]);
+      user.placeholder = HAND_SECOND[t][1];
+      user.setAttribute('aria-label', userName.textContent);
+    }
     netNot.hidden = !login.includes(t);
     value.placeholder = HAND_EXAMPLE[t] || '';
     valueName.textContent = login.includes(t) ? T('setup.add_value') : T('setup.add_value.' + t);
@@ -389,7 +397,7 @@ function ruleHandDialog(id, b) {
 }
 
 // ------------------------------------------------------------------ exceptions (1.96, agent/desks/watchman-rules.php)
-const OFFERS = ['key', 'ip', 'net', 'user_net', 'machine', 'source', 'file', 'cmd', 'share', 'disk', 'min', 'kept', 'layers'];
+const OFFERS = ['key', 'ip', 'net', 'user_net', 'machine', 'source', 'file', 'cmd', 'share', 'disk', 'min', 'kept', 'layers', 'series_ds', 'series', 'hold'];
 // kinds whose key is «<kind>:<the thing's name>»: an exception for exactly it reads «The ports of plex may change» (6a)
 const KEY_NAMED = ['container_ports', 'container_rights', 'script_changed', 'cron_file', 'flow_client', 'flow_container'];
 /** A named key's thing in words: a client of the data flow «192.168.1.5 (SMB)» (its key: ip|service), else the name */
@@ -421,6 +429,8 @@ const justMade = new Set();     // exceptions made on this visit: «Undo» besid
  */
 function offerName(o, e, here) {
   const on = o.on || {};
+  if (on.series) return on.dataset ? T('rule.offer.series_ds', { series: on.series, dataset: on.dataset }) : T('rule.offer.series', { series: on.series });
+  if (on.dataset) return T((o.kinds || [])[0] === 'snap_hold_released' ? 'rule.offer.hold' : 'rule.offer.dataset', { dataset: on.dataset });
   if (on.user) return T('rule.offer.user_net', { user: on.user, net: on.net });
   if (on.net) return T('rule.offer.net', { net: on.net });
   if (on.ip && !(o.opt) && (o.kinds || []).length === 1 && o.kinds[0] === 'flow_client') return T('rule.key.flow_client', { name: on.ip });
