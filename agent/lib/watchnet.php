@@ -1320,6 +1320,11 @@ function watchnetCompare(?array &$b, array $look, array &$book, array &$ns, arra
                     $s[$k]['version'] ??= $old['version'] ?? null;
                     $s[$k]['host'] ??= $old['host'] ?? null;
                 }
+                // since when this version (2026-11-23: known vulnerabilities say how old what they compare is)
+                $v = $s[$k]['version'] ?? null;
+                if (is_string($v) && $v !== '') {
+                    $s[$k]['version_at'] = ($old['version'] ?? null) === $v && is_int($old['version_at'] ?? null) ? $old['version_at'] : $now;
+                }
             }
         }
         foreach (['cef_seen' => 'cef', 'det_seen' => 'det', 'nf_seen' => 'nf', 'ros_seen' => 'ros'] as $from => $to) {

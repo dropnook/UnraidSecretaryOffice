@@ -68,7 +68,10 @@ const WATCH_VULN_URLS    = [
 // step 16: the only names read from a container image's environment — the official images set them (their Dockerfiles);
 // never any other value of an image's or a container's environment (passwords live there)
 const WATCH_VULN_ENV = ['PHP_VERSION', 'NGINX_VERSION', 'MARIADB_VERSION', 'PG_VERSION', 'REDIS_VERSION', 'NODE_VERSION', 'PYTHON_VERSION',
-                        'GOLANG_VERSION', 'JAVA_VERSION'];
+                        'GOLANG_VERSION', 'JAVA_VERSION', 'UNIFI_VERSION'];
+// the one label read (2026-11-23), and only of an image whose name says «unifi» (linuxserver's UniFi Network Application
+// names its version only there: «9.0.114-ls78»): kept as OCI_VERSION, judged as the UniFi Network Application
+const WATCH_VULN_OCI_IMAGE = '/unifi/i';
 const WATCH_VULN_IMAGES_EVERY = 3600;      // the images' versions looked at anew at most this often (or when the images change)
 const WATCH_VULN_IMAGES_MAX   = 100;       // images asked at most
 const WATCH_VULN_MAX     = ['kev' => 8 << 20, 'cve' => 2 << 20, 'unraid' => 1 << 20, 'eol' => 1 << 20, 'nvd' => 4 << 20];     // bytes of an answer at most
@@ -103,6 +106,13 @@ const WATCH_VULN_PRODUCTS = [
     'python'   => ['label' => 'Python', 'kev' => ['python software foundation|python'], 'cna' => ['python software foundation|cpython', 'python|python'], 'env' => 'PYTHON_VERSION', 'eol' => 'python'],
     'go'       => ['label' => 'Go', 'kev' => ['golang|go'], 'cna' => ['go standard library|crypto/tls', 'golang|go'], 'env' => 'GOLANG_VERSION', 'eol' => 'go'],
     'java'     => ['label' => 'Java', 'kev' => [], 'cna' => [], 'env' => 'JAVA_VERSION'],
+    // 2026-11-23, passive only (never a login to a router): RouterOS by the version its own log says (watchnet.php keeps it
+    // per sender: «installed system-…», «RouterOS upgraded from … to …», a CEF header); the UniFi Network Application by
+    // its CEF header's version, or as a container here (UNIFI_VERSION, or an image named «unifi»: its OCI version label)
+    'routeros' => ['label' => 'MikroTik RouterOS', 'kev' => ['mikrotik|routeros'], 'cna' => ['mikrotik|routeros'], 'net' => 'MikroTik'],
+    'unifi'    => ['label' => 'UniFi Network', 'kev' => ['ubiquiti|unifi network application', 'ubiquiti|unifi network', 'ubiquiti|unifi'],
+                   'cna' => ['ubiquiti|unifi network application', 'ubiquiti inc.|unifi network application', 'ubiquiti inc|unifi network application',
+                             'ui|unifi network application', 'ubiquiti|unifi network'], 'env' => 'UNIFI_VERSION', 'net' => 'Ubiquiti'],
 ];
 // the places an entry names: the server itself, or (step 16) a container
 const WATCH_VULN_HOST = 'host';
@@ -464,7 +474,7 @@ function watchmanVulnInventory(array $paths): array
     }
     // step 16: the containers' software, by their images' own ENV ($paths['vuln_images']: container => [name => value],
     // watchmanVulnImages() — never another value of an environment)
-    $envProduct = [];
+    $envProduct = ['OCI_VERSION' => 'unifi'];      // only an image named «unifi» keeps it (watchmanVulnImagesParse())
     foreach (WATCH_VULN_PRODUCTS as $id => $p) {
         if (isset($p['env'])) {
             $envProduct[$p['env']] = $id;
@@ -477,6 +487,17 @@ function watchmanVulnInventory(array $paths): array
             }
         }
     }
+    // the routers whose log comes here (2026-11-23, $paths['vuln_routers']: watchmanVulnRouters()) — by the version they said
+    // themselves; one without a version is no line here (the page says «version unknown»)
+    $seenNet = [];
+    foreach (is_array($paths['vuln_routers'] ?? null) ? $paths['vuln_routers'] : [] as $r) {
+        $id = is_array($r) ? ($r['product'] ?? null) : null;
+        $v = is_array($r) && is_string($r['version'] ?? null) ? $r['version'] : '';
+        if (is_string($id) && isset(WATCH_VULN_PRODUCTS[$id]) && $v !== '' && strlen($v) <= 64 && !isset($seenNet["$id|$v"])) {
+            $seenNet["$id|$v"] = true;
+            $out[] = ['product' => $id, 'version' => $v, 'clean' => watchmanVulnClean($v, 'plain'), 'where' => WATCH_VULN_HOST];
+        }
+    }
     if (isset($paths['packages']) && is_dir((string) $paths['packages'])) {
         // Slackware: <name>-<version>-<arch>-<build>, the version without a dash
         foreach (scandir((string) $paths['packages']) ?: [] as $f) {
@@ -486,6 +507,33 @@ function watchmanVulnInventory(array $paths): array
         }
     }
     return $out;
+}
+
+/**
+ * The routers his net.json knows by their log (watchnet.php: per sender its vendor, product, version and since when that
+ * version) → the name table's product, the version ('' when the log never said one), since when, the sender
+ *
+ * @return list<array{product: string, version: string, at: ?int, sender: string}>
+ */
+function watchmanVulnRouters(?array $net): array
+{
+    $byVendor = [];
+    foreach (WATCH_VULN_PRODUCTS as $id => $p) {
+        if (isset($p['net'])) {
+            $byVendor[$p['net']] = $id;
+        }
+    }
+    $out = [];
+    foreach (is_array($net['senders'] ?? null) ? $net['senders'] : [] as $sender => $s) {
+        $m = is_array($s['meta'] ?? null) ? $s['meta'] : [];
+        $id = $byVendor[(string) ($m['vendor'] ?? '')] ?? null;
+        if ($id === null) {
+            continue;
+        }
+        $v = is_string($m['version'] ?? null) && preg_match('/^[0-9A-Za-z.+_-]{1,40}$/D', $m['version']) ? $m['version'] : '';
+        $out[] = ['product' => $id, 'version' => $v, 'at' => is_int($m['version_at'] ?? null) ? $m['version_at'] : null, 'sender' => (string) $sender];
+    }
+    return array_slice($out, 0, 20);
 }
 
 // ===================================================================== the lists: fetching
@@ -962,10 +1010,10 @@ function watchmanVulnSet(mixed $on, ?string $dir = null, bool $page = true): arr
  * Step 16: the containers' software against endoflife.date (watchmanVulnEol(); $images: container => its versions).
  *
  * @return array{found: list<array>, checked: int, fresh: bool, kev: ?int, pending: list<string>, not: list<array>, unsure: list<array>,
- *               kev_total: ?int, kev_known: int, kev_here: int, kev_products: array<string, int>, down: list<array>, unraid: ?array{version: string, status: string, newest: ?string},
+ *               kev_total: ?int, kev_known: int, kev_here: int, kev_products: array<string, int>, down: list<array>, routers: list<array>, unraid: ?array{version: string, status: string, newest: ?string},
  *               software: list<array>, unknown: list<string>}
  */
-function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []): array
+function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = [], array $routers = []): array
 {
     $f = watchmanVulnDir($dir);
     $kev = readJson("$f/kev.json");
@@ -978,7 +1026,9 @@ function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []
             // the name table knows, those of products running here — by product
             'kev_total' => is_array($kev) && is_int($kev['count'] ?? null) ? $kev['count'] : null,
             'kev_known' => is_array($kev) ? count((array) ($kev['entries'] ?? [])) : 0, 'kev_here' => 0, 'kev_products' => [],
-            'down' => watchmanVulnDown($status)]
+            'down' => watchmanVulnDown($status),
+            // the routers by their log (2026-11-23): each with its version and since when, or none known yet
+            'routers' => array_map(fn ($r) => ['label' => WATCH_VULN_PRODUCTS[$r['product']]['label'] ?? $r['product'], 'version' => $r['version'], 'at' => $r['at']], $routers)]
         + watchmanVulnEol($dir, $inv, $images);
     $tried = readJson("$f/cve-tried.json");
     $tried = is_array($tried) ? $tried : [];
@@ -1223,6 +1273,7 @@ function watchmanVulnPage(array $st, ?array $judged): array
             'pending' => is_array($j['pending'] ?? null) ? count($j['pending']) : 0, 'floor' => WATCH_VULN_FLOOR_UNRAID,
             // the sources that haven't answered for days (2026-11-23): a calm line each, never a colour, never told
             'down' => array_values(array_filter((array) ($j['down'] ?? []), fn ($x) => is_array($x) && in_array($x['src'] ?? null, WATCH_VULN_SOURCES, true))),
+            'routers' => array_values(array_filter((array) ($j['routers'] ?? []), fn ($x) => is_array($x) && is_string($x['label'] ?? null))),
             // can't be checked for sure (1.96, 2026-11-23): the record names no version he can compare — calm, never an entry
             'unsure' => array_map(fn ($x) => $x + ['label' => WATCH_VULN_PRODUCTS[$x['product']]['label'] ?? $x['product']],
                 array_values(array_filter((array) ($j['unsure'] ?? []), fn ($x) => is_array($x) && is_string($x['cve'] ?? null) && is_string($x['product'] ?? null))))];
@@ -1260,7 +1311,8 @@ function watchmanVulnVariant(array $e): ?string
 function watchmanVulnImagesFormat(): string
 {
     $names = implode(' ', array_map(fn ($n) => '"' . $n . '"', WATCH_VULN_ENV));
-    return '{{.Id}}{{range .Config.Env}}{{$k := index (split . "=") 0}}{{if eq $k ' . $names . '}} {{.}}{{end}}{{end}}';
+    return '{{.Id}}{{range .Config.Env}}{{$k := index (split . "=") 0}}{{if eq $k ' . $names . '}} {{.}}{{end}}{{end}}'
+        . '{{with .Config.Labels}}{{with index . "org.opencontainers.image.version"}} OCI_VERSION={{.}}{{end}}{{end}}';
 }
 
 /**
@@ -1278,7 +1330,8 @@ function watchmanVulnImagesParse(string $out, array $images): array
         $env = [];
         foreach (array_slice(explode(' ', (string) ($lines[$i] ?? '')), 1) as $tok) {
             [$k, $v] = array_pad(explode('=', $tok, 2), 2, '');
-            if (in_array($k, WATCH_VULN_ENV, true) && preg_match('/^[0-9A-Za-z.:+~_-]{1,64}$/D', $v)) {
+            $oci = $k === 'OCI_VERSION' && preg_match(WATCH_VULN_OCI_IMAGE, (string) $img);
+            if ((in_array($k, WATCH_VULN_ENV, true) || $oci) && preg_match('/^[0-9A-Za-z.:+~_-]{1,64}$/D', $v)) {
                 $env[$k] = $v;
             }
         }

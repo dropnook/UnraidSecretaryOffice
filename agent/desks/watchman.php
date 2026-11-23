@@ -1636,7 +1636,10 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
     [$vulnImages, $vulnImagesCache] = $vulnOn ? watchmanVulnImages(is_array($containers) ? $containers : null,
         is_array($snap['state']['vuln_images'] ?? null) ? $snap['state']['vuln_images'] : null, $now,
         isset($paths['vuln_inspect']) && is_callable($paths['vuln_inspect']) ? $paths['vuln_inspect'] : null) : [[], null];
-    $vuln = $vulnOn ? watchmanVulnJudge($dir, watchmanVulnInventory($paths + ['vuln_images' => $vulnImages]), $now, $vulnImages) : null;
+    // the routers by what their own log said (watchnet.php's net.json: never asked of the router)
+    $vulnRouters = $vulnOn ? watchmanVulnRouters(readJson("$dir/net.json")) : [];
+    $vuln = $vulnOn ? watchmanVulnJudge($dir, watchmanVulnInventory($paths + ['vuln_images' => $vulnImages, 'vuln_routers' => $vulnRouters]), $now,
+        $vulnImages, $vulnRouters) : null;
     $facts['vuln'] = $vuln;
     // snapshots that vanish: only rounds write snaps.json (one at a time), so it is read out here
     $snapKnown = $snaps ? readJson("$dir/snaps.json") : null;
@@ -1799,7 +1802,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             $st['vuln_look'] = ['time' => $now, 'kev' => $vuln['kev'], 'fresh' => $vuln['fresh'], 'checked' => $vuln['checked'], 'found' => array_map(
                 fn ($x) => ['verdict' => $x['verdict']], $vuln['found']), 'software' => $vuln['software'], 'unknown' => $vuln['unknown'],
                 'not' => $vuln['not'], 'unsure' => $vuln['unsure'], 'kev_total' => $vuln['kev_total'], 'kev_here' => $vuln['kev_here'],
-                'kev_products' => $vuln['kev_products'], 'pending' => $vuln['pending'], 'down' => $vuln['down']];
+                'kev_products' => $vuln['kev_products'], 'pending' => $vuln['pending'], 'down' => $vuln['down'], 'routers' => $vuln['routers']];
             if ($vulnImagesCache !== null) {
                 $st['vuln_images'] = $vulnImagesCache;
             }

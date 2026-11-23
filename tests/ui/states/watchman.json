@@ -5641,6 +5641,18 @@
   ],
   "pending": 0,
   "floor": "7.3.2",
+  "routers": [
+   {
+    "label": "MikroTik RouterOS",
+    "version": "7.24.5",
+    "at": 1790526674
+   },
+   {
+    "label": "MikroTik RouterOS",
+    "version": "",
+    "at": null
+   }
+  ],
   "down": [
    {
     "src": "nvd",
