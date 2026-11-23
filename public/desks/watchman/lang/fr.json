@@ -1838,5 +1838,7 @@
   "help.setup_off": "Une zone désactivée",
   "help.setup_off_text": "Chaque zone peut être désactivée. Il demande une fois clairement et dit ce que tu ne verras plus. Désactivée, sa tuile est grise et le chef d'équipe garde une ligne ; réactivée, il repart de ce moment.",
   "help.setup_rules": "Exceptions",
-  "help.setup_rules_text": "Une exception laisse passer une chose pour de bon : notée, jamais signalée. Sur une entrée, il propose les étroites ; ici, à la main, de plus larges — un réseau, un utilisateur depuis un réseau. La lever est honnête : sa prochaine ronde signale ce qui est encore différent."
+  "help.setup_rules_text": "Une exception laisse passer une chose pour de bon : notée, jamais signalée — ou, pour le flux de données, un seuil (à partir d'une quantité, ce qu'un snapshot retient, les nouvelles images Docker). Sur une entrée, il propose les étroites ; ici, à la main, de plus larges — un réseau, un partage, une série de snapshots, un admin du routeur. Jamais laissé passer : plus de la moitié d'un partage disparue ou 200 000 fichiers supprimés en une heure (sauf si tu le désactives). La lever est honnête : sa prochaine ronde signale ce qui est encore différent.",
+  "help.history": "Son historique",
+  "help.history_text": "Ce qu'il note lui-même (ou une exception) quitte la main courante après une semaine calme et reste 13 mois dans son historique, par mois — sous la main courante, chargé quand tu l'ouvres. La main courante garde ce qui est ouvert et ce à quoi tu as répondu."
 }

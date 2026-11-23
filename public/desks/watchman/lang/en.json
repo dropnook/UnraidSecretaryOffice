@@ -1838,5 +1838,7 @@
   "help.setup_off": "An area switched off",
   "help.setup_off_text": "Every area can be switched off. He asks once clearly and says what you won't see. Off, its tile is grey and the Team Lead keeps one line about it; on again, he starts from then.",
   "help.setup_rules": "Exceptions",
-  "help.setup_rules_text": "An exception lets one thing through for good: noted, never told. On an entry he offers the narrow ones; here, by hand, wider ones — a net, a user from a net. Lifting one is honest: his next round tells what is still different."
+  "help.setup_rules_text": "An exception lets one thing through for good: noted, never told — or, for the data flow, a threshold (from an amount, a snapshot's hold, new Docker images). On an entry he offers the narrow ones; here, by hand, wider ones — a net, a share, a series of snapshots, a router's admin. Never let through: more than half of a share gone or 200 000 files deleted in one hour (unless you switch that off). Lifting one is honest: his next round tells what is still different.",
+  "help.history": "His history",
+  "help.history_text": "What he notes himself (or an exception does) leaves the watch book after a quiet week and stays 13 months in his history, by month — under the book, loaded when you open it. The book keeps what is open and what you answered."
 }

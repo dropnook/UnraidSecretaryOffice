@@ -1838,5 +1838,7 @@
   "help.setup_off": "Un'area spenta",
   "help.setup_off_text": "Ogni area si può spegnere. Chiede una volta in modo chiaro e dice cosa non vedrai più. Spenta, il suo riquadro è grigio e il capo squadra tiene una riga; riaccesa, riparte da quel momento.",
   "help.setup_rules": "Eccezioni",
-  "help.setup_rules_text": "Un'eccezione lascia passare una cosa per sempre: annotata, mai segnalata. Sulla voce offre quelle strette; qui, a mano, quelle più larghe — una rete, un utente da una rete. Toglierla è onesto: il prossimo giro segnala ciò che è ancora diverso."
+  "help.setup_rules_text": "Un'eccezione lascia passare una cosa per sempre: annotata, mai segnalata — oppure, per il flusso di dati, una soglia (da una quantità, ciò che uno snapshot trattiene, nuove immagini Docker). Sulla voce offre quelle strette; qui, a mano, quelle più larghe — una rete, una condivisione, una serie di snapshot, un admin del router. Mai lasciato passare: più della metà di una condivisione sparita o 200 000 file cancellati in un'ora (salvo che tu lo spenga). Toglierla è onesto: il prossimo giro segnala ciò che è ancora diverso.",
+  "help.history": "La sua cronologia",
+  "help.history_text": "Ciò che annota da solo (o un'eccezione) lascia il registro dopo una settimana tranquilla e resta 13 mesi nella sua cronologia, per mese — sotto il registro, caricata quando la apri. Il registro tiene ciò che è aperto e ciò a cui hai risposto."
 }

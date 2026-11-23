@@ -299,10 +299,31 @@ When you hire him he learns what is normal. Then he walks his round every five m
 
 - Each entry names its MITRE ATT&CK technique. The important ones go to Unraid's notifications.
 - Where he can't see who did it, he names who likely did, always as a guess.
-- *I know, thanks* makes it the new normal.
+- *I know, thanks* makes it the new normal — and it holds until you take it back in his setup.
 - *This was a real incident…* keeps it with your note. As long as it is on that list, the same from the same source is
   told at once and as important; *Not serious after all…* there takes it back.
 - While the array is stopped, his night shift keeps watch from RAM and the flash.
+
+**Areas and lights:** his page is a row of small tiles, one for each area he watches — logins, containers, plugins, the
+flash and accounts, open shares, what starts by itself, who pulls data, data in the shares, snapshots and offsite, the
+server itself, ways in, the partner door, the router, the network, array and parity, what holds the array, disk wakes —
+and the watch book, how securely it stands, serious incidents, what he keeps an eye on and his schedule. Each tile is a
+light: red, look now; yellow, worth a look; «!», advice; green, fine; grey, nothing to look at (switched off, not there,
+not looked at yet). The mouse says why; a click shows that area alone.
+
+**Setup** (his second tab): for each area its settings (the default is always what he did before), its exceptions, your
+lasting answers, and the switch to watch it at all — off only after one clear question naming what you won't see.
+*Everything changed* lists all of it: the one place to see what he no longer says.
+
+**Exceptions:** *… always okay* on an entry, or *Add an exception…* in his setup — a net for logins, a container's ports,
+a share whose deletions aren't judged, a snapshot series that may be thinned, a router's admin from your net. What it
+names is noted, never told; lifted in his setup, the next round tells what is still different. Never let through: the same
+as a serious incident on your list (unless you decided after it), part of a chain forming, and — unless you switch it off —
+more than half of a share gone or 200 000 files deleted in one hour. For what an attacker does first he asks more clearly
+(two sentences, a button naming it); you decide.
+
+**His history:** what he notes himself (or an exception does) leaves the watch book after a quiet week: 13 months by
+month, under the book, loaded when you open it. The book keeps what is open and what you answered.
 
 **The router** (UniFi, MikroTik with RouterOS 7) sends its log to Unraid's syslog server; the Consultant shows how.
 He notes new logins, firewall and port-forwarding changes, intrusions, new devices, the log gone silent.

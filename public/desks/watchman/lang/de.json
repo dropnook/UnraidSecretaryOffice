@@ -1838,5 +1838,7 @@
   "help.setup_off": "Ein ausgeschalteter Bereich",
   "help.setup_off_text": "Jeder Bereich lässt sich ausschalten. Er fragt einmal deutlich nach und sagt, was du dann nicht mehr siehst. Aus ist seine Kachel grau, und der Teamchef behält eine Zeile dazu; wieder ein, fängt er beim Stand von dann an.",
   "help.setup_rules": "Ausnahmen",
-  "help.setup_rules_text": "Eine Ausnahme lässt eine Sache dauerhaft durch: notiert, nie gemeldet. Am Eintrag bietet er die engen an, hier von Hand breitere — ein Netz, ein Benutzer aus einem Netz. Aufheben ist ehrlich: sein nächster Rundgang meldet, was noch anders ist."
+  "help.setup_rules_text": "Eine Ausnahme lässt eine Sache dauerhaft durch: notiert, nie gemeldet — oder, beim Datenfluss, eine Schwelle (erst ab einer Menge, was ein Snapshot hält, neue Docker-Images). Am Eintrag bietet er die engen an, hier von Hand breitere — ein Netz, ein Share, eine Serie von Snapshots, ein Admin des Routers. Nie durchgelassen: mehr als die Hälfte eines Shares verschwunden oder 200 000 Dateien gelöscht in einer Stunde (ausser du schaltest das aus). Aufheben ist ehrlich: sein nächster Rundgang meldet, was noch anders ist.",
+  "help.history": "Sein Verlauf",
+  "help.history_text": "Was er selbst notiert (oder eine Ausnahme), verlässt nach einer ruhigen Woche das Wachbuch und bleibt 13 Monate in seinem Verlauf, nach Monaten — unter dem Wachbuch, geladen, wenn du ihn aufklappst. Das Wachbuch behält, was offen ist und was du beantwortet hast."
 }

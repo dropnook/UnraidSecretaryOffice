@@ -1838,5 +1838,7 @@
   "help.setup_off": "Un área apagada",
   "help.setup_off_text": "Cada área se puede apagar. Pregunta una vez con claridad y dice qué dejarás de ver. Apagada, su mosaico es gris y el jefe de equipo guarda una línea; al volver a encenderla, empieza desde entonces.",
   "help.setup_rules": "Excepciones",
-  "help.setup_rules_text": "Una excepción deja pasar una cosa para siempre: anotada, nunca avisada. En una entrada ofrece las estrechas; aquí, a mano, más amplias — una red, un usuario desde una red. Quitarla es honesto: su próxima ronda avisa lo que sigue siendo distinto."
+  "help.setup_rules_text": "Una excepción deja pasar una cosa para siempre: anotada, nunca avisada — o, para el flujo de datos, un umbral (a partir de una cantidad, lo que una instantánea retiene, imágenes nuevas de Docker). En una entrada ofrece las estrechas; aquí, a mano, más amplias — una red, un recurso compartido, una serie de instantáneas, un admin del router. Nunca se deja pasar: más de la mitad de un recurso compartido desaparecida o 200 000 archivos borrados en una hora (salvo que lo desactives). Quitarla es honesto: su próxima ronda avisa lo que sigue siendo distinto.",
+  "help.history": "Su historial",
+  "help.history_text": "Lo que anota él mismo (o una excepción) deja el libro de guardia tras una semana tranquila y se queda 13 meses en su historial, por mes — bajo el libro, se carga al abrirlo. El libro guarda lo abierto y lo que respondiste."
 }
