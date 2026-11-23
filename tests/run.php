@@ -21496,6 +21496,163 @@ function testWatchmanRules6a(): void
 }
 
 /**
+ * 1.96 step 6b — the data flow: settings (defaults = the constants he judged by), exceptions on a share or disk (let through
+ * in the rules' pass), thresholds where the flow is judged (an amount, a snapshot's hold, new Docker layers) with their hits,
+ * and «always tell» (half a share, 200 000 files in an hour) that no exception silences. The existing flow tests run unchanged.
+ */
+function testWatchmanRules6b(): void
+{
+    $gb = 1024 ** 3;
+    $err = fn (callable $f) => (function () use ($f) { try { $f(); return null; } catch (Problem $p) { return $p->key; } })();
+    same('6b settings: the defaults are the constants he judged by', [WATCH_FLOW_FACTOR, WATCH_FLOW_MIN, WATCH_FLOW_NEW, WATCH_FLOW_FACTOR, WATCH_FLOW_MIN, WATCH_FLOW_MIN, WATCH_FILES_MIN, true, true],
+        [WATCH_SETTINGS['pull']['factor']['def'], WATCH_SETTINGS['pull']['min']['def'] * $gb, WATCH_SETTINGS['pull']['new']['def'] * $gb, WATCH_SETTINGS['data']['factor']['def'],
+         WATCH_SETTINGS['data']['gone_min']['def'] * $gb, WATCH_SETTINGS['data']['written_min']['def'] * $gb, WATCH_SETTINGS['data']['files_min']['def'],
+         WATCH_SETTINGS['data']['kept']['def'], WATCH_SETTINGS['data']['must']['def']]);
+    same('6b things: a share by its gone, files, written key (without its pool); a disk; a client none',
+        [['share', 'Serien'], ['share', 'Serien'], ['share', 'Serien'], ['disk', 'disk1'], ['disk', 'disk1'], ['disk', 'disk1'], null],
+        array_map('watchmanFlowThing', ['flow_gone:share:Serien', 'flow_gone:files:share:Serien', 'flow_written:tank/Serien', 'flow_gone:disk:disk1',
+            'flow_gone:files:disk:disk1', 'flow_written:disk:disk1', 'flow_client:192.0.2.7|smb']));
+    $e = fn (string $kind, string $key, array $p = []) => watchmanEntry($kind, $key, 1, $p);
+    $cov = fn (array $kinds, array $on, array $x) => watchmanRuleCovers(['kinds' => $kinds, 'on' => $on], $x);
+    same('6b share: its deletions (bytes and files) yes; Filme\'s, a disk named so, its writing (kinds) no',
+        [true, true, false, false, false],
+        [$cov(['flow_gone'], ['share' => 'Serien'], $e('flow_gone', 'flow_gone:share:Serien')), $cov(['flow_gone'], ['share' => 'Serien'], $e('flow_gone', 'flow_gone:files:share:Serien')),
+         $cov(['flow_gone'], ['share' => 'Serien'], $e('flow_gone', 'flow_gone:share:Filme')), $cov(['flow_gone'], ['share' => 'Serien'], $e('flow_gone', 'flow_gone:disk:Serien')),
+         $cov(['flow_gone'], ['share' => 'Serien'], $e('flow_written', 'flow_written:tank/Serien'))]);
+    same('6b disk: its writing yes; another disk, a share named so no', [true, false, false],
+        [$cov(['flow_written'], ['disk' => 'disk1'], $e('flow_written', 'flow_written:disk:disk1')), $cov(['flow_written'], ['disk' => 'disk1'], $e('flow_written', 'flow_written:disk:disk2')),
+         $cov(['flow_written'], ['disk' => 'disk1'], $e('flow_written', 'flow_written:tank/disk1'))]);
+    $shape = fn (array $kinds, array $opt) => watchmanRuleShaped(['id' => 'r0000000001', 'cat' => 'data', 'kinds' => $kinds, 'on' => ['share' => 'Serien'], 'at' => 1, 'opt' => $opt]);
+    same('6b thresholds: only in exactly their shape and on their kinds', [true, true, true, true, false, false, false, false],
+        [$shape(['flow_gone'], ['min' => 5 * $gb]) !== null, $shape(['flow_gone'], ['files' => 9000]) !== null, $shape(['flow_gone'], ['kept' => false]) !== null,
+         $shape(['flow_written'], ['layers' => false]) !== null, $shape(['flow_written'], ['kept' => false]) !== null, $shape(['flow_gone'], ['min' => -1]) !== null,
+         $shape(['flow_gone'], ['min' => 1, 'files' => 1]) !== null,
+         watchmanRuleShaped(['id' => 'r0000000001', 'cat' => 'login', 'kinds' => ['login_new_ip'], 'on' => ['net' => '10.0.0.0/8'], 'at' => 1, 'opt' => ['min' => 1]]) !== null]);
+    $types = fn (array $x) => array_column(watchmanRuleOffers($x, [$x]), 'type');
+    $o = watchmanRuleOffers($e('flow_gone', 'flow_gone:share:Serien', ['share' => 'Serien', 'peak' => 30 * $gb + 7, 'kept' => 5 * $gb]), []);
+    same('6b offers: gone from a share — not judging it, from twice its busiest hour (whole GB), the snapshot\'s hold; written with new image layers; a client; a container',
+        [['share', 'min', 'kept'], 61 * $gb, ['share', 'min', 'layers'], ['min', 'key'], ['key'], ['disk', 'min'], 4000],
+        [array_column($o, 'type'), $o[1]['opt']['min'] ?? null,
+         $types($e('flow_written', 'flow_written:tank/Serien', ['share' => 'tank/Serien', 'peak' => $gb, 'src' => ['ly:abc' => 1, 'own' => 2]])),
+         $types($e('flow_client', 'flow_client:192.0.2.7|smb', ['ip' => '192.0.2.7', 'peak' => 3 * $gb])), $types($e('flow_container', 'flow_container:x', ['name' => 'x'])),
+         $types($e('flow_gone', 'flow_gone:disk:disk1', ['disk' => 'disk1', 'peak' => $gb])),
+         watchmanRuleOffers($e('flow_gone', 'flow_gone:files:share:Serien', ['peak' => 1600]), [])[1]['opt']['files'] ?? null]);
+
+    // rounds on made-up looks (as testWatchmanFlowGone): Serien loses data while he is still learning (clear: 100 GB)
+    $t0 = strtotime('2026-10-06 14:02:00');
+    $ds = fn (int $r, int $b = 0, int $x = 0) => ['w' => 0, 'u' => $r + $b, 's' => 1000, 'r' => $r, 'b' => $b, 'x' => $x];
+    $look = fn (array $o) => $o + ['conns' => [], 'smb' => ['on' => true, 'sessions' => []], 'containers' => null, 'nfs' => false, 'holder' => null, 'kopia' => 'kopia',
+                                   'zfs' => null, 'office_shares' => ['UnraidSecretaryOffice'], 'disks' => null, 'moving' => []];
+    $zfs = fn (array $sets) => ['datasets' => ['tank' => $ds(1)] + $sets, 'pools' => ['tank'], 'asleep' => []];
+    $rule = fn (array $kinds, array $on, ?array $opt = null) => ['id' => 'r00000000' . substr(md5(json_encode([$kinds, $on, $opt])), 0, 2), 'cat' => 'data', 'kinds' => $kinds, 'on' => $on,
+                                                                 'at' => 1, 'from' => 'hand', 'note' => ''] + ($opt !== null ? ['opt' => $opt] : []);
+    // $after: Serien's datasets after the round; $judge: settings and rules — the entry, the hits
+    $run = function (array $after, array $judge) use ($look, $zfs, $ds, $gb, $t0): array {
+        $bf = null;
+        $book = [];
+        [, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $look(['zfs' => $zfs(['tank/Serien' => $ds(1000 * $gb), 'tank/Filme' => $ds(100 * $gb)])]), $book, $t0);
+        [, $flow] = watchmanFlowCompare($bf, $flow, $cnt, $look(['zfs' => $zfs($after + ['tank/Filme' => $ds(100 * $gb)])]), $book, $t0 + 300, $judge);
+        $open = array_column(array_filter($book, 'watchmanOpen'), null, 'key');
+        return [$open['flow_gone:share:Serien']['p'] ?? null, $judge['hits'] ?? [], $book];
+    };
+    $set = fn (array $data) => ['set' => watchmanSettings(['set' => ['data' => $data]])];
+    $lost = ['tank/Serien' => $ds(700 * $gb, 200 * $gb)];          // 300 GB gone, 200 GB of it still in snapshots
+    [$p0] = $run($lost, []);
+    same('6b gone: by default as up to 1.95 — 300 GB told, 200 GB of it still in snapshots', [300 * $gb, 200 * $gb, false], [$p0['bytes'] ?? null, $p0['kept'] ?? null, isset($p0['_must'])]);
+    [$p1] = $run($lost, $set(['kept' => false]));
+    same('6b gone: «what a snapshot holds counts as gone» off — 100 GB left, not over the clear: nothing', null, $p1);
+    $kept = $rule(['flow_gone'], ['share' => 'Serien'], ['kept' => false]);
+    [$p2, $h2] = $run($lost, ['rules' => [$kept]]);
+    same('6b gone: «in Serien, what a snapshot holds doesn\'t count» — nothing, the threshold\'s hit', [null, 1], [$p2, $h2[$kept['id']]['n'] ?? 0]);
+    [$p2b] = $run($lost, ['rules' => [$rule(['flow_gone'], ['share' => 'Filme'], ['kept' => false])]]);
+    same('6b gone: the same for Filme doesn\'t cover Serien — told', 300 * $gb, $p2b['bytes'] ?? null);
+    $min = $rule(['flow_gone'], ['share' => 'Serien'], ['min' => 400 * $gb]);
+    [$p3, $h3] = $run($lost, ['rules' => [$min]]);
+    same('6b gone: «Serien: from 400 GB an hour» — 300 GB nothing, a hit; at 250 GB it would be told anyway: 300 told, no hit',
+        [null, 1, 300 * $gb, []], [$p3, $h3[$min['id']]['n'] ?? 0, ...(fn ($r) => [$r[0]['bytes'] ?? null, $r[1]])($run($lost, ['rules' => [$rule(['flow_gone'], ['share' => 'Serien'], ['min' => 250 * $gb])]]))]);
+    same('6b gone: a threshold on writing doesn\'t touch deletions', 300 * $gb, $run($lost, ['rules' => [$rule(['flow_written'], ['share' => 'Serien'], ['min' => 900 * $gb])]])[0]['bytes'] ?? null);
+    // «always tell»: 700 of 1000 GB gone within the hour
+    $half = ['tank/Serien' => $ds(300 * $gb)];
+    [$p4, $h4] = $run($half, ['rules' => [$rule(['flow_gone'], ['share' => 'Serien'], ['min' => 900 * $gb])]]);
+    same('6b always tell: 70 % of Serien gone — told whatever the threshold (no hit), marked for the rules\' pass', [700 * $gb, true, []], [$p4['bytes'] ?? null, !empty($p4['_must']), $h4]);
+    [$p5] = $run($half, $set(['must' => false]) + ['rules' => [$rule(['flow_gone'], ['share' => 'Serien'], ['min' => 900 * $gb])]]);
+    same('6b always tell switched off: the threshold holds', null, $p5);
+    // the rules' pass: «don't judge deletions in Serien» lets the 300 GB through — never the 70 %
+    $pass = function (array $book, array $rules): array {
+        $b = [];
+        $st = [];
+        watchmanRulesApply($book, [], $b, [], ['rules' => $rules, 'off' => [], 'known' => []], [], $st, 2000000000);
+        return array_map(fn ($x) => [watchmanOpen($x), $x['by'] ?? null], array_values(array_filter($book, fn ($x) => str_starts_with((string) $x['key'], 'flow_gone:'))));
+    };
+    $let = $rule(['flow_gone'], ['share' => 'Serien']);
+    same('6b pass: «don\'t judge deletions in Serien» — 300 GB noted by the rule; 70 % still open', [[[false, 'rule']], [[true, null]]],
+        [$pass($run($lost, [])[2], [$let]), $pass($run($half, [])[2], [$let])]);
+    same('6b pass: a threshold never lets anything through in the pass', [[true, null]], $pass($run($lost, [])[2], [$rule(['flow_gone'], ['share' => 'Serien'], ['min' => 1])]));
+
+    // files: 21 000 deleted in Fotos while learning (clear 20 000) — a threshold of 30 000; 250 000 always told
+    $files = function (int $x, array $judge) use ($look, $zfs, $ds, $gb, $t0): array {
+        $bf = null;
+        $book = [];
+        [, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $look(['zfs' => $zfs(['tank/Fotos' => $ds(900 * $gb, 0, 100)])]), $book, $t0);
+        watchmanFlowCompare($bf, $flow, $cnt, $look(['zfs' => $zfs(['tank/Fotos' => $ds(900 * $gb, 0, 100 + $x)])]), $book, $t0 + 300, $judge);
+        $open = array_column(array_filter($book, 'watchmanOpen'), null, 'key');
+        return [$open['flow_gone:files:share:Fotos']['p']['files'] ?? null, !empty($open['flow_gone:files:share:Fotos']['p']['_must']), $judge['hits'] ?? []];
+    };
+    $f30 = $rule(['flow_gone'], ['share' => 'Fotos'], ['files' => 30000]);
+    same('6b files: 21 000 told; with «Fotos: from 30 000 files» nothing (a hit); 250 000 always told',
+        [[21000, false, []], [null, false, 1], [250000, true, []]],
+        [$files(21000, []), (fn ($r) => [$r[0], $r[1], $r[2][$f30['id']]['n'] ?? 0])($files(21000, ['rules' => [$f30]])),
+         $files(250000, ['rules' => [$rule(['flow_gone'], ['share' => 'Fotos'], ['files' => 900000])]])]);
+    same('6b files: from 3000 an hour (his setting) while learned — the clear while learning stays 20 000', [null], [$files(15000, $set(['files_min' => 3000]))[0]]);
+
+    // written: new image layers left out of a share by its threshold
+    $wr = function (array $judge) use ($look, $gb, $t0): array {
+        $z = fn (array $sets) => ['datasets' => ['tank' => ['w' => 0, 'u' => 1, 's' => null, 'c' => 1]] + $sets, 'pools' => ['tank'], 'asleep' => []];
+        $bf = null;
+        $book = [];
+        $base = ['tank/system' => ['w' => 10 * $gb, 'u' => 20 * $gb, 's' => null, 'c' => 1]];
+        [, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $look(['zfs' => $z($base)]), $book, $t0);
+        $layer = ['tank/system/' . str_repeat('a', 64) => ['w' => 15 * $gb, 'u' => 15 * $gb, 's' => null, 'c' => $t0 + 100]];
+        watchmanFlowCompare($bf, $flow, $cnt, $look(['zfs' => $z($base + $layer)]), $book, $t0 + 300, $judge);
+        $open = array_column(array_filter($book, 'watchmanOpen'), null, 'key');
+        return [$open['flow_written:tank/system']['p']['bytes'] ?? null, $judge['hits'] ?? []];
+    };
+    $ly = $rule(['flow_written'], ['share' => 'system'], ['layers' => false]);
+    same('6b written: 15 GB of a new Docker layer into system told (as up to 1.95); with «new Docker images don\'t count» nothing, a hit',
+        [15 * $gb, null, 1], [$wr([])[0], $wr(['rules' => [$ly]])[0], $wr(['rules' => [$ly]])[1][$ly['id']]['n'] ?? 0]);
+
+    // a client: 60 GB in a round while learning (clear 50 GB); his setting 100 GB; a threshold for it
+    $cl = function (array $judge) use ($look, $gb, $t0): ?array {
+        $conn = fn (int $sent) => ['local' => '192.0.2.20', 'lport' => 445, 'peer' => '192.0.2.7', 'pport' => 50000, 'service' => 'smb', 'sent' => $sent, 'rcvd' => 0];
+        $bf = null;
+        $book = [];
+        [, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $look(['conns' => [$conn(1000)]]), $book, $t0);
+        watchmanFlowCompare($bf, $flow, $cnt, $look(['conns' => [$conn(1000 + 60 * $gb)]]), $book, $t0 + 300, $judge);
+        return array_column(array_filter($book, 'watchmanOpen'), null, 'key')['flow_client:192.0.2.7|smb']['p'] ?? null;
+    };
+    same('6b pull: 60 GB told; «while learning 100 GB» nothing; «192.0.2.7: from 80 GB» nothing; a threshold for another computer — told',
+        [60 * $gb, null, null, 60 * $gb],
+        [$cl([])['bytes'] ?? null, $cl(['set' => watchmanSettings(['set' => ['pull' => ['new' => 100]]])]),
+         $cl(['rules' => [['id' => 'r0000000c1', 'cat' => 'pull', 'kinds' => ['flow_client'], 'on' => ['ip' => '192.0.2.7'], 'at' => 1, 'opt' => ['min' => 80 * $gb]]]]),
+         $cl(['rules' => [['id' => 'r0000000c2', 'cat' => 'pull', 'kinds' => ['flow_client'], 'on' => ['ip' => '192.0.2.8'], 'at' => 1, 'opt' => ['min' => 80 * $gb]]]])['bytes'] ?? null]);
+
+    // by hand
+    $made = fn (string $cat, string $type, string $v, int $n = 0) => (fn ($m) => [$m['kinds'], $m['on'], $m['opt'] ?? null])(watchmanRuleHandMake($cat, $type, $v, '', $n));
+    same('6b hand: a computer, from an amount; a container; a share\'s deletions, its writing, amounts, its snapshots, new images; a disk',
+        [[['flow_client'], ['ip' => '192.168.1.20'], null], [['flow_client'], ['ip' => '192.168.1.20'], ['min' => 30 * $gb]], [['flow_container'], ['key' => 'flow_container:plex'], null],
+         [['flow_gone'], ['share' => 'Downloads'], null], [['flow_written'], ['share' => 'domains'], null], [['flow_gone'], ['share' => 'Media'], ['min' => 200 * $gb]],
+         [['flow_gone'], ['share' => 'Media'], ['files' => 5000]], [['flow_gone'], ['share' => 'Media'], ['kept' => false]], [['flow_written'], ['share' => 'system'], ['layers' => false]],
+         [['flow_gone'], ['disk' => 'disk3'], null]],
+        [$made('pull', 'client', '192.168.1.20'), $made('pull', 'client_min', '192.168.1.20', 30), $made('pull', 'container', 'plex'), $made('data', 'gone', 'Downloads'),
+         $made('data', 'written', 'domains'), $made('data', 'gone_min', 'Media', 200), $made('data', 'files_min', 'Media', 5000), $made('data', 'kept', 'Media'),
+         $made('data', 'layers', 'system'), $made('data', 'disk_gone', 'disk3')]);
+    same('6b hand: an amount missing, a disk not a disk\'s name, a share with a slash — refused; the data\'s only with the clear yes',
+        ['watch_amount_bad', 'watch_value_bad', 'watch_value_bad', 'watch_rule_ask'],
+        [$err(fn () => watchmanRuleHandMake('data', 'gone_min', 'Media', '', 0)), $err(fn () => watchmanRuleHandMake('data', 'disk_gone', 'Disk 1', '')),
+         $err(fn () => watchmanRuleHandMake('data', 'gone', 'a/b', '')), $err(fn () => watchmanRuleHand('data', 'gone', 'Downloads', '', false, sys_get_temp_dir() . '/none', 1, false))]);
+}
+
+/**
  * The night watchman: his login lines, bursts of failures, the syslog by
  * offset and rotation, rights and plugin sources, and a whole watch on copies
  * — taking over (nothing reported), a night with changes (one entry each,
@@ -68238,7 +68395,7 @@ function testSkipPlaces(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackPlan', 'testJackNoPython', 'testJackRun', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testWatchWakesPage', 'testWatchmanWakes', 'testWatchmanWakeTrail', 'testMetrics', 'testWatchmanCats', 'testWatchmanRules', 'testWatchmanKnown', 'testWatchmanSettings', 'testWatchmanRules6a', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testWatchWakesPage', 'testWatchmanWakes', 'testWatchmanWakeTrail', 'testMetrics', 'testWatchmanCats', 'testWatchmanRules', 'testWatchmanKnown', 'testWatchmanSettings', 'testWatchmanRules6a', 'testWatchmanRules6b', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testMigrateWakes', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics', 'testReportDialogOwnWords', 'testReportDialogDesk',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testBackupRunEnded', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanAtLeft', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testSkipPlaces', 'testCleanupSkipGreeting', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testLights', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],

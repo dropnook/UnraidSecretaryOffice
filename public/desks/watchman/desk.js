@@ -309,8 +309,10 @@ function catOffAsk(id, off, cb) {
 /** The exceptions an area takes by hand (the messenger's list, WATCH_HAND) */
 const handTypes = (id) => ((state && state.hand && state.hand[id]) || []).filter((x) => typeof x === 'string');
 const HAND_EXAMPLE = { net: '192.168.1.0/24', ip: '203.0.113.7', user_net: '192.168.1.0/24', ports: 'plex', rights: 'plex', source: 'github.com/…',
-  script: '…', cron_file: '…/….cron', crond: '…' };
-const HAND_WIDE = { login: 'setup.add_public', plugin: 'setup.add_wide.plugin' };
+  script: '…', cron_file: '…/….cron', crond: '…', client: '192.168.1.20', client_min: '192.168.1.20', container: 'plex', disk_gone: 'disk1',
+  disk_written: 'disk1' };
+const HAND_WIDE = { login: 'setup.add_public', plugin: 'setup.add_wide.plugin', data: 'setup.add_wide.data' };
+const handAmount = (t) => (state && state.hand_amount && state.hand_amount[t]) || null;
 /**
  * «Add an exception…» by hand: what kind of exception (the area's types), its value typed, a user for «a user from a net»
  * — the messenger checks it (a public net at most a /24, a public address or net or a whole plugin source only with the
@@ -331,6 +333,13 @@ function ruleHandDialog(id, b) {
   const userRow = el('label', 'wm-hand-row');
   userRow.append(el('span', '', T('setup.add_user')), user);
   const valueName = el('span', '');
+  const amount = el('input', 'search wm-setting-num');
+  amount.type = 'number';
+  amount.min = '1';
+  amount.step = '1';
+  const amountName = el('span', '');
+  const amountRow = el('label', 'wm-hand-row');
+  amountRow.append(amountName, amount);
   const login = ['net', 'ip', 'user_net'];
   const netNot = el('p', 'role', T('rule.ask_net_not'));
   const sync = () => {
@@ -340,6 +349,12 @@ function ruleHandDialog(id, b) {
     value.placeholder = HAND_EXAMPLE[t] || '';
     valueName.textContent = login.includes(t) ? T('setup.add_value') : T('setup.add_value.' + t);
     value.setAttribute('aria-label', valueName.textContent);
+    const unit = handAmount(t);
+    amountRow.hidden = !unit;
+    if (unit) {
+      amountName.textContent = T('setup.add_amount.' + unit);
+      amount.setAttribute('aria-label', amountName.textContent);
+    }
   };
   type.addEventListener('change', sync);
   const sure = el('input');
@@ -351,13 +366,16 @@ function ruleHandDialog(id, b) {
   tr.append(el('span', '', T('setup.add_type_label')), type);
   const vr = el('label', 'wm-hand-row');
   vr.append(valueName, value);
-  body.append(tr, vr, userRow, netNot, sureRow);
+  body.append(tr, vr, amountRow, userRow, netNot, sureRow);
   sync();
   Office.dialog({ title: T('setup.add'), body, buttons: [
     { text: T('rule.add'), kind: 'primary', act: () => {
       (async () => {
         b.disabled = true;
-        const j = await Office.api.post(`${ID}.rule_hand`, { cat: id, type: type.value, value: value.value.trim(), user: user.value.trim(), sure: sure.checked });
+        const n = Number(amount.value);
+        if (handAmount(type.value) && !(Number.isInteger(n) && n >= 1)) { b.disabled = false; Office.toast(T('errors.watch_amount_bad'), true); return; }
+        const j = await Office.api.post(`${ID}.rule_hand`, { cat: id, type: type.value, value: value.value.trim(), user: user.value.trim(), sure: sure.checked,
+          ...(handAmount(type.value) ? { amount: n } : {}) });
         b.disabled = false;
         if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return; }
         if (j.state) state = j.state;
@@ -371,9 +389,31 @@ function ruleHandDialog(id, b) {
 }
 
 // ------------------------------------------------------------------ exceptions (1.96, agent/desks/watchman-rules.php)
-const OFFERS = ['key', 'ip', 'net', 'user_net', 'machine', 'source', 'file', 'cmd'];
+const OFFERS = ['key', 'ip', 'net', 'user_net', 'machine', 'source', 'file', 'cmd', 'share', 'disk', 'min', 'kept', 'layers'];
 // kinds whose key is «<kind>:<the thing's name>»: an exception for exactly it reads «The ports of plex may change» (6a)
-const KEY_NAMED = ['container_ports', 'container_rights', 'script_changed', 'cron_file'];
+const KEY_NAMED = ['container_ports', 'container_rights', 'script_changed', 'cron_file', 'flow_client', 'flow_container'];
+/** A named key's thing in words: a client of the data flow «192.168.1.5 (SMB)» (its key: ip|service), else the name */
+function keyThing(kind, name) {
+  if (kind !== 'flow_client') return name;
+  const [ip, svc] = name.split('|');
+  return svc ? `${ip} (${({ smb: 'SMB', nfs: 'NFS', ssh: 'SSH', web: 'WebGUI' })[svc] || svc})` : ip;
+}
+/** What a threshold of the data flow is about, in words: a share's or disk's gone / written / files, a computer, a container */
+function flowWhat(o) {
+  const on = o.on || {};
+  const kind = (o.kinds || [])[0] || '';
+  const opt = o.opt || {};
+  if (on.share || on.disk) {
+    const what = on.share || on.disk;
+    return T(opt.files !== undefined ? 'rule.flow.files' : kind === 'flow_written' ? 'rule.flow.written' : 'rule.flow.gone', { what });
+  }
+  if (on.ip) return on.ip;
+  if (typeof on.key === 'string') {
+    const named = KEY_NAMED.find((k) => on.key.startsWith(`${k}:`));
+    if (named) return keyThing(named, on.key.slice(named.length + 1));
+  }
+  return '…';
+}
 const justMade = new Set();     // exceptions made on this visit: «Undo» beside «Lift» (their entries open again)
 /**
  * An exception in words: «192.168.1.0/24 always okay», «root from 192.168.1.0/24 …»; exactly one thing: on its own
@@ -383,13 +423,21 @@ function offerName(o, e, here) {
   const on = o.on || {};
   if (on.user) return T('rule.offer.user_net', { user: on.user, net: on.net });
   if (on.net) return T('rule.offer.net', { net: on.net });
-  if (on.ip) return T('rule.offer.ip', { ip: on.ip });
+  if (on.ip && !(o.opt) && (o.kinds || []).length === 1 && o.kinds[0] === 'flow_client') return T('rule.key.flow_client', { name: on.ip });
+  if (on.ip && !(o.opt)) return T('rule.offer.ip', { ip: on.ip });
   if (on.machine) return T('rule.offer.machine', { machine: on.machine });
   if (on.source) return T('rule.offer.source', { source: on.source });
   if (on.file) return T('rule.offer.file', { file: on.file });
   if (on.cmd) return T('rule.offer.cmd', { cmd: o.what || '…' });
+  const opt = o.opt || {};
+  if (opt.min !== undefined) return T('rule.offer.min', { what: flowWhat(o), amount: fmt.size(opt.min) });
+  if (opt.files !== undefined) return T('rule.offer.min', { what: flowWhat(o), amount: Number(opt.files).toLocaleString() });
+  if (opt.kept === false) return T('rule.offer.kept', { share: on.share || '' });
+  if (opt.layers === false) return T('rule.offer.layers', { share: on.share || '' });
+  if (on.share) return T(`rule.offer.share.${(o.kinds || [])[0] === 'flow_written' ? 'flow_written' : 'flow_gone'}`, { share: on.share });
+  if (on.disk) return T(`rule.offer.disk.${(o.kinds || [])[0] === 'flow_written' ? 'flow_written' : 'flow_gone'}`, { disk: on.disk });
   const named = typeof on.key === 'string' ? KEY_NAMED.find((k) => on.key.startsWith(`${k}:`)) : null;
-  if (named && (o.kinds || []).length === 1 && o.kinds[0] === named) return T(`rule.key.${named}`, { name: on.key.slice(named.length + 1) });
+  if (named && (o.kinds || []).length === 1 && o.kinds[0] === named) return T(`rule.key.${named}`, { name: keyThing(named, on.key.slice(named.length + 1)) });
   if (here) return T('rule.offer.key');
   const src = e || ((state && state.book) || []).find((x) => x && x.id === o.from);
   const what = src ? entryName(src) : '';
@@ -423,7 +471,8 @@ async function ruleAdd(e, o, b) {
   if (!o.ask && o.type === 'key' && n === 1) { go(false); return; }
   const body = el('div', 'wm-rule-ask');
   const lines = [T('rule.ask_covers', { what, n }), o.type === 'net' || o.type === 'ip' ? T('rule.ask_net_not') : '',
-    o.ask ? T('rule.ask_serious') : '', e.again ? T('rule.ask_incident') : '', T('rule.ask_where')];
+    o.ask ? T('rule.ask_serious') : '', e.again ? T('rule.ask_incident') : '',
+    (o.kinds || []).some((k) => k === 'flow_gone') ? T('rule.ask_must') : '', T('rule.ask_where')];
   lines.filter(Boolean).forEach((x) => body.appendChild(el('p', o.ask && x === T('rule.ask_serious') ? 'callout warn' : '', x)));
   Office.dialog({ title: T('rule.ask_title'), body, buttons: [
     { text: o.ask ? T('rule.ask_yes', { what }) : T('rule.add'), kind: 'primary', act: () => { go(!!o.ask); } },

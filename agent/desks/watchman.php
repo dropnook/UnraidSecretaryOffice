@@ -368,7 +368,7 @@ desk('watchman', [
         // 1.96 step 5, his setup page: an area's settings (integers in their bounds; reset: the defaults), an exception by hand
         'cat_set'     => fn (array $r) => watchmanCatSettings(textField($r, 'cat'), $r['set'] ?? null, optBool($r, 'reset')),
         'rule_hand'   => fn (array $r) => watchmanRuleHand(textField($r, 'cat'), textField($r, 'type'), textField($r, 'value'), optText($r, 'user'),
-                                                           optBool($r, 'sure')),
+                                                           optBool($r, 'sure'), amount: (int) optInt($r, 'amount', 0)),
         'known_remove' => fn (array $r) => watchmanKnownRemove(textField($r, 'id')),       // «Take back» a lasting answer
         // «Who woke my disks?»: his switch (on unless switched off), kept on the server
         'wakes_watch' => fn (array $r) => watchmanWakeWatchSet(boolField($r, 'on')) + ['state' => watchmanPageState()],
@@ -1574,8 +1574,14 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
                 $none = [];
                 [, $flow, $counters] = watchmanFlowCompare($b['flow'], [], null, $look, $none, $now);
             } else {
-                [$more, $flow, $counters] = watchmanFlowCompare($b['flow'], (array) ($old['flow'] ?? []), watchmanFlowCounters($dir, $now), $look, $book, $now);
+                // his settings and your thresholds (6b): judged by them; what a threshold kept from being an entry, its hit
+                $judge = ['set' => $set, 'rules' => watchmanRules(watchmanRulesRaw($dir))['rules']];
+                [$more, $flow, $counters] = watchmanFlowCompare($b['flow'], (array) ($old['flow'] ?? []), watchmanFlowCounters($dir, $now), $look, $book, $now, $judge);
                 $added = array_merge($added, $more);
+                foreach ($judge['hits'] as $rid => $h) {
+                    $was = is_array($st['rule_hits'][$rid] ?? null) ? $st['rule_hits'][$rid] : [];
+                    $st['rule_hits'][$rid] = ['n' => (int) ($was['n'] ?? 0) + (int) $h['n'], 'last' => (int) $h['last'], 'key' => (string) $h['key']];
+                }
             }
             writeAtomic(watchmanFlowCountersFile($dir), jsonEncode($counters), 0600, 0, 0);
             $st['flow'] = watchmanFlowTotals($flow);
@@ -5762,6 +5768,8 @@ const WATCH_GONE_PART     = 0.1;                // … or over this part of the 
 const WATCH_GONE_SNAPS    = 1800;               // a btrfs disk whose snapshots changed this recently: its used space says nothing
 const WATCH_FILES_MIN     = 2000;               // files deleted: unusual only from this many in the hour …
 const WATCH_FILES_NEW     = 20000;              // … and while still learning one round over this many
+const WATCH_FILES_MUST    = 200000;             // «always tell» (1.96, his setting): this many files deleted in an hour — whatever exception
+const WATCH_FLOW_MUST_PART = 0.5;               // … or this part of a share (or disk) gone in an hour
 const WATCH_FLOW_FS       = 100;                // XFS/btrfs disks and pools followed (written, files deleted)
 const WATCH_FINDNEW_LINES = 20000;              // a btrfs disk's entry: where it was written, from at most this many files …
 const WATCH_FINDNEW_SECS  = 2;                  // … and at most this long (30 000 new files on test3: 74 ms)
@@ -6564,10 +6572,11 @@ function watchmanFlowUsual(array $hours, int $now): int
  * Is it unusual? Learned (WATCH_FLOW_LEARN since first seen): this hour so far over FACTOR × its
  * normal (and over $floor) — the hours of the pull going on left out of it (a pull that starts slowly would else make its
  * own normal): those of the last WATCH_FLOW_OWN hours, and all a long pull was spread over. A pull that has ended counts
- * as normal. Still learning: only one round over $clear (and over FACTOR × what «I know, thanks» made normal).
+ * as normal. Still learning: only one round over $clear (and over FACTOR × what «I know, thanks» made normal). $factor: FACTOR,
+ * or his setting (1.96).
  * @return array{hour:int, usual:int, limit:int, learning:bool}|null
  */
-function watchmanFlowJudge(array $s, int $round, int $now, int $ack, int $floor, int $clear): ?array
+function watchmanFlowJudge(array $s, int $round, int $now, int $ack, int $floor, int $clear, int $factor = WATCH_FLOW_FACTOR): ?array
 {
     $hour = (int) ($s['h'][intdiv($now, 3600)] ?? 0);
     if ($now - (int) ($s['first'] ?? $now) >= WATCH_FLOW_LEARN) {
@@ -6580,10 +6589,10 @@ function watchmanFlowJudge(array $s, int $round, int $now, int $ack, int $floor,
             $hours = array_filter($hours, fn ($idx) => (int) $idx < $first || ((int) $idx <= $recent && (int) $idx > $spread), ARRAY_FILTER_USE_KEY);
         }
         $normal = max(watchmanFlowUsual($hours, $now), $ack);
-        $limit = max($floor, WATCH_FLOW_FACTOR * $normal);
+        $limit = max($floor, $factor * $normal);
         return $hour > $limit ? ['hour' => $hour, 'usual' => $normal, 'limit' => $limit, 'learning' => false] : null;
     }
-    $limit = max($clear, WATCH_FLOW_FACTOR * $ack);
+    $limit = max($clear, $factor * $ack);
     return $round > $limit ? ['hour' => $hour, 'usual' => $ack, 'limit' => $limit, 'learning' => true] : null;
 }
 
@@ -7378,8 +7387,53 @@ function watchmanFlowNote(array &$book, string $kind, string $key, int $now, arr
  *
  * @return array{0: list<string>, 1: array, 2: array}  kinds added, flow.json, the counters for the next round
  */
-function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look, array &$book, int $now): array
+function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look, array &$book, int $now, array &$judge = []): array
 {
+    // his settings and your thresholds (1.96 step 6b, watchman-rules.php): the defaults are the constants he judged by up to 1.95;
+    // a threshold (a rule with `opt`) raises the floor for its client, container, share or disk, takes a snapshot's hold or new
+    // Docker layers off — its hit: a round it kept from being an entry. «Always tell» (WATCH_FLOW_MUST_PART of a share gone,
+    // WATCH_FILES_MUST files deleted in an hour) holds whatever exception: then none of them counts, and the entry carries
+    // `_must` (no rule lets it through in the rules' pass)
+    $set = is_array($judge['set'] ?? null) ? $judge['set'] : watchmanSettings([]);
+    $judge['hits'] = is_array($judge['hits'] ?? null) ? $judge['hits'] : [];
+    $jrules = array_values(array_filter(is_array($judge['rules'] ?? null) ? $judge['rules'] : [], fn ($r) => is_array($r['opt'] ?? null)));
+    $gb = 1024 ** 3;
+    [$pullFactor, $pullMin, $pullNew] = [(int) $set['pull']['factor'], (int) $set['pull']['min'] * $gb, (int) $set['pull']['new'] * $gb];
+    [$dataFactor, $goneMin, $writtenMin, $filesMin] = [(int) $set['data']['factor'], (int) $set['data']['gone_min'] * $gb, (int) $set['data']['written_min'] * $gb,
+                                                       (int) $set['data']['files_min']];
+    $ruleFor = function (string $kind, string $key, array $p, string $opt) use ($jrules): ?array {
+        foreach ($jrules as $r) {
+            if (array_key_exists($opt, $r['opt']) && watchmanRuleCovers($r, ['kind' => $kind, 'key' => $key, 'p' => $p])) {
+                return $r;
+            }
+        }
+        return null;
+    };
+    $hit = function (array $r, string $key) use (&$judge, $now): void {
+        $judge['hits'][$r['id']] = ['n' => (int) ($judge['hits'][$r['id']]['n'] ?? 0) + 1, 'last' => $now, 'key' => mb_strcut($key, 0, WATCH_RULE_TEXT, 'UTF-8')];
+    };
+    // judged with the floor (and while learning the clear) a threshold raises — none while «always tell» holds
+    $judgeBy = function (string $kind, string $key, array $p, array $s, int $round, int $ack, int $floor, int $clear, int $factor, bool $files, bool $must)
+                    use ($now, $ruleFor, $hit): ?array {
+        $j = watchmanFlowJudge($s, $round, $now, $ack, $floor, $clear, $factor);
+        $r = $must ? null : $ruleFor($kind, $key, $p, $files ? 'files' : 'min');
+        if ($r === null) {
+            return $j;
+        }
+        $m = (int) $r['opt'][$files ? 'files' : 'min'];
+        $raised = watchmanFlowJudge($s, $round, $now, $ack, max($floor, $m), max($clear, $m), $factor);
+        if ($j !== null && $raised === null) {
+            $hit($r, $key);
+        }
+        return $raised;
+    };
+    // this hour's sum of a series (after the office's and the movers' own) over $limit: «always tell» (his setting, on)
+    $mustOf = function (array &$s, int $amount, int $limit) use ($now, $set): bool {
+        $idx = intdiv($now, 3600);
+        $sum = (is_array($s['hr'] ?? null) && (int) ($s['hr'][0] ?? -1) === $idx ? (int) ($s['hr'][1] ?? 0) : 0) + $amount;
+        $s['hr'] = [$idx, $sum];
+        return !empty($set['data']['must']) && $limit > 0 && $sum > $limit;
+    };
     $start = !is_array($bf);
     if ($start) {
         $bf = ['since' => $now, 'smb_users' => [], 'smb_clients' => [], 'ack' => []];
@@ -7534,7 +7588,7 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
             if ($mine) {
                 continue;
             }
-            $j = watchmanFlowJudge($s, $round, $now, $ack("flow_client:$key"), WATCH_FLOW_MIN, WATCH_FLOW_NEW);
+            $j = $judgeBy('flow_client', "flow_client:$key", ['ip' => $ip], $s, $round, $ack("flow_client:$key"), $pullMin, $pullNew, $pullFactor, false, false);
             $added[] = watchmanFlowNote($book, 'flow_client', "flow_client:$key", $now, $s['run'], (int) ($s['h'][intdiv($now, 3600)] ?? 0), $j,
                 ['ip' => $ip, 'service' => $svc, 'machine' => (string) ($s['name'] ?? '')]);
         }
@@ -7577,7 +7631,7 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
                     $mine = $office && $kopia;      // Kopia uploading the office's backup
                     $round = watchmanFlowAdd($s, $d, $now, $prevTime, $mine, from: $from);
                     if (!$mine && !$media) {
-                        $j = watchmanFlowJudge($s, $round, $now, $ack("flow_container:$name"), WATCH_FLOW_MIN, WATCH_FLOW_NEW);
+                        $j = $judgeBy('flow_container', "flow_container:$name", [], $s, $round, $ack("flow_container:$name"), $pullMin, $pullNew, $pullFactor, false, false);
                         $added[] = watchmanFlowNote($book, 'flow_container', "flow_container:$name", $now, $s['run'], (int) ($s['h'][intdiv($now, 3600)] ?? 0), $j,
                             ['name' => $name, 'image' => $s['image']]);
                     }
@@ -7656,15 +7710,33 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
             $s['s'] = $a['s'];
             $s['snap'] = $a['snap'];
             $s['seen'] = $now;
+            $mine = false;
             if ($a['d'] > 0) {
                 $flow['totals']['written'][$share] = (int) ($flow['totals']['written'][$share] ?? 0) + $a['d'];
                 $mine = $office && ($restore || isset($officeShares[explode('/', (string) $share, 2)[1]]));      // the engine's packages and dumps, a restore
                 $mine = $mine || ($door && explode('/', (string) $share, 2)[1] === PARTNER_PARENT);           // a partner's copies, received by the door
                 $mine = $mine || isset($moved[explode('/', (string) $share, 2)[1]]);                          // moved here by a mover, not written anew
+                // «new Docker images don't count as written» here (your threshold, 6b): the new image layers' bytes left out
+                $layers = $mine ? null : $ruleFor('flow_written', "flow_written:$share", [], 'layers');
+                if ($layers !== null) {
+                    $off = 0;
+                    foreach ($a['by'] as $bk => [$bytes, $isNew]) {
+                        if ($isNew && str_starts_with((string) $bk, 'ly:')) {
+                            $off += (int) $bytes;
+                            unset($a['by'][$bk]);
+                        }
+                    }
+                    if ($off > 0) {
+                        $a['d'] -= $off;
+                        $hit($layers, "flow_written:$share");
+                    }
+                }
+            }
+            if ($a['d'] > 0) {
                 $round = watchmanFlowAdd($s, $a['d'], $now, $prevTime, $mine, $a['by'], $fromOf('ds'));
                 if (!$mine) {
                     $clear = max(WATCH_FLOW_WRITE, (int) ($a['u'] * WATCH_FLOW_PART));
-                    $j = watchmanFlowJudge($s, $round, $now, $ack("flow_written:$share"), WATCH_FLOW_MIN, $clear);
+                    $j = $judgeBy('flow_written', "flow_written:$share", [], $s, $round, $ack("flow_written:$share"), $writtenMin, $clear, $dataFactor, false, false);
                     $run = (array) $s['run'];
                     $added[] = watchmanFlowNote($book, 'flow_written', "flow_written:$share", $now, $run, (int) ($s['h'][intdiv($now, 3600)] ?? 0), $j,
                         fn (): array => ['share' => (string) $share, 'pct' => $a['u'] > 0 ? (int) min(999, round(100 * (int) $run['bytes'] / $a['u'])) : 0,
@@ -7726,7 +7798,8 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
     $whoNow = ['clients' => $active ?? [], 'users' => array_slice(array_keys($users), 0, WATCH_LIST_MAX),
                'from' => $active === null ? null : ($active ? 'clients' : 'server')];
     // $limit: a disk with a folder of a moved share — at most this much of its loss is the movers' (null: all of it)
-    $gone = function (string $key, int $loss, int $size, array $who, ?int $limit = null) use (&$flow, &$added, &$book, $now, $prevTime, $fromOf, $expected, $whoNow, $ack, $door, $moved, $look): int {
+    $gone = function (string $key, int $loss, int $size, array $who, ?int $limit = null) use (&$flow, &$added, &$book, $now, $prevTime, $fromOf, $expected, $whoNow, $ack, $door,
+                                                                                         $moved, $look, $set, $ruleFor, $hit, $judgeBy, $mustOf, $goneMin, $dataFactor): int {
         if (!isset($flow['gone'][$key]) && count($flow['gone']) >= WATCH_FLOW_SHARES) {
             return 0;
         }
@@ -7740,6 +7813,19 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
         $s['size'] = $size;
         $s['seen'] = $now;
         $from = $fromOf(str_starts_with($key, 'disk:') ? 'disks' : 'ref');
+        // «always tell»: half the share (or disk) gone within the hour — whatever you excepted (6b)
+        $must = $loss - $excused > 0 && $mustOf($s, $loss - $excused, (int) ($size * WATCH_FLOW_MUST_PART));
+        // what a snapshot still holds (ZFS): gone by default (as up to 1.95); your setting or a threshold takes it off the loss
+        $kept = $must ? 0 : min($loss - $excused, max(0, (int) ($who['kept'] ?? 0)));
+        if ($kept > 0) {
+            $keptRule = empty($set['data']['kept']) ? null : $ruleFor('flow_gone', "flow_gone:$key", [], 'kept');
+            if (empty($set['data']['kept']) || $keptRule !== null) {
+                $excused += $kept;
+                if ($keptRule !== null) {
+                    $hit($keptRule, "flow_gone:$key");
+                }
+            }
+        }
         if ($excused > 0) {
             watchmanFlowAdd($s, $excused, $now, $prevTime, true, from: $from);
         }
@@ -7747,10 +7833,10 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
         if ($loss > 0) {
             $round = watchmanFlowAdd($s, $loss, $now, $prevTime, false, from: $from);
             $clear = max(WATCH_FLOW_WRITE, min(WATCH_GONE_NEW, (int) ($size * WATCH_GONE_PART)));
-            $j = watchmanFlowJudge($s, $round, $now, $ack("flow_gone:$key"), WATCH_FLOW_MIN, $clear);
+            $j = $judgeBy('flow_gone', "flow_gone:$key", [], $s, $round, $ack("flow_gone:$key"), $goneMin, $clear, $dataFactor, false, $must);
             $run = (array) $s['run'];
             $pct = $size > 0 ? (int) min(999, round(100 * (int) $run['bytes'] / $size)) : 0;
-            $p = $who + ['pct' => $pct, 'part' => $j !== null && $j['learning'] && $loss >= (int) ($size * WATCH_GONE_PART)] + $whoNow;
+            $p = $who + ['pct' => $pct, 'part' => $j !== null && $j['learning'] && $loss >= (int) ($size * WATCH_GONE_PART)] + $whoNow + ($must ? ['_must' => true] : []);
             // from the server itself (no client moved data): who likely did it, from the setup — a share's, asked only when written
             $added[] = watchmanFlowNote($book, 'flow_gone', "flow_gone:$key", $now, $run, (int) ($s['h'][intdiv($now, 3600)] ?? 0), $j,
                 function () use ($p, $look): array {
@@ -7853,7 +7939,8 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
     $onDisk = fn (string $name): array => array_map('strval', (array) ($look['disks']['disks'][$name]['shares'] ?? []));
     $officeDisk = fn (array $shares): bool => $office && ($restore || (bool) array_intersect_key($officeShares, array_flip($shares)));
     $movedDisk = fn (array $shares): bool => (bool) array_intersect_key($moved, array_flip($shares));
-    $files = function (string $key, int $n, array $who, bool $excused) use (&$flow, &$added, &$book, $now, $prevTime, $fromOf, $ack, $whoNow): void {
+    $files = function (string $key, int $n, array $who, bool $excused) use (&$flow, &$added, &$book, $now, $prevTime, $fromOf, $ack, $whoNow, $judgeBy, $mustOf,
+                                                                           $filesMin, $dataFactor): void {
         if ($n <= 0 || (!isset($flow['files'][$key]) && count($flow['files']) >= WATCH_FLOW_SHARES)) {
             return;
         }
@@ -7861,20 +7948,24 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
         $s = $who + $s;
         $s['seen'] = $now;
         $round = watchmanFlowAdd($s, $n, $now, $prevTime, $excused, from: $fromOf(str_starts_with($key, 'disk:') ? 'fsd' : 'zx'), floor: WATCH_FILES_MIN);
+        $must = !$excused && $mustOf($s, $n, WATCH_FILES_MUST);         // «always tell» (6b): 200 000 files in the hour
         $flow['files'][$key] = $s;
         if ($excused) {
             return;
         }
-        $j = watchmanFlowJudge($s, $round, $now, $ack("flow_gone:files:$key"), WATCH_FILES_MIN, WATCH_FILES_NEW);
+        $j = $judgeBy('flow_gone', "flow_gone:files:$key", [], $s, $round, $ack("flow_gone:files:$key"), $filesMin, WATCH_FILES_NEW, $dataFactor, true, $must);
         $run = (array) $s['run'];
         foreach ($book as $i => $e) {               // the same deletion already told by its bytes this round: said there
             if (($e['key'] ?? '') === "flow_gone:$key" && (int) ($e['last'] ?? 0) === $now && watchmanOpen($e)) {
                 $book[$i]['p']['files'] = (int) $run['bytes'];
+                if ($must) {
+                    $book[$i]['p']['_must'] = true;
+                }
                 return;
             }
         }
         $added[] = watchmanFlowNote($book, 'flow_gone', "flow_gone:files:$key", $now, $run, (int) ($s['h'][intdiv($now, 3600)] ?? 0), $j,
-            $who + $whoNow, 'files');
+            $who + $whoNow + ($must ? ['_must' => true] : []), 'files');
     };
     if (is_array($z)) {
         // ZFS: `nunlinks` per dataset of the awake pools (a pool asleep keeps its counters), summed per user share
@@ -7948,7 +8039,7 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
             if (!$excused) {
                 $used = (int) ($look['disks']['disks'][$name]['used'] ?? 0);
                 $clear = max(WATCH_FLOW_WRITE, $used > 0 ? min(WATCH_FLOW_NEW, (int) ($used * WATCH_FLOW_PART)) : WATCH_FLOW_NEW);
-                $j = watchmanFlowJudge($s, $round, $now, $ack("flow_written:disk:$name"), WATCH_FLOW_MIN, $clear);
+                $j = $judgeBy('flow_written', "flow_written:disk:$name", [], $s, $round, $ack("flow_written:disk:$name"), $writtenMin, $clear, $dataFactor, false, false);
                 // btrfs: where it was written since the run began, asked only when the entry is written (or brought up to date)
                 $where = $look['where'] ?? null;
                 $gen = isset($s['run']['gen']) && is_int($s['run']['gen']) ? $s['run']['gen'] : null;
@@ -10296,6 +10387,7 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
     $state['known'] = $rules['known'];             // your lasting answers (4b), each with its words for its line
     $state['known_full'] = $rules['known_full'];
     $state['hand'] = $rules['hand'];               // his setup page: per area the exceptions made by hand (types)
+    $state['hand_amount'] = $rules['hand_amount']; // … those with an amount (GB, files)
     $state['off'] = $rules['off'] ?: new stdClass();
     // his areas' lights (watchman-cats.php), from what this state says; the watch book's and the schedule's light beside them
     $lights = watchmanCats($state, is_array($st['parity'] ?? null) ? $st['parity'] : null);

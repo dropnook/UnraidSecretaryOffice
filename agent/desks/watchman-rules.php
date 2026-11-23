@@ -16,8 +16,13 @@ declare(strict_types=1);
  * it); {"ip": "<address>"}; {"net": "<a private /24 or /64>"}; {"user": "<name>", "net": "<net>"}; {"machine": "<SMB
  * machine name>"}; {"source": "<host>/<owner>"} — a plugin's source (6a); {"file": "<a file in /etc/cron.d>"} — cron
  * lines that all come from it; {"cmd": "<16 hex>", "user": "…", "owner": "…"} — an at job running exactly one clean
- * command (watchmanAtOnlyCommand(): its fingerprint), as this user, its program owned by that one. A rule may carry
- * `what` (its words for the page, ≤ 300 bytes). Only a rule in exactly its shape is applied; anything else stays in the
+ * command (watchmanAtOnlyCommand(): its fingerprint), as this user, its program owned by that one; {"share": "<share>"}
+ * and {"disk": "<disk>"} — the data flow's entries of that share or XFS/btrfs disk (6b, by the entry's key). A rule may
+ * carry `what` (its words for the page, ≤ 300 bytes).
+ * A rule with `opt` is no «let through» but a threshold where the data flow is judged (6b, watchmanFlowRule()): {"min":
+ * <bytes>} or {"files": <n>} — unusual only from this much in the hour; {"kept": false} — what a snapshot still holds
+ * doesn't count as gone; {"layers": false} — new Docker image layers don't count as written. Its hit: a round it kept
+ * from being an entry. Never while «always tell» holds (WATCH_FLOW_MUST: half a share or 200 000 files in an hour). Only a rule in exactly its shape is applied; anything else stays in the
  * file and does nothing.
  *
  * What a rule does: a new entry it covers is noted at once (`by: rule`, `rule: <id>`) — never told, never counted for
@@ -46,6 +51,9 @@ const WATCH_RULE_LOGIN  = ['login_new_ip', 'smb_client', 'smb_hour'];     // wha
 const WATCH_RULE_SOURCE = '/^[a-z0-9][a-z0-9.-]{0,99}(\/[A-Za-z0-9._-]{1,100})?$/D';    // a plugin's source as watchmanPluginSource() writes it
 const WATCH_RULE_CROND  = '/^[A-Za-z0-9._-]{1,100}$/D';                                  // a file in /etc/cron.d
 const WATCH_RULE_CMD    = '/^[0-9a-f]{16}$/D';                                           // an at job's one command, its fingerprint
+const WATCH_RULE_SHARE  = '/^[^\/\x00-\x1f]{1,100}$/D';                                  // a share's name (any but a slash)
+const WATCH_RULE_DISK   = '/^[a-z][a-z0-9_-]{0,39}$/D';                                   // an array disk or a pool (disk1, cache …)
+const WATCH_RULE_FLOW   = ['flow_client', 'flow_container', 'flow_written', 'flow_gone'];   // what a threshold (`opt`) may be on
 // the kinds he asks about more clearly before an exception (concept 3.3: what an attacker does first, or what points to
 // damage — and comes rarely); every other kind is in WATCH_RULE_PLAIN (testWatchmanRules: each kind in exactly one)
 const WATCH_RULE_ASK    = ['flash_go', 'flash_user', 'flash_password', 'flash_ssh_key', 'user_ram', 'log_cleared', 'plugin_source',
@@ -110,10 +118,51 @@ function watchmanRuleShaped(mixed $r): ?array
     if ($on === null) {
         return null;
     }
+    $opt = null;
+    if (array_key_exists('opt', $r)) {
+        $opt = watchmanRuleOpt($r['opt'], $r['kinds']);
+        if ($opt === null) {
+            return null;
+        }
+    }
     return ['id' => $r['id'], 'cat' => $r['cat'], 'kinds' => array_values(array_unique($r['kinds'])), 'on' => $on, 'at' => $r['at'],
             'from' => is_string($r['from'] ?? null) && (preg_match(WATCH_ID, $r['from']) || $r['from'] === 'hand') ? $r['from'] : 'hand',
             'note' => is_string($r['note'] ?? null) ? mb_substr($r['note'], 0, WATCH_NOTE_MAX) : '']
-           + (is_string($r['what'] ?? null) && $r['what'] !== '' && strlen($r['what']) <= WATCH_RULE_TEXT ? ['what' => $r['what']] : []);
+           + (is_string($r['what'] ?? null) && $r['what'] !== '' && strlen($r['what']) <= WATCH_RULE_TEXT ? ['what' => $r['what']] : [])
+           + ($opt !== null ? ['opt' => $opt] : []);
+}
+
+/** A threshold's `opt` in exactly one of its shapes, for kinds of the data flow only (and kept/layers only for theirs), else null */
+function watchmanRuleOpt(mixed $opt, array $kinds): ?array
+{
+    if (!is_array($opt) || count($opt) !== 1 || array_diff($kinds, WATCH_RULE_FLOW)) {
+        return null;
+    }
+    $k = (string) array_key_first($opt);
+    $v = $opt[$k];
+    return match (true) {
+        $k === 'min' && is_int($v) && $v > 0 && $v <= 1024 ** 5,
+        $k === 'files' && is_int($v) && $v > 0 && $v <= 100_000_000 => [$k => $v],
+        $k === 'kept' && $v === false && $kinds === ['flow_gone'],
+        $k === 'layers' && $v === false && $kinds === ['flow_written'] => [$k => false],
+        default => null,
+    };
+}
+
+/**
+ * What a data flow entry is about, by its key: ['share', <name>] (a ZFS share — written into <pool>/<share>, gone, files
+ * deleted) or ['disk', <name>] (an XFS/btrfs disk or pool); null: another kind (a client, a container)
+ *
+ * @return array{0: string, 1: string}|null
+ */
+function watchmanFlowThing(string $key): ?array
+{
+    return match (true) {
+        (bool) preg_match('#^flow_(?:written|gone(?::files)?):disk:(.+)$#D', $key, $m)  => ['disk', $m[1]],
+        (bool) preg_match('#^flow_gone(?::files)?:share:(.+)$#D', $key, $m)            => ['share', $m[1]],
+        (bool) preg_match('#^flow_written:[^/:]+/(.+)$#D', $key, $m)                   => ['share', $m[1]],
+        default => null,
+    };
 }
 
 /** A rule's `on` in exactly one of its shapes, else null */
@@ -133,6 +182,8 @@ function watchmanRuleOn(mixed $on): ?array
         ['machine']     => $str('machine') ? ['machine' => $on['machine']] : null,
         ['source']      => is_string($on['source']) && preg_match(WATCH_RULE_SOURCE, $on['source']) ? ['source' => $on['source']] : null,
         ['file']        => is_string($on['file']) && preg_match(WATCH_RULE_CROND, $on['file']) ? ['file' => $on['file']] : null,
+        ['share']       => is_string($on['share']) && preg_match(WATCH_RULE_SHARE, $on['share']) ? ['share' => $on['share']] : null,
+        ['disk']        => is_string($on['disk']) && preg_match(WATCH_RULE_DISK, $on['disk']) ? ['disk' => $on['disk']] : null,
         ['cmd', 'owner', 'user'] => is_string($on['cmd']) && preg_match(WATCH_RULE_CMD, $on['cmd']) && is_string($on['user']) && is_string($on['owner'])
                                     && strlen($on['user']) <= 64 && strlen($on['owner']) <= 64
                                     ? ['cmd' => $on['cmd'], 'user' => $on['user'], 'owner' => $on['owner']] : null,
@@ -233,6 +284,12 @@ function watchmanRuleCovers(array $rule, array $e): bool
     if (isset($on['source'])) {
         return is_string($p['source'] ?? null) && $p['source'] === $on['source'];
     }
+    if (isset($on['share'])) {
+        return watchmanFlowThing((string) ($e['key'] ?? '')) === ['share', $on['share']];
+    }
+    if (isset($on['disk'])) {
+        return watchmanFlowThing((string) ($e['key'] ?? '')) === ['disk', $on['disk']];
+    }
     if (isset($on['file'])) {
         // every new line from that file (the lines of an entry come from where watchmanSchedCompare() found them)
         return ($p['_from'] ?? null) === ['cron.d/' . $on['file']];
@@ -245,7 +302,7 @@ function watchmanRuleCovers(array $rule, array $e): bool
  * first is the narrowest that covers more than «I know, thanks» would. Each: {type, on, kinds, ask, covers (open
  * entries it would note, this one too)}. Every kind has `key` (exactly this thing); the logins (the pilot) more.
  *
- * @return list<array{type: string, on: array, kinds: list<string>, ask: bool, covers: int, what?: string}>
+ * @return list<array{type: string, on: array, kinds: list<string>, ask: bool, covers: int, what?: string, opt?: array}>
  */
 function watchmanRuleOffers(array $e, array $book): array
 {
@@ -283,11 +340,33 @@ function watchmanRuleOffers(array $e, array $book): array
         $out[] = ['type' => 'cmd', 'on' => ['cmd' => $p['_one'], 'user' => (string) ($p['user'] ?? ''), 'owner' => (string) ($p['owner'] ?? '')],
                   'kinds' => ['at_job'], 'what' => mb_strcut((string) ($p['cmd'] ?? ''), 0, 200, 'UTF-8')];
     }
-    $out[] = ['type' => 'key', 'on' => ['key' => $e['key']], 'kinds' => [$kind]];
+    $thing = in_array($kind, ['flow_written', 'flow_gone'], true) ? watchmanFlowThing($e['key']) : null;
+    if ($thing !== null && preg_match($thing[0] === 'share' ? WATCH_RULE_SHARE : WATCH_RULE_DISK, $thing[1])) {
+        // the data in a share or on a disk (6b): don't judge its deletions / its writing; from an amount; the share's snapshots
+        $files = str_starts_with($e['key'], 'flow_gone:files:');
+        $out[] = ['type' => $thing[0], 'on' => [$thing[0] => $thing[1]], 'kinds' => [$kind]];
+        $peak = max((int) ($p['peak'] ?? 0), (int) ($p['hour'] ?? 0));
+        if ($peak > 0) {
+            $step = $files ? 1000 : 1024 ** 3;          // twice the busiest hour seen, up to whole thousands of files or GB
+            $out[] = ['type' => 'min', 'on' => [$thing[0] => $thing[1]], 'kinds' => [$kind], 'opt' => [$files ? 'files' : 'min' => (int) (ceil(2 * $peak / $step) * $step)]];
+        }
+        if ($kind === 'flow_gone' && !$files && $thing[0] === 'share' && (int) ($p['kept'] ?? 0) > 0) {
+            $out[] = ['type' => 'kept', 'on' => ['share' => $thing[1]], 'kinds' => ['flow_gone'], 'opt' => ['kept' => false]];
+        }
+        if ($kind === 'flow_written' && $thing[0] === 'share' && array_filter(array_keys((array) ($p['src'] ?? [])), fn ($k) => str_starts_with((string) $k, 'ly:'))) {
+            $out[] = ['type' => 'layers', 'on' => ['share' => $thing[1]], 'kinds' => ['flow_written'], 'opt' => ['layers' => false]];
+        }
+    } elseif ($kind === 'flow_client' && (int) ($p['peak'] ?? 0) > 0) {
+        $out[] = ['type' => 'min', 'on' => ['key' => $e['key']], 'kinds' => ['flow_client'], 'opt' => ['min' => (int) (ceil(2 * (int) $p['peak'] / 1024 ** 3) * 1024 ** 3)]];
+    }
+    if ($thing === null) {
+        $out[] = ['type' => 'key', 'on' => ['key' => $e['key']], 'kinds' => [$kind]];
+    }
     foreach ($out as $i => $o) {
         $rule = ['kinds' => $o['kinds'], 'on' => $o['on']];
         $out[$i]['ask'] = (bool) array_intersect($o['kinds'], WATCH_RULE_ASK);
-        $out[$i]['covers'] = count(array_filter($book, fn ($x) => is_array($x) && watchmanOpen($x) && watchmanRuleCovers($rule, $x)));
+        // a threshold notes nothing open at once (it works where the flow is judged): it covers this one only
+        $out[$i]['covers'] = isset($o['opt']) ? 1 : count(array_filter($book, fn ($x) => is_array($x) && watchmanOpen($x) && watchmanRuleCovers($rule, $x)));
     }
     return $out;
 }
@@ -350,7 +429,9 @@ function watchmanRulesApply(array &$book, array $before, array &$b, array $seen,
         }
         $ruled = false;
         foreach ($rules['rules'] as $r) {
-            if (!watchmanRuleCovers($r, $e) || !$newer($r['at'], $e)) {
+            // a threshold (`opt`) works where the data flow is judged, never here; «always tell» (half a share, 200 000 files
+            // in an hour) is let through by none
+            if (isset($r['opt']) || !empty($e['p']['_must']) || !watchmanRuleCovers($r, $e) || !$newer($r['at'], $e)) {
                 continue;
             }
             $ruled = true;
@@ -365,6 +446,9 @@ function watchmanRulesApply(array &$book, array $before, array &$b, array $seen,
             // learns it: the same state again is no hit and counts nothing, only a changed one (6a)
             $bump = in_array($e['kind'], WATCH_BUMP_KINDS, true);
             $same = $line !== null && !$bump && (array) ($book[$line]['p'] ?? []) === (array) ($e['p'] ?? []);
+            // a pull of the data flow going on (its line seen within WATCH_FLOW_GOING): the same pull, brought up to date (6b)
+            $going = $line !== null && str_starts_with((string) $e['kind'], 'flow_') && $now - (int) $book[$line]['last'] <= WATCH_FLOW_GOING;
+            $same = $same || $going;
             if (!$same) {
                 $hits[$r['id']] = ['n' => (int) ($hits[$r['id']]['n'] ?? 0) + 1, 'last' => $now, 'key' => mb_strcut((string) $e['key'], 0, WATCH_RULE_TEXT, 'UTF-8')];
             }
@@ -373,7 +457,7 @@ function watchmanRulesApply(array &$book, array $before, array &$b, array $seen,
                 $x['count'] = (int) $x['count'] + ($bump ? (int) $e['count'] : ($same ? 0 : 1));
                 $x['time'] = min((int) $x['time'], (int) $e['time']);
                 $x['last'] = max((int) $x['last'], (int) $e['last']);
-                $x['p'] = in_array($e['kind'], WATCH_BUMP_KINDS, true) ? watchmanMerge((array) ($x['p'] ?? []), (array) ($e['p'] ?? [])) : (array) ($e['p'] ?? []);
+                $x['p'] = $bump ? watchmanMerge((array) ($x['p'] ?? []), (array) ($e['p'] ?? [])) : (array) ($e['p'] ?? []);
                 $x['noted'] = $now;           // seen again: its line stays as long as the rule meets it
                 $x['rule'] = $r['id'];
                 $book[$line] = $x;
@@ -471,12 +555,13 @@ function watchmanRuleAdd(string $id, string $type, bool $sure, ?string $dir = nu
             throw new Problem('watch_rules_full');
         }
         $rule = ['id' => watchmanRuleNewId($raw), 'cat' => $cat, 'kinds' => $offer['kinds'], 'on' => $offer['on'], 'at' => $now, 'from' => $id, 'note' => '']
-              + (isset($offer['what']) && $offer['what'] !== '' ? ['what' => $offer['what']] : []);
+              + (isset($offer['what']) && $offer['what'] !== '' ? ['what' => $offer['what']] : []) + (isset($offer['opt']) ? ['opt' => $offer['opt']] : []);
         $raw['rules'] = array_merge(is_array($raw['rules'] ?? null) && array_is_list($raw['rules']) ? $raw['rules'] : [], [$rule]);
         $book = $d['book'];
         $noted = 0;
         foreach ($book as $i => $x) {
-            if (watchmanOpen($x) && watchmanRuleCovers($rule, $x)) {
+            // a threshold notes only the entry it was made from (it works where the flow is judged); «always tell» stays open
+            if (watchmanOpen($x) && (isset($rule['opt']) ? $x['id'] === $id : watchmanRuleCovers($rule, $x)) && empty($x['p']['_must'])) {
                 $book[$i]['noted'] = $now;
                 $book[$i]['by'] = 'rule';
                 $book[$i]['rule'] = $rule['id'];
@@ -625,7 +710,7 @@ function watchmanRulesNight(string $night, string $ram = WATCH_RULES_RAM, ?strin
  * For his page: the rules (each with its hits), the areas switched off, and per open entry what a click may offer
  * (watchmanRuleOffers(); covers counted on the book as it is now)
  *
- * @return array{rules: list<array>, off: array<string, int>, offers: array<string, list<array>>, known: list<array>, known_full: bool, settings: array, hand: array}
+ * @return array{rules: list<array>, off: array<string, int>, offers: array<string, list<array>>, known: list<array>, known_full: bool, settings: array, hand: array, hand_amount: array}
  */
 function watchmanRulesPage(string $dir, array $book, array $st): array
 {
@@ -644,7 +729,7 @@ function watchmanRulesPage(string $dir, array $book, array $st): array
         $r['known']);
     $raw = watchmanRulesRaw($dir);
     return ['rules' => $rules, 'off' => $r['off'], 'offers' => $offers, 'known' => $known, 'known_full' => is_int($raw['known_full'] ?? null),
-            'settings' => watchmanSettingsPage($raw), 'hand' => WATCH_HAND];
+            'settings' => watchmanSettingsPage($raw), 'hand' => WATCH_HAND, 'hand_amount' => WATCH_HAND_AMOUNT];
 }
 
 // ===================================================================== «I know, thanks» holds until taken back (1.96 step 4b)
@@ -990,6 +1075,20 @@ const WATCH_SETTINGS = [
         'scripts' => ['def' => 'quiet', 'of' => ['quiet', 'tell'], 'kinds' => ['script_new', 'script_changed']],    // User Scripts
         'at_late' => ['def' => 2, 'min' => 1, 'max' => 14, 'unit' => 'd'],          // an at job still waiting this many days past its time: stuck (WATCH_AT_LATE)
     ],
+    // the data flow (6b; watchmanFlowCompare()): what a client or container sends, what is written into or gone from the shares
+    'pull' => [
+        'factor' => ['def' => 4, 'min' => 2, 'max' => 20, 'unit' => 'x'],          // unusual: over this many times the normal (WATCH_FLOW_FACTOR) …
+        'min'    => ['def' => 2, 'min' => 1, 'max' => 500, 'unit' => 'gb'],        // … and at least this much in the hour (WATCH_FLOW_MIN)
+        'new'    => ['def' => 50, 'min' => 10, 'max' => 1000, 'unit' => 'gb'],     // still learning: one round over this (WATCH_FLOW_NEW)
+    ],
+    'data' => [
+        'factor'      => ['def' => 4, 'min' => 2, 'max' => 20, 'unit' => 'x'],     // WATCH_FLOW_FACTOR, for the shares and disks
+        'gone_min'    => ['def' => 2, 'min' => 1, 'max' => 500, 'unit' => 'gb'],   // gone: at least this much in the hour (WATCH_FLOW_MIN)
+        'written_min' => ['def' => 2, 'min' => 1, 'max' => 500, 'unit' => 'gb'],   // written: likewise
+        'files_min'   => ['def' => 2000, 'min' => 100, 'max' => 200000, 'unit' => 'n'],    // files deleted (WATCH_FILES_MIN)
+        'kept'        => ['def' => true],       // what a snapshot still holds counts as gone (off: it is taken off the loss)
+        'must'        => ['def' => true],       // always tell, whatever exception: half a share gone or 200 000 files deleted in an hour
+    ],
 ];
 
 /** A setting's value as the file has it, when it fits its key (type, bounds, choices) */
@@ -1092,7 +1191,12 @@ const WATCH_HAND = [
     'container' => ['ports', 'rights'],
     'plugin'    => ['source'],
     'sched'     => ['script', 'cron_file', 'crond'],
+    // the data flow (6b): a computer may pull any amount, or from an amount an hour; a container always; a share's deletions or
+    // writing not judged, or from an amount; its snapshots, new Docker images not counted; an XFS/btrfs disk likewise
+    'pull'      => ['client', 'client_min', 'container'],
+    'data'      => ['gone', 'written', 'gone_min', 'written_min', 'files_min', 'kept', 'layers', 'disk_gone', 'disk_written'],
 ];
+const WATCH_HAND_AMOUNT = ['client_min' => 'gb', 'gone_min' => 'gb', 'written_min' => 'gb', 'files_min' => 'n'];      // the types with an amount
 const WATCH_HAND_NAME = '/^[A-Za-z0-9][A-Za-z0-9 _.+()-]{0,99}$/D';        // a container's or a User Script's name
 
 /**
@@ -1101,12 +1205,22 @@ const WATCH_HAND_NAME = '/^[A-Za-z0-9][A-Za-z0-9 _.+()-]{0,99}$/D';        // a 
  *
  * @return array{cat: string, kinds: list<string>, on: array, wide: bool}
  */
-function watchmanRuleHandMake(string $cat, string $type, string $value, string $user): array
+function watchmanRuleHandMake(string $cat, string $type, string $value, string $user, int $amount = 0): array
 {
     if (!in_array($type, WATCH_HAND[$cat] ?? [], true) || strlen($value) > 210) {
         throw new Problem('bad_request');
     }
     $value = trim($value);
+    if (isset(WATCH_HAND_AMOUNT[$type]) && ($amount < 1 || $amount > (WATCH_HAND_AMOUNT[$type] === 'gb' ? 100_000 : 100_000_000))) {
+        throw new Problem('watch_amount_bad');
+    }
+    $flow = function (string $what, array $kinds, ?array $opt) use ($cat, $value): array {
+        if (!preg_match($what === 'share' ? WATCH_RULE_SHARE : WATCH_RULE_DISK, $value)) {
+            throw new Problem('watch_value_bad');
+        }
+        return ['cat' => $cat, 'kinds' => $kinds, 'on' => [$what => $value], 'wide' => false] + ($opt !== null ? ['opt' => $opt] : []);
+    };
+    $gb = $amount * 1024 ** 3;
     $name = fn (string $kind) => preg_match(WATCH_HAND_NAME, $value) ? ['cat' => $cat, 'kinds' => [$kind], 'on' => ['key' => "$kind:$value"], 'wide' => false]
         : throw new Problem('watch_value_bad');
     switch ($type) {
@@ -1149,6 +1263,32 @@ function watchmanRuleHandMake(string $cat, string $type, string $value, string $
                 throw new Problem('watch_value_bad');
             }
             return ['cat' => $cat, 'kinds' => ['cron_file'], 'on' => ['key' => "cron_file:$value"], 'wide' => false];
+        case 'client':
+        case 'client_min':
+            if (filter_var($value, FILTER_VALIDATE_IP) === false) {
+                throw new Problem('watch_net_bad');
+            }
+            return ['cat' => $cat, 'kinds' => ['flow_client'], 'on' => ['ip' => $value], 'wide' => false] + ($type === 'client_min' ? ['opt' => ['min' => $gb]] : []);
+        case 'container':
+            return $name('flow_container');
+        case 'gone':
+            return $flow('share', ['flow_gone'], null);
+        case 'written':
+            return $flow('share', ['flow_written'], null);
+        case 'gone_min':
+            return $flow('share', ['flow_gone'], ['min' => $gb]);
+        case 'written_min':
+            return $flow('share', ['flow_written'], ['min' => $gb]);
+        case 'files_min':
+            return $flow('share', ['flow_gone'], ['files' => $amount]);
+        case 'kept':
+            return $flow('share', ['flow_gone'], ['kept' => false]);
+        case 'layers':
+            return $flow('share', ['flow_written'], ['layers' => false]);
+        case 'disk_gone':
+            return $flow('disk', ['flow_gone'], null);
+        case 'disk_written':
+            return $flow('disk', ['flow_written'], null);
         default:        // crond
             $value = preg_replace('#^/?etc/cron\.d/#', '', $value) ?? '';
             if (!preg_match(WATCH_RULE_CROND, $value) || $value === 'root') {
@@ -1159,9 +1299,12 @@ function watchmanRuleHandMake(string $cat, string $type, string $value, string $
 }
 
 /** «Add an exception…» (his setup page): watchmanRuleHandMake()'s rule written; a wide one only with the clear yes */
-function watchmanRuleHand(string $cat, string $type, string $value, string $user, bool $sure, ?string $dir = null, ?int $now = null, bool $page = true): array
+function watchmanRuleHand(string $cat, string $type, string $value, string $user, bool $sure, ?string $dir = null, ?int $now = null, bool $page = true,
+                           int $amount = 0): array
 {
-    $made = watchmanRuleHandMake($cat, $type, $value, $user);
+    $made = watchmanRuleHandMake($cat, $type, $value, $user, $amount);
+    // the data flow's let-through (a share's deletions, its writing, a computer's any amount) is what he asks about more clearly
+    $made['wide'] = $made['wide'] || (bool) array_intersect($made['kinds'], WATCH_RULE_ASK);
     if ($made['wide'] && !$sure) {
         throw new Problem('watch_rule_ask');
     }
@@ -1172,7 +1315,8 @@ function watchmanRuleHand(string $cat, string $type, string $value, string $user
         if (count($have['rules']) >= WATCH_RULES_MAX || count(array_filter($have['rules'], fn ($r) => $r['cat'] === $made['cat'])) >= WATCH_RULES_CAT) {
             throw new Problem('watch_rules_full');
         }
-        $rule = ['id' => watchmanRuleNewId($raw), 'cat' => $made['cat'], 'kinds' => $made['kinds'], 'on' => $made['on'], 'at' => $now, 'from' => 'hand', 'note' => ''];
+        $rule = ['id' => watchmanRuleNewId($raw), 'cat' => $made['cat'], 'kinds' => $made['kinds'], 'on' => $made['on'], 'at' => $now, 'from' => 'hand', 'note' => '']
+              + (isset($made['opt']) ? ['opt' => $made['opt']] : []);
         $raw['rules'] = array_merge(is_array($raw['rules'] ?? null) && array_is_list($raw['rules']) ? $raw['rules'] : [], [$rule]);
         return [$raw, null, $rule];
     });

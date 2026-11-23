@@ -4957,6 +4957,39 @@
    "note": "",
    "hits": 0,
    "hit": null
+  },
+  {
+   "id": "r0123456791",
+   "cat": "data",
+   "kinds": [
+    "flow_gone"
+   ],
+   "on": {
+    "share": "Downloads"
+   },
+   "at": 1791477074,
+   "from": "hand",
+   "note": "",
+   "hits": 3,
+   "hit": 1791556274
+  },
+  {
+   "id": "r0123456792",
+   "cat": "data",
+   "kinds": [
+    "flow_gone"
+   ],
+   "on": {
+    "share": "Filme"
+   },
+   "opt": {
+    "min": 214748364800
+   },
+   "at": 1791477074,
+   "from": "hand",
+   "note": "",
+   "hits": 0,
+   "hit": null
   }
  ],
  "off": {},
@@ -5034,6 +5067,67 @@
     "max": 14,
     "unit": "d"
    }
+  },
+  "pull": {
+   "factor": {
+    "value": 4,
+    "def": 4,
+    "min": 2,
+    "max": 20,
+    "unit": "x"
+   },
+   "min": {
+    "value": 2,
+    "def": 2,
+    "min": 1,
+    "max": 500,
+    "unit": "gb"
+   },
+   "new": {
+    "value": 50,
+    "def": 50,
+    "min": 10,
+    "max": 1000,
+    "unit": "gb"
+   }
+  },
+  "data": {
+   "factor": {
+    "value": 4,
+    "def": 4,
+    "min": 2,
+    "max": 20,
+    "unit": "x"
+   },
+   "gone_min": {
+    "value": 2,
+    "def": 2,
+    "min": 1,
+    "max": 500,
+    "unit": "gb"
+   },
+   "written_min": {
+    "value": 2,
+    "def": 2,
+    "min": 1,
+    "max": 500,
+    "unit": "gb"
+   },
+   "files_min": {
+    "value": 2000,
+    "def": 2000,
+    "min": 100,
+    "max": 200000,
+    "unit": "n"
+   },
+   "kept": {
+    "value": false,
+    "def": true
+   },
+   "must": {
+    "value": true,
+    "def": true
+   }
   }
  },
  "hand": {
@@ -5053,6 +5147,28 @@
    "script",
    "cron_file",
    "crond"
+  ],
+  "pull": [
+   "client",
+   "client_min",
+   "container"
+  ],
+  "data": [
+   "gone",
+   "written",
+   "gone_min",
+   "written_min",
+   "files_min",
+   "kept",
+   "layers",
+   "disk_gone",
+   "disk_written"
   ]
+ },
+ "hand_amount": {
+  "client_min": "gb",
+  "gone_min": "gb",
+  "written_min": "gb",
+  "files_min": "n"
  }
 }
