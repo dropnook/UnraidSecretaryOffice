@@ -9955,6 +9955,9 @@ function watchmanEntryVariant(array $e): ?string
     if (($e['kind'] ?? '') === 'at_plugin' && is_int($e['p']['left'] ?? null)) {
         return 'at_plugin_left';        // what a removed plugin left in atd's queue (watchmanAtLeftNote())
     }
+    if (($e['kind'] ?? '') === 'login_new_ip' && !empty($e['p']['new_user'])) {
+        return 'login_new_user';        // a user never seen from a known address (his setting, 1.96)
+    }
     $shape = watchmanFlowShape($e);
     return watchnetEntryVariant($e) ?? ($shape === null ? null : $e['kind'] . '_' . $shape);
 }
@@ -10426,9 +10429,11 @@ function watchmanNotifySend(string $kind, array $entries, string $lang): bool
     // the offsite copy emptied: at risk now (Object Lock holds the data only so long) — an alert, and the way back: the
     // Consultant's Object Lock guide (its read-only --point-in-time connection)
     $emptied = $kind === 'kopia_emptied';
+    // all of them a new user from a known address (1.96): their own words
+    $words = $kind === 'login_new_ip' && !array_filter($entries, fn ($e) => empty($e['p']['new_user'])) ? 'login_new_user' : $kind;
     return officeNotify(
-        officeNotifyText('watchman', "notify.$kind", $params, $lang),
-        officeNotifyText('watchman', "check.$kind", $params, $lang),
+        officeNotifyText('watchman', "notify.$words", $params, $lang),
+        officeNotifyText('watchman', "check.$words", $params, $lang),
         $emptied ? 'alert' : 'warning',
         implode("\n", $lines) . "\n\n" . ($emptied ? officeNotifyText('watchman', 'notify.kopia_back', [], $lang) . "\n\n" : '')
             . officeNotifyText('watchman', 'notify.footer', [], $lang),

@@ -2290,7 +2290,7 @@ function details(e) {
   if (e.group === 'flow' && p.learning) notes.push(T('detail.learning'));
   if (p.office && e.kind.startsWith('cron_file')) notes.push(T('detail.office_cron'));
   else if (p.office_file && e.kind.startsWith('cron_file')) notes.push(T('detail.office_file'));
-  if (e.open) notes.push(T('adopt.' + (e.v === 'net_ips_server_list' ? e.v : e.kind)));     // a block list: its own words (the whole list)
+  if (e.open) notes.push(T('adopt.' + (e.v === 'net_ips_server_list' || e.v === 'login_new_user' ? e.v : e.kind)));     // a block list: its own words (the whole list)
   const by = e.by === 'office' && e.kind === 'partner_paired' ? 'office_partner' : e.by === 'office' && e.kind === 'drill_throwaway' ? 'office_drill' : e.by;
   if (e.noted && by === 'plugin' && e.kind === 'at_plugin' && p.left) notes.push(T('noted.plugin_left', { when: fmt.date(p.left) }));     // agent: watchmanAtLeftNote()
   else if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office', 'office_partner', 'office_drill', 'office_cron', 'schedule', 'array', 'unraid', 'plugin', 'back', 'router', 'parity', 'rule', 'known'].includes(by) ? by : 'page'),

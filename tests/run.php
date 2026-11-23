@@ -21343,6 +21343,22 @@ function testWatchmanRules6a(): void
     $covers = fn (array $r, array $x) => watchmanRuleCovers($r, $x);
 
     // the settings: defaults are what he did up to 1.95, the types held
+    // the two login settings (after 6g): a new user from a known address — a line of its own words; SMB at an odd hour
+    $lb = ['ips' => ['192.168.1.5' => ['first' => 1, 'last' => 1, 'users' => ['root'], 'services' => ['ssh']]], 'fail_ips' => []];
+    $lst = [];
+    $ev = [['ip' => '192.168.1.5', 'time' => 100, 'ok' => true, 'user' => 'eve', 'service' => 'ssh'], ['ip' => '192.168.1.5', 'time' => 110, 'ok' => true, 'user' => 'root', 'service' => 'ssh']];
+    $lbk = [];
+    $l0 = $lb;
+    watchmanLogins($l0, $lbk, $lst, $ev, false);
+    $lbk2 = [];
+    $l1 = $lb;
+    watchmanLogins($l1, $lbk2, $lst, $ev, false, [], WATCH_FAIL_BURST, WATCH_FAIL_WINDOW, true);
+    same('login settings: a new user from a known address — by default nothing (as up to 1.95); with the setting one line, its own words; the user learned only by «I know»',
+        [[], [['login_new_ip', 'login_new_user', ['eve']]], ['root'], false, true],
+        [$lbk, array_map(fn ($x) => [$x['kind'], watchmanEntryVariant($x), $x['p']['users']], $lbk2), $l1['ips']['192.168.1.5']['users'], WATCH_SETTINGS['login']['new_user']['def'],
+         WATCH_SETTINGS['login']['smb_hour']['def']]);
+    same('login settings: the new user in words (en)', 'A new user from a known address: eve from 192.168.1.5 — SSH',
+        officeNotifyText('watchman', watchmanEntryKey($lbk2[0]), watchmanText($lbk2[0], 'en'), 'en'));
     same('6a settings: the defaults (quiet, off, 2 days = WATCH_AT_LATE)', ['quiet', false, false, 'quiet', WATCH_AT_LATE / 86400],
         [WATCH_SETTINGS['container']['ports']['def'], WATCH_SETTINGS['container']['plain']['def'], WATCH_SETTINGS['plugin']['versions']['def'],
          WATCH_SETTINGS['sched']['scripts']['def'], WATCH_SETTINGS['sched']['at_late']['def']]);
