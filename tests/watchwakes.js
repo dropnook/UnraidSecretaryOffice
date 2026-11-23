@@ -279,13 +279,32 @@ async function run() {
   const full = await visit(base.wakes, 'wakes');
   same('the stub: his tile counts the wakes in 7 days', full.tile[0], T('tile.wakes_n', { n: all.length }));
   same('the stub: every wake a row, the switch there', [full.rows, full.switch], [all.length, true]);
+  // a disk's row unfolds its wakes right beneath it (2026-11-23, like Mr. Backupsy's rows); a second click folds them; the
+  // long list «Every wake» stays whole (no disk filter); «unfold all» unfolds every disk
   const disk = 'disk2';
-  const only = await visit(base.wakes, 'wakes', async (r) => {
+  const mine = all.filter((w) => w.disks.includes(disk));
+  let folds = [];
+  const once = await visit(base.wakes, 'wakes', async (r) => {
     const row = sectionOf(r, 'wakes.title').querySelectorAll('.wm-wake-disk').find((x) => tx(x.querySelector('.row-name')) === disk);
     row.click();
     await tick();
+    const f = row.parentNode.querySelector('.wm-wake-disk-fold');
+    folds.push(f ? f.querySelectorAll('.wm-wake').length : -1, row.getAttribute('aria-expanded'));
+    row.click();
+    await tick();
+    folds.push(row.parentNode.querySelector('.wm-wake-disk-fold') ? 'still' : 'folded');
   });
-  same('a disk\'s row: only its wakes, the note line names it', [only.rows, only.note.includes(disk)], [all.filter((w) => w.disks.includes(disk)).length, true]);
+  same('a disk\'s row: its wakes beneath it (at most 10, newest first), a second click folds them; the long list whole, no filter note',
+    [folds, once.rows, once.note], [[Math.min(mine.length, 10), 'true', 'folded'], all.length, '']);
+  let unfolded = -1;
+  await visit(base.wakes, 'wakes', async (r) => {
+    const sec = sectionOf(r, 'wakes.title');
+    const btn = sec.querySelectorAll('button').find((b) => tx(b) === T('unfold_all'));
+    if (btn) btn.click();
+    await tick();
+    unfolded = sec.querySelectorAll('.wm-wake-disk-fold').length;
+  });
+  same('«unfold all» unfolds every disk of «By disk»', unfolded, new Set(all.flatMap((w) => w.disks)).size);
 }
 
 // ------------------------------------------------------------------ exceptions on his page (1.96 step 4)

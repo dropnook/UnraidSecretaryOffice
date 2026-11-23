@@ -3102,8 +3102,9 @@ function itselfRow(x) {
  * rotating disks are watched; on a server without one (all flash: SSDs, NVMe) the tile and its section say so in one line —
  * a hidden tile looked like a bug. Beside «What holds the array?»: both say who touches the disks.
  */
-let wakeDisk = '';              // the disk chosen in «By disk»: a filter, never kept
-let shownWakes = [];            // the unfoldable rows of the wakes: {open(), set(open)}
+const wakeDisksOpen = new Map(); // «By disk» (2026-11-23): a disk unfolded on this visit → how many of its wakes it shows
+const WAKE_DISK_PAGE = 10;       // a disk unfolded shows this many of its wakes, «more» the next as many
+let shownWakes = [];            // what «unfold all» unfolds: the disks of «By disk», {open(), set(open)}
 const unfoldedWakes = new Set(); // wakes unfolded on this visit
 const wakesOf = () => (state && state.wakes && Array.isArray(state.wakes.wakes) ? state.wakes.wakes : []);
 /** No rotating disk there (the state says so) and no wake kept from before: nothing to watch — an older messenger's
@@ -3230,44 +3231,76 @@ function wakesView() {
   }
   if (state.wakes.on === false) box.appendChild(el('p', 'callout', T('wakes.off_note')));
   const all = wakesOf().slice().sort((p, q) => q.time - p.time);
-  if (wakeDisk && !all.some((w) => w.disks.includes(wakeDisk))) wakeDisk = '';
-  // by disk: a row each, a click shows only its wakes
+  // by disk: a row each; a click unfolds its wakes right beneath it (like Mr. Backupsy's rows), a second click folds them
   const disks = el('div', 'box wm-wake-disks');
   disks.appendChild(wakeHead(T('wakes.by_disk')));
-  for (const [disk, x] of wakesByDisk(all)) {
-    const on = wakeDisk === disk;
-    const r = el('div', 'row nocheck wm-wake-disk' + (on ? ' wm-wake-on' : ''));
-    const main = el('div', 'row-main');
-    const name = el('div', 'row-name', disk);
-    name.title = on ? T('wakes.disk_all_title') : T('wakes.disk_only_title', { disk });
-    const meta = el('div', 'row-meta');
-    if (x.today) meta.appendChild(el('span', '', T('wakes.n_today', { n: x.today })));
-    meta.appendChild(el('span', '', T('wakes.n_week', { n: x.week })));
-    const [most, n] = [...x.causes.entries()].sort((p, q) => q[1] - p[1])[0];
-    meta.appendChild(el('span', 'wm-wake-most', T('wakes.most', { who: most, n })));
-    main.append(name, meta);
-    r.appendChild(main);
-    r.onclick = () => Office.keepInPlace(box, () => { wakeDisk = on ? '' : disk; sw.render(); });
-    disks.appendChild(r);
-  }
+  for (const [disk, x] of wakesByDisk(all)) disks.appendChild(wakeDiskRow(disk, x, all.filter((w) => w.disks.includes(disk)), look));
   if (all.length) box.appendChild(disks);
-  // every wake, newest first: the bar's words over disks, causes, files, commands; the time by the wake's
+  // every wake, newest first (the whole page's list): the bar's words over disks, causes, files, commands; the time by the wake's
   const bar = wakesBarGet();
   box.appendChild(bar.el);
   const f = bar.read();
-  const fits = all.filter((w) => (!wakeDisk || w.disks.includes(wakeDisk))
-    && Office.fits(f.words, [w.disks.join(' '), ...w.who.map((c) => [causeName(c), T('wakes.sure.' + c.sure), c.prog, c.cmd, ...(c.files || [])].join(' ')), ...(w.cron || []), ...(w.started || []),
+  const fits = all.filter((w) => Office.fits(f.words, [w.disks.join(' '), ...w.who.map((c) => [causeName(c), T('wakes.sure.' + c.sure), c.prog, c.cmd, ...(c.files || [])].join(' ')), ...(w.cron || []), ...(w.started || []),
       w.who.length ? '' : T('wakes.cause.none'), ...trailDirs(w).map((d) => trailName(w, d))]));
   const list = el('div', 'box');
   list.appendChild(wakeHead(T('wakes.every')));
   for (const w of fits) list.appendChild(wakeRow(w, look));
   if (!fits.length) list.appendChild(el('p', 'empty', all.length ? T('wakes.none_fit') : T('wakes.none')));
   box.appendChild(list);
-  bar.done(fits.length, all.length, { tile: wakeDisk, clear: () => { wakeDisk = ''; } });
+  bar.done(fits.length, all.length);
   if (state.wakes.on !== false) box.appendChild(el('p', 'role wm-wake-note', T('wakes.note', { when: fmt.date(state.wakes.since), s: look })));
   label();
   unfold.hidden = shownWakes.length < 2;
   return box;
+}
+
+/**
+ * One disk of «By disk»: its name, today, the week, who woke it most; a click unfolds its wakes right beneath (newest
+ * first, the rows of «Every wake», WAKE_DISK_PAGE at a time with «more»), a second click folds them — without a jump
+ */
+function wakeDiskRow(disk, x, mine, look) {
+  const wrap = el('div', 'wm-wake-disk-wrap');
+  const r = el('div', 'row nocheck unfolds wm-wake-disk');
+  const main = el('div', 'row-main');
+  const name = el('div', 'row-name', disk);
+  const meta = el('div', 'row-meta');
+  if (x.today) meta.appendChild(el('span', '', T('wakes.n_today', { n: x.today })));
+  meta.appendChild(el('span', '', T('wakes.n_week', { n: x.week })));
+  const [most, n] = [...x.causes.entries()].sort((p, q) => q[1] - p[1])[0];
+  meta.appendChild(el('span', 'wm-wake-most', T('wakes.most', { who: most, n })));
+  main.append(name, meta);
+  r.appendChild(main);
+  wrap.appendChild(r);
+  let fold = null;
+  const draw = () => {
+    if (fold) fold.remove();
+    fold = el('div', 'wm-wake-disk-fold');
+    const shown = wakeDisksOpen.get(disk) || WAKE_DISK_PAGE;
+    mine.slice(0, shown).forEach((w) => fold.appendChild(wakeRow(w, look)));
+    const rest = mine.length - shown;
+    if (rest > 0) {
+      const more = el('button', 'btn small plain wm-wake-disk-more', T('book.more', { n: Math.min(rest, WAKE_DISK_PAGE) }));
+      more.type = 'button';
+      more.onclick = () => Office.keepInPlace(more, () => { wakeDisksOpen.set(disk, shown + WAKE_DISK_PAGE); draw(); });
+      fold.appendChild(more);
+    }
+    wrap.appendChild(fold);
+  };
+  const set = (open) => {
+    if (open && !fold) { if (!wakeDisksOpen.has(disk)) wakeDisksOpen.set(disk, WAKE_DISK_PAGE); draw(); }
+    if (!open && fold) { fold.remove(); fold = null; wakeDisksOpen.delete(disk); }
+    r.classList.toggle('open', !!fold);
+    r.setAttribute('aria-expanded', fold ? 'true' : 'false');
+    name.title = fold ? T('wakes.disk_all_title') : T('wakes.disk_only_title', { disk });
+  };
+  r.onclick = (e) => {
+    if (e.target.closest('button, a, input')) return;
+    if (String(window.getSelection && window.getSelection()).length) return;      // selecting text
+    Office.keepInPlace(r, () => set(!fold));
+  };
+  shownWakes.push({ open: () => !!fold, set });
+  set(wakeDisksOpen.has(disk));
+  return wrap;
 }
 
 /** A cron line due then: the office's own by the desk whose job it is (office:<job>), else its command */
@@ -3395,8 +3428,7 @@ function wakeRow(w, look) {
     if (String(window.getSelection && window.getSelection()).length) return;      // selecting text
     Office.keepInPlace(r, () => set(!box));
   };
-  shownWakes.push({ open: () => !!box, set });
-  if (unfoldedWakes.has(w.id)) set(true);
+  if (unfoldedWakes.has(w.id)) set(true);        // («unfold all» unfolds the disks of «By disk», 2026-11-23)
   return r;
 }
 
@@ -3930,7 +3962,7 @@ Office.desk({
     bookBarGet().reset();          // a new visit: the whole book (the area is a choice and stays)
     watchShut.clear();             // what he knows, folded as kept
     wakesBarGet().reset();         // … and every wake, of every disk
-    wakeDisk = '';
+    wakeDisksOpen.clear();         // … with every disk folded
     Object.values(catBars).forEach((b) => b.reset().set({ pick: '' }));      // … and every tile's list whole
     // old places land on their tile (TILE_ROUTE: an area of 1.96's first steps, «Not noted yet», «What I keep an eye on»,
     // «How secure» — the whole page —, «Serious incidents» — the book showing them); never a dead link
