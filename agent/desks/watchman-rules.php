@@ -59,6 +59,12 @@ const WATCH_RULE_DISK   = '/^[a-z][a-z0-9_-]{0,39}$/D';                         
 const WATCH_RULE_FLOW   = ['flow_client', 'flow_container', 'flow_written', 'flow_gone'];   // what a threshold (`opt`) may be on
 const WATCH_RULE_PROG   = '/^[A-Za-z0-9._+-]{1,32}$/D';                                   // a program listening (as ss names it)
 const WATCH_RULE_TUNNEL = '/^[A-Za-z0-9_.-]{1,40}$/D';                                    // a WireGuard tunnel (wg0 …)
+const WATCH_RULE_PAIR   = '/^[0-9a-f]{8}$/D';                                             // a partner office's pair id
+const WATCH_RULE_NAME   = '/^[^\x00-\x1f]{1,64}$/D';                                       // a router's admin or VPN user, a network's name
+const WATCH_RULE_SENDER = '/^[A-Za-z0-9:\[][A-Za-z0-9._:%\[\]-]{0,127}$/D';                // a router sending its log (WATCHNET_FILE)
+const WATCH_RULE_IFACE  = '#^[A-Za-z0-9._@/-]{1,64}$#D';                                  // a router's port
+const WATCH_RULE_ROUTER = ['net_sender_new', 'net_router_login', 'net_router_login_failures', 'net_firewall_change', 'net_router_config', 'net_vpn_login',
+                           'net_log_silent', 'net_link_down', 'net_outage', 'net_router_reboot'];       // «don't judge this sender» (6e)
 const WATCH_RULE_SERIES = '/^[^\x00-\x1f]{1,255}$/D';                                    // a snapshot series (its name, digits as #)
 const WATCH_RULE_DS     = '#^[A-Za-z0-9_.:-][^@\x00-\x1f]{0,254}$#D';                    // a ZFS dataset (pool/…, never the pool alone: watchmanRuleOn())
 // the kinds he asks about more clearly before an exception (concept 3.3: what an attacker does first, or what points to
@@ -195,6 +201,17 @@ function watchmanRuleOn(mixed $on): ?array
                                       && in_array($on['open'], ['read', 'write'], true) ? ['share' => $on['share'], 'proto' => $on['proto'], 'open' => $on['open']] : null,
         ['prog']        => is_string($on['prog']) && preg_match(WATCH_RULE_PROG, $on['prog']) ? ['prog' => $on['prog']] : null,
         ['tunnel']      => is_string($on['tunnel']) && preg_match(WATCH_RULE_TUNNEL, $on['tunnel']) ? ['tunnel' => $on['tunnel']] : null,
+        ['ip', 'pair']  => is_string($on['pair']) && preg_match(WATCH_RULE_PAIR, $on['pair']) && is_string($on['ip']) && filter_var($on['ip'], FILTER_VALIDATE_IP) !== false
+                           ? ['pair' => $on['pair'], 'ip' => $on['ip']] : null,
+        ['net', 'pair'] => is_string($on['pair']) && preg_match(WATCH_RULE_PAIR, $on['pair']) && watchmanNetValid($on['net']) ? ['pair' => $on['pair'], 'net' => $on['net']] : null,
+        ['admin', 'ip'] => is_string($on['admin']) && preg_match(WATCH_RULE_NAME, $on['admin']) && is_string($on['ip']) && filter_var($on['ip'], FILTER_VALIDATE_IP) !== false
+                           ? ['admin' => $on['admin'], 'ip' => $on['ip']] : null,
+        ['admin', 'net'] => is_string($on['admin']) && preg_match(WATCH_RULE_NAME, $on['admin']) && watchmanNetValid($on['net']) ? ['admin' => $on['admin'], 'net' => $on['net']] : null,
+        ['vpn']         => is_string($on['vpn']) && preg_match(WATCH_RULE_NAME, $on['vpn']) ? ['vpn' => $on['vpn']] : null,
+        ['iface', 'sender'] => is_string($on['sender']) && preg_match(WATCH_RULE_SENDER, $on['sender']) && is_string($on['iface']) && preg_match(WATCH_RULE_IFACE, $on['iface'])
+                               ? ['sender' => $on['sender'], 'iface' => $on['iface']] : null,
+        ['sender']      => is_string($on['sender']) && preg_match(WATCH_RULE_SENDER, $on['sender']) ? ['sender' => $on['sender']] : null,
+        ['network']     => is_string($on['network']) && preg_match(WATCH_RULE_NAME, $on['network']) ? ['network' => $on['network']] : null,
         ['series']      => is_string($on['series']) && preg_match(WATCH_RULE_SERIES, $on['series']) ? ['series' => $on['series']] : null,
         ['dataset']     => watchmanRuleDsOk($on['dataset']) ? ['dataset' => $on['dataset']] : null,
         ['dataset', 'series'] => watchmanRuleDsOk($on['dataset']) && is_string($on['series']) && preg_match(WATCH_RULE_SERIES, $on['series'])
@@ -283,6 +300,24 @@ function watchmanRuleCovers(array $rule, array $e): bool
     if (isset($on['key'])) {
         return ($e['key'] ?? null) === $on['key'];
     }
+    // the network and the partner door (6e) — their ip/net is checked here, never by the logins' shapes below
+    $inNet = fn (): bool => $ip !== '' && (isset($on['net']) ? watchmanIpInNet($ip, $on['net']) : @inet_pton($ip) !== false && @inet_pton($ip) === @inet_pton((string) $on['ip']));
+    if (isset($on['pair'])) {
+        // a partner's own key from another address — never another key from its address (how: key)
+        return ($p['id'] ?? null) === $on['pair'] && ($p['how'] ?? null) === 'address' && $inNet();
+    }
+    if (isset($on['admin'])) {
+        return ($p['admin'] ?? null) === $on['admin'] && $inNet();
+    }
+    if (isset($on['vpn'])) {
+        return ($p['user'] ?? null) === $on['vpn'];
+    }
+    if (isset($on['iface'])) {
+        return ($p['sender'] ?? null) === $on['sender'] && ($p['iface'] ?? null) === $on['iface'];
+    }
+    if (isset($on['sender'])) {
+        return ($p['sender'] ?? null) === $on['sender'];
+    }
     if (isset($on['cmd'])) {
         // exactly this one clean command (never one with an odd environment or more commands: no fingerprint then), as
         // this user, its program owned by that one — and never a plugin's job no longer as he knew it
@@ -342,7 +377,7 @@ function watchmanRuleAskThis(array $e, array $o): bool
         'container_rights'     => (bool) array_filter((array) ($p['tokens'] ?? []), fn ($t) => preg_match('#^-v (?:/var)?/run/docker\.sock|^-v /$#', (string) $t)),
         'proc_odd'             => str_starts_with((string) ($e['key'] ?? ''), 'proc_odd:host:') && (bool) preg_match('#/memfd:|^proc_odd:host:/dev/shm/#', (string) $e['key']),
         'share_public'         => ($p['share'] ?? null) === 'flash',
-        default                => false,
+        default                => isset($o['on']['sender']) && !isset($o['on']['iface']),       // a whole sender: its firewall's changes, its silence too
     };
 }
 
@@ -425,22 +460,48 @@ function watchmanRuleOffers(array $e, array $book): array
     } elseif ($kind === 'door_new' && ($p['_opened'] ?? null) === false && preg_match('/^wg:(.+)$/D', (string) ($p['key'] ?? ''), $m) && preg_match(WATCH_RULE_TUNNEL, $m[1])) {
         $out[] = ['type' => 'tunnel', 'on' => ['tunnel' => $m[1]], 'kinds' => ['door_new']];
         $out[] = ['type' => 'key', 'on' => ['key' => $e['key']], 'kinds' => [$kind]];
+    } elseif (in_array($kind, ['door_key_moved', 'net_router_login'], true) && $ip !== '') {
+        // a partner's own key from another address, an admin from an address: that address, or its private net (6e) — only
+        // the address the entry itself names (the privacy rule)
+        [$who, $name] = $kind === 'door_key_moved' ? ['pair', (string) ($p['id'] ?? '')] : ['admin', (string) ($p['admin'] ?? '')];
+        if (($kind === 'net_router_login' || ($p['how'] ?? null) === 'address') && preg_match($who === 'pair' ? WATCH_RULE_PAIR : WATCH_RULE_NAME, $name)) {
+            $label = $who === 'pair' ? ['what' => mb_strcut((string) ($p['name'] ?? $name), 0, 200, 'UTF-8')] : [];      // the partner by its name
+            $out[] = ['type' => "{$who}_ip", 'on' => [$who => $name, 'ip' => $ip], 'kinds' => [$kind]] + $label;
+            if (($net = watchmanNetOf($ip)) !== null) {
+                $out[] = ['type' => "{$who}_net", 'on' => [$who => $name, 'net' => $net], 'kinds' => [$kind]] + $label;
+            }
+        }
+        $out[] = ['type' => 'key', 'on' => ['key' => $e['key']], 'kinds' => [$kind]];
+    } elseif ($kind === 'net_new_device') {
+        // its network's new devices learned without a line («the guests' Wi-Fi») — the device itself is learned already
+        if (is_string($p['network'] ?? null) && $p['network'] !== '' && preg_match(WATCH_RULE_NAME, $p['network'])) {
+            $out[] = ['type' => 'network', 'on' => ['network' => $p['network']], 'kinds' => ['net_new_device']];
+        }
+    } elseif ($kind === 'net_link_down' && is_string($p['sender'] ?? null) && is_string($p['iface'] ?? null)
+              && preg_match(WATCH_RULE_SENDER, $p['sender']) && preg_match(WATCH_RULE_IFACE, $p['iface'])) {
+        $out[] = ['type' => 'link', 'on' => ['sender' => $p['sender'], 'iface' => $p['iface']], 'kinds' => ['net_link_down']];
     } elseif ($kind === 'snap_hold_released') {
         $ds = array_values(array_filter((array) ($p['datasets'] ?? []), 'is_string'));
         if (count($ds) === 1 && watchmanRuleDsOk($ds[0])) {
             $out[] = ['type' => 'hold', 'on' => ['dataset' => $ds[0]], 'kinds' => ['snap_hold_released']];
         }
     } elseif ($thing === null) {
+        if ($kind === 'net_vpn_login' && is_string($p['user'] ?? null) && $p['user'] !== '?' && preg_match(WATCH_RULE_NAME, $p['user'])) {
+            $out[] = ['type' => 'vpn', 'on' => ['vpn' => $p['user']], 'kinds' => ['net_vpn_login']];        // this VPN user from anywhere
+        }
         if ($kind === 'listen_new' && is_string($p['prog'] ?? null) && $p['prog'] !== '?' && preg_match(WATCH_RULE_PROG, $p['prog']) && ($p['port'] ?? null) !== null) {
             $out[] = ['type' => 'prog', 'on' => ['prog' => $p['prog']], 'kinds' => ['listen_new']];    // this program on any port
         }
         $out[] = ['type' => 'key', 'on' => ['key' => $e['key']], 'kinds' => [$kind]];
     }
+    if (in_array($kind, WATCH_RULE_ROUTER, true) && is_string($p['sender'] ?? null) && preg_match(WATCH_RULE_SENDER, $p['sender'])) {
+        $out[] = ['type' => 'sender', 'on' => ['sender' => $p['sender']], 'kinds' => WATCH_RULE_ROUTER];       // «don't judge this sender» (widest last)
+    }
     foreach ($out as $i => $o) {
         $rule = ['kinds' => $o['kinds'], 'on' => $o['on']];
         $out[$i]['ask'] = (bool) array_intersect($o['kinds'], WATCH_RULE_ASK) || watchmanRuleAskThis($e, $o);
         // a threshold or a snapshot rule notes nothing open at once (it works where the flow is judged, the snapshots listed): this one only
-        $out[$i]['covers'] = isset($o['opt']) || isset($o['on']['series']) || isset($o['on']['dataset']) ? 1 : count(array_filter($book, fn ($x) => is_array($x) && watchmanOpen($x) && watchmanRuleCovers($rule, $x)));
+        $out[$i]['covers'] = isset($o['opt']) || isset($o['on']['series']) || isset($o['on']['dataset']) || isset($o['on']['network']) ? 1 : count(array_filter($book, fn ($x) => is_array($x) && watchmanOpen($x) && watchmanRuleCovers($rule, $x)));
     }
     return $out;
 }
@@ -635,7 +696,7 @@ function watchmanRuleAdd(string $id, string $type, bool $sure, ?string $dir = nu
         $noted = 0;
         foreach ($book as $i => $x) {
             // a threshold notes only the entry it was made from (it works where the flow is judged); «always tell» stays open
-            $own = isset($rule['opt']) || isset($rule['on']['series']) || isset($rule['on']['dataset']);
+            $own = isset($rule['opt']) || isset($rule['on']['series']) || isset($rule['on']['dataset']) || isset($rule['on']['network']);
             if (watchmanOpen($x) && ($own ? $x['id'] === $id : watchmanRuleCovers($rule, $x)) && empty($x['p']['_must'])) {
                 $book[$i]['noted'] = $now;
                 $book[$i]['by'] = 'rule';
@@ -1173,6 +1234,21 @@ const WATCH_SETTINGS = [
     'share' => [
         'secure_ok' => ['def' => false],    // guests may read (⟦Secure⟧): normal — only ⟦Public⟧ told (never the flash)
     ],
+    // 6e: the partner door, the router's log, the LAN (agent/lib/watchnet.php reads its part through watchnetSet())
+    'partner' => [
+        'burst'  => ['def' => 3, 'min' => 3, 'max' => 20, 'unit' => 'n'],           // refusals at the door … (WATCH_REFUSED_BURST)
+        'window' => ['def' => 60, 'min' => 30, 'max' => 600, 'unit' => 's'],        // … within this many seconds (WATCH_REFUSED_WINDOW)
+    ],
+    'router' => [
+        'silent'       => ['def' => 6, 'min' => 1, 'max' => 72, 'unit' => 'h'],     // a log silent at the earliest after (WATCHNET_SILENT_FLOOR)
+        'flaps'        => ['def' => 10, 'min' => 2, 'max' => 100, 'unit' => 'n'],   // a port flapping from this many downs a day (WATCHNET_FLAPS)
+        'outage_short' => ['def' => 2, 'min' => 1, 'max' => 60, 'unit' => 'min'],   // the internet away: told from this much a day (WATCHNET_OUTAGE_SHORT)
+        'outage_tell'  => ['def' => 30, 'min' => 5, 'max' => 240, 'unit' => 'min'], // … or this long in one go (WATCHNET_OUTAGE_TELL)
+        'clock'        => ['def' => 5, 'min' => 1, 'max' => 60, 'unit' => 'min'],    // the router's clock: advice from this far off (WATCHNET_CLOCK)
+    ],
+    'lan' => [
+        'random' => ['def' => false],       // devices on a made-up Wi-Fi address: learned without a line of their own
+    ],
 ];
 
 /** A setting's value as the file has it, when it fits its key (type, bounds, choices) */
@@ -1288,6 +1364,10 @@ const WATCH_HAND = [
     'share'     => ['guest_read', 'guest_write'],
     'host'      => ['port', 'prog'],
     'door'      => ['tunnel'],
+    // 6e: an admin from a net (the second field: the admin), a VPN user from anywhere, a router's port (the second field: the
+    // router), a sender not judged; a network whose new devices need no line
+    'router'    => ['admin', 'vpn', 'link', 'sender'],
+    'lan'       => ['network'],
 ];
 const WATCH_HAND_AMOUNT = ['client_min' => 'gb', 'gone_min' => 'gb', 'written_min' => 'gb', 'files_min' => 'n'];      // the types with an amount
 const WATCH_HAND_NAME = '/^[A-Za-z0-9][A-Za-z0-9 _.+()-]{0,99}$/D';        // a container's or a User Script's name
@@ -1410,6 +1490,43 @@ function watchmanRuleHandMake(string $cat, string $type, string $value, string $
                 throw new Problem('watch_value_bad');
             }
             return ['cat' => $cat, 'kinds' => ['door_new'], 'on' => ['tunnel' => $value], 'wide' => false];
+        case 'admin':
+            $admin = trim($user);
+            if (!preg_match(WATCH_RULE_NAME, $admin)) {
+                throw new Problem('watch_value_bad');
+            }
+            if (watchmanNetValid($value)) {
+                [$addr, $bits] = explode('/', $value);
+                $public = !watchmanIpPrivate($addr);
+                if ($public && (int) $bits < (str_contains($addr, ':') ? 48 : 24)) {
+                    throw new Problem('watch_net_wide');
+                }
+                return ['cat' => $cat, 'kinds' => ['net_router_login'], 'on' => ['admin' => $admin, 'net' => $value], 'wide' => $public];
+            }
+            if (filter_var($value, FILTER_VALIDATE_IP) === false) {
+                throw new Problem('watch_net_bad');
+            }
+            return ['cat' => $cat, 'kinds' => ['net_router_login'], 'on' => ['admin' => $admin, 'ip' => $value], 'wide' => !watchmanIpPrivate($value)];
+        case 'vpn':
+            if (!preg_match(WATCH_RULE_NAME, $value)) {
+                throw new Problem('watch_value_bad');
+            }
+            return ['cat' => $cat, 'kinds' => ['net_vpn_login'], 'on' => ['vpn' => $value], 'wide' => true];
+        case 'link':
+            if (!preg_match(WATCH_RULE_IFACE, $value) || !preg_match(WATCH_RULE_SENDER, trim($user))) {
+                throw new Problem('watch_value_bad');
+            }
+            return ['cat' => $cat, 'kinds' => ['net_link_down'], 'on' => ['sender' => trim($user), 'iface' => $value], 'wide' => false];
+        case 'sender':
+            if (!preg_match(WATCH_RULE_SENDER, $value)) {
+                throw new Problem('watch_value_bad');
+            }
+            return ['cat' => $cat, 'kinds' => WATCH_RULE_ROUTER, 'on' => ['sender' => $value], 'wide' => true];
+        case 'network':
+            if (!preg_match(WATCH_RULE_NAME, $value)) {
+                throw new Problem('watch_value_bad');
+            }
+            return ['cat' => $cat, 'kinds' => ['net_new_device'], 'on' => ['network' => $value], 'wide' => false];
         case 'series':
         case 'series_ds':
             $s = $type === 'series' ? $value : trim($user);

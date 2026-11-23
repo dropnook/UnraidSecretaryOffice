@@ -294,9 +294,9 @@
    "cat": "lan",
    "offers": [
     {
-     "type": "key",
+     "type": "network",
      "on": {
-      "key": "net_new_device:wfe162b7c9a"
+      "network": "Default"
      },
      "kinds": [
       "net_new_device"
@@ -2684,6 +2684,65 @@
     "value": false,
     "def": false
    }
+  },
+  "partner": {
+   "burst": {
+    "value": 3,
+    "def": 3,
+    "min": 3,
+    "max": 20,
+    "unit": "n"
+   },
+   "window": {
+    "value": 60,
+    "def": 60,
+    "min": 30,
+    "max": 600,
+    "unit": "s"
+   }
+  },
+  "router": {
+   "silent": {
+    "value": 6,
+    "def": 6,
+    "min": 1,
+    "max": 72,
+    "unit": "h"
+   },
+   "flaps": {
+    "value": 10,
+    "def": 10,
+    "min": 2,
+    "max": 100,
+    "unit": "n"
+   },
+   "outage_short": {
+    "value": 2,
+    "def": 2,
+    "min": 1,
+    "max": 60,
+    "unit": "min"
+   },
+   "outage_tell": {
+    "value": 30,
+    "def": 30,
+    "min": 5,
+    "max": 240,
+    "unit": "min"
+   },
+   "clock": {
+    "value": 5,
+    "def": 5,
+    "min": 1,
+    "max": 60,
+    "unit": "min"
+   }
+  },
+  "lan": {
+   "random": {
+    "value": false,
+    "def": false
+   }
   }
  },
  "hand": {
@@ -2739,6 +2798,15 @@
   ],
   "door": [
    "tunnel"
+  ],
+  "router": [
+   "admin",
+   "vpn",
+   "link",
+   "sender"
+  ],
+  "lan": [
+   "network"
   ]
  },
  "hand_amount": {

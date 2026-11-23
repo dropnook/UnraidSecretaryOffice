@@ -1563,7 +1563,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
                 watchmanSchedCompare($b['sched'], $seen['sched'], $seen['plugins'], $book, $now, $office, $set['sched']['at_late'] * 86400),
                 watchmanHostCompare($b['host'], $seen['host'], is_array($old['seen']) ? ($old['seen']['host'] ?? null) : null,
                     (array) ($seen['flash']['users'] ?? []), $book, $now),
-                watchmanPartnerCompare($b, $seen['partner'], $book, $st, $now),
+                watchmanPartnerCompare($b, $seen['partner'], $book, $st, $now, $set['partner']['burst'], $set['partner']['window']),
             );
         }
         $flow = null;
@@ -1592,7 +1592,14 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             $net = $fresh ? [] : (readJson("$dir/net.json") ?? []);
             $old['net'] = $net;
             $b['net'] = $fresh ? null : ($b['net'] ?? null);
+            // his settings and your exceptions for the network (6e) — watchnet reads them (watchnetSet()); new devices a rule
+            // kept from being a line: its hits
+            watchnetSet(watchmanNetSet($set, watchmanRules(watchmanRulesRaw($dir))['rules']));
             $added = array_merge($added, watchnetCompare($b['net'], $netLook, $book, $net, $netServer, $now, $fresh, !empty($st['net_lan'])));
+            foreach (watchnetHits() as $rid => $h) {
+                $was = is_array($st['rule_hits'][$rid] ?? null) ? $st['rule_hits'][$rid] : [];
+                $st['rule_hits'][$rid] = ['n' => (int) ($was['n'] ?? 0) + (int) $h['n'], 'last' => (int) $h['last'], 'key' => (string) $h['key']];
+            }
             watchmanNetGuess($book, $netContainers, fn (): ?array => watchmanFlowGuessSetup($paths)['vms'], $paths);
             $observed['net'] = ['clock' => watchnetClock($net)];
         }
@@ -2892,7 +2899,7 @@ function watchmanPartnerLogin(array $doors, string $ip, ?string $fp): ?array
  *
  * @return list<string>  the kinds of new entries
  */
-function watchmanPartnerCompare(array &$b, ?array $seen, array &$book, array &$st, int $now): array
+function watchmanPartnerCompare(array &$b, ?array $seen, array &$book, array &$st, int $now, int $burstAt = WATCH_REFUSED_BURST, int $window = WATCH_REFUSED_WINDOW): array
 {
     if ($seen === null) {
         return [];
@@ -2948,9 +2955,9 @@ function watchmanPartnerCompare(array &$b, ?array $seen, array &$book, array &$s
         $st['partner_refused'][$id] = max($times);
         $burst = 0;
         foreach ($new as $t) {
-            $burst = max($burst, count(array_filter($times, fn ($x) => $x <= $t && $x > $t - WATCH_REFUSED_WINDOW)));
+            $burst = max($burst, count(array_filter($times, fn ($x) => $x <= $t && $x > $t - $window)));
         }
-        if ($burst >= WATCH_REFUSED_BURST) {
+        if ($burst >= $burstAt) {
             // a new entry counts the burst's refusals; an open one counts on with the new ones
             $open = array_filter($book, fn ($e) => ($e['key'] ?? '') === "door_refused:$id" && watchmanOpen($e));
             $added[] = watchmanBump($book, 'door_refused', "door_refused:$id", max($new), $open ? count($new) : max($burst, count($new)),
@@ -4404,6 +4411,19 @@ function watchmanPostureAck(mixed $id, mixed $on, ?string $dir = null, ?int $now
     }
     logLine("Night watchman: posture tip $id " . ($on ? 'noted («I know, thanks»)' : 'shown again'));
     return ['ok' => true, 'state' => watchmanPageState()];
+}
+
+/** The network's settings for watchnet (watchnetSet()): his settings in seconds, the networks your exceptions name (6e) */
+function watchmanNetSet(array $set, array $rules): array
+{
+    $nets = [];
+    foreach ($rules as $r) {
+        if (in_array('net_new_device', (array) ($r['kinds'] ?? []), true) && is_string($r['on']['network'] ?? null) && !isset($r['opt'])) {
+            $nets[(string) $r['id']] = $r['on']['network'];
+        }
+    }
+    return ['silent' => (int) $set['router']['silent'] * 3600, 'flaps' => (int) $set['router']['flaps'], 'outage_short' => (int) $set['router']['outage_short'] * 60,
+            'outage_tell' => (int) $set['router']['outage_tell'] * 60, 'clock' => (int) $set['router']['clock'] * 60, 'random' => (bool) $set['lan']['random'], 'nets' => $nets];
 }
 
 /**

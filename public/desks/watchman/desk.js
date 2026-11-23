@@ -199,6 +199,11 @@ function setupSection(id) {
   cb.onchange = () => catOffAsk(id, !cb.checked, cb);
   s.appendChild(Office.sectionHead(catName(id), T(`cat.${id}_sub`), label));
   if (offAt(id)) s.appendChild(el('p', 'callout', T('setup.off_since', { when: fmt.date(offAt(id)) })));
+  if (id === 'lan') {
+    const box = el('div', 'box wm-settings');
+    box.appendChild(lanSwitch());           // «Whole LAN» (his switch from before 1.96, kept in his state)
+    s.appendChild(box);
+  }
   const set = (state.settings && state.settings[id]) || null;
   if (set && Object.keys(set).length) s.appendChild(settingsBox(id, set));
   const rules = catRules(id);
@@ -311,11 +316,14 @@ const handTypes = (id) => ((state && state.hand && state.hand[id]) || []).filter
 const HAND_EXAMPLE = { net: '192.168.1.0/24', ip: '203.0.113.7', user_net: '192.168.1.0/24', ports: 'plex', rights: 'plex', source: 'github.com/…',
   script: '…', cron_file: '…/….cron', crond: '…', client: '192.168.1.20', client_min: '192.168.1.20', container: 'plex', disk_gone: 'disk1',
   disk_written: 'disk1', series: 'zfs-auto-snap_hourly-#', series_ds: 'tank/Media', dataset: 'tank/Media', hold: 'tank/Media', extra: '….txz',
-  guest_read: 'Media', guest_write: 'Media', port: '8384', prog: 'syncthing', tunnel: 'wg0' };
-const HAND_WIDE = { login: 'setup.add_public', plugin: 'setup.add_wide.plugin', data: 'setup.add_wide.data', snap: 'setup.add_wide.snap', share: 'setup.add_wide.share' };
+  guest_read: 'Media', guest_write: 'Media', port: '8384', prog: 'syncthing', tunnel: 'wg0', admin: '192.168.1.0/24', vpn: '…', link: 'ether5',
+  sender: '192.168.1.1', network: '…' };
+const HAND_WIDE = { login: 'setup.add_public', plugin: 'setup.add_wide.plugin', data: 'setup.add_wide.data', snap: 'setup.add_wide.snap', share: 'setup.add_wide.share',
+  router: 'setup.add_wide.router' };
 // a second field: a user from a net, a series on a dataset
 const HAND_SECOND = { user_net: ['setup.add_user', 'root'], series_ds: ['setup.add_second.series_ds', 'zfs-auto-snap_hourly-#'],
-  guest_read: ['setup.add_second.proto', 'SMB'], guest_write: ['setup.add_second.proto', 'SMB'] };
+  guest_read: ['setup.add_second.proto', 'SMB'], guest_write: ['setup.add_second.proto', 'SMB'], admin: ['setup.add_second.admin', 'admin'],
+  link: ['setup.add_second.sender', '192.168.1.1'] };
 const handAmount = (t) => (state && state.hand_amount && state.hand_amount[t]) || null;
 /**
  * «Add an exception…» by hand: what kind of exception (the area's types), its value typed, a user for «a user from a net»
@@ -400,10 +408,10 @@ function ruleHandDialog(id, b) {
 
 // ------------------------------------------------------------------ exceptions (1.96, agent/desks/watchman-rules.php)
 const OFFERS = ['key', 'ip', 'net', 'user_net', 'machine', 'source', 'file', 'cmd', 'share', 'disk', 'min', 'kept', 'layers', 'series_ds', 'series', 'hold', 'open',
-  'prog', 'tunnel'];
+  'prog', 'tunnel', 'pair_ip', 'pair_net', 'admin_ip', 'admin_net', 'vpn', 'link', 'sender', 'network'];
 // kinds whose key is «<kind>:<the thing's name>»: an exception for exactly it reads «The ports of plex may change» (6a)
 const KEY_NAMED = ['container_ports', 'container_rights', 'script_changed', 'cron_file', 'flow_client', 'flow_container', 'flash_extra', 'listen_new',
-  'container_privileged'];
+  'container_privileged', 'net_blocked_from_server'];
 /** A named key's thing in words: a client of the data flow «192.168.1.5 (SMB)» (its key: ip|service), else the name */
 function keyThing(kind, name) {
   if (kind === 'listen_new') return name.replace(/^tcp:/, '');
@@ -434,6 +442,13 @@ const justMade = new Set();     // exceptions made on this visit: «Undo» besid
  */
 function offerName(o, e, here) {
   const on = o.on || {};
+  // the partner door and the network (6e) — before the logins' shapes: they carry an address or a net too
+  if (on.pair) return T('rule.offer.pair', { name: o.what || on.pair, where: on.net || on.ip });
+  if (on.admin) return T('rule.offer.admin', { admin: on.admin, where: on.net || on.ip });
+  if (on.vpn) return T('rule.offer.vpn', { user: on.vpn });
+  if (on.iface) return T('rule.offer.link', { iface: on.iface, sender: on.sender });
+  if (on.sender) return T('rule.offer.sender', { sender: on.sender });
+  if (on.network) return T('rule.offer.network', { network: on.network });
   if (on.open) return T(`rule.offer.open_${on.open === 'write' ? 'write' : 'read'}`, { share: on.share, proto: String(on.proto || '').toUpperCase() });
   if (on.prog) return T('rule.offer.prog', { prog: on.prog });
   if (on.tunnel) return T('rule.offer.tunnel', { tunnel: on.tunnel });
