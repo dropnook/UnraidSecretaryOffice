@@ -156,7 +156,8 @@ function watchmanVulnRange(array $r): ?array
         || isset($r['changes']) || !is_string($r['version'] ?? null)) {
         return null;
     }
-    $ver = $r['version'];
+    // «8.1.*» and (PHP Group's records, CVE-2019-11043) «7.1.x»: the branch
+    $ver = preg_replace('/^(\d{1,9}(?:\.\d{1,9}){0,3})\.x$/Di', '$1.*', $r['version']) ?? $r['version'];
     $start = preg_match('/^(\d{1,9}(?:\.\d{1,9}){0,3})\.\*$/D', $ver, $m) ? watchmanVulnParse($m[1]) : watchmanVulnParse($ver);
     if ($start === null) {
         return null;
@@ -169,6 +170,7 @@ function watchmanVulnRange(array $r): ?array
     if (!is_string($end)) {
         return null;
     }
+    $end = preg_replace('/^(\d{1,9}(?:\.\d{1,9}){0,3})\.x$/Di', '$1.*', $end) ?? $end;
     if ($end === '*') {
         return ['status' => $status, 'start' => $start, 'end' => null, 'incl' => true, 'branch' => null, 'exact' => false];
     }
@@ -743,7 +745,8 @@ function watchmanVulnSet(mixed $on, ?string $dir = null, bool $page = true): arr
  *
  * Step 16: the containers' software against endoflife.date (watchmanVulnEol(); $images: container => its versions).
  *
- * @return array{found: list<array>, checked: int, fresh: bool, kev: ?int, pending: list<string>, not: list<array>, unsure: list<array>, unraid: ?array{version: string, status: string, newest: ?string},
+ * @return array{found: list<array>, checked: int, fresh: bool, kev: ?int, pending: list<string>, not: list<array>, unsure: list<array>,
+ *               kev_total: ?int, kev_known: int, kev_here: int, kev_products: array<string, int>, unraid: ?array{version: string, status: string, newest: ?string},
  *               software: list<array>, unknown: list<string>}
  */
 function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []): array
@@ -754,7 +757,12 @@ function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []
     $status = readJson("$f/status.json") ?? [];
     $ok = is_int($status['kev']['ok'] ?? null) ? $status['kev']['ok'] : $fetched;
     $out = ['found' => [], 'checked' => 0, 'fresh' => $ok !== null && $now - $ok <= WATCH_VULN_OLD && $ok <= $now + 300, 'kev' => $ok, 'unraid' => null,
-            'pending' => [], 'not' => [], 'unsure' => []] + watchmanVulnEol($dir, $inv, $images);
+            'pending' => [], 'not' => [], 'unsure' => [],
+            // what he looked at (2026-11-23: an empty result must be believable): the whole list, the entries of products
+            // the name table knows, those of products running here — by product
+            'kev_total' => is_array($kev) && is_int($kev['count'] ?? null) ? $kev['count'] : null,
+            'kev_known' => is_array($kev) ? count((array) ($kev['entries'] ?? [])) : 0, 'kev_here' => 0, 'kev_products' => []]
+        + watchmanVulnEol($dir, $inv, $images);
     $tried = readJson("$f/cve-tried.json");
     $tried = is_array($tried) ? $tried : [];
     $byProduct = [];
@@ -765,6 +773,8 @@ function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []
         if (!is_array($e) || !isset($byProduct[$e['product'] ?? ''])) {
             continue;
         }
+        $out['kev_here']++;
+        $out['kev_products'][$e['product']] = ($out['kev_products'][$e['product']] ?? 0) + 1;
         $rec = readJson("$f/cve/{$e['cve']}.json");
         if (!is_array($rec) && !isset($tried[$e['cve']])) {
             $out['pending'][] = (string) $e['cve'];         // its record not fetched yet (a first fetch, over 60 a day): not judged yet
@@ -967,6 +977,11 @@ function watchmanVulnPage(array $st, ?array $judged): array
             // checked against what runs here, not affected (1.96): the calm proof he looked — an older state has none
             'not' => array_map(fn ($x) => $x + ['label' => WATCH_VULN_PRODUCTS[$x['product']]['label'] ?? $x['product']],
                 array_values(array_filter((array) ($j['not'] ?? []), fn ($x) => is_array($x) && is_string($x['cve'] ?? null) && is_string($x['product'] ?? null)))),
+            // what he looked at (2026-11-23): the list's entries, those of products here (by product, named), records still to come
+            'kev_total' => is_int($j['kev_total'] ?? null) ? $j['kev_total'] : null, 'kev_here' => (int) ($j['kev_here'] ?? 0),
+            'kev_products' => array_map(fn ($id, $n) => ['product' => (string) $id, 'label' => WATCH_VULN_PRODUCTS[$id]['label'] ?? (string) $id, 'n' => (int) $n],
+                array_keys(array_filter((array) ($j['kev_products'] ?? []), 'is_int')), array_filter((array) ($j['kev_products'] ?? []), 'is_int')),
+            'pending' => is_array($j['pending'] ?? null) ? count($j['pending']) : 0,
             // can't be checked for sure (1.96, 2026-11-23): the record names no version he can compare — calm, never an entry
             'unsure' => array_map(fn ($x) => $x + ['label' => WATCH_VULN_PRODUCTS[$x['product']]['label'] ?? $x['product']],
                 array_values(array_filter((array) ($j['unsure'] ?? []), fn ($x) => is_array($x) && is_string($x['cve'] ?? null) && is_string($x['product'] ?? null))))];

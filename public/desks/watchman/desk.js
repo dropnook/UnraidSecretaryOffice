@@ -1861,8 +1861,14 @@ function tileSection(id) {
     on.onclick = () => tileOn(id, on);
     s.appendChild(on);
   }
-  // what waits for your answer (only that: the done is the watch book's)
+  // what waits for your answer (only that: the done is the watch book's); «Known vulnerabilities»: its calm lists too
   const bar = catBarGet(id);
+  const calm = id === 'vuln' ? vulnListCount() : 0;
+  let openShown = 0;
+  if (calm && !open.length) {
+    s.appendChild(bar.el);
+    bar.options([]);
+  }
   if (open.length) {
     s.appendChild(bar.el);
     const f = bar.read();
@@ -1875,13 +1881,19 @@ function tileSection(id) {
     v.items.forEach((x) => box.appendChild(x.members ? (x.members.length > 1 ? foldRow(x, f.words.length > 0) : entryRow(x.members[0])) : dayHead(x.day)));
     if (!v.rows.length) box.appendChild(el('p', 'empty', T('cat.empty_filter')));
     s.appendChild(box);
-    bar.done(v.rows.reduce((n, r) => n + r.members.length, 0), open.length);
+    openShown = v.rows.reduce((n, r) => n + r.members.length, 0);
+    if (!calm) bar.done(openShown, open.length);
   } else s.appendChild(el('p', 'role wm-quiet-line', quietWords(id)));
   const advice = tileAdvice(id);
   if (advice) s.appendChild(advice);
   if (id === 'array') s.appendChild(holdBlock());
-  const extra = id === 'vuln' ? vulnLists() : null;
-  if (extra) s.appendChild(extra);
+  const extra = id === 'vuln' ? vulnLists(open.length || calm ? bar.read().words : []) : null;
+  if (extra) s.appendChild(extra.el);
+  if (calm) {
+    bar.done(openShown + (extra ? extra.shown : 0), open.length + calm);
+    const pick = bar.el.querySelector('.filter-pick');
+    if (pick && !open.length) pick.hidden = true;           // the kinds are those of what waits: none, no choice
+  }
   const inv = knownFolds(id, open.length ? bar.read().words : []);       // what he knows here: the tile's filter words find in it too
   if (inv) s.appendChild(inv);
   const scope = sw.active() === id ? scopeBox(id) : null;       // what he checks here: shown alone, folded at first
@@ -3714,26 +3726,49 @@ function vulnOffBox() {
  * — folded, with its count — «Checked: doesn't concern you»: the programs here a listed vulnerability is about, whose
  * version is already fixed or was never affected. The calm proof that he looked (state.vuln.not, the messenger's).
  */
-function vulnLists() {
+/** The calm lists of «Known vulnerabilities» (checked: doesn't concern you; can't be checked for sure): their lines */
+const vulnLines = (list) => (Array.isArray(list) ? list : []).filter((x) => x && typeof x.cve === 'string');
+/** A line's words for the area's filter: the vulnerability, the product, its name, where it runs, the version */
+const vulnHay = (x) => [x.cve, x.label || '', x.product || '', x.name || '', x.where && x.where !== 'host' ? x.where : '', x.have || ''];
+/** How many lines the calm lists hold (the area's filter counts them with what waits) */
+const vulnListCount = () => (state && state.vuln && state.vuln.on !== false ? vulnLines(state.vuln.not).length + vulnLines(state.vuln.unsure).length : 0);
+
+/**
+ * What he looked at and the calm lists, under what waits: the list he compares with, how many of its entries concern
+ * programs here (by product) and how many records are still to come (2026-11-23: an empty result must be believable);
+ * then «Checked: doesn't concern you» and «Can't be checked for sure», folded — the area's filter words search them too
+ * (CVE, product, name, where), and with words a list holding hits stands open. → {el, shown}
+ */
+function vulnLists(words) {
   const v = state && state.vuln;
   if (!v || v.on === false) return null;
   const box = el('div', 'wm-vuln-lists');
   box.appendChild(el('p', 'role', T('vuln.kev_line')));
-  const lines = (list) => (Array.isArray(list) ? list : []).filter((x) => x && typeof x.cve === 'string');
+  if (Number.isInteger(v.kev_total)) {
+    const prods = (Array.isArray(v.kev_products) ? v.kev_products : []).filter((x) => x && Number(x.n) > 0).sort((a, b) => b.n - a.n || String(a.label).localeCompare(String(b.label)));
+    const here = Number(v.kev_here) || 0;
+    const line = here ? T('vuln.counted', { n: here, total: fmt.number(v.kev_total), list: prods.map((x) => `${x.label} ${x.n}`).join(' · ') })
+      : T('vuln.counted_none', { total: fmt.number(v.kev_total) });
+    box.appendChild(el('p', 'role wm-vuln-counted', [line, v.pending ? T('vuln.pending', { n: v.pending }) : ''].filter(Boolean).join(' ')));
+  }
   const where = (x) => (x.where && x.where !== 'host' ? T('vuln.not_in', { where: x.where }) : '');
-  // checked, doesn't concern you; and (2026-11-23) can't be checked for sure — both calm, folded, never waiting
-  vulnFold(box, 'vuln.not', lines(v.not), (x) => T(x.fixed ? 'vuln.not_row' : 'vuln.not_row_never',
+  const fit = (list) => vulnLines(list).filter((x) => !words || !words.length || Office.fits(words, vulnHay(x)));
+  const not = fit(v.not);
+  const unsure = fit(v.unsure);
+  const forced = !!(words && words.length);
+  vulnFold(box, 'vuln.not', not, forced, (x) => T(x.fixed ? 'vuln.not_row' : 'vuln.not_row_never',
     { product: x.label || x.product, cve: x.cve, fixed: x.fixed || '', have: x.have || '', where: where(x) }));
-  vulnFold(box, 'vuln.unsure', lines(v.unsure), (x) => T('vuln.unsure_row', { product: x.label || x.product, cve: x.cve, have: x.have || '', where: where(x) }));
-  return box;
+  vulnFold(box, 'vuln.unsure', unsure, forced, (x) => T('vuln.unsure_row', { product: x.label || x.product, cve: x.cve, have: x.have || '', where: where(x) }));
+  return { el: box, shown: not.length + unsure.length };
 }
-/** One calm list of «Known vulnerabilities», folded: its head with the count, unfolded its sentence and a row each */
-function vulnFold(box, key, list, words) {
+/** One calm list, folded: its head with the count, unfolded (or holding the filter's hits) its sentence and a row each */
+function vulnFold(box, key, list, forced, words) {
   if (!list.length) return;
-  const open = knownOpen.has(key);
+  const open = forced || knownOpen.has(key);
   const head = el('button', 'btn small plain wm-known-head', `${open ? '▾' : '▸'} ${T(`${key}_title`, { n: list.length })}`);
   head.type = 'button';
   head.setAttribute('aria-expanded', open ? 'true' : 'false');
+  head.disabled = forced;          // the filter's words hold it open
   head.onclick = () => { if (open) knownOpen.delete(key); else knownOpen.add(key); Office.keepInPlace(head, () => sw.render()); };
   box.appendChild(head);
   if (!open) return;

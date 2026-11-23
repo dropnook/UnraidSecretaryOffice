@@ -5620,6 +5620,26 @@
   "checked": 2,
   "affected": 0,
   "maybe": 2,
+  "kev_total": 1484,
+  "kev_here": 47,
+  "kev_products": [
+   {
+    "product": "kernel",
+    "label": "Linux kernel",
+    "n": 39
+   },
+   {
+    "product": "php",
+    "label": "PHP",
+    "n": 5
+   },
+   {
+    "product": "bash",
+    "label": "Bash",
+    "n": 3
+   }
+  ],
+  "pending": 0,
   "software": [],
   "unknown": [],
   "not": [
