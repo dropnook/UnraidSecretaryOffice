@@ -5810,7 +5810,9 @@ function watchmanSchedAdopt(array &$b, string $kind, array $p, array $seen): voi
  *               shares each one moves (watchmanFlowMoveShares()), so a deletion elsewhere meanwhile is
  *               still told — on an XFS/btrfs disk with a folder of such a share only as much as
  *               their records say they moved (watchmanFlowMovedOff(); Unraid's mover and the gather
- *               keep none: that disk whole); rsync and the storeroom can't be told by share: anywhere. Moving pool →
+ *               keep none: that disk whole); rsync --remove-source-files and the storeroom's purge only in the shares their
+ *               paths name (watchmanFlowMoverShares(); her storeroom's disks whole — 1.96 step 6g, up to 1.95 anywhere),
+ *               the engine's lock only in the office's own shares (a restore: all of it). Moving pool →
  *               array inside a share is gone from the pool's dataset while the XFS/btrfs array disk
  *               it went to is counted per disk, never per share), a dataset renamed into her storeroom, snapshots pruned (they change
  *               usedbysnapshots, not referenced). Told while learning: one round over WATCH_GONE_NEW
@@ -5985,7 +5987,8 @@ function watchmanFlowLook(array $paths, ?array $containers): array
             'office_shares' => watchmanOfficeShares($settings),
             'disks' => watchmanFlowDisks($paths, $snapDirs), 'fs' => watchmanFlowFs($paths),
             'where' => fn (string $disk, int $gen): ?array => watchmanBtrfsWhere(rtrim($paths['mnt'] ?? '/mnt', '/') . "/$disk", $gen), 'moving' => watchmanFlowMovers($paths['proc'] ?? '/proc'),
-            'runs' => watchmanFlowOfficeRuns($paths), 'move_shares' => watchmanFlowMoveShares($paths), 'moved_off' => watchmanFlowMovedOff($paths),
+            'runs' => watchmanFlowOfficeRuns($paths), 'move_shares' => watchmanFlowMoveShares($paths) + watchmanFlowMoverShares($paths['proc'] ?? '/proc'),
+            'store_disks' => watchmanFlowStoreDisks($paths['proc'] ?? '/proc'), 'moved_off' => watchmanFlowMovedOff($paths),
             'partner' => watchmanFlowPartner($paths, $holder['holder'] ?? null)];
 }
 
@@ -6392,6 +6395,57 @@ function watchmanFlowOfficeMoved(array $runs, ?int $prevTime, int $now): array
     }
     ksort($out);
     return array_keys($out);
+}
+
+/**
+ * The shares an `rsync --remove-source-files` or Ms. Dustdevil emptying her storeroom works in (1.96 step 6g; up to 1.95
+ * what vanished anywhere then was theirs): every /mnt/<user|disk|pool>/<share>/… its arguments name — what vanishes in
+ * another share meanwhile is told. A path outside the shares (another mount, a relative one) names none: nothing excused.
+ * @return array{rsync: list<string>, storeroom: list<string>}
+ */
+function watchmanFlowMoverShares(string $proc = '/proc'): array
+{
+    $out = ['rsync' => [], 'storeroom' => []];
+    foreach (watchmanFlowMoverArgs($proc) as [$what, $argv]) {
+        foreach ($argv as $a) {
+            if (preg_match('#^/mnt/([A-Za-z0-9_.-]{1,64})/([^/\x00-\x1f]{1,100})(?:/|$)#', (string) $a, $m)
+                && !in_array($m[1], ['remotes', 'disks', 'addons', 'rootshare'], true) && $m[2] !== '.' && $m[2] !== '..' && !storeroomName($m[2])) {
+                $out[$what][$m[2]] = true;
+            }
+        }
+    }
+    return array_map(fn (array $s): array => array_map('strval', array_keys($s)), $out);
+}
+
+/** The disks and pools Ms. Dustdevil's purge works on (her storeroom emptied there is no loss: a disk counts only per disk) */
+function watchmanFlowStoreDisks(string $proc = '/proc'): array
+{
+    $out = [];
+    foreach (watchmanFlowMoverArgs($proc) as [$what, $argv]) {
+        foreach ($what === 'storeroom' ? $argv : [] as $a) {
+            if (str_contains((string) $a, '/') && storeroomIn((string) $a) && preg_match('#^/mnt/([A-Za-z0-9_.-]{1,64})/#', (string) $a, $m)
+                && !in_array($m[1], ['user', 'user0', 'remotes', 'disks', 'addons', 'rootshare'], true)) {
+                $out[$m[1]] = true;
+            }
+        }
+    }
+    return array_map('strval', array_keys($out));
+}
+
+/** The rsync --remove-source-files and storeroom purges running now: [kind, argv] each */
+function watchmanFlowMoverArgs(string $proc): array
+{
+    $out = [];
+    foreach (@scandir($proc) ?: [] as $pid) {
+        if (ctype_digit($pid)) {
+            $argv = explode("\0", rtrim((string) @file_get_contents("$proc/$pid/cmdline", false, null, 0, 8192), "\0"));
+            $what = watchmanFlowMover($argv);
+            if ($what === 'rsync' || $what === 'storeroom') {
+                $out[] = [$what, $argv];
+            }
+        }
+    }
+    return $out;
 }
 
 /** Which kind of mover a process is (its program, or the script an interpreter runs), or null */
@@ -7560,7 +7614,7 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
     $officeMoved = watchmanFlowOfficeMoved(is_array($look['runs'] ?? null) ? $look['runs'] : [], $prevTime, $now);
     $moving = array_values(array_unique(array_merge($movers ?? [], array_map('strval', (array) ($prev['moving'] ?? [])), $officeMoved)));
     // the shares those movers move (watchmanFlowMoveShares()) — only there; rsync --remove-source-files and Ms. Dustdevil
-    // emptying her storeroom can't be told by share: what vanishes anywhere then went elsewhere (as before)
+    // emptying her storeroom: the shares their paths name (1.96 step 6g), like the movers'
     $moveMap = is_array($look['move_shares'] ?? null) ? $look['move_shares'] : [];
     $sharesOf = function (array $names) use ($moveMap): array {
         $out = [];
@@ -7572,11 +7626,15 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
         return $out;
     };
     $moved = $sharesOf($moving) + array_fill_keys(array_map('strval', (array) ($prev['moved'] ?? [])), true);     // and those moved at the last round
-    $anywhere = (bool) array_intersect($moving, ['rsync', 'storeroom']);
+    // rsync --remove-source-files and Ms. Dustdevil's purge: only the shares their paths name (watchmanFlowMoverShares(),
+    // in $moved like the movers'), her storeroom's disks whole (1.96 step 6g — up to 1.95 anywhere)
+    $storeDisks = array_fill_keys(array_map('strval', array_merge(in_array('storeroom', $moving, true) ? (array) ($look['store_disks'] ?? []) : [],
+        (array) ($prev['store_disks'] ?? []))), true);
     $officeShares = array_flip(array_map('strval', (array) ($look['office_shares'] ?? [])));
     $ack = fn (string $key): int => (int) ($bf['ack'][$key]['bytes'] ?? 0);
     $added = [];
     $next = ['time' => $now, 'conns' => null, 'cts' => null, 'ds' => null, 'smb' => null, 'ref' => null, 'disks' => null, 'moving' => null, 'zx' => null, 'fsd' => null,
+             'store_disks' => array_values(array_map('strval', (array) ($look['store_disks'] ?? []))),
              'door' => !empty($look['partner']['door'])];
     // the partner door at work — receiving now, at the last round, or a receive finished since: what it wrote into the
     // partners' place and the pairs' SSH bytes are the office's own; so are they while this office sends (phase partner)
@@ -7879,7 +7937,9 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
         }
         return $budget + WATCH_FLOW_WRITE;          // a file in flight
     };
-    $expected = $office || $anywhere;       // the office's engine at work, or something moving data anywhere: what vanishes went elsewhere
+    // the office's engine at work: what vanishes in its own shares (its packages, its dumps) is its own — anywhere only during
+    // a restore (it puts aside what it replaces); a mass deletion elsewhere while a backup runs is told (1.96 step 6g)
+    $expected = $restore;
     $users = [];
     foreach ((array) ($smb['sessions'] ?? []) as $x) {
         $users[(string) $x['user']] = true;
@@ -7888,10 +7948,14 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
                'from' => $active === null ? null : ($active ? 'clients' : 'server')];
     // $limit: a disk with a folder of a moved share — at most this much of its loss is the movers' (null: all of it)
     $gone = function (string $key, int $loss, int $size, array $who, ?int $limit = null) use (&$flow, &$added, &$book, $now, $prevTime, $fromOf, $expected, $whoNow, $ack, $door,
-                                                                                         $moved, $look, $set, $ruleFor, $hit, $judgeBy, $mustOf, $goneMin, $dataFactor): int {
+                                                                                         $moved, $look, $set, $ruleFor, $hit, $judgeBy, $mustOf, $goneMin, $dataFactor, $office,
+                                                                                         $officeShares, $storeDisks): int {
         if (!isset($flow['gone'][$key]) && count($flow['gone']) >= WATCH_FLOW_SHARES) {
             return 0;
         }
+        $expected = $expected || ($office && (isset($officeShares[(string) ($who['share'] ?? '')])         // the engine's own share …
+            || (str_starts_with($key, 'disk:') && array_intersect_key($officeShares, array_flip((array) ($who['shares'] ?? []))))));    // … a disk with a folder of it
+        $expected = $expected || (str_starts_with($key, 'disk:') && isset($storeDisks[(string) ($who['disk'] ?? '')]));     // her storeroom emptied there
         $expected = $expected || ($door && $key === 'share:' . PARTNER_PARENT);      // a receive brings the sender's deletions along
         $expected = $expected || isset($moved[(string) ($who['share'] ?? '')]);    // a share a mover moves
         // a disk with a folder of one (the array side of a move back to the pool): as much as the movers moved
@@ -8082,7 +8146,7 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
         foreach ($per as $sh => $n) {
             $sh = (string) $sh;
             $files("share:$sh", $n, ['share' => $sh, 'disk' => null, 'shares' => []],
-                $anywhere || isset($moved[$sh]) || ($office && ($restore || isset($officeShares[$sh]))));
+                isset($moved[$sh]) || ($office && ($restore || isset($officeShares[$sh]))));
         }
     }
     $fsl = $look['fs'] ?? null;
@@ -8107,7 +8171,7 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
             $who = ['share' => $name, 'disk' => $name, 'fs' => (string) $d['fs'], 'shares' => array_slice($diskShares, 0, WATCH_LIST_MAX)];
             $mine = $officeDisk($diskShares) || $movedDisk($diskShares);
             if ($d['rm'] !== null && $p[0] !== null && (int) $d['rm'] >= (int) $p[0]) {
-                $files("disk:$name", (int) $d['rm'] - (int) $p[0], $who + ['renames' => true], $mine || $anywhere);
+                $files("disk:$name", (int) $d['rm'] - (int) $p[0], $who + ['renames' => true], $mine || isset($storeDisks[$name]));
             }
             if ($d['w'] === null || $p[1] === null || (int) $d['w'] < (int) $p[1] || !empty($d['busy'])) {
                 continue;                   // no figure, counted anew (remounted, rebooted), or btrfs/parity at work
@@ -8119,7 +8183,7 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
             $s = is_array($flow['disk_w'][$name] ?? null) ? $flow['disk_w'][$name] : watchmanFlowSeries($now);
             $s = $who + $s;
             $s['seen'] = $now;
-            $excused = $mine || ($anywhere && in_array('rsync', $moving, true));
+            $excused = $mine;           // rsync's writing: on a disk with a folder of a share it works in ($movedDisk), 1.96 step 6g
             $round = watchmanFlowAdd($s, $bytes, $now, $prevTime, $excused, from: $fromOf('fsd'));
             if (is_array($s['run'] ?? null) && (int) $s['run']['bytes'] === $bytes) {
                 $s['run']['gen'] = isset($p[2]) && is_int($p[2]) ? $p[2] : null;      // btrfs: the generation the run began at
