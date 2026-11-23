@@ -1828,6 +1828,18 @@
     "max": 75,
     "unit": "pct"
    }
+  },
+  "flash": {
+   "go_blank": {
+    "value": false,
+    "def": false
+   }
+  },
+  "share": {
+   "secure_ok": {
+    "value": false,
+    "def": false
+   }
   }
  },
  "hand": {
@@ -1869,6 +1881,20 @@
    "series_ds",
    "dataset",
    "hold"
+  ],
+  "flash": [
+   "extra"
+  ],
+  "share": [
+   "guest_read",
+   "guest_write"
+  ],
+  "host": [
+   "port",
+   "prog"
+  ],
+  "door": [
+   "tunnel"
   ]
  },
  "hand_amount": {

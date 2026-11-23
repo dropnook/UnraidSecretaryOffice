@@ -1558,8 +1558,8 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
                 watchmanLogins($b, $book, $st, $events, false, $doors, $set['login']['burst'], $set['login']['window']),
                 watchmanContainersCompare($b['containers'], $seen['containers'], $book, $now, $office, $set['container']['plain']),
                 watchmanPluginsCompare($b['plugins'], $seen['plugins'], $book, $now, $office, $set['plugin']['versions']),
-                watchmanFlashCompare($b['flash'], $seen['flash'], $book, $now, isset($paths['go']) ? (string) $paths['go'] : null),
-                watchmanSharesCompare($b['shares'], $seen['shares'], $book, $now),
+                watchmanFlashCompare($b['flash'], $seen['flash'], $book, $now, isset($paths['go']) ? (string) $paths['go'] : null, $set['flash']['go_blank']),
+                watchmanSharesCompare($b['shares'], $seen['shares'], $book, $now, $set['share']['secure_ok']),
                 watchmanSchedCompare($b['sched'], $seen['sched'], $seen['plugins'], $book, $now, $office, $set['sched']['at_late'] * 86400),
                 watchmanHostCompare($b['host'], $seen['host'], is_array($old['seen']) ? ($old['seen']['host'] ?? null) : null,
                     (array) ($seen['flash']['users'] ?? []), $book, $now),
@@ -1645,7 +1645,9 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         $added = array_merge($added, paritywhyCompare($book, $st, $parity, (array) ($st['logins'] ?? []), $now, $fresh,
             isset($paths['array_events']) ? (string) $paths['array_events'] : null, $tell));
         // how secure it stands: from what he sees now (what Docker or emhttp didn't answer: as the last round saw it)
-        $st['posture'] = ['time' => $now, 'tips' => watchmanPosture($facts, $observed, (array) ($st['posture']['tips'] ?? []))];
+        // what your exceptions call intended (a share open to guests, a container that may run privileged) is no advice (6d)
+        $st['posture'] = ['time' => $now, 'tips' => watchmanPosture($facts, $observed, (array) ($st['posture']['tips'] ?? []),
+            watchmanPostureIntended(watchmanRules(watchmanRulesRaw($dir))['rules']))];
         $old['posture'] = readJson("$dir/posture.json");
         $known = watchmanPostureKnown($old['posture'], $st['posture']['tips']);
         if (!$fresh) {
@@ -3110,14 +3112,18 @@ function watchmanFlash(array $paths): array
     $go = null;
     $text = @file_get_contents($paths['go'], false, null, 0, 262144);
     if ($text !== false) {
-        $lines = [];
+        $lines = $cmds = [];
         foreach (preg_split('/\r?\n/', $text) ?: [] as $l) {
             $l = trim($l);
             if ($l !== '') {
                 $lines[substr(sha1($l), 0, 12)] = true;
+                if ($l[0] !== '#') {
+                    $cmds[] = $l;
+                }
             }
         }
-        $go = ['hash' => substr(hash('sha256', $text), 0, 16), 'lines' => array_keys($lines)];
+        // `cmds`: its commands (lines that are no comment, in their order) — the same when only blanks or comments changed (1.96)
+        $go = ['hash' => substr(hash('sha256', $text), 0, 16), 'lines' => array_keys($lines), 'cmds' => substr(hash('sha256', implode("\n", $cmds)), 0, 16)];
     }
     unset($text);
 
@@ -3229,11 +3235,17 @@ function watchmanGoAdded(string $file, array $was, array $is): array
  * The flash against what is normal: go changed, a file in /boot/extra new or changed, a new user, a changed password, a
  * new SSH key. $go: the go file — the added lines' text goes into the entry (watchmanGoAdded()).
  */
-function watchmanFlashCompare(array &$known, array $seen, array &$book, int $now, ?string $go = null): array
+function watchmanFlashCompare(array &$known, array $seen, array &$book, int $now, ?string $go = null, bool $blankOk = false): array
 {
     $added = [];
     $kg = $known['go'] ?? null;
     $sg = $seen['go'];
+    if ($blankOk && is_string($kg['cmds'] ?? null) && ($kg['hash'] ?? null) !== ($sg['hash'] ?? null) && $kg['cmds'] === ($sg['cmds'] ?? null)) {
+        // his setting (1.96): only blanks or comments changed — the commands the same: normal (a baseline from before has no
+        // `cmds`: told, until a «I know, thanks» learns them)
+        $known['go'] = $sg;
+        $kg = $sg;
+    }
     if (($kg['hash'] ?? null) !== ($sg['hash'] ?? null)) {
         $was = (array) ($kg['lines'] ?? []);
         $is = (array) ($sg['lines'] ?? []);
@@ -3331,7 +3343,7 @@ function watchmanShares(array $paths): ?array
 }
 
 /** Shares against what is normal: more open to guests than before is an entry; less open is the new normal */
-function watchmanSharesCompare(?array &$known, ?array $seen, array &$book, int $now): array
+function watchmanSharesCompare(?array &$known, ?array $seen, array &$book, int $now, bool $secureOk = false): array
 {
     if ($seen === null) {
         return [];
@@ -3346,7 +3358,11 @@ function watchmanSharesCompare(?array &$known, ?array $seen, array &$book, int $
         foreach (['smb', 'nfs'] as $proto) {
             $was = (int) ($k[$proto] ?? 0);
             $is = (int) $s[$proto];
-            if ($is > $was) {
+            if ($is > $was && $is === 1 && $secureOk && (string) $share !== 'flash') {
+                // his setting (1.96): guests may read (⟦Secure⟧) — normal; only ⟦Public⟧ told (the flash: always)
+                $known[$share] ??= ['smb' => 0, 'nfs' => 0, 'seen' => $now];
+                $known[$share][$proto] = 1;
+            } elseif ($is > $was) {
                 $added[] = watchmanSet($book, 'share_public', "share_public:$share:$proto", $now,
                     ['share' => (string) $share, 'proto' => $proto, 'level' => $is === 2 ? 'public' : 'secure']);
             } elseif ($k !== null && $is < $was) {
@@ -3975,7 +3991,8 @@ function watchmanHostCompare(?array &$known, ?array $seen, ?array $prev, array $
                 if ($opened || ($k !== null && $newPeers)) {
                     $added[] = watchmanSet($book, 'door_new', "door_new:$key", $now, ['key' => (string) $key, 'door' => $d['what'], 'name' => $d['name'],
                         'port' => $d['port'] ?? null, 'issuer' => $d['issuer'] ?? null, 'peers' => count((array) ($d['peers'] ?? [])),
-                        'new_peers' => $k === null ? count((array) ($d['peers'] ?? [])) : count($newPeers)]);
+                        'new_peers' => $k === null ? count((array) ($d['peers'] ?? [])) : count($newPeers),
+                        '_opened' => $opened]);         // false: only new peers of a known way in (a tunnel's exception covers that, 1.96)
                 } else {
                     $known['doors'][$key] = $d;     // the same, or closed: normal
                 }
@@ -4161,8 +4178,11 @@ function watchmanShareLink(string $name, array $disks): string
  *
  * @return list<array{id: string, level: string, p: array, link: ?array{to: string, path: string, name?: string}, sig: string}>
  */
-function watchmanPosture(array $f, array $seen, array $prev = []): array
+function watchmanPosture(array $f, array $seen, array $prev = [], array $intended = []): array
 {
+    // $intended (watchmanPostureIntended()): what your exceptions call intended — no advice; its signature only over the rest
+    // (nothing intended: exactly as up to 1.95, your «I know, thanks» on it still holds)
+    $mine = fn (string $id, string $item): bool => isset($intended[$id][$item]);
     $tips = [];
     $add = function (string $id, array $p, string $about, ?array $link) use (&$tips): void {
         $tips[$id] = ['id' => $id, 'level' => WATCH_POSTURE[$id], 'p' => $p, 'link' => $link, 'sig' => watchmanHash("$id|$about")];
@@ -4180,17 +4200,22 @@ function watchmanPosture(array $f, array $seen, array $prev = []): array
             implode(',', array_map(fn ($k, $v) => "$k:$v", array_keys($flash), $flash)), ['to' => 'flash', 'path' => watchmanShareLink('flash', [])]);
     }
     // shares guests may read, write and delete (security «Public», exported) — user shares, disks, pools (the flash: above)
-    $open = [];
+    $open = $meant = [];
     foreach ((array) ($seen['shares'] ?? []) as $name => $s) {
         foreach (['smb' => 'SMB', 'nfs' => 'NFS'] as $proto => $label) {
             if ((int) ($s[$proto] ?? 0) >= 2 && (string) $name !== 'flash') {
-                $open[] = [(string) $name, $label];
+                if ($mine('public', "$name:$label")) {
+                    $meant[] = "$name ($label)";
+                } else {
+                    $open[] = [(string) $name, $label];
+                }
             }
         }
     }
     if ($open) {
         $first = $open[0][0];
-        $add('public', ['names' => watchmanNames(array_map(fn ($x) => "{$x[0]} ({$x[1]})", $open)), 'n' => count(array_unique(array_column($open, 0)))],
+        $add('public', ['names' => watchmanNames(array_map(fn ($x) => "{$x[0]} ({$x[1]})", $open)), 'n' => count(array_unique(array_column($open, 0)))]
+            + ($meant ? ['intended' => watchmanNames($meant)] : []),
             implode(',', array_map(fn ($x) => "{$x[0]}:{$x[1]}", $open)),
             ['to' => 'share', 'name' => $first, 'path' => watchmanShareLink($first, (array) ($f['disks'] ?? []))]);
     }
@@ -4235,10 +4260,12 @@ function watchmanPosture(array $f, array $seen, array $prev = []): array
         $add('mitigations_on', ['cpu' => $cpu['model'] ?? $cpu['vendor'] ?? 'CPU'], implode(',', $cpu['covered']), $boot);
     }
     // privileged containers that run or start by themselves; one stopped and without autostart is only a quiet line in the tip
-    $privileged = $quiet = [];
+    $privileged = $quiet = $meantP = [];
     foreach ((array) ($seen['containers'] ?? []) as $name => $c) {
         if (in_array('--privileged', (array) ($c['tokens'] ?? []), true)) {
-            if (($c['start'] ?? null) === 'off') {
+            if ($mine('privileged', (string) $name)) {
+                $meantP[] = (string) $name;
+            } elseif (($c['start'] ?? null) === 'off') {
                 $quiet[] = (string) $name;
             } else {
                 $privileged[] = (string) $name;
@@ -4247,7 +4274,8 @@ function watchmanPosture(array $f, array $seen, array $prev = []): array
     }
     if ($privileged) {
         $add('privileged', ['names' => watchmanNames($privileged), 'n' => count($privileged)]
-            + ($quiet ? ['quiet' => watchmanNames($quiet), 'quiet_n' => count($quiet)] : []), implode(',', $privileged), ['to' => 'docker', 'path' => '/Docker']);
+            + ($quiet ? ['quiet' => watchmanNames($quiet), 'quiet_n' => count($quiet)] : []) + ($meantP ? ['intended' => watchmanNames($meantP)] : []),
+            implode(',', $privileged), ['to' => 'docker', 'path' => '/Docker']);
     }
     // partner doors (the Team Lead's partner offices): the lines in authorized_keys, the pairs (not looked at: no tip of theirs)
     $partner = is_array($seen['partner'] ?? null) ? $seen['partner'] : null;
@@ -4376,6 +4404,27 @@ function watchmanPostureAck(mixed $id, mixed $on, ?string $dir = null, ?int $now
     }
     logLine("Night watchman: posture tip $id " . ($on ? 'noted («I know, thanks»)' : 'shown again'));
     return ['ok' => true, 'state' => watchmanPageState()];
+}
+
+/**
+ * What your exceptions call intended in his posture tips (1.96 step 6d): a share guests may write ({share, proto, open:
+ * write} on share_public) — «public» leaves it out; a container that may run privileged (its key container_privileged:<name>)
+ * — «privileged» likewise. The same rule lets the book's entry through (one place to see and lift it: his setup).
+ *
+ * @return array<string, array<string, true>>  tip id => item => true
+ */
+function watchmanPostureIntended(array $rules): array
+{
+    $out = [];
+    foreach ($rules as $r) {
+        $on = (array) ($r['on'] ?? []);
+        if (in_array('share_public', (array) ($r['kinds'] ?? []), true) && ($on['open'] ?? null) === 'write') {
+            $out['public'][$on['share'] . ':' . strtoupper((string) $on['proto'])] = true;
+        } elseif (in_array('container_privileged', (array) ($r['kinds'] ?? []), true) && str_starts_with((string) ($on['key'] ?? ''), 'container_privileged:')) {
+            $out['privileged'][substr((string) $on['key'], strlen('container_privileged:'))] = true;
+        }
+    }
+    return $out;
 }
 
 /** What the page shows of his posture tips: each with whether you know it, how many of his advice are open */

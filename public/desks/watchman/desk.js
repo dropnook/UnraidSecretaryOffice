@@ -310,10 +310,12 @@ function catOffAsk(id, off, cb) {
 const handTypes = (id) => ((state && state.hand && state.hand[id]) || []).filter((x) => typeof x === 'string');
 const HAND_EXAMPLE = { net: '192.168.1.0/24', ip: '203.0.113.7', user_net: '192.168.1.0/24', ports: 'plex', rights: 'plex', source: 'github.com/…',
   script: '…', cron_file: '…/….cron', crond: '…', client: '192.168.1.20', client_min: '192.168.1.20', container: 'plex', disk_gone: 'disk1',
-  disk_written: 'disk1', series: 'zfs-auto-snap_hourly-#', series_ds: 'tank/Media', dataset: 'tank/Media', hold: 'tank/Media' };
-const HAND_WIDE = { login: 'setup.add_public', plugin: 'setup.add_wide.plugin', data: 'setup.add_wide.data', snap: 'setup.add_wide.snap' };
+  disk_written: 'disk1', series: 'zfs-auto-snap_hourly-#', series_ds: 'tank/Media', dataset: 'tank/Media', hold: 'tank/Media', extra: '….txz',
+  guest_read: 'Media', guest_write: 'Media', port: '8384', prog: 'syncthing', tunnel: 'wg0' };
+const HAND_WIDE = { login: 'setup.add_public', plugin: 'setup.add_wide.plugin', data: 'setup.add_wide.data', snap: 'setup.add_wide.snap', share: 'setup.add_wide.share' };
 // a second field: a user from a net, a series on a dataset
-const HAND_SECOND = { user_net: ['setup.add_user', 'root'], series_ds: ['setup.add_second.series_ds', 'zfs-auto-snap_hourly-#'] };
+const HAND_SECOND = { user_net: ['setup.add_user', 'root'], series_ds: ['setup.add_second.series_ds', 'zfs-auto-snap_hourly-#'],
+  guest_read: ['setup.add_second.proto', 'SMB'], guest_write: ['setup.add_second.proto', 'SMB'] };
 const handAmount = (t) => (state && state.hand_amount && state.hand_amount[t]) || null;
 /**
  * «Add an exception…» by hand: what kind of exception (the area's types), its value typed, a user for «a user from a net»
@@ -397,11 +399,14 @@ function ruleHandDialog(id, b) {
 }
 
 // ------------------------------------------------------------------ exceptions (1.96, agent/desks/watchman-rules.php)
-const OFFERS = ['key', 'ip', 'net', 'user_net', 'machine', 'source', 'file', 'cmd', 'share', 'disk', 'min', 'kept', 'layers', 'series_ds', 'series', 'hold'];
+const OFFERS = ['key', 'ip', 'net', 'user_net', 'machine', 'source', 'file', 'cmd', 'share', 'disk', 'min', 'kept', 'layers', 'series_ds', 'series', 'hold', 'open',
+  'prog', 'tunnel'];
 // kinds whose key is «<kind>:<the thing's name>»: an exception for exactly it reads «The ports of plex may change» (6a)
-const KEY_NAMED = ['container_ports', 'container_rights', 'script_changed', 'cron_file', 'flow_client', 'flow_container'];
+const KEY_NAMED = ['container_ports', 'container_rights', 'script_changed', 'cron_file', 'flow_client', 'flow_container', 'flash_extra', 'listen_new',
+  'container_privileged'];
 /** A named key's thing in words: a client of the data flow «192.168.1.5 (SMB)» (its key: ip|service), else the name */
 function keyThing(kind, name) {
+  if (kind === 'listen_new') return name.replace(/^tcp:/, '');
   if (kind !== 'flow_client') return name;
   const [ip, svc] = name.split('|');
   return svc ? `${ip} (${({ smb: 'SMB', nfs: 'NFS', ssh: 'SSH', web: 'WebGUI' })[svc] || svc})` : ip;
@@ -429,6 +434,9 @@ const justMade = new Set();     // exceptions made on this visit: «Undo» besid
  */
 function offerName(o, e, here) {
   const on = o.on || {};
+  if (on.open) return T(`rule.offer.open_${on.open === 'write' ? 'write' : 'read'}`, { share: on.share, proto: String(on.proto || '').toUpperCase() });
+  if (on.prog) return T('rule.offer.prog', { prog: on.prog });
+  if (on.tunnel) return T('rule.offer.tunnel', { tunnel: on.tunnel });
   if (on.series) return on.dataset ? T('rule.offer.series_ds', { series: on.series, dataset: on.dataset }) : T('rule.offer.series', { series: on.series });
   if (on.dataset) return T((o.kinds || [])[0] === 'snap_hold_released' ? 'rule.offer.hold' : 'rule.offer.dataset', { dataset: on.dataset });
   if (on.user) return T('rule.offer.user_net', { user: on.user, net: on.net });
@@ -447,7 +455,12 @@ function offerName(o, e, here) {
   if (on.share) return T(`rule.offer.share.${(o.kinds || [])[0] === 'flow_written' ? 'flow_written' : 'flow_gone'}`, { share: on.share });
   if (on.disk) return T(`rule.offer.disk.${(o.kinds || [])[0] === 'flow_written' ? 'flow_written' : 'flow_gone'}`, { disk: on.disk });
   const named = typeof on.key === 'string' ? KEY_NAMED.find((k) => on.key.startsWith(`${k}:`)) : null;
-  if (named && (o.kinds || []).length === 1 && o.kinds[0] === named) return T(`rule.key.${named}`, { name: keyThing(named, on.key.slice(named.length + 1)) });
+  if (named && (o.kinds || []).length === 1 && o.kinds[0] === named) {
+    const thing = on.key.slice(named.length + 1);
+    // a program on changing ports (its key «prog:*»): its own words
+    if (named === 'listen_new' && thing.endsWith(':*')) return T('rule.offer.prog', { prog: thing.slice(0, -2) });
+    return T(`rule.key.${named}`, { name: keyThing(named, thing) });
+  }
   if (here) return T('rule.offer.key');
   const src = e || ((state && state.book) || []).find((x) => x && x.id === o.from);
   const what = src ? entryName(src) : '';
@@ -1219,6 +1232,8 @@ function postureRow(x) {
   main.appendChild(el('div', 'row-detail', T(`posture.${x.id}.why`, params)));
   // privileged containers that are stopped and start by nothing: not part of the tip, a quiet line in it (inbox #10)
   if (x.id === 'privileged' && params.quiet) main.appendChild(el('div', 'row-detail role', T('posture.privileged.quiet', { quiet: params.quiet, n: Number(params.quiet_n) || 1 })));
+  // what your exceptions call intended (1.96): named, no advice (lifted in his setup)
+  if ((x.id === 'privileged' || x.id === 'public') && params.intended) main.appendChild(el('div', 'row-detail role', T('posture.intended', { names: params.intended })));
   if (x.id === 'privileged' && dockerOff()) main.appendChild(el('div', 'row-detail role', T('posture.as_last_seen', { docker: Office.t('common.docker_off') })));
   r.appendChild(main);
   const acts = el('div', 'wm-tip-acts');

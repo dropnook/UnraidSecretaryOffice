@@ -57,6 +57,8 @@ const WATCH_RULE_CMD    = '/^[0-9a-f]{16}$/D';                                  
 const WATCH_RULE_SHARE  = '/^[^\/\x00-\x1f]{1,100}$/D';                                  // a share's name (any but a slash)
 const WATCH_RULE_DISK   = '/^[a-z][a-z0-9_-]{0,39}$/D';                                   // an array disk or a pool (disk1, cache …)
 const WATCH_RULE_FLOW   = ['flow_client', 'flow_container', 'flow_written', 'flow_gone'];   // what a threshold (`opt`) may be on
+const WATCH_RULE_PROG   = '/^[A-Za-z0-9._+-]{1,32}$/D';                                   // a program listening (as ss names it)
+const WATCH_RULE_TUNNEL = '/^[A-Za-z0-9_.-]{1,40}$/D';                                    // a WireGuard tunnel (wg0 …)
 const WATCH_RULE_SERIES = '/^[^\x00-\x1f]{1,255}$/D';                                    // a snapshot series (its name, digits as #)
 const WATCH_RULE_DS     = '#^[A-Za-z0-9_.:-][^@\x00-\x1f]{0,254}$#D';                    // a ZFS dataset (pool/…, never the pool alone: watchmanRuleOn())
 // the kinds he asks about more clearly before an exception (concept 3.3: what an attacker does first, or what points to
@@ -189,6 +191,10 @@ function watchmanRuleOn(mixed $on): ?array
         ['file']        => is_string($on['file']) && preg_match(WATCH_RULE_CROND, $on['file']) ? ['file' => $on['file']] : null,
         ['share']       => is_string($on['share']) && preg_match(WATCH_RULE_SHARE, $on['share']) ? ['share' => $on['share']] : null,
         ['disk']        => is_string($on['disk']) && preg_match(WATCH_RULE_DISK, $on['disk']) ? ['disk' => $on['disk']] : null,
+        ['open', 'proto', 'share'] => is_string($on['share']) && preg_match(WATCH_RULE_SHARE, $on['share']) && in_array($on['proto'], ['smb', 'nfs'], true)
+                                      && in_array($on['open'], ['read', 'write'], true) ? ['share' => $on['share'], 'proto' => $on['proto'], 'open' => $on['open']] : null,
+        ['prog']        => is_string($on['prog']) && preg_match(WATCH_RULE_PROG, $on['prog']) ? ['prog' => $on['prog']] : null,
+        ['tunnel']      => is_string($on['tunnel']) && preg_match(WATCH_RULE_TUNNEL, $on['tunnel']) ? ['tunnel' => $on['tunnel']] : null,
         ['series']      => is_string($on['series']) && preg_match(WATCH_RULE_SERIES, $on['series']) ? ['series' => $on['series']] : null,
         ['dataset']     => watchmanRuleDsOk($on['dataset']) ? ['dataset' => $on['dataset']] : null,
         ['dataset', 'series'] => watchmanRuleDsOk($on['dataset']) && is_string($on['series']) && preg_match(WATCH_RULE_SERIES, $on['series'])
@@ -299,8 +305,20 @@ function watchmanRuleCovers(array $rule, array $e): bool
     if (isset($on['source'])) {
         return is_string($p['source'] ?? null) && $p['source'] === $on['source'];
     }
+    if (isset($on['open'])) {
+        // a share guests may read (⟦Secure⟧) or also write (⟦Public⟧) over this protocol (6d)
+        return ($p['share'] ?? null) === $on['share'] && ($p['proto'] ?? null) === $on['proto']
+            && (($p['level'] ?? null) === 'secure' || ($on['open'] === 'write' && ($p['level'] ?? null) === 'public'));
+    }
     if (isset($on['share'])) {
         return watchmanFlowThing((string) ($e['key'] ?? '')) === ['share', $on['share']];
+    }
+    if (isset($on['prog'])) {
+        return ($p['prog'] ?? null) === $on['prog'];            // a program may listen on any port (6d)
+    }
+    if (isset($on['tunnel'])) {
+        // new peers in a known, open WireGuard tunnel — never the tunnel switched on, another port, an entry from before 1.96
+        return ($p['key'] ?? null) === 'wg:' . $on['tunnel'] && ($p['_opened'] ?? null) === false && (int) ($p['new_peers'] ?? 0) > 0;
     }
     if (isset($on['disk'])) {
         return watchmanFlowThing((string) ($e['key'] ?? '')) === ['disk', $on['disk']];
@@ -310,6 +328,22 @@ function watchmanRuleCovers(array $rule, array $e): bool
         return ($p['_from'] ?? null) === ['cron.d/' . $on['file']];
     }
     return false;
+}
+
+/**
+ * Asked more clearly for this one though its kind isn't on the list (concept 3.2): a container's --privileged, the Docker
+ * socket or the whole server (-v /) for good; a program from memory or /dev/shm on the server itself; the flash for guests
+ */
+function watchmanRuleAskThis(array $e, array $o): bool
+{
+    $p = (array) ($e['p'] ?? []);
+    return match ((string) ($e['kind'] ?? '')) {
+        'container_privileged' => true,
+        'container_rights'     => (bool) array_filter((array) ($p['tokens'] ?? []), fn ($t) => preg_match('#^-v (?:/var)?/run/docker\.sock|^-v /$#', (string) $t)),
+        'proc_odd'             => str_starts_with((string) ($e['key'] ?? ''), 'proc_odd:host:') && (bool) preg_match('#/memfd:|^proc_odd:host:/dev/shm/#', (string) $e['key']),
+        'share_public'         => ($p['share'] ?? null) === 'flash',
+        default                => false,
+    };
 }
 
 /**
@@ -384,17 +418,27 @@ function watchmanRuleOffers(array $e, array $book): array
             }
             $out[] = ['type' => 'series', 'on' => ['series' => $series[0]], 'kinds' => ['snap_gone']];
         }
+    } elseif ($kind === 'share_public' && in_array($p['proto'] ?? null, ['smb', 'nfs'], true) && is_string($p['share'] ?? null)
+              && preg_match(WATCH_RULE_SHARE, $p['share']) && $p['share'] !== 'flash') {
+        // the share may be open to guests (reading, or also writing — as it is now); the flash only by its key, asked clearly
+        $out[] = ['type' => 'open', 'on' => ['share' => $p['share'], 'proto' => $p['proto'], 'open' => ($p['level'] ?? '') === 'public' ? 'write' : 'read'], 'kinds' => ['share_public']];
+    } elseif ($kind === 'door_new' && ($p['_opened'] ?? null) === false && preg_match('/^wg:(.+)$/D', (string) ($p['key'] ?? ''), $m) && preg_match(WATCH_RULE_TUNNEL, $m[1])) {
+        $out[] = ['type' => 'tunnel', 'on' => ['tunnel' => $m[1]], 'kinds' => ['door_new']];
+        $out[] = ['type' => 'key', 'on' => ['key' => $e['key']], 'kinds' => [$kind]];
     } elseif ($kind === 'snap_hold_released') {
         $ds = array_values(array_filter((array) ($p['datasets'] ?? []), 'is_string'));
         if (count($ds) === 1 && watchmanRuleDsOk($ds[0])) {
             $out[] = ['type' => 'hold', 'on' => ['dataset' => $ds[0]], 'kinds' => ['snap_hold_released']];
         }
     } elseif ($thing === null) {
+        if ($kind === 'listen_new' && is_string($p['prog'] ?? null) && $p['prog'] !== '?' && preg_match(WATCH_RULE_PROG, $p['prog']) && ($p['port'] ?? null) !== null) {
+            $out[] = ['type' => 'prog', 'on' => ['prog' => $p['prog']], 'kinds' => ['listen_new']];    // this program on any port
+        }
         $out[] = ['type' => 'key', 'on' => ['key' => $e['key']], 'kinds' => [$kind]];
     }
     foreach ($out as $i => $o) {
         $rule = ['kinds' => $o['kinds'], 'on' => $o['on']];
-        $out[$i]['ask'] = (bool) array_intersect($o['kinds'], WATCH_RULE_ASK);
+        $out[$i]['ask'] = (bool) array_intersect($o['kinds'], WATCH_RULE_ASK) || watchmanRuleAskThis($e, $o);
         // a threshold or a snapshot rule notes nothing open at once (it works where the flow is judged, the snapshots listed): this one only
         $out[$i]['covers'] = isset($o['opt']) || isset($o['on']['series']) || isset($o['on']['dataset']) ? 1 : count(array_filter($book, fn ($x) => is_array($x) && watchmanOpen($x) && watchmanRuleCovers($rule, $x)));
     }
@@ -1123,6 +1167,12 @@ const WATCH_SETTINGS = [
     'snap' => [
         'offsite' => ['def' => 50, 'min' => 25, 'max' => 75, 'unit' => 'pct'],      // offsite: told when less than this part of the snapshots is left
     ],
+    'flash' => [
+        'go_blank' => ['def' => false],     // changes in go that touch only blanks and comments: not told (its commands the same)
+    ],
+    'share' => [
+        'secure_ok' => ['def' => false],    // guests may read (⟦Secure⟧): normal — only ⟦Public⟧ told (never the flash)
+    ],
 ];
 
 /** A setting's value as the file has it, when it fits its key (type, bounds, choices) */
@@ -1232,6 +1282,12 @@ const WATCH_HAND = [
     // snapshots (6c): a series may be thinned (everywhere, or on a dataset: the second field), on a dataset they may go
     // altogether, on a dataset a hold may be released — never a whole pool
     'snap'      => ['series', 'series_ds', 'dataset', 'hold'],
+    // 6d: a file in /boot/extra may change; a share open to guests (reading, or also writing — the second field: SMB or NFS);
+    // a port, a program on any port; new peers of a WireGuard tunnel
+    'flash'     => ['extra'],
+    'share'     => ['guest_read', 'guest_write'],
+    'host'      => ['port', 'prog'],
+    'door'      => ['tunnel'],
 ];
 const WATCH_HAND_AMOUNT = ['client_min' => 'gb', 'gone_min' => 'gb', 'written_min' => 'gb', 'files_min' => 'n'];      // the types with an amount
 const WATCH_HAND_NAME = '/^[A-Za-z0-9][A-Za-z0-9 _.+()-]{0,99}$/D';        // a container's or a User Script's name
@@ -1326,6 +1382,34 @@ function watchmanRuleHandMake(string $cat, string $type, string $value, string $
             return $flow('disk', ['flow_gone'], null);
         case 'disk_written':
             return $flow('disk', ['flow_written'], null);
+        case 'extra':
+            if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9._+-]{0,119}$/D', $value)) {
+                throw new Problem('watch_value_bad');
+            }
+            return ['cat' => $cat, 'kinds' => ['flash_extra'], 'on' => ['key' => "flash_extra:$value"], 'wide' => false];
+        case 'guest_read':
+        case 'guest_write':
+            $proto = strtolower(trim($user)) ?: 'smb';
+            if (!preg_match(WATCH_RULE_SHARE, $value) || $value === 'flash' || !in_array($proto, ['smb', 'nfs'], true)) {
+                throw new Problem('watch_value_bad');
+            }
+            return ['cat' => $cat, 'kinds' => ['share_public'], 'on' => ['share' => $value, 'proto' => $proto, 'open' => $type === 'guest_write' ? 'write' : 'read'],
+                    'wide' => $type === 'guest_write'];
+        case 'port':
+            if (!preg_match('/^[1-9][0-9]{0,4}$/D', $value) || (int) $value > 65535) {
+                throw new Problem('watch_value_bad');
+            }
+            return ['cat' => $cat, 'kinds' => ['listen_new'], 'on' => ['key' => "listen_new:tcp:$value"], 'wide' => false];
+        case 'prog':
+            if (!preg_match(WATCH_RULE_PROG, $value)) {
+                throw new Problem('watch_value_bad');
+            }
+            return ['cat' => $cat, 'kinds' => ['listen_new'], 'on' => ['prog' => $value], 'wide' => false];
+        case 'tunnel':
+            if (!preg_match(WATCH_RULE_TUNNEL, $value)) {
+                throw new Problem('watch_value_bad');
+            }
+            return ['cat' => $cat, 'kinds' => ['door_new'], 'on' => ['tunnel' => $value], 'wide' => false];
         case 'series':
         case 'series_ds':
             $s = $type === 'series' ? $value : trim($user);
