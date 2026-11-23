@@ -5641,6 +5641,15 @@
   ],
   "pending": 0,
   "floor": "7.3.2",
+  "down": [
+   {
+    "src": "nvd",
+    "since": 1791304274,
+    "next": 1791909074,
+    "ok": 1791131474,
+    "fails": 3
+   }
+  ],
   "software": [],
   "unknown": [],
   "not": [

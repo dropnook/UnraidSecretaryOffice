@@ -1799,7 +1799,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             $st['vuln_look'] = ['time' => $now, 'kev' => $vuln['kev'], 'fresh' => $vuln['fresh'], 'checked' => $vuln['checked'], 'found' => array_map(
                 fn ($x) => ['verdict' => $x['verdict']], $vuln['found']), 'software' => $vuln['software'], 'unknown' => $vuln['unknown'],
                 'not' => $vuln['not'], 'unsure' => $vuln['unsure'], 'kev_total' => $vuln['kev_total'], 'kev_here' => $vuln['kev_here'],
-                'kev_products' => $vuln['kev_products'], 'pending' => $vuln['pending']];
+                'kev_products' => $vuln['kev_products'], 'pending' => $vuln['pending'], 'down' => $vuln['down']];
             if ($vulnImagesCache !== null) {
                 $st['vuln_images'] = $vulnImagesCache;
             }

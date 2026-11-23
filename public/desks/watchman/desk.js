@@ -1969,14 +1969,16 @@ function scopeBox(id) {
 /** The help's «The areas»: each tile in a line (its subtitle), then the watch book and the schedule */
 function helpAreas(help) {
   const dt = [...help.querySelectorAll('dt')].find((x) => x.textContent === T('help.read_areas'));
-  const dd = dt && dt.nextElementSibling;
+  const kids = dt && dt.parentNode ? [...dt.parentNode.children] : [];
+  const dd = dt ? kids[kids.indexOf(dt) + 1] : null;
   if (!dd) return help;
   const ul = el('ul', 'wm-help-areas');
   TILES.forEach((id) => {
     const li = el('li');
-    li.append(el('b', '', tileName(id)), document.createTextNode(` — ${T(`area.${id}_sub`)}`));
+    li.append(el('b', '', tileName(id)), el('span', '', ` — ${T(`area.${id}_sub`)}`));
     const fold = scopeBox(id);
-    if (fold) li.appendChild(Office.place(`scope.${id}`, fold));      // the search's place (scope.<tile>.help) and the area's link land here
+    if (fold) li.appendChild(Office.place(`scope.${id}`, fold));
+    if (id === 'vuln') vulnDownLines().forEach((x) => li.appendChild(x));      // a source away for days: said here too      // the search's place (scope.<tile>.help) and the area's link land here
     ul.appendChild(li);
   });
   dd.append(ul, el('p', '', T('help.read_areas_more')));
@@ -3769,6 +3771,7 @@ function vulnLists(words) {
   const v = state && state.vuln;
   if (!v || v.on === false) return null;
   const box = el('div', 'wm-vuln-lists');
+  vulnDownLines().forEach((x) => box.appendChild(x));
   if (Number.isInteger(v.kev_total)) {
     const prods = (Array.isArray(v.kev_products) ? v.kev_products : []).filter((x) => x && Number(x.n) > 0).sort((a, b) => b.n - a.n || String(a.label).localeCompare(String(b.label)));
     const here = Number(v.kev_here) || 0;
@@ -3791,6 +3794,25 @@ function vulnLists(words) {
     (x) => T(x.nvd ? 'vuln.unsure_nvd_asked' : 'vuln.unsure_nvd_wait'));
   return { el: box, shown: checked.length + unsure.length };
 }
+/**
+ * A source that hasn't answered for days (2026-11-23): one calm line each — which, since when, when he tries again, and
+ * what stays as it is meanwhile; never a colour, never told (agent: watchmanVulnDown(), after WATCH_VULN_DOWN_FAILS)
+ */
+function vulnDownLines() {
+  const v = state && state.vuln;
+  if (!v || v.on === false || !Array.isArray(v.down)) return [];
+  const now = Number(state.time) || Date.now() / 1000;      // his state's time (the round's clock)
+  return v.down.filter((x) => x && Office.has(`${ID}.vuln.source.${x.src}`)).map((x) => {
+    const days = Math.max(1, Math.round((now - Number(x.since)) / 86400));
+    const said = [T('vuln.down', { source: T(`vuln.source.${x.src}`), n: days, when: x.next ? fmt.date(x.next) : '–' })];
+    const unsure = vulnLines(v.unsure).length;
+    if (x.src === 'nvd' && unsure) said.push(T('vuln.down_nvd', { n: unsure }));
+    else if (x.src === 'cve') said.push(T('vuln.down_cve'));
+    else if (x.ok && Office.has(`${ID}.vuln.down_${x.src}`)) said.push(T(`vuln.down_${x.src}`, { date: fmt.date(x.ok) }));
+    return el('p', 'role wm-vuln-down', said.join(' '));
+  });
+}
+
 /** One calm list, folded: its head with the count, unfolded (or holding the filter's hits) its sentence and a row each */
 function vulnFold(box, key, list, forced, words, more, params) {
   if (!list.length) return;
