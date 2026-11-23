@@ -1,11 +1,13 @@
 /*
  * The Night Watchman's «Who woke my disks?» (public/desks/watchman/desk.js with core.js, under node, on a small stand-in
- * DOM; the agent stubbed with the click test's state tests/ui/states/watchman.json): his number tile and its section —
+ * DOM; the agent stubbed with the click test's state tests/ui/states/watchman.json): his tile (a light since 1.96, its
+ * words in its mouse-over text) and its section —
  * on a server without a spinning disk (all flash) the tile says so and the section is that one line (no switch, no
  * filter bar, no empty list); before his first look «not watching yet»; a spinning disk without a wake: «none», the
  * switch and the bar; a wake kept from before still counts; an older messenger's state (no `hdds`) reads as always; the
  * stub's wakes: the count in 7 days and today's, a disk's row filters the list and the note line says so. (Ms.
- * Protocolli's up to 1.95 — tests/logsfilters.js held these rules then.)
+ * Protocolli's up to 1.95 — tests/logsfilters.js held these rules then.) And since 1.96 his exceptions on the page: the
+ * offer on an open login, its dialog, the area's list.
  *
  *   node tests/watchwakes.js public/assets/core.js public/desks/watchman/desk.js [tests/ui/states]   → one JSON line {pass, fail: [[name, got, want], …]}
  *
@@ -197,8 +199,10 @@ const base = JSON.parse(fs.readFileSync(path.join(states, 'watchman.json'), 'utf
 let state = null;
 O.loadState = async (id, o, took) => { took({ ok: true, state }); };
 O.freshState = async () => true;
-O.api = { get: async () => ({ ok: true }), post: async () => ({ ok: false, error: { key: 'agent_away' } }) };
-O.dialog = () => ({ buttons: [], close() {} });
+const posts = [];
+O.api = { get: async () => ({ ok: true }), post: async (a, d) => { posts.push([a, d]); return { ok: false, error: { key: 'agent_away' } }; } };
+const dialogs = [];
+O.dialog = (d) => { dialogs.push(d); return { buttons: [], close() {} }; };
 O.menu = () => {};
 O.toast = () => {};
 (0, eval)(fs.readFileSync(deskFile, 'utf8'));
@@ -214,6 +218,16 @@ function sectionOf(root, place) {
 }
 const barIn = (s) => (s ? s.querySelector('.filterbar') : null);
 
+/**
+ * His tile is a light since 1.96 (core.js Office.light): what the number tile said is its mouse-over text — «Who woke my
+ * disks?: 17 wakes», then its lines. Read back as the number tile's value ('–' when the head has none) and lines.
+ */
+function tileWords(tile) {
+  const label = T('wakes.title');
+  const [head, ...lines] = String(tile.dataset.tip || '').split('\n');
+  return [head.startsWith(label + ': ') ? head.slice(label.length + 2) : '–', ...lines];
+}
+
 /** His page with this `wakes` in his state (undefined: none — before his first look), at this sub-route */
 async function visit(wakes, sub, then) {
   state = JSON.parse(JSON.stringify(base));
@@ -227,7 +241,7 @@ async function visit(wakes, sub, then) {
   const tile = r.all().find((n) => n.dataset && n.dataset.tile === 'wakes') || null;
   const sec = sectionOf(r, 'wakes.title');
   const res = {
-    tile: tile ? [tx(tile.querySelector('.stat-value')), ...tile.querySelectorAll('.stat-sub').map(tx)] : null,
+    tile: tile ? tileWords(tile) : null,
     section: sec ? sec.querySelectorAll('p').map(tx) : null,
     bar: !!barIn(sec),
     switch: !!(sec && sec.querySelector('.switch')),
@@ -274,5 +288,41 @@ async function run() {
   same('a disk\'s row: only its wakes, the note line names it', [only.rows, only.note.includes(disk)], [all.filter((w) => w.disks.includes(disk)).length, true]);
 }
 
-run().then(() => { console.log(JSON.stringify(out)); process.exit(0); },
+// ------------------------------------------------------------------ exceptions on his page (1.96 step 4)
+async function rules() {
+  state = JSON.parse(JSON.stringify(base));
+  const r = new FakeNode('div');
+  desk.replaceChildren(r);
+  await wm.mount(r, 'login');
+  await tick();
+  await tick();
+  const sec = sectionOf(r, 'help.lights') || r;
+  const offer = r.all().find((n) => n.classList && n.classList.contains('wm-offer'));
+  const first = state.book.find((e) => e.open && e.cat === 'login');
+  same('exceptions: an open login offers the narrowest first (root from its /24), the others under «more ▾»',
+    [offer && tx(offer), !!(offer && offer.parentNode.children.some((n) => tx(n) === T('rule.more')))],
+    [T('rule.offer.user_net', { user: first.offers[0].on.user, net: first.offers[0].on.net }), true]);
+  offer.click();
+  await tick();
+  const d = dialogs[dialogs.length - 1];
+  same('exceptions: wider than this one thing — asked once: what it covers, what a net never does, where it is lifted; nothing sent yet',
+    [d && d.title, d && d.body.querySelectorAll('p').map(tx).filter((x) => x === T('rule.ask_net_not') || x === T('rule.ask_where')).length, posts.filter((p) => p[0] === 'watchman.rule_add').length],
+    [T('rule.ask_title'), 1, 0]);
+  const list = r.all().find((n) => n.classList && n.classList.contains('wm-rules'));
+  same('exceptions: the area lists its exceptions — what, since when, how often, «Lift»',
+    [list && tx(list.querySelector('.row-name')), !!(list && list.querySelectorAll('button').some((b) => tx(b) === T('rule.lift')))],
+    [T('rule.offer.net', { net: '192.168.178.0/24' }), true]);
+  // 4b: your lasting answers in the area, folded; unfolded each with «Take back»
+  const head = r.all().find((n) => n.classList && n.classList.contains('wm-known-head'));
+  same('answers: «Noted (n)» in the area, folded', [head && tx(head).includes(T('known.list', { n: 1 })), head && head.getAttribute('aria-expanded')], [true, 'false']);
+  head.click();
+  await tick();
+  const known = r.all().find((n) => n.classList && n.classList.contains('wm-known'));
+  same('answers: unfolded — the address, known since, «Take back»', [!!(known && known.querySelectorAll('.row-name').length === 1),
+    !!(known && known.querySelectorAll('button').some((b) => tx(b) === T('known.take_back')))], [true, true]);
+  void sec;
+  wm.unmount();
+}
+
+run().then(rules).then(() => { console.log(JSON.stringify(out)); process.exit(0); },
   (e) => { out.fail.push(['ran', String(e && e.stack || e).slice(0, 600), 'no error']); console.log(JSON.stringify(out)); process.exit(0); });

@@ -294,15 +294,55 @@ When you hire him he learns what is normal. Then he walks his round every five m
   It goes to the notifications once, when it appears.
   A plugin's own job he notes himself. Removed while its job still waits or runs, the plugin leaves that job behind:
   he notes that too, as long as the job is unchanged. It ends with the next reboot.
+- The hardware, from what the kernel and Unraid already count (no tool, no disk woken): machine checks, memory errors
+  (ECC), PCIe errors, the CPU slowing down for heat, the kernel stumbling, a sensor too warm for hours, read or write
+  errors in the log, an SSD's wear and a disk's SMART values growing (one point a day, 90 days). A CPU with a known fault
+  and old microcode (Intel's 13th/14th Gen) is advice. What a server doesn't count is «not available», never «0 errors».
+- Signs in the log: a program ended because the memory was full, a service crashing again and again, a flood of
+  connection attempts.
+- What runs at the next start (a plugin file nothing installed, `stop`, modprobe.d, the start line, ld.so.preload) and the
+  router or DNS suddenly different (the gateway with another MAC).
+- Only if you switch on «Known vulnerabilities»: an actively exploited vulnerability that applies to a version running here
+  (only when the versions compare cleanly; else «maybe»), an Unraid or software without security updates.
 
 **How:**
 
 - Each entry names its MITRE ATT&CK technique. The important ones go to Unraid's notifications.
 - Where he can't see who did it, he names who likely did, always as a guess.
-- *I know, thanks* makes it the new normal.
+- *I know, thanks* makes it the new normal — and it holds until you take it back in his setup.
 - *This was a real incident…* keeps it with your note. As long as it is on that list, the same from the same source is
   told at once and as important; *Not serious after all…* there takes it back.
 - While the array is stopped, his night shift keeps watch from RAM and the flash.
+
+**Areas and lights:** his page is a row of small tiles, one for each area he watches — logins, containers, plugins, the
+flash and accounts, open shares, what starts by itself, who pulls data, data in the shares, snapshots and offsite, the
+server itself, ways in, the partner door, the router, the network, array and parity, known vulnerabilities, hardware,
+what holds the array, disk wakes —
+and the watch book, how securely it stands, serious incidents, what he keeps an eye on and his schedule. Each tile is a
+light: red, look now; yellow, worth a look; «!», advice; green, fine; grey, nothing to look at (switched off, not there,
+not looked at yet). The mouse says why; a click shows that area alone.
+
+**Setup** (his second tab): for each area its settings (the default is always what he did before — for the hardware the
+degrees and hours a sensor may be warm, how many memory or PCIe errors count, an SSD's wear; a service's crashes an hour;
+whether out-of-memory, floods and DNS changes are told), its exceptions, your
+lasting answers, and the switch to watch it at all — off only after one clear question naming what you won't see.
+*Everything changed* lists all of it: the one place to see what he no longer says.
+*Re-learn this area…* (at the end of each area) and *Re-learn everything…* (at the top) make what is there now normal and
+let him learn what is usual anew (the data flow: its 7 days again) — after one clear question; the area's open entries are
+noted as done by it, your answers there go, and with its checkboxes its exceptions and settings too. Nothing is deleted: it
+is set aside first and *Bring back…* puts it back within 7 days.
+
+**Exceptions:** *… always okay* on an entry, or *Add an exception…* in his setup — a net for logins, a container's ports,
+a share whose deletions aren't judged, a snapshot series that may be thinned, a router's admin from your net, a sensor
+that may get warm up to so many degrees, a service whose crashes you know, a vulnerability that doesn't apply here (a
+whole product only with a clear yes), a disk not to judge. What it
+names is noted, never told; lifted in his setup, the next round tells what is still different. Never let through: the same
+as a serious incident on your list (unless you decided after it), part of a chain forming, and — unless you switch it off —
+more than half of a share gone or 200 000 files deleted in one hour. For what an attacker does first he asks more clearly
+(two sentences, a button naming it); you decide.
+
+**His history:** what he notes himself (or an exception does) leaves the watch book after a quiet week: 13 months by
+month, under the book, loaded when you open it. The book keeps what is open and what you answered.
 
 **The router** (UniFi, MikroTik with RouterOS 7) sends its log to Unraid's syslog server; the Consultant shows how.
 He notes new logins, firewall and port-forwarding changes, intrusions, new devices, the log gone silent.
@@ -481,6 +521,10 @@ You need Unraid **7.3.2 or a newer 7.x**. Nothing else to install.
 **Nothing leaves the server** unless you set it up: offsite to your storage, partner offices to the partner.
 
 - The office asks GitHub once a day for a new version and checks logo addresses for containers without a picture.
+- Only if you switch on the Night Watchman's «Known vulnerabilities» (off until you do): once a day public lists —
+  cisa.gov (actively exploited vulnerabilities), raw.githubusercontent.com (the CVE records of those), releases.unraid.net
+  (Unraid's releases and their support), endoflife.date (which release lines still get fixes). Every office asks the
+  same; nothing of your server goes along.
 - It sends a report only when you send one. No telemetry.
 - The desks never wake a sleeping disk unless you ask. The scheduled backup does, unless you leave sleeping pools out.
 

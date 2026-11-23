@@ -867,6 +867,53 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   changed; read-only snapshots and `.btrfs-snap` left out); XFS/ZFS: `find -xdev` over the disk's own mounts for folders
   changed since it slept (`.zfs` pruned), then their files — bounded (`WATCH_WAKE_TRAIL_*`), `cut` said. The office's data
   folder is left out. Folders only on his page.
+  **Areas, settings, exceptions (1.96, the concept «Der Nachtwächter in 1.96»).** Every kind and posture tip has exactly one
+  of 19 areas (`WATCH_CATS`, agent/desks/watchman-cats.php; `watchmanCats()` makes each area's light from his state — level,
+  reasons `cat.why.*`); the page: `Office.light()` tiles in `Office.sections({filter})`, an area's section, a second page
+  «Setup» (`#/watchman/setup/<area>`). **data/watchman/rules.json** (agent/desks/watchman-rules.php; written only by the
+  user's clicks, tolerant — unknown keys and rules kept, only exactly-shaped ones applied): `set` (only what differs from
+  `WATCH_SETTINGS`: numbers with bounds and unit, switches, choices — a choice with `kinds` makes new entries told or normal at
+  once), `rules` (≤ 300, ≤ 50 an area; `on` in one of its shapes — key, ip, net, user+net, machine, source, file, cmd,
+  share, disk, open, prog, tunnel, pair/admin + ip|net, vpn, sender (+iface), network, series (+dataset), dataset, vm, script,
+  cause, thing (+max_c: the new abilities' thing across days and boots, below); `opt` makes it a threshold where the data flow is judged), `off` (areas switched off: what comes there is made
+  normal, the Team Lead says `areas_off`), `known` (your lasting answers, a fingerprint each, 3.4). **Re-learn** (step 17,
+  agent/desks/watchman-relearn.php, actions `relearn` {cat|all, rules, settings} and `relearn_back` {name}): a take-over in
+  small, never keys simply deleted — what it takes is written to `data/watchman/aside/<Ymd-His>-<area|all>/relearn.json`
+  first (never deleted; brought back within 7 days, then renamed `…-back`); open entries of the area noted `by: relearn`
+  (they stay in the book, `WATCH_JOURNAL_HUMAN`); what needs a look is learned by the round it starts (`state.relearn_pending`
+  → `watchmanRelearnApply()` before anything is compared: logins from the syslog's start plus the partner doors' addresses,
+  the containers, the flash cut from the server itself's ld.so.preload, the host by sub-part …); the data flow's series and
+  marks, the router files' positions (read again in learning mode), the hardware (its round as at a take-over) by the action;
+  `state.relearn[cat].at` is each flow area's own learning start (its light `relearn_flow`), the mirror goes to the flash at
+  once (`by: relearn` counts like an ack). **One place lets
+  through:** `watchmanRulesApply()` in the round after the serious incidents, before anything is told — only new entries,
+  never one with `again` older than the decision, never one of a chain forming, never `_must` («always tell»: half a share,
+  200 000 files in an hour, `WATCH_FLOW_MUST_PART`/`WATCH_FILES_MUST`); a rule's line counts up (a state met again unchanged:
+  no hit). Where an entry joins many things the rule works at the source instead: thresholds in `watchmanFlowCompare(…,
+  &$judge)` (the six judge sites), snapshots in `watchmanSnapRuled()`, a network's new devices and the router's settings in
+  watchnet.php (`watchnetSet()`/`watchnetHits()`), hold and wakes by side kinds (`WATCH_RULE_SIDE`, their lights only). Offers
+  (`watchmanRuleOffers()`) are computed by the messenger and looked up anew on `rule_add` — the page never sends a net or a
+  name; the narrow ones only, broader ones by hand (`WATCH_HAND`), more clearly asked for `WATCH_RULE_ASK` and
+  `watchmanRuleAskThis()`. Hits in state.json `rule_hits` (the night's added at the handover). The night shift reads a copy
+  (`RUN_DIR/watchman-rules.json`, the flash's after a reboot). An older office doesn't read rules.json: it tells again
+  (louder, never quieter); entries noted by a rule stay noted. **His history** (agent/desks/watchman-journal.php): lines
+  noted by himself or a rule go after a quiet week (or while the book is over its bound) into
+  `data/watchman/journal/YYYY-MM.jsonl` (append only, 13 months, 8 MB a month — what doesn't fit is counted and said); the
+  book keeps what is open and what a person answered; the page reads it on demand (action `journal`). No migration step:
+  everything new is a new file or key with a default.
+  **The new abilities (1.96, the concept's 11):** each in a file of its own — watchman-hw.php (B the hardware's counters:
+  hw_mce, hw_ecc, hw_aer, hw_throttle, hw_kernel from /proc and /sys, this boot's counts in `RUN_DIR/watchman-hw.json`
+  shared by day and night; C known CPU faults: watchman-cpu-faults.json, tips cpu_fault, old_microcode; E the disks' wear:
+  hw_wear from Unraid's SMART files via `waSmart()`, data/watchman/hw.json a point a day, 90 days), watchman-heat.php (D
+  hw_hot), agent/lib/logsigns.php + watchman-signs.php (H: host_oom, host_crash, host_flood, hw_io), watchman-boot.php (F
+  flash_boot, ld_preload) and watchnet.php (G net_gateway, net_dns), watchman-vuln.php (A vuln_known, vuln_maybe, tips
+  unraid_eol, software_eol; off until switched on). Their entries live in **book-more.json** (`WATCH_KINDS_MORE`, every kind
+  newer than 1.95 — an older office never reads it, so never drops them; `watchmanLoad()`/`watchmanSave()` treat both as one
+  book). The hardware has no ATT&CK technique and never joins a chain. Settings (`WATCH_SETTINGS` hw, host, lan.dns,
+  vuln.maybe; the defaults the constants the steps hard-coded — the heat reads its keys of set.hw itself); the rule shape
+  `{thing}` names what an entry is about across days and boots (`watchmanRuleThings()`: a sensor, disk, program, port,
+  module, device, the CPU, a CVE, a product), `{thing, max_c}` a sensor up to so many °C; asked more clearly: flash_boot,
+  ld_preload, net_gateway, vuln_known, hw_mce, hw_ecc, a whole product.
 * **`cleanup` — Ms. Dustdevil.** «Where is what» (operational advice, **never security**; read only) and «Tidying up» (what a
   drill or restore left: only what his journals name). **Her tour on schedule** (1.78, off by default): job `cleanup`
   (`job.sh cleanup` → `job cleanup-tour-due`, a mark in RAM); her tick (`clScheduledTick()`) tours as «Tour» does —
@@ -1253,6 +1300,7 @@ The same thing has the same word on every desk and text; grammar follows the wor
 | Jack Streamer's run · Ms. Snapshotini's plan · its run | run · real run · dry run · schedule · run | der Lauf · echter Lauf · Probelauf · der Zeitplan · der Lauf | l'esecuzione · esecuzione vera · prova a secco · la pianificazione · l'esecuzione | l'exécution · exécution réelle · essai à blanc · la planification · l'exécution | la ejecución · ejecución real · simulación · la programación · la ejecución |
 | a ZFS hold | Hold · held · Release hold | Schützen · geschützt · Schutz aufheben | Proteggi · protetto · Togli la protezione | Protéger · protégé · Lever la protection | Proteger · protegida · Quitar la protección |
 | a small coloured mark on a row or card (the UI's «chip»; never the word chip in a text) | label | das Schildchen | l'etichetta | l'étiquette | la etiqueta |
+| the Night Watchman's area · its light · «always okay» · a threshold or switch · his second page · his history | area · light · exception · setting · Setup · history | der Bereich · die Ampel · die Ausnahme · die Einstellung · die Einrichtung · der Verlauf | l'area · il semaforo · l'eccezione · l'impostazione · Impostazioni · la cronologia | la zone · le feu · l'exception · le réglage · Réglages · l'historique | el área · el semáforo · la excepción · el ajuste · Ajustes · el historial |
 | thank-you levels | a coffee for the team · a round for everyone · cake for the whole office · a pay rise and the donations | ein Kaffee fürs Team · eine Runde für alle · Kuchen fürs ganze Büro (deliberately) · Lohnerhöhung und Spenden | un caffè per il team · un giro per tutti · una torta per tutta la segreteria · un aumento e le donazioni | un café pour l'équipe · une tournée pour tout le monde · du gâteau pour tout le secrétariat · une augmentation et les dons | un café para el equipo · una ronda para todos · pastel para toda la secretaría · un aumento de sueldo y las donaciones |
 | share · disk · /boot · Docker template · a log · dataset · Emby's key | share · disk · the flash (a physical stick stays a stick) · template · log · dataset · API key | der Share · die Disk (not Platte) · der Flash · das Template (not Vorlage) · das Protokoll (not Log) · das Dataset · der API-Schlüssel | la condivisione · il disco · l'unità flash · il template · il log (registro = watch book) · il dataset · la chiave API | le partage · le disque · la flash · le modèle · le journal · le dataset · la clé API | el recurso compartido · el disco · el flash · la plantilla · el registro · el dataset · la clave API |
 | Unraid's bell · user → makers · menu item | notifications · report · Report a problem or a wish… | die Benachrichtigungen (one sent: eine Meldung) · die Rückmeldung · Problem oder Wunsch mitteilen… | le notifiche · la segnalazione · Segnala un problema o un desiderio… | les notifications · le signalement · Signaler un problème ou un souhait… | las notificaciones · el comentario · Contar un problema o un deseo… |

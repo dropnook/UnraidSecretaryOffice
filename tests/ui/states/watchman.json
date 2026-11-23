@@ -76,7 +76,23 @@
    "by": null,
    "told": 1791562574,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "data",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "flow_gone:w1a2b3c4d5e"
+     },
+     "kinds": [
+      "flow_gone"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w2b3c4d5e6f",
@@ -113,7 +129,23 @@
    "by": null,
    "told": 1791562574,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "data",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "flow_written:w2b3c4d5e6f"
+     },
+     "kinds": [
+      "flow_written"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w54e6489316",
@@ -140,7 +172,43 @@
    "by": null,
    "told": 1791480649,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "router",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "net_log_silent:w54e6489316"
+     },
+     "kinds": [
+      "net_log_silent"
+     ],
+     "ask": true,
+     "covers": 1
+    },
+    {
+     "type": "sender",
+     "on": {
+      "sender": "192.168.1.190"
+     },
+     "kinds": [
+      "net_sender_new",
+      "net_router_login",
+      "net_router_login_failures",
+      "net_firewall_change",
+      "net_router_config",
+      "net_vpn_login",
+      "net_log_silent",
+      "net_link_down",
+      "net_outage",
+      "net_router_reboot"
+     ],
+     "ask": true,
+     "covers": 4
+    }
+   ],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wbb38aac28c",
@@ -167,7 +235,43 @@
    "by": null,
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "router",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "net_sender_new:wbb38aac28c"
+     },
+     "kinds": [
+      "net_sender_new"
+     ],
+     "ask": false,
+     "covers": 1
+    },
+    {
+     "type": "sender",
+     "on": {
+      "sender": "10.0.1.21"
+     },
+     "kinds": [
+      "net_sender_new",
+      "net_router_login",
+      "net_router_login_failures",
+      "net_firewall_change",
+      "net_router_config",
+      "net_vpn_login",
+      "net_log_silent",
+      "net_link_down",
+      "net_outage",
+      "net_router_reboot"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wda4a752ea7",
@@ -194,7 +298,43 @@
    "by": null,
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "router",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "net_sender_new:wda4a752ea7"
+     },
+     "kinds": [
+      "net_sender_new"
+     ],
+     "ask": false,
+     "covers": 1
+    },
+    {
+     "type": "sender",
+     "on": {
+      "sender": "10.0.1.10"
+     },
+     "kinds": [
+      "net_sender_new",
+      "net_router_login",
+      "net_router_login_failures",
+      "net_firewall_change",
+      "net_router_config",
+      "net_vpn_login",
+      "net_log_silent",
+      "net_link_down",
+      "net_outage",
+      "net_router_reboot"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wd3e4169d75",
@@ -221,7 +361,43 @@
    "by": null,
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "router",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "net_sender_new:wd3e4169d75"
+     },
+     "kinds": [
+      "net_sender_new"
+     ],
+     "ask": false,
+     "covers": 1
+    },
+    {
+     "type": "sender",
+     "on": {
+      "sender": "10.0.3.10"
+     },
+     "kinds": [
+      "net_sender_new",
+      "net_router_login",
+      "net_router_login_failures",
+      "net_firewall_change",
+      "net_router_config",
+      "net_vpn_login",
+      "net_log_silent",
+      "net_link_down",
+      "net_outage",
+      "net_router_reboot"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "we39e6da19f",
@@ -256,7 +432,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w3b41b7080b",
@@ -285,7 +465,23 @@
    "by": null,
    "told": 1791437018,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "door",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "door_new:w3b41b7080b"
+     },
+     "kinds": [
+      "door_new"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w2a19a76ee8",
@@ -310,7 +506,34 @@
    "by": null,
    "told": 1791407111,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "plugin",
+   "offers": [
+    {
+     "type": "source",
+     "on": {
+      "source": "raw.githubusercontent.com/desertwitch"
+     },
+     "kinds": [
+      "plugin_new"
+     ],
+     "ask": false,
+     "covers": 1
+    },
+    {
+     "type": "key",
+     "on": {
+      "key": "plugin_new:w2a19a76ee8"
+     },
+     "kinds": [
+      "plugin_new"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "wfd4fc19641",
@@ -336,7 +559,23 @@
    "by": null,
    "told": 1791387527,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "plugin",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "plugin_source:wfd4fc19641"
+     },
+     "kinds": [
+      "plugin_source"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w2dbba062ab",
@@ -361,7 +600,34 @@
    "by": null,
    "told": 1791306576,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "plugin",
+   "offers": [
+    {
+     "type": "source",
+     "on": {
+      "source": "raw.githubusercontent.com/Lazaros-Chalkidis"
+     },
+     "kinds": [
+      "plugin_new"
+     ],
+     "ask": false,
+     "covers": 1
+    },
+    {
+     "type": "key",
+     "on": {
+      "key": "plugin_new:w2dbba062ab"
+     },
+     "kinds": [
+      "plugin_new"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "wa92b5cedfc",
@@ -386,7 +652,34 @@
    "by": null,
    "told": 1791306576,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "plugin",
+   "offers": [
+    {
+     "type": "source",
+     "on": {
+      "source": "raw.githubusercontent.com/unraid"
+     },
+     "kinds": [
+      "plugin_new"
+     ],
+     "ask": false,
+     "covers": 1
+    },
+    {
+     "type": "key",
+     "on": {
+      "key": "plugin_new:wa92b5cedfc"
+     },
+     "kinds": [
+      "plugin_new"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "wb44b5c2f92",
@@ -415,7 +708,23 @@
    "by": null,
    "told": 1791306576,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "sched",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "cron_new:wb44b5c2f92"
+     },
+     "kinds": [
+      "cron_new"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w60263f57e5",
@@ -444,7 +753,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w043a3dc3dc",
@@ -483,7 +796,11 @@
    "by": "parity",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w10eeb60ac4",
@@ -518,7 +835,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w915f8925c3",
@@ -547,7 +868,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w79d2e622c8",
@@ -588,7 +913,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w39b1706544",
@@ -617,7 +946,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wb2dda43023",
@@ -652,7 +985,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w84677cd4de",
@@ -674,7 +1011,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wd5e04cb7da",
@@ -705,7 +1046,48 @@
    "by": null,
    "told": 1791323692,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "login",
+   "offers": [
+    {
+     "type": "user_net",
+     "on": {
+      "user": "root",
+      "net": "192.168.1.0/24"
+     },
+     "kinds": [
+      "login_new_ip"
+     ],
+     "ask": false,
+     "covers": 1
+    },
+    {
+     "type": "net",
+     "on": {
+      "net": "192.168.1.0/24"
+     },
+     "kinds": [
+      "login_new_ip",
+      "smb_client",
+      "smb_hour"
+     ],
+     "ask": false,
+     "covers": 1
+    },
+    {
+     "type": "key",
+     "on": {
+      "key": "login_new_ip:wd5e04cb7da"
+     },
+     "kinds": [
+      "login_new_ip"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w3a580811c6",
@@ -740,7 +1122,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w93a0d0d9ea",
@@ -762,7 +1148,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wfe162b7c9a",
@@ -795,7 +1185,23 @@
    "by": null,
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "lan",
+   "offers": [
+    {
+     "type": "network",
+     "on": {
+      "network": "Default"
+     },
+     "kinds": [
+      "net_new_device"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w8023c95ba4",
@@ -830,7 +1236,23 @@
    "by": null,
    "told": 1791459316,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "lan",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "net_blocked_from_server:w8023c95ba4"
+     },
+     "kinds": [
+      "net_blocked_from_server"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w8825237f13",
@@ -863,7 +1285,23 @@
    "by": null,
    "told": 1791457951,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "data",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "flow_written:w8825237f13"
+     },
+     "kinds": [
+      "flow_written"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "wf5ba8983a8",
@@ -898,7 +1336,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w63008f09e2",
@@ -933,7 +1375,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w5668eda953",
@@ -968,7 +1414,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wc063e8ad2d",
@@ -994,7 +1444,11 @@
    "by": "plugin",
    "told": 1791457647,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "sched",
+   "offers": [],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w5a1e7f0c3b",
@@ -1025,7 +1479,11 @@
    "by": "plugin",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "sched",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w8e9e664fdb",
@@ -1060,7 +1518,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wee17d287f0",
@@ -1095,7 +1557,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w86a678e52c",
@@ -1124,7 +1590,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wd3eabf582d",
@@ -1167,7 +1637,23 @@
    "by": null,
    "told": 1791437618,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "data",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "flow_gone:wd3eabf582d"
+     },
+     "kinds": [
+      "flow_gone"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w3bf6add5b4",
@@ -1195,7 +1681,11 @@
    "by": "office",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "partner",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w8b0797eaff",
@@ -1225,7 +1715,54 @@
    "by": null,
    "told": 1791459316,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "router",
+   "offers": [
+    {
+     "type": "vpn",
+     "on": {
+      "vpn": "laptop-1"
+     },
+     "kinds": [
+      "net_vpn_login"
+     ],
+     "ask": false,
+     "covers": 1
+    },
+    {
+     "type": "key",
+     "on": {
+      "key": "net_vpn_login:w8b0797eaff"
+     },
+     "kinds": [
+      "net_vpn_login"
+     ],
+     "ask": false,
+     "covers": 1
+    },
+    {
+     "type": "sender",
+     "on": {
+      "sender": "192.168.1.190"
+     },
+     "kinds": [
+      "net_sender_new",
+      "net_router_login",
+      "net_router_login_failures",
+      "net_firewall_change",
+      "net_router_config",
+      "net_vpn_login",
+      "net_log_silent",
+      "net_link_down",
+      "net_outage",
+      "net_router_reboot"
+     ],
+     "ask": true,
+     "covers": 4
+    }
+   ],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w5a3ee8d94c",
@@ -1258,7 +1795,11 @@
    "by": "router",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "router",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w07568b1abf",
@@ -1291,7 +1832,43 @@
    "by": null,
    "told": 1791459316,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "router",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "net_firewall_change:w07568b1abf"
+     },
+     "kinds": [
+      "net_firewall_change"
+     ],
+     "ask": true,
+     "covers": 1
+    },
+    {
+     "type": "sender",
+     "on": {
+      "sender": "192.168.1.190"
+     },
+     "kinds": [
+      "net_sender_new",
+      "net_router_login",
+      "net_router_login_failures",
+      "net_firewall_change",
+      "net_router_config",
+      "net_vpn_login",
+      "net_log_silent",
+      "net_link_down",
+      "net_outage",
+      "net_router_reboot"
+     ],
+     "ask": true,
+     "covers": 4
+    }
+   ],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "waac5d29ba8",
@@ -1326,7 +1903,23 @@
    "by": null,
    "told": 1791459316,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "lan",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "net_ips_server:waac5d29ba8"
+     },
+     "kinds": [
+      "net_ips_server"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w84833d7a59",
@@ -1361,7 +1954,23 @@
    "by": null,
    "told": 1791459316,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "lan",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "net_ips_server:w84833d7a59"
+     },
+     "kinds": [
+      "net_ips_server"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w41acb2239b",
@@ -1393,7 +2002,11 @@
    "told": 1791361644,
    "muted": null,
    "night": false,
-   "serious": true
+   "serious": true,
+   "cat": "login",
+   "offers": [],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w57f8cbc78b",
@@ -1423,7 +2036,67 @@
    "by": null,
    "told": 1791459316,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "router",
+   "offers": [
+    {
+     "type": "admin_ip",
+     "on": {
+      "admin": "admin-1",
+      "ip": "192.168.1.191"
+     },
+     "kinds": [
+      "net_router_login"
+     ],
+     "ask": false,
+     "covers": 1
+    },
+    {
+     "type": "admin_net",
+     "on": {
+      "admin": "admin-1",
+      "net": "192.168.1.0/24"
+     },
+     "kinds": [
+      "net_router_login"
+     ],
+     "ask": false,
+     "covers": 1
+    },
+    {
+     "type": "key",
+     "on": {
+      "key": "net_router_login:w57f8cbc78b"
+     },
+     "kinds": [
+      "net_router_login"
+     ],
+     "ask": false,
+     "covers": 1
+    },
+    {
+     "type": "sender",
+     "on": {
+      "sender": "192.168.1.190"
+     },
+     "kinds": [
+      "net_sender_new",
+      "net_router_login",
+      "net_router_login_failures",
+      "net_firewall_change",
+      "net_router_config",
+      "net_vpn_login",
+      "net_log_silent",
+      "net_link_down",
+      "net_outage",
+      "net_router_reboot"
+     ],
+     "ask": true,
+     "covers": 4
+    }
+   ],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w5083c20876",
@@ -1464,7 +2137,11 @@
    "by": "page",
    "told": 1791436254,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "snap",
+   "offers": [],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w4c7a66770e",
@@ -1499,7 +2176,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w4446c99b98",
@@ -1528,7 +2209,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wcb41de23c5",
@@ -1563,7 +2248,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w31bf64e671",
@@ -1598,7 +2287,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w967f303e44",
@@ -1627,7 +2320,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wbddd76b648",
@@ -1656,7 +2353,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wefd5a94556",
@@ -1688,7 +2389,11 @@
    "by": "schedule",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "sched",
+   "offers": [],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w0ff91622ed",
@@ -1717,7 +2422,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w2d6da8a8cd",
@@ -1746,7 +2455,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w2dfd00c23e",
@@ -1781,7 +2494,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w7c215ef4b8",
@@ -1810,7 +2527,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w734cd95f15",
@@ -1845,7 +2566,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w44d7b19c43",
@@ -1880,7 +2605,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wdba5bdde33",
@@ -1909,7 +2638,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w68f3698957",
@@ -1937,7 +2670,34 @@
    "by": null,
    "told": 1791363931,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "host",
+   "offers": [
+    {
+     "type": "prog",
+     "on": {
+      "prog": "php"
+     },
+     "kinds": [
+      "listen_new"
+     ],
+     "ask": false,
+     "covers": 2
+    },
+    {
+     "type": "key",
+     "on": {
+      "key": "listen_new:w68f3698957"
+     },
+     "kinds": [
+      "listen_new"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "wcef47810c4",
@@ -1963,7 +2723,11 @@
    "by": "unraid",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "sched",
+   "offers": [],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w3935c23946",
@@ -1998,7 +2762,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w4b839bcde0",
@@ -2026,7 +2794,34 @@
    "by": null,
    "told": 1791360748,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "host",
+   "offers": [
+    {
+     "type": "prog",
+     "on": {
+      "prog": "php"
+     },
+     "kinds": [
+      "listen_new"
+     ],
+     "ask": false,
+     "covers": 2
+    },
+    {
+     "type": "key",
+     "on": {
+      "key": "listen_new:w4b839bcde0"
+     },
+     "kinds": [
+      "listen_new"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "we2c751ce61",
@@ -2055,7 +2850,11 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w10bd9b6781",
@@ -2081,7 +2880,11 @@
    "by": "unraid",
    "told": 1791358611,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "sched",
+   "offers": [],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "wdc05fb1798",
@@ -2110,7 +2913,23 @@
    "by": null,
    "told": 1791322792,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "container",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "container_new:wdc05fb1798"
+     },
+     "kinds": [
+      "container_new"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w6477d0ca59",
@@ -2140,7 +2959,48 @@
    "by": null,
    "told": 1791312892,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "login",
+   "offers": [
+    {
+     "type": "user_net",
+     "on": {
+      "user": "root",
+      "net": "192.168.3.0/24"
+     },
+     "kinds": [
+      "login_new_ip"
+     ],
+     "ask": false,
+     "covers": 1
+    },
+    {
+     "type": "net",
+     "on": {
+      "net": "192.168.3.0/24"
+     },
+     "kinds": [
+      "login_new_ip",
+      "smb_client",
+      "smb_hour"
+     ],
+     "ask": false,
+     "covers": 1
+    },
+    {
+     "type": "key",
+     "on": {
+      "key": "login_new_ip:w6477d0ca59"
+     },
+     "kinds": [
+      "login_new_ip"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w5c519c4a94",
@@ -2169,7 +3029,23 @@
    "by": null,
    "told": 1791307476,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "container",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "container_new:w5c519c4a94"
+     },
+     "kinds": [
+      "container_new"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w1236963b43",
@@ -2201,7 +3077,11 @@
    "by": null,
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": null,
+   "offers": [],
+   "rule": null,
+   "lasts": false
   }
  ],
  "watch": {
@@ -3237,7 +4117,8 @@
      "to": "boot",
      "path": "/Settings/BootParameters"
     },
-    "known": true
+    "known": true,
+    "cat": "host"
    }
   ],
   "open": 0
@@ -3499,8 +4380,22 @@
      "how": "btrfs",
      "cut": false,
      "dirs": [
-      {"disk": "disk1", "dir": "Mediathek/Musik-Videos/Konzerte", "n": 12, "bytes": 734003200, "first": 1791505570, "last": 1791505575},
-      {"disk": "disk1", "dir": "Mediathek/Musik-Videos/Konzerte/Plakate", "n": 3, "bytes": 420000, "first": 1791505576, "last": 1791505576}
+      {
+       "disk": "disk1",
+       "dir": "Mediathek/Musik-Videos/Konzerte",
+       "n": 12,
+       "bytes": 734003200,
+       "first": 1791505570,
+       "last": 1791505575
+      },
+      {
+       "disk": "disk1",
+       "dir": "Mediathek/Musik-Videos/Konzerte/Plakate",
+       "n": 3,
+       "bytes": 420000,
+       "first": 1791505576,
+       "last": 1791505576
+      }
      ],
      "more": 0
     }
@@ -3898,7 +4793,15 @@
   "running": false,
   "look": {
    "v": 1,
-   "snaps": {"host": 3, "containers": [{"name": "s3-gateway", "n": 9}]},
+   "snaps": {
+    "host": 3,
+    "containers": [
+     {
+      "name": "s3-gateway",
+      "n": 9
+     }
+    ]
+   },
    "time": 1791563400,
    "ms": 212,
    "cut": false,
@@ -4012,6 +4915,627 @@
     "need": 140,
     "fits": false
    }
+  }
+ },
+ "cats": {
+  "login": {
+   "level": "danger",
+   "why": [
+    "open_tell"
+   ],
+   "open": 2,
+   "tell": 2,
+   "tips": 0,
+   "entries": 3,
+   "last": 1791526251
+  },
+  "container": {
+   "level": "danger",
+   "why": [
+    "open_tell"
+   ],
+   "open": 2,
+   "tell": 2,
+   "tips": 0,
+   "entries": 2,
+   "last": 1791322792
+  },
+  "plugin": {
+   "level": "danger",
+   "why": [
+    "open_tell"
+   ],
+   "open": 4,
+   "tell": 4,
+   "tips": 0,
+   "entries": 4,
+   "last": 1791530689
+  },
+  "flash": {
+   "level": "ok",
+   "why": [],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null
+  },
+  "share": {
+   "level": "ok",
+   "why": [],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null
+  },
+  "sched": {
+   "level": "danger",
+   "why": [
+    "open_tell"
+   ],
+   "open": 1,
+   "tell": 1,
+   "tips": 0,
+   "entries": 6,
+   "last": 1791530689
+  },
+  "pull": {
+   "level": "note",
+   "why": [
+    "relearn_flow"
+   ],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null
+  },
+  "data": {
+   "level": "danger",
+   "why": [
+    "open_tell",
+    "learning"
+   ],
+   "open": 4,
+   "tell": 4,
+   "tips": 0,
+   "entries": 4,
+   "last": 1791562874
+  },
+  "snap": {
+   "level": "note",
+   "why": [
+    "relearn"
+   ],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 1,
+   "last": 1791438876
+  },
+  "host": {
+   "level": "danger",
+   "why": [
+    "open_tell"
+   ],
+   "open": 2,
+   "tell": 2,
+   "tips": 0,
+   "entries": 2,
+   "last": 1791363931
+  },
+  "door": {
+   "level": "danger",
+   "why": [
+    "open_tell"
+   ],
+   "open": 1,
+   "tell": 1,
+   "tips": 0,
+   "entries": 1,
+   "last": 1791530689
+  },
+  "partner": {
+   "level": "ok",
+   "why": [],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 1,
+   "last": 1791455162
+  },
+  "router": {
+   "level": "danger",
+   "why": [
+    "open_tell"
+   ],
+   "open": 7,
+   "tell": 4,
+   "tips": 0,
+   "entries": 8,
+   "last": 1791563474
+  },
+  "lan": {
+   "level": "danger",
+   "why": [
+    "open_tell"
+   ],
+   "open": 4,
+   "tell": 3,
+   "tips": 0,
+   "entries": 4,
+   "last": 1791459316
+  },
+  "array": {
+   "level": "ok",
+   "why": [],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 32,
+   "last": 1791530711
+  },
+  "vuln": {
+   "level": "none",
+   "why": [
+    "not_yet"
+   ],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null
+  },
+  "hw": {
+   "level": "none",
+   "why": [
+    "not_yet"
+   ],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null
+  },
+  "hold": {
+   "level": "danger",
+   "why": [
+    "hold_short",
+    "hold_holds"
+   ],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null
+  },
+  "wakes": {
+   "level": "ok",
+   "why": [],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null
+  }
+ },
+ "cats_cross": {
+  "book": "danger",
+  "schedule": "ok"
+ },
+ "rules": [
+  {
+   "id": "r0123456789",
+   "cat": "login",
+   "kinds": [
+    "login_new_ip",
+    "smb_client",
+    "smb_hour"
+   ],
+   "on": {
+    "net": "192.168.178.0/24"
+   },
+   "at": 1791304274,
+   "from": "hand",
+   "note": "",
+   "hits": 2,
+   "hit": 1791559874
+  },
+  {
+   "id": "r0123456790",
+   "cat": "container",
+   "kinds": [
+    "container_ports"
+   ],
+   "on": {
+    "key": "container_ports:mediabox"
+   },
+   "at": 1791390674,
+   "from": "hand",
+   "note": "",
+   "hits": 0,
+   "hit": null
+  },
+  {
+   "id": "r0123456791",
+   "cat": "data",
+   "kinds": [
+    "flow_gone"
+   ],
+   "on": {
+    "share": "Downloads"
+   },
+   "at": 1791477074,
+   "from": "hand",
+   "note": "",
+   "hits": 3,
+   "hit": 1791556274
+  },
+  {
+   "id": "r0123456792",
+   "cat": "data",
+   "kinds": [
+    "flow_gone"
+   ],
+   "on": {
+    "share": "Filme"
+   },
+   "opt": {
+    "min": 214748364800
+   },
+   "at": 1791477074,
+   "from": "hand",
+   "note": "",
+   "hits": 0,
+   "hit": null
+  },
+  {
+   "id": "r0123456793",
+   "cat": "snap",
+   "kinds": [
+    "snap_gone"
+   ],
+   "on": {
+    "series": "hourly-#",
+    "dataset": "tank/Familienfilme"
+   },
+   "at": 1791217874,
+   "from": "hand",
+   "note": "",
+   "hits": 12,
+   "hit": 1791559874
+  }
+ ],
+ "off": {},
+ "known": [
+  {
+   "id": "k0123456789",
+   "kind": "login_new_ip",
+   "key": "login_new_ip:192.168.178.20",
+   "cat": "login",
+   "at": 1789749074,
+   "p": {
+    "ip": "192.168.178.20",
+    "users": [
+     "root"
+    ],
+    "services": [
+     "web"
+    ]
+   },
+   "t": []
+  }
+ ],
+ "known_full": false,
+ "settings": {
+  "login": {
+   "burst": {
+    "value": 8,
+    "def": 5,
+    "min": 3,
+    "max": 50,
+    "unit": "n"
+   },
+   "window": {
+    "value": 600,
+    "def": 600,
+    "min": 60,
+    "max": 3600,
+    "unit": "s"
+   }
+  },
+  "container": {
+   "ports": {
+    "value": "tell",
+    "def": "quiet",
+    "of": [
+     "quiet",
+     "tell",
+     "none"
+    ]
+   },
+   "plain": {
+    "value": true,
+    "def": false
+   }
+  },
+  "plugin": {
+   "versions": {
+    "value": false,
+    "def": false
+   }
+  },
+  "sched": {
+   "scripts": {
+    "value": "quiet",
+    "def": "quiet",
+    "of": [
+     "quiet",
+     "tell"
+    ]
+   },
+   "at_late": {
+    "value": 2,
+    "def": 2,
+    "min": 1,
+    "max": 14,
+    "unit": "d"
+   }
+  },
+  "pull": {
+   "factor": {
+    "value": 4,
+    "def": 4,
+    "min": 2,
+    "max": 20,
+    "unit": "x"
+   },
+   "min": {
+    "value": 2,
+    "def": 2,
+    "min": 1,
+    "max": 500,
+    "unit": "gb"
+   },
+   "new": {
+    "value": 50,
+    "def": 50,
+    "min": 10,
+    "max": 1000,
+    "unit": "gb"
+   }
+  },
+  "data": {
+   "factor": {
+    "value": 4,
+    "def": 4,
+    "min": 2,
+    "max": 20,
+    "unit": "x"
+   },
+   "gone_min": {
+    "value": 2,
+    "def": 2,
+    "min": 1,
+    "max": 500,
+    "unit": "gb"
+   },
+   "written_min": {
+    "value": 2,
+    "def": 2,
+    "min": 1,
+    "max": 500,
+    "unit": "gb"
+   },
+   "files_min": {
+    "value": 2000,
+    "def": 2000,
+    "min": 100,
+    "max": 200000,
+    "unit": "n"
+   },
+   "kept": {
+    "value": false,
+    "def": true
+   },
+   "must": {
+    "value": true,
+    "def": true
+   }
+  },
+  "snap": {
+   "offsite": {
+    "value": 50,
+    "def": 50,
+    "min": 25,
+    "max": 75,
+    "unit": "pct"
+   }
+  },
+  "flash": {
+   "go_blank": {
+    "value": false,
+    "def": false
+   }
+  },
+  "share": {
+   "secure_ok": {
+    "value": false,
+    "def": false
+   }
+  },
+  "partner": {
+   "burst": {
+    "value": 3,
+    "def": 3,
+    "min": 3,
+    "max": 20,
+    "unit": "n"
+   },
+   "window": {
+    "value": 60,
+    "def": 60,
+    "min": 30,
+    "max": 600,
+    "unit": "s"
+   }
+  },
+  "router": {
+   "silent": {
+    "value": 6,
+    "def": 6,
+    "min": 1,
+    "max": 72,
+    "unit": "h"
+   },
+   "flaps": {
+    "value": 10,
+    "def": 10,
+    "min": 2,
+    "max": 100,
+    "unit": "n"
+   },
+   "outage_short": {
+    "value": 2,
+    "def": 2,
+    "min": 1,
+    "max": 60,
+    "unit": "min"
+   },
+   "outage_tell": {
+    "value": 30,
+    "def": 30,
+    "min": 5,
+    "max": 240,
+    "unit": "min"
+   },
+   "clock": {
+    "value": 5,
+    "def": 5,
+    "min": 1,
+    "max": 60,
+    "unit": "min"
+   }
+  },
+  "lan": {
+   "random": {
+    "value": false,
+    "def": false
+   }
+  },
+  "array": {
+   "scheduled": {
+    "value": true,
+    "def": true
+   }
+  },
+  "hold": {
+   "auto": {
+    "value": true,
+    "def": true
+   }
+  },
+  "wakes": {
+   "warn_at": {
+    "value": 0,
+    "def": 0,
+    "min": 0,
+    "max": 100,
+    "unit": "n0"
+   }
+  }
+ },
+ "hand": {
+  "login": [
+   "net",
+   "ip",
+   "user_net"
+  ],
+  "container": [
+   "ports",
+   "rights"
+  ],
+  "plugin": [
+   "source"
+  ],
+  "sched": [
+   "script",
+   "cron_file",
+   "crond"
+  ],
+  "pull": [
+   "client",
+   "client_min",
+   "container"
+  ],
+  "data": [
+   "gone",
+   "written",
+   "gone_min",
+   "written_min",
+   "files_min",
+   "kept",
+   "layers",
+   "disk_gone",
+   "disk_written"
+  ],
+  "snap": [
+   "series",
+   "series_ds",
+   "dataset",
+   "hold"
+  ],
+  "flash": [
+   "extra"
+  ],
+  "share": [
+   "guest_read",
+   "guest_write"
+  ],
+  "host": [
+   "port",
+   "prog"
+  ],
+  "door": [
+   "tunnel"
+  ],
+  "router": [
+   "admin",
+   "vpn",
+   "link",
+   "sender"
+  ],
+  "lan": [
+   "network"
+  ],
+  "hold": [
+   "vm",
+   "userscript"
+  ],
+  "wakes": [
+   "cause",
+   "disk"
+  ]
+ },
+ "hand_amount": {
+  "client_min": "gb",
+  "gone_min": "gb",
+  "written_min": "gb",
+  "files_min": "n"
+ },
+ "relearn": {
+  "pull": {
+   "at": 1791390674,
+   "aside": "20261021-101500-pull",
+   "until": 1791995474,
+   "pending": false
+  },
+  "snap": {
+   "at": 1791559874,
+   "aside": "20261023-091000-snap",
+   "until": 1792164674,
+   "pending": true
   }
  }
 }

@@ -70,14 +70,16 @@ const RUNDIR_FILES = [
     'report-inbox\.json|home\.json|caretaker\.rescan' => ['max' => 65536, 'bound' => 'a few fields; the welcome\'s list of shares', 'gone' => 'rewritten / taken'],
     'claim\.[0-9a-f]{12}\.curl'    => ['max' => 4096, 'bound' => 'curl\'s config with the supporter claim (a secret)', 'gone' => 'right after curl; runDirSweep() after 10 min', 'age' => RUNDIR_TMP_AGE],
     // locks and small state of the desks
-    'look-[a-z0-9_.-]+\.lock|snapshot-plans\.lock|backup-wait\.lock|movers-start\.lock|jack-[a-z]+-wait\.(?:lock|json)|watchman-(?:round|book)-[0-9a-f]{8}\.lock'
+    'look-[a-z0-9_.-]+\.lock|snapshot-plans\.lock|backup-wait\.lock|movers-start\.lock|jack-[a-z]+-wait\.(?:lock|json)|watchman-(?:round|book)-[0-9a-f]{8}\.lock|watchman-feeds\.lock'
         => ['max' => 4096, 'bound' => 'empty, or a pid', 'gone' => 'stay (locks); the wait record at its end'],
     'cleanup-tour\.due|logs-tour\.due' => ['max' => 64, 'bound' => 'a time', 'gone' => 'read and removed'],
     'backup-(?:silent|partner-rate|upload|rough|queued|abort)\.json|backup-queued\.cancel|moverelli-silent\.json'
         => ['max' => 262144, 'bound' => '≤ 80 samples, the looks of one run, one size per Kopia source', 'gone' => 'rewritten per run'],
+    'watchman-rules\.json' => ['max' => 262144, 'bound' => 'WATCH_RULES_MAX 300 rules, no notes', 'gone' => 'rewritten on every change'],
     'watchman-mirror\.json|watchman-hold\.json|watchman-flow-[0-9a-f]{8}\.json' => ['max' => 1 << 20, 'bound' => 'the mirror\'s caps; ≤ 5 per thing; ≤ WATCH_FLOW_CONNS 5000 connections', 'gone' => 'rewritten'],
     'watchman-round\.err|watchman-hold\.err|logs-tour\.err' => ['max' => 65536, 'bound' => 'one run\'s stderr: a fatal error\'s lines (a child of the agent; warnings never reach stderr on Unraid\'s php.ini)', 'gone' => 'truncated at the next run'],
     'logs-flood\.json|logs-flood-catch\.json' => ['max' => 1 << 20, 'bound' => '11 × 300 files', 'gone' => 'rewritten / at its end'],
+    'watchman-hw\.json'           => ['max' => 1 << 20, 'bound' => 'one boot\'s hardware counters: ≤ 16 controllers × 64 modules, 512 PCIe devices; 16 samples of the non-zero ones', 'gone' => 'rewritten every round; a reboot; his let-go'],
     'watchman-wakes\.json|watchman-wake-names\.json' => ['max' => 1 << 20, 'bound' => 'the disks\' sleep (a line each); names for WATCH_WAKE_MAX 1000 wakes', 'gone' => 'rewritten / at its end; the array\'s stop'],
     'templates'                   => ['max' => 1 << 20, 'bound' => 'the catalog\'s templates the Consultant prepared (a few KB each)', 'gone' => 'rewritten'],
     'advisor-plugin(?:\.(?:json|out|done))?' => ['max' => 262144, 'bound' => 'one plugin install\'s output (Unraid\'s installer: its lines, read back to the last 32 KB)', 'gone' => 'at the next install'],

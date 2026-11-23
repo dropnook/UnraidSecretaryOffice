@@ -1499,6 +1499,17 @@ function watchnetEvent(array &$b, array &$ns, array &$book, string $sender, arra
             if ($learn) {
                 return $out;
             }
+            // his setting and your exceptions (1.96): a phone's made-up address, a network whose new devices are fine — learned
+            // without a line (never one taking a known device's name)
+            $set = watchnetSet();
+            if ($taken === null && !empty($set['random']) && watchnetMacRandom($mac)) {
+                return $out;
+            }
+            $rid = $taken === null ? array_search((string) $ev['network'], (array) $set['nets'], true) : false;
+            if (is_string($rid) && (string) $ev['network'] !== '') {
+                watchnetHits($rid, mb_strcut('net_new_device:' . (string) $ev['network'], 0, 300, 'UTF-8'), $now);
+                return $out;
+            }
             $kind = watchmanSet($book, 'net_new_device', "net_new_device:$mac", $now, ['sender' => $sender, 'router' => $router, 'mac' => $mac,
                 'ip' => $ip, 'name' => $name, 'network' => (string) $ev['network'], 'taken' => $taken,
                 'random' => watchnetMacRandom($mac), 'evidence' => watchnetEvidence($ev, $allow + ($ip !== null ? [$ip => true] : []))]);
@@ -1734,7 +1745,7 @@ function watchnetLink(array &$book, array $ns, string $sender, string $router, a
         $e['noted'] = null;
         $e['by'] = null;
     }
-    if ((int) $e['count'] >= WATCHNET_FLAPS && empty($e['important'])) {
+    if ((int) $e['count'] >= watchnetSet()['flaps'] && empty($e['important'])) {        // WATCHNET_FLAPS, or his setting
         $e['important'] = true;                 // flapping: told once, open until noted
         $e['p']['flapping'] = true;
     }
@@ -1802,7 +1813,7 @@ function watchnetOutageEnd(array &$e, ?int $to, int $now): void
         $e['p']['unknown'] = true;
     }
     $e['last'] = max((int) $e['last'], $to ?? $now);
-    if ((int) $e['p']['secs'] >= WATCHNET_OUTAGE_SHORT || $to === null) {
+    if ((int) $e['p']['secs'] >= watchnetSet()['outage_short'] || $to === null) {        // WATCHNET_OUTAGE_SHORT, or his setting
         $e['important'] = true;
     } elseif (empty($e['important']) && watchmanOpen($e)) {
         $e['noted'] = $now;
@@ -1827,7 +1838,7 @@ function watchnetOutages(array &$book, string $sender, int $now): void
             continue;
         }
         $book[$i]['p']['minutes'] = (int) round(((int) ($e['p']['secs'] ?? 0) + $away) / 60);
-        if ($away >= WATCHNET_OUTAGE_TELL) {
+        if ($away >= watchnetSet()['outage_tell']) {           // WATCHNET_OUTAGE_TELL, or his setting
             $book[$i]['important'] = true;
         }
     }
@@ -1965,7 +1976,7 @@ function watchnetSilent(array &$book, array &$ns, string $sender, bool $grew, ar
         return null;                            // not known as a router (yet)
     }
     $usual = max(array_map('intval', (array) ($s['gaps'] ?? [])) ?: [0]);
-    $limit = max(WATCHNET_SILENT_FLOOR, WATCHNET_SILENT_FACTOR * $usual);
+    $limit = max(watchnetSet()['silent'], WATCHNET_SILENT_FACTOR * $usual);      // WATCHNET_SILENT_FLOOR, or his setting (1.96)
     if ($now - max($last, $since) <= $limit || !isset($arp[$sender])) {
         return null;
     }
@@ -2173,6 +2184,7 @@ function watchnetText(array $e, ?string $lang = null): array
                                       'longest' => max(1, (int) round((int) ($p['longest'] ?? 0) / 60))],
         'net_router_reboot'       => ['router' => $router, 'date' => (string) ($p['date'] ?? ''),
                                       'admin' => implode(', ', array_map('strval', (array) ($p['admins'] ?? []))) ?: '?', 'power' => $hm($p['power'] ?? null)],
+        'net_gateway', 'net_dns'  => watchnetGatewayText($e),       // the server's own router and DNS (no router log)
         default                   => [],
     };
 }
@@ -2234,14 +2246,43 @@ function watchnetChains(array $book, array $chains, int $now): array
     return $chains;
 }
 
+/**
+ * The Night Watchman's settings and exceptions for the network (1.96 step 6e, his rules.json), set by his round before it
+ * compares (watchmanRound()): the defaults are the constants above — a caller that sets nothing judges as up to 1.95.
+ * silent (s), flaps, outage_short (s), outage_tell (s), clock (s); random: a device on a made-up Wi-Fi address learned
+ * without a line; nets: [rule id => network name] whose new devices are learned without a line (their hits: watchnetHits()).
+ */
+function watchnetSet(?array $set = null): array
+{
+    static $now = [];
+    if ($set !== null) {
+        $now = $set;
+    }
+    return $now + ['silent' => WATCHNET_SILENT_FLOOR, 'flaps' => WATCHNET_FLAPS, 'outage_short' => WATCHNET_OUTAGE_SHORT, 'outage_tell' => WATCHNET_OUTAGE_TELL,
+                   'clock' => WATCHNET_CLOCK, 'random' => false, 'nets' => []];
+}
+
+/** What a network exception kept from being a line this round: rule id => {n, last, key} — read and emptied by his round */
+function watchnetHits(?string $rid = null, string $key = '', int $now = 0): array
+{
+    static $hits = [];
+    if ($rid === null) {
+        $out = $hits;
+        $hits = [];
+        return $out;
+    }
+    $hits[$rid] = ['n' => (int) ($hits[$rid]['n'] ?? 0) + 1, 'last' => $now, 'key' => $key];
+    return $hits;
+}
+
 /** The router's clock (a posture tip): a sender whose newest line was off its arrival by more than WATCHNET_CLOCK */
 function watchnetClock(?array $ns): ?array
 {
     $off = [];
     foreach ((array) ($ns['senders'] ?? []) as $sender => $s) {
-        if (isset($s['skew']) && abs((int) $s['skew']) > WATCHNET_CLOCK) {
+        if (isset($s['skew']) && abs((int) $s['skew']) > watchnetSet()['clock']) {
             $off[] = ['sender' => (string) $sender, 'router' => (string) ($s['meta']['host'] ?? $sender), 'minutes' => (int) round((int) $s['skew'] / 60),
-                      'zone' => isset($s['zone']) && $s['zone'] !== null && abs((int) $s['zone']) > WATCHNET_CLOCK];
+                      'zone' => isset($s['zone']) && $s['zone'] !== null && abs((int) $s['zone']) > watchnetSet()['clock']];
         }
     }
     return $off ?: null;
@@ -2589,4 +2630,182 @@ function watchnetGuideSeen(?string $file = null): ?int
 {
     $t = (int) ((readJson($file ?? watchnetGuideFile()) ?? [])['seen'] ?? 0);
     return $t > 0 ? $t : null;
+}
+
+// ===================================================================== the server's own router and DNS (1.96, concept 11 G)
+
+/*
+ * Without any router log: whom the server itself sends to. The default route's gateway (/proc/net/route, the main
+ * table, IPv4) and that address's MAC in the server's ARP table (/proc/net/arp, a complete entry only), the DNS servers
+ * it asks (/etc/resolv.conf). All in RAM — the night shift looks too. The same gateway address with another MAC is
+ * `net_gateway` (told): a new router, or someone on the LAN posing as the router (ARP spoofing) — only when seen in
+ * WATCHNET_GW_WAIT rounds in a row (a moment's wobble says nothing); while the ARP entry is missing (it ages out when
+ * idle) he says nothing at all. Another gateway address (another network, another router's address) is learned quietly.
+ * Other DNS servers: `net_dns` (in the book, not told). Both are the area «The network» (watchman-cats.php). The
+ * privacy rule speaks of other clients: the router's own address and MAC, and the DNS servers the server asks, are the
+ * server's own business — nothing of the LAN's other devices is read here.
+ * Kept in the baseline as `lan` {gw: {ip: {mac: last seen}}, wait: {ip, mac, n}|null, dns: [ip]|null} (the night's
+ * mirror carries it); his first look is normal.
+ */
+const WATCHNET_GW_WAIT    = 2;               // rounds in a row a gateway's other MAC must be seen before it counts
+const WATCHNET_GW_IPS     = 16;              // gateway addresses kept (the oldest seen goes)
+const WATCHNET_GW_MACS    = 8;               // MACs kept per gateway address (two routers in turn, a replacement)
+const WATCHNET_DNS_MAX    = 8;               // DNS servers read from resolv.conf
+
+/** The default route's gateway (the lowest metric) and its interface, or null: none now ($file: /proc/net/route) */
+function watchnetGatewayRoute(string $file): ?array
+{
+    $best = null;
+    foreach (array_slice(explode("\n", (string) @file_get_contents($file, false, null, 0, 1 << 20)), 1) as $line) {
+        $f = preg_split('/\s+/', trim($line)) ?: [];
+        if (count($f) < 8 || $f[1] !== '00000000' || $f[7] !== '00000000' || !preg_match('/^[0-9A-Fa-f]{8}$/D', $f[2]) || (hexdec($f[3]) & 3) !== 3
+            || !preg_match('/^[A-Za-z0-9._@-]{1,32}$/D', $f[0])) {
+            continue;               // not a default route that is up and goes through a gateway
+        }
+        // the kernel prints the address as a number in the host's order: on x86 (little endian) its bytes come reversed
+        $ip = implode('.', array_reverse(array_map('hexdec', str_split($f[2], 2))));
+        $metric = (int) $f[6];
+        if ($ip !== '0.0.0.0' && ($best === null || $metric < $best['metric'])) {
+            $best = ['ip' => $ip, 'iface' => $f[0], 'metric' => $metric];
+        }
+    }
+    return $best === null ? null : ['ip' => $best['ip'], 'iface' => $best['iface']];
+}
+
+/** The MAC the server's ARP table holds for $ip (a complete entry; on $iface when it has one there), or null */
+function watchnetGatewayMac(string $file, string $ip, string $iface): ?string
+{
+    $found = null;
+    foreach (array_slice(explode("\n", (string) @file_get_contents($file, false, null, 0, 1 << 20)), 1) as $line) {
+        $f = preg_split('/\s+/', trim($line)) ?: [];
+        if (count($f) < 6 || $f[0] !== $ip || !(hexdec($f[2]) & 2) || ($mac = watchnetMac($f[3])) === null || $mac === '00:00:00:00:00:00') {
+            continue;
+        }
+        if ($f[5] === $iface) {
+            return $mac;
+        }
+        $found ??= $mac;
+    }
+    return $found;
+}
+
+/** The DNS servers the server asks (/etc/resolv.conf's nameserver lines, at most WATCHNET_DNS_MAX), sorted */
+function watchnetDns(string $file): ?array
+{
+    $text = @file_get_contents($file, false, null, 0, 65536);
+    if ($text === false) {
+        return null;
+    }
+    $out = [];
+    foreach (preg_split('/\r?\n/', $text) ?: [] as $l) {
+        if (preg_match('/^\s*nameserver\s+(\S+)/', $l, $m) && ($ip = watchnetIp($m[1])) !== null && count($out) < WATCHNET_DNS_MAX) {
+            $out[$ip] = true;
+        }
+    }
+    $out = array_keys($out);
+    sort($out);
+    return $out;
+}
+
+/**
+ * The server's router and DNS as they are now ($paths: route, arp, resolv). Null: not looked at (no route path).
+ * gw: {ip, iface, mac (null: no ARP entry now)} or null (no default route); dns: the servers, null: resolv.conf unread.
+ */
+function watchnetGateway(array $paths): ?array
+{
+    if (!isset($paths['route'])) {
+        return null;
+    }
+    $gw = watchnetGatewayRoute((string) $paths['route']);
+    if ($gw !== null) {
+        $gw['mac'] = isset($paths['arp']) ? watchnetGatewayMac((string) $paths['arp'], $gw['ip'], $gw['iface']) : null;
+    }
+    return ['gw' => $gw, 'dns' => isset($paths['resolv']) ? watchnetDns((string) $paths['resolv']) : null];
+}
+
+/**
+ * The router and DNS against what is normal ($known: the baseline's `lan`). The gateway's address with another MAC,
+ * WATCHNET_GW_WAIT rounds in a row: net_gateway (one open entry per address and MAC). Other DNS servers: net_dns (one
+ * open entry; brought up to date while open). A baseline without this part: what he sees now is normal.
+ */
+function watchnetGatewayCompare(?array &$known, ?array $seen, array &$book, int $now): array
+{
+    if ($seen === null) {
+        return [];
+    }
+    $gw = is_array($seen['gw'] ?? null) ? $seen['gw'] : null;
+    $mac = is_string($gw['mac'] ?? null) ? $gw['mac'] : null;
+    if (!is_array($known)) {
+        $known = ['gw' => $gw !== null && $mac !== null ? [$gw['ip'] => [$mac => $now]] : [], 'wait' => null, 'dns' => $seen['dns'] ?? null];
+        return [];
+    }
+    $known['gw'] = is_array($known['gw'] ?? null) ? $known['gw'] : [];
+    $added = [];
+    if ($gw !== null && $mac !== null) {
+        $ip = (string) $gw['ip'];
+        $macs = is_array($known['gw'][$ip] ?? null) ? $known['gw'][$ip] : null;
+        if ($macs === null) {
+            $known['gw'][$ip] = [$mac => $now];            // another gateway address: another network or router — learned
+            $known['wait'] = null;
+        } elseif (isset($macs[$mac])) {
+            $known['gw'][$ip][$mac] = $now;
+            $known['wait'] = null;                           // its known MAC again: a wobble is over
+        } else {
+            $w = $known['wait'] ?? null;
+            $n = is_array($w) && ($w['ip'] ?? null) === $ip && ($w['mac'] ?? null) === $mac ? (int) ($w['n'] ?? 0) + 1 : 1;
+            $known['wait'] = ['ip' => $ip, 'mac' => $mac, 'n' => $n];
+            if ($n >= WATCHNET_GW_WAIT) {
+                arsort($macs);
+                $added[] = watchmanSet($book, 'net_gateway', "net_gateway:$ip:$mac", $now,
+                    ['ip' => $ip, 'mac' => $mac, 'iface' => (string) $gw['iface'], 'old' => array_slice(array_keys($macs), 0, 3)]);
+            }
+        }
+        // the caps: the gateway addresses last seen longest ago go first, likewise a gateway's MACs
+        foreach ($known['gw'] as $a => $m) {
+            if (count($m) > WATCHNET_GW_MACS) {
+                arsort($m);
+                $known['gw'][$a] = array_slice($m, 0, WATCHNET_GW_MACS, true);
+            }
+        }
+        if (count($known['gw']) > WATCHNET_GW_IPS) {
+            uasort($known['gw'], fn ($x, $y) => max($y) <=> max($x));
+            $known['gw'] = array_slice($known['gw'], 0, WATCHNET_GW_IPS, true);
+        }
+    }
+    $dns = $seen['dns'] ?? null;
+    if (is_array($dns)) {
+        $was = $known['dns'] ?? null;
+        if (!is_array($was)) {
+            $known['dns'] = $dns;                            // never read before: normal
+        } elseif ($was !== $dns) {
+            $added[] = watchmanSet($book, 'net_dns', 'net_dns', $now, ['servers' => $dns, 'old' => $was]);
+        }
+    }
+    return array_values(array_filter($added));
+}
+
+/** «I know, thanks» on net_gateway (this MAC is the router's too: two routers in turn) or net_dns (these servers are normal) */
+function watchnetGatewayAdopt(array &$b, array $e, array $seen, int $now): void
+{
+    $p = (array) ($e['p'] ?? []);
+    $lan = is_array($b['lan'] ?? null) ? $b['lan'] : ['gw' => [], 'wait' => null, 'dns' => null];
+    if ($e['kind'] === 'net_gateway' && is_string($p['ip'] ?? null) && is_string($p['mac'] ?? null)) {
+        $lan['gw'][$p['ip']][$p['mac']] = $now;
+        if (($lan['wait']['mac'] ?? null) === $p['mac']) {
+            $lan['wait'] = null;
+        }
+    } elseif ($e['kind'] === 'net_dns') {
+        $dns = $seen['lan']['dns'] ?? null;
+        $lan['dns'] = is_array($dns) ? $dns : (array) ($p['servers'] ?? []);
+    }
+    $b['lan'] = $lan;
+}
+
+/** An entry's words: the router's address and MACs, the DNS servers */
+function watchnetGatewayText(array $e): array
+{
+    $p = (array) ($e['p'] ?? []);
+    $list = fn (string $k) => implode(', ', array_map('strval', (array) ($p[$k] ?? []))) ?: '–';
+    return $e['kind'] === 'net_gateway' ? ['ip' => (string) ($p['ip'] ?? ''), 'mac' => (string) ($p['mac'] ?? ''), 'old' => $list('old')]
+        : ['servers' => $list('servers'), 'old' => $list('old')];
 }

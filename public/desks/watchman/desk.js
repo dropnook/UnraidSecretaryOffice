@@ -113,6 +113,659 @@ async function roundNow() {
 }
 
 // ------------------------------------------------------------------ «I know, thanks»
+// ------------------------------------------------------------------ his setup (1.96 step 5)
+/*
+ * The second page «Setup»: the same areas again on a switcher of its own (#/watchman/setup/<area>), no lights but how
+ * each stands — «defaults», «n changed», «off», its exceptions. An area's section: «Watch this area» (off only after
+ * a clear question naming what you won't see), its settings (each with its default in words; «Apply», «Back to the
+ * defaults»), its exceptions with «Add an exception…» (the pilot: logins — a net, an address, a user from a net) and
+ * your lasting answers. «Everything changed» first: every setting off its default, every area off, every exception —
+ * the one place to see everything he no longer says. Whoever never opens it notices nothing of it.
+ */
+const setupAreas = () => CATS.filter(catShown);
+const setupSw = Office.sections({
+  id: `${ID}/setup`,
+  key: `${ID}.setup.tile`,
+  bodyId: 'wm-setup-areas',
+  grid: 'stats wm-setup-tiles',
+  default: 'changed',
+  tiles: () => [
+    { id: 'changed', key: 'setup.changed', place: 'setup.changed', tile: (a) => changedTile(a), section: () => changedSection() },
+    ...setupAreas().map((id) => ({ id, key: `cat.${id}`, place: `setup.${id}`, tile: (a) => setupTile(id, a), section: () => setupSection(id) })),
+  ],
+  wants: (sub) => CATS.includes(sub),
+});
+function renderSetup(root) {
+  root.appendChild(Office.pageHelp(`${ID}-setup`, [
+    [T('help.setup'), T('help.setup_text')],
+    [T('help.setup_off'), T('help.setup_off_text')],
+    [T('help.setup_rules'), T('help.setup_rules_text')],
+  ]));
+  if (!state) { root.appendChild(el('p', 'empty', Office.t('common.loading'))); return; }
+  root.appendChild(relearnAllBar());
+  root.appendChild(setupSw.el);
+  setupSw.render();
+}
+/** What differs from the defaults in an area: its settings off their default */
+const changedOf = (id) => Object.entries((state && state.settings && state.settings[id]) || {}).filter(([, v]) => v && v.value !== v.def);
+const rulesOf = (id) => ((state && state.rules) || []).filter((r) => r && r.cat === id);
+const offAt = (id) => Number(state && state.off && state.off[id]) || 0;
+function setupTile(id, a) {
+  const n = changedOf(id).length;
+  const r = rulesOf(id).length;
+  const value = offAt(id) ? T('setup.off') : n ? T('setup.changed_n', { n }) : T('setup.default');
+  return Office.stat({ label: catName(id), value, alert: !!offAt(id), sub: r ? T('setup.rules_n', { n: r }) : '', ...a });
+}
+function changedTile(a) {
+  const n = setupAreas().reduce((x, id) => x + changedOf(id).length + rulesOf(id).length + (offAt(id) ? 1 : 0), 0);
+  return Office.stat({ label: T('setup.changed'), value: n ? T('setup.changes_n', { n }) : T('setup.none'), ...a });
+}
+/** «Everything changed»: per area what is off its default, switched off, its exceptions */
+function changedSection() {
+  const s = el('section', 'section wm-setup');
+  s.appendChild(Office.sectionHead(T('setup.changed'), T('setup.changed_sub'), { place: 'setup.changed' }));
+  const box = el('div', 'box');
+  let any = false;
+  setupAreas().forEach((id) => {
+    const lines = [];
+    if (offAt(id)) lines.push(T('setup.off_since', { when: fmt.date(offAt(id)) }));
+    changedOf(id).forEach(([k, v]) => lines.push(T('setup.changed_line', { what: T(`setting.${id}.${k}`), value: settingWords(id, k, v, v.value), def: settingWords(id, k, v, v.def) })));
+    rulesOf(id).forEach((r) => lines.push(offerName(r)));
+    if (!lines.length) return;
+    any = true;
+    const row = el('div', 'row nocheck wm-setup-row');
+    const main = el('div', 'row-main');
+    const name = el('button', 'btn small plain wm-setup-to', catName(id));
+    name.type = 'button';
+    name.onclick = () => setupSw.pick(id, 'click');
+    main.appendChild(name);
+    lines.forEach((x) => main.appendChild(el('div', 'row-detail', x)));
+    row.appendChild(main);
+    box.appendChild(row);
+  });
+  if (!any) box.appendChild(el('p', 'empty', T('setup.nothing')));
+  s.appendChild(box);
+  return s;
+}
+/** An area's setup: watch it or not, its settings, its exceptions (by hand too), your answers */
+function setupSection(id) {
+  const s = el('section', 'section wm-setup');
+  const label = el('label', 'switch');
+  const cb = el('input');
+  cb.type = 'checkbox';
+  cb.checked = !offAt(id);
+  cb.disabled = !Office.agent.running || !hired();
+  label.append(cb, el('span', '', T('setup.watch_switch')));
+  label.title = T('setup.watch_switch_title');
+  cb.onchange = () => catOffAsk(id, !cb.checked, cb);
+  s.appendChild(Office.sectionHead(catName(id), T(`cat.${id}_sub`), label));
+  if (offAt(id)) s.appendChild(el('p', 'callout', T('setup.off_since', { when: fmt.date(offAt(id)) })));
+  if (id === 'lan') {
+    const box = el('div', 'box wm-settings');
+    box.appendChild(lanSwitch());           // «Whole LAN» (his switch from before 1.96, kept in his state)
+    s.appendChild(box);
+  }
+  if (id === 'wakes' && state.wakes) {
+    const box = el('div', 'box wm-settings');
+    const row = el('div', 'row nocheck wm-item');
+    row.appendChild(wakesSwitch());         // «Watch the wakes» (his switch, kept in wakes.json)
+    box.appendChild(row);
+    s.appendChild(box);
+  }
+  const set = (state.settings && state.settings[id]) || null;
+  if (set && Object.keys(set).length) s.appendChild(settingsBox(id, set));
+  const rules = catRules(id);
+  if (rules) s.appendChild(rules);
+  if (handTypes(id).length) {
+    const add = el('button', 'btn small', T('setup.add'));
+    add.type = 'button';
+    add.disabled = !Office.agent.running || !hired();
+    add.onclick = () => ruleHandDialog(id, add);
+    const acts = el('div', 'wm-setup-acts');
+    acts.appendChild(add);
+    s.appendChild(acts);
+  }
+  const known = catKnown(id);
+  if (known) s.appendChild(known);
+  s.appendChild(relearnBox(id));
+  return s;
+}
+/** A setting's value in words: a number with its unit, a switch on or off, a choice by its name */
+function settingWords(id, k, v, x) {
+  if (typeof x === 'boolean') return T(x ? 'setup.switch_on' : 'setup.switch_off');
+  if (v.unit === 'n0') return Number(x) ? T('setup.unit.n', { n: x }) : T('setup.no_judgement');
+  if (typeof x === 'string') return T(`setting.${id}.${k}.${x}`);
+  return T(`setup.unit.${v.unit || 'n'}`, { n: x });
+}
+/** An area's settings: a field each (a number, a switch, a choice) with its default in words, «Apply» and «Back to the defaults» */
+function settingsBox(id, set) {
+  const box = el('div', 'box wm-settings');
+  const fields = {};
+  Object.entries(set).forEach(([k, v]) => {
+    const row = el('div', 'row nocheck wm-setting');
+    let inp;
+    if (typeof v.def === 'boolean') {
+      inp = el('input');
+      inp.type = 'checkbox';
+      inp.checked = !!v.value;
+      fields[k] = () => inp.checked;
+    } else if (typeof v.def === 'string') {
+      inp = el('select', 'picker');
+      (v.of || []).forEach((x) => inp.appendChild(new Option(T(`setting.${id}.${k}.${x}`), x)));
+      inp.value = v.value;
+      fields[k] = () => inp.value;
+    } else {
+      inp = el('input', 'search wm-setting-num');
+      inp.type = 'number';
+      inp.min = String(v.min);
+      inp.max = String(v.max);
+      inp.step = '1';
+      inp.value = String(v.value);
+      fields[k] = () => { const n = Number(inp.value); return Number.isInteger(n) ? n : null; };
+    }
+    inp.setAttribute('aria-label', T(`setting.${id}.${k}`));
+    const main = el('div', 'row-main');
+    main.appendChild(el('div', 'row-name text', T(`setting.${id}.${k}`)));
+    main.appendChild(el('div', 'row-meta', typeof v.def === 'number'
+      ? T('setup.def', { value: settingWords(id, k, v, v.def), min: settingWords(id, k, v, v.min), max: settingWords(id, k, v, v.max) })
+      : T('setup.def_value', { value: settingWords(id, k, v, v.def) })));
+    row.append(main, inp);
+    box.appendChild(row);
+  });
+  const acts = el('div', 'wm-entry-acts');
+  const apply = el('button', 'btn small', T('setup.apply'));
+  apply.type = 'button';
+  apply.disabled = !Office.agent.running || !hired();
+  apply.onclick = () => {
+    const out = {};
+    for (const [k, get] of Object.entries(fields)) {
+      const x = get();
+      if (x === null) { Office.toast(T('setup.not_number'), true); return; }
+      out[k] = x;
+    }
+    catSet(id, { set: out }, apply);
+  };
+  const back = el('button', 'btn small plain', T('setup.reset'));
+  back.type = 'button';
+  back.disabled = apply.disabled || !changedOf(id).length;
+  back.onclick = () => catSet(id, { reset: true }, back);
+  acts.append(apply, back);
+  box.appendChild(acts);
+  return box;
+}
+async function catSet(id, body, b) {
+  if (!(await Office.freshState(ID))) return;
+  b.disabled = true;
+  const j = await Office.api.post(`${ID}.cat_set`, { cat: id, ...body });
+  if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); b.disabled = false; return; }
+  if (j.state) state = j.state;
+  renderAt('.wm-setup');
+  Office.toast(T(body.reset ? 'setup.reset_done' : 'setup.saved'));
+}
+/** «Watch this area» off: one clear question naming what you won't see any more; on again at once */
+function catOffAsk(id, off, cb) {
+  const go = async () => {
+    cb.disabled = true;
+    const j = await Office.api.post(`${ID}.cat_off`, { cat: id, off, sure: off });
+    if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); cb.checked = off; cb.disabled = false; return; }
+    if (j.state) state = j.state;
+    mood();
+    renderAt('.wm-setup');
+    Office.toast(T(off ? 'setup.turned_off' : 'rule.cat_on_done'));
+  };
+  if (!off) { go(); return; }
+  const body = el('div', 'wm-rule-ask');
+  body.append(el('p', 'callout warn', T('setup.off_ask', { area: catName(id) })), el('p', '', T(`cat.${id}_sub`)), el('p', '', T('setup.off_note')));
+  Office.dialog({ title: T('setup.off_title'), body, onClose: () => { cb.checked = !offAt(id); }, buttons: [
+    { text: T('setup.off_yes', { area: catName(id) }), kind: 'danger', act: () => { go(); } },
+    { text: Office.t('common.cancel') },
+  ] });
+}
+/** The exceptions an area takes by hand (the messenger's list, WATCH_HAND) */
+const handTypes = (id) => ((state && state.hand && state.hand[id]) || []).filter((x) => typeof x === 'string');
+const HAND_EXAMPLE = { net: '192.168.1.0/24', ip: '203.0.113.7', user_net: '192.168.1.0/24', ports: 'plex', rights: 'plex', source: 'github.com/…',
+  script: '…', cron_file: '…/….cron', crond: '…', client: '192.168.1.20', client_min: '192.168.1.20', container: 'plex', disk_gone: 'disk1',
+  disk_written: 'disk1', series: 'zfs-auto-snap_hourly-#', series_ds: 'tank/Media', dataset: 'tank/Media', hold: 'tank/Media', extra: '….txz',
+  guest_read: 'Media', guest_write: 'Media', port: '8384', prog: 'syncthing', tunnel: 'wg0', admin: '192.168.1.0/24', vpn: '…', link: 'ether5',
+  sender: '192.168.1.1', network: '…', vm: '…', userscript: '…', cause: 'plex', disk: 'disk3', crash: 'smbd', oom: 'emby', cve: 'CVE-2024-4577',
+  product: 'php' };
+const HAND_WIDE = { login: 'setup.add_public', plugin: 'setup.add_wide.plugin', data: 'setup.add_wide.data', snap: 'setup.add_wide.snap', share: 'setup.add_wide.share',
+  router: 'setup.add_wide.router', vuln: 'setup.add_wide.vuln' };
+// a second field: a user from a net, a series on a dataset
+const HAND_SECOND = { user_net: ['setup.add_user', 'root'], series_ds: ['setup.add_second.series_ds', 'zfs-auto-snap_hourly-#'],
+  guest_read: ['setup.add_second.proto', 'SMB'], guest_write: ['setup.add_second.proto', 'SMB'], admin: ['setup.add_second.admin', 'admin'],
+  link: ['setup.add_second.sender', '192.168.1.1'], cause: ['setup.add_second.cause', 'container'] };
+const handAmount = (t) => (state && state.hand_amount && state.hand_amount[t]) || null;
+/**
+ * «Add an exception…» by hand: what kind of exception (the area's types), its value typed, a user for «a user from a net»
+ * — the messenger checks it (a public net at most a /24, a public address or net or a whole plugin source only with the
+ * clear yes, said in the dialog)
+ */
+function ruleHandDialog(id, b) {
+  const types = handTypes(id);
+  const body = el('div', 'wm-rule-hand');
+  const type = el('select', 'picker');
+  types.forEach((x) => type.appendChild(new Option(T('setup.add_type.' + x), x)));
+  type.setAttribute('aria-label', T('setup.add_type_label'));
+  const value = el('input', 'search');
+  value.type = 'text';
+  const user = el('input', 'search');
+  user.type = 'text';
+  user.placeholder = 'root';
+  user.setAttribute('aria-label', T('setup.add_user'));
+  const userRow = el('label', 'wm-hand-row');
+  const userName = el('span', '', T('setup.add_user'));
+  userRow.append(userName, user);
+  const valueName = el('span', '');
+  const amount = el('input', 'search wm-setting-num');
+  amount.type = 'number';
+  amount.min = '1';
+  amount.step = '1';
+  const amountName = el('span', '');
+  const amountRow = el('label', 'wm-hand-row');
+  amountRow.append(amountName, amount);
+  const login = ['net', 'ip', 'user_net'];
+  const netNot = el('p', 'role', T('rule.ask_net_not'));
+  const sync = () => {
+    const t = type.value;
+    userRow.hidden = !HAND_SECOND[t];
+    if (HAND_SECOND[t]) {
+      userName.textContent = T(HAND_SECOND[t][0]);
+      user.placeholder = HAND_SECOND[t][1];
+      user.setAttribute('aria-label', userName.textContent);
+    }
+    netNot.hidden = !login.includes(t);
+    value.placeholder = HAND_EXAMPLE[t] || '';
+    valueName.textContent = login.includes(t) ? T('setup.add_value') : T('setup.add_value.' + t);
+    value.setAttribute('aria-label', valueName.textContent);
+    const unit = handAmount(t);
+    amountRow.hidden = !unit;
+    if (unit) {
+      amountName.textContent = T('setup.add_amount.' + unit);
+      amount.setAttribute('aria-label', amountName.textContent);
+    }
+  };
+  type.addEventListener('change', sync);
+  const sure = el('input');
+  sure.type = 'checkbox';
+  const sureRow = el('label', 'switch');
+  sureRow.append(sure, el('span', '', HAND_WIDE[id] ? T(HAND_WIDE[id]) : ''));
+  sureRow.hidden = !HAND_WIDE[id];
+  const tr = el('label', 'wm-hand-row');
+  tr.append(el('span', '', T('setup.add_type_label')), type);
+  const vr = el('label', 'wm-hand-row');
+  vr.append(valueName, value);
+  body.append(tr, vr, amountRow, userRow, netNot, sureRow);
+  sync();
+  Office.dialog({ title: T('setup.add'), body, buttons: [
+    { text: T('rule.add'), kind: 'primary', act: () => {
+      (async () => {
+        b.disabled = true;
+        const n = Number(amount.value);
+        if (handAmount(type.value) && !(Number.isInteger(n) && n >= 1)) { b.disabled = false; Office.toast(T('errors.watch_amount_bad'), true); return; }
+        const j = await Office.api.post(`${ID}.rule_hand`, { cat: id, type: type.value, value: value.value.trim(), user: user.value.trim(), sure: sure.checked,
+          ...(handAmount(type.value) ? { amount: n } : {}) });
+        b.disabled = false;
+        if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return; }
+        if (j.state) state = j.state;
+        if (j.rule) justMade.add(j.rule);
+        renderAt('.wm-setup');
+        Office.toast(T('rule.added'));
+      })();
+    } },
+    { text: Office.t('common.cancel') },
+  ] });
+}
+
+// ------------------------------------------------------------------ exceptions (1.96, agent/desks/watchman-rules.php)
+const OFFERS = ['key', 'ip', 'net', 'user_net', 'machine', 'source', 'file', 'cmd', 'share', 'disk', 'min', 'kept', 'layers', 'series_ds', 'series', 'hold', 'open',
+  'prog', 'tunnel', 'pair_ip', 'pair_net', 'admin_ip', 'admin_net', 'vpn', 'link', 'sender', 'network', 'thing', 'max_c'];
+// kinds whose key is «<kind>:<the thing's name>»: an exception for exactly it reads «The ports of plex may change» (6a)
+const KEY_NAMED = ['container_ports', 'container_rights', 'script_changed', 'cron_file', 'flow_client', 'flow_container', 'flash_extra', 'listen_new',
+  'container_privileged', 'net_blocked_from_server'];
+/** A named key's thing in words: a client of the data flow «192.168.1.5 (SMB)» (its key: ip|service), else the name */
+function keyThing(kind, name) {
+  if (kind === 'listen_new') return name.replace(/^tcp:/, '');
+  if (kind !== 'flow_client') return name;
+  const [ip, svc] = name.split('|');
+  return svc ? `${ip} (${({ smb: 'SMB', nfs: 'NFS', ssh: 'SSH', web: 'WebGUI' })[svc] || svc})` : ip;
+}
+/** What a threshold of the data flow is about, in words: a share's or disk's gone / written / files, a computer, a container */
+function flowWhat(o) {
+  const on = o.on || {};
+  const kind = (o.kinds || [])[0] || '';
+  const opt = o.opt || {};
+  if (on.share || on.disk) {
+    const what = on.share || on.disk;
+    return T(opt.files !== undefined ? 'rule.flow.files' : kind === 'flow_written' ? 'rule.flow.written' : 'rule.flow.gone', { what });
+  }
+  if (on.ip) return on.ip;
+  if (typeof on.key === 'string') {
+    const named = KEY_NAMED.find((k) => on.key.startsWith(`${k}:`));
+    if (named) return keyThing(named, on.key.slice(named.length + 1));
+  }
+  return '…';
+}
+const justMade = new Set();     // exceptions made on this visit: «Undo» beside «Lift» (their entries open again)
+/**
+ * An exception in words: «192.168.1.0/24 always okay», «root from 192.168.1.0/24 …»; exactly one thing: on its own
+ * entry «This one always okay», elsewhere (the list, the dialog) «‹the entry, shortened› always okay»
+ */
+function offerName(o, e, here) {
+  const on = o.on || {};
+  // 1.96's new kinds: this thing across days and boots (a sensor, a disk, a program, a CVE …); a sensor up to so many °C
+  if (typeof on.thing === 'string') {
+    const what = on.thing.split(':')[0];
+    const name = o.what || on.thing.slice(what.length + 1);
+    if (on.max_c) return T('rule.offer.max_c', { name, c: on.max_c });
+    if (on.thing === 'port:conntrack') return T('rule.offer.thing.conntrack');
+    return T(`rule.offer.thing.${what === 'cve' || what === 'product' ? what : (o.kinds || [])[0] || what}`, { name });
+  }
+  // what holds the array, the wakes (6f)
+  if (on.vm) return T('rule.offer.vm', { name: on.vm });
+  if (on.script) return T('rule.offer.script', { name: on.script });
+  if (on.cause) return T('rule.offer.cause', { name: on.cause.slice(on.cause.indexOf(':') + 1), kind: T(`side.kind.${on.cause.split(':')[0]}`) });
+  if (on.disk && (o.kinds || [])[0] === 'wakes') return T('rule.offer.wake_disk', { disk: on.disk });
+  // the partner door and the network (6e) — before the logins' shapes: they carry an address or a net too
+  if (on.pair) return T('rule.offer.pair', { name: o.what || on.pair, where: on.net || on.ip });
+  if (on.admin) return T('rule.offer.admin', { admin: on.admin, where: on.net || on.ip });
+  if (on.vpn) return T('rule.offer.vpn', { user: on.vpn });
+  if (on.iface) return T('rule.offer.link', { iface: on.iface, sender: on.sender });
+  if (on.sender) return T('rule.offer.sender', { sender: on.sender });
+  if (on.network) return T('rule.offer.network', { network: on.network });
+  if (on.open) return T(`rule.offer.open_${on.open === 'write' ? 'write' : 'read'}`, { share: on.share, proto: String(on.proto || '').toUpperCase() });
+  if (on.prog) return T('rule.offer.prog', { prog: on.prog });
+  if (on.tunnel) return T('rule.offer.tunnel', { tunnel: on.tunnel });
+  if (on.series) return on.dataset ? T('rule.offer.series_ds', { series: on.series, dataset: on.dataset }) : T('rule.offer.series', { series: on.series });
+  if (on.dataset) return T((o.kinds || [])[0] === 'snap_hold_released' ? 'rule.offer.hold' : 'rule.offer.dataset', { dataset: on.dataset });
+  if (on.user) return T('rule.offer.user_net', { user: on.user, net: on.net });
+  if (on.net) return T('rule.offer.net', { net: on.net });
+  if (on.ip && !(o.opt) && (o.kinds || []).length === 1 && o.kinds[0] === 'flow_client') return T('rule.key.flow_client', { name: on.ip });
+  if (on.ip && !(o.opt)) return T('rule.offer.ip', { ip: on.ip });
+  if (on.machine) return T('rule.offer.machine', { machine: on.machine });
+  if (on.source) return T('rule.offer.source', { source: on.source });
+  if (on.file) return T('rule.offer.file', { file: on.file });
+  if (on.cmd) return T('rule.offer.cmd', { cmd: o.what || '…' });
+  const opt = o.opt || {};
+  if (opt.min !== undefined) return T('rule.offer.min', { what: flowWhat(o), amount: fmt.size(opt.min) });
+  if (opt.files !== undefined) return T('rule.offer.min', { what: flowWhat(o), amount: Number(opt.files).toLocaleString() });
+  if (opt.kept === false) return T('rule.offer.kept', { share: on.share || '' });
+  if (opt.layers === false) return T('rule.offer.layers', { share: on.share || '' });
+  if (on.share) return T(`rule.offer.share.${(o.kinds || [])[0] === 'flow_written' ? 'flow_written' : 'flow_gone'}`, { share: on.share });
+  if (on.disk) return T(`rule.offer.disk.${(o.kinds || [])[0] === 'flow_written' ? 'flow_written' : 'flow_gone'}`, { disk: on.disk });
+  const named = typeof on.key === 'string' ? KEY_NAMED.find((k) => on.key.startsWith(`${k}:`)) : null;
+  if (named && (o.kinds || []).length === 1 && o.kinds[0] === named) {
+    const thing = on.key.slice(named.length + 1);
+    // a program on changing ports (its key «prog:*»): its own words
+    if (named === 'listen_new' && thing.endsWith(':*')) return T('rule.offer.prog', { prog: thing.slice(0, -2) });
+    return T(`rule.key.${named}`, { name: keyThing(named, thing) });
+  }
+  if (here) return T('rule.offer.key');
+  const src = e || ((state && state.book) || []).find((x) => x && x.id === o.from);
+  const what = src ? entryName(src) : '';
+  return what ? T('rule.key_of', { what: what.length > 70 ? what.slice(0, 69) + '…' : what }) : T('rule.offer.key');
+}
+/**
+ * «… always okay» on an open entry: what it covers, what not, where it is lifted — asked once for anything wider than
+ * this one thing, and more clearly for the kinds he asks about (the button names it); the messenger looks the offer up
+ * anew from the entry (never trusts a net or a name from the page)
+ */
+async function ruleAdd(e, o, b) {
+  if (!(await Office.freshState(ID))) return;
+  const what = offerName(o, e);
+  const n = Math.max(1, Number(o.covers) || 1);
+  const go = async (sure) => {
+    b.disabled = true;
+    const j = await Office.api.post(`${ID}.rule_add`, { id: e.id, type: o.type, sure });
+    if (!j.ok) {
+      Office.toast(Office.errorText(j.error, ID), true);
+      if (j.error && j.error.key === 'watch_gone') await load(true);
+      else b.disabled = false;
+      return;
+    }
+    if (j.state) state = j.state;
+    if (j.rule) justMade.add(j.rule);
+    mood();
+    renderKeeping(e.id);
+    const more = Math.max(0, (Number(j.noted) || 1) - 1);
+    Office.toast(more ? `${T('rule.added')} ${T('rule.added_more', { n: more })}` : T('rule.added'));
+  };
+  if (!o.ask && o.type === 'key' && n === 1) { go(false); return; }
+  const body = el('div', 'wm-rule-ask');
+  const lines = [T('rule.ask_covers', { what, n }), o.type === 'net' || o.type === 'ip' ? T('rule.ask_net_not') : '',
+    o.ask ? T('rule.ask_serious') : '', e.again ? T('rule.ask_incident') : '',
+    (o.kinds || []).some((k) => k === 'flow_gone') ? T('rule.ask_must') : '', T('rule.ask_where')];
+  lines.filter(Boolean).forEach((x) => body.appendChild(el('p', o.ask && x === T('rule.ask_serious') ? 'callout warn' : '', x)));
+  Office.dialog({ title: T('rule.ask_title'), body, buttons: [
+    { text: o.ask ? T('rule.ask_yes', { what }) : T('rule.add'), kind: 'primary', act: () => { go(!!o.ask); } },
+    { text: Office.t('common.cancel') },
+  ] });
+}
+/** «Lift» an exception (undo: right after it was made — its entries open again) */
+async function ruleRemove(r, undo, b) {
+  if (!(await Office.freshState(ID))) return;
+  b.disabled = true;
+  const j = await Office.api.post(`${ID}.rule_remove`, { rule: r.id, undo });
+  if (!j.ok) {
+    Office.toast(Office.errorText(j.error, ID), true);
+    if (j.error && j.error.key === 'watch_rule_gone') await load(true);
+    else b.disabled = false;
+    return;
+  }
+  if (j.state) state = j.state;
+  justMade.delete(r.id);
+  mood();
+  renderAt('.wm-rules');
+  Office.toast(T(undo ? 'rule.undone' : 'rule.lifted'));
+}
+/** An area switched on again (switched off: in his setup, asked more clearly) */
+async function catOn(id, b) {
+  if (!(await Office.freshState(ID))) return;
+  b.disabled = true;
+  const j = await Office.api.post(`${ID}.cat_off`, { cat: id, off: false });
+  if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); b.disabled = false; return; }
+  if (j.state) state = j.state;
+  mood();
+  renderAt('.wm-cat');
+  Office.toast(T('rule.cat_on_done'));
+}
+/**
+ * «Noted (n)»: your lasting answers in an area (1.96, concept 3.4) — folded until opened on this visit; each with when,
+ * and «Take back» (it comes out of what is normal: still there, his next round tells it)
+ */
+const knownOpen = new Set();      // areas whose list is unfolded on this visit
+function catKnown(id) {
+  const list = ((state && state.known) || []).filter((k) => k && k.cat === id);
+  if (!list.length) return null;
+  const box = el('div', 'wm-known');
+  const head = el('button', 'btn small plain wm-known-head', `${knownOpen.has(id) ? '▾' : '▸'} ${T('known.list', { n: list.length })}`);
+  head.type = 'button';
+  head.setAttribute('aria-expanded', knownOpen.has(id) ? 'true' : 'false');
+  head.onclick = () => { if (knownOpen.has(id)) knownOpen.delete(id); else knownOpen.add(id); Office.keepInPlace(head, () => sw.render()); };
+  box.appendChild(head);
+  if (!knownOpen.has(id)) return box;
+  const rows = el('div', 'box');
+  list.slice().sort((a, b) => b.at - a.at).slice(0, 200).forEach((k) => {
+    const row = el('div', 'row nocheck wm-rule');
+    const main = el('div', 'row-main');
+    main.appendChild(el('div', 'row-name text', entryName({ kind: k.kind, p: k.p || {}, t: k.t || {}, v: null })));
+    const meta = el('div', 'row-meta');
+    meta.appendChild(el('span', '', T('known.since', { when: fmt.date(k.at) })));
+    main.appendChild(meta);
+    row.appendChild(main);
+    const acts = el('div', 'wm-entry-acts');
+    const b = el('button', 'btn small plain', T('known.take_back'));
+    b.type = 'button';
+    b.title = T('known.take_back_title');
+    b.disabled = !Office.agent.running || !hired();
+    b.onclick = () => knownRemove(k, b);
+    acts.appendChild(b);
+    row.appendChild(acts);
+    rows.appendChild(row);
+  });
+  box.appendChild(rows);
+  return box;
+}
+async function knownRemove(k, b) {
+  if (!(await Office.freshState(ID))) return;
+  b.disabled = true;
+  const j = await Office.api.post(`${ID}.known_remove`, { id: k.id });
+  if (!j.ok) {
+    Office.toast(Office.errorText(j.error, ID), true);
+    if (j.error && j.error.key === 'watch_known_gone') await load(true);
+    else b.disabled = false;
+    return;
+  }
+  if (j.state) state = j.state;
+  renderAt('.wm-known');
+  Office.toast(T('known.taken_back'));
+}
+
+// ------------------------------------------------------------------ re-learn (1.96 step 17)
+/*
+ * «Re-learn this area…» at the end of an area's setup, «Re-learn everything…» at the top of the setup — never on the watch
+ * page, so it isn't hit by chance. One clear question (what becomes normal, how many open entries are noted as done, the
+ * warning), two checkboxes for the exceptions and the settings; what he takes is set aside on the server (never deleted)
+ * and can be brought back for seven days (agent: watchman-relearn.php).
+ */
+const relearnOf = (id) => (state && state.relearn && state.relearn[id] && typeof state.relearn[id] === 'object' ? state.relearn[id] : null);
+const relearnFlow = (cats) => cats.some((c) => c === 'pull' || c === 'data');
+function relearnAllBar() {
+  const bar = el('div', 'wm-setup-acts wm-relearn-all');
+  const b = el('button', 'btn small plain', T('setup.relearn_all'));
+  b.type = 'button';
+  b.title = T('setup.relearn_title');
+  b.disabled = !Office.agent.running || !hired() || !state.on_watch;
+  b.onclick = () => relearnAsk(null, b);
+  bar.appendChild(b);
+  return bar;
+}
+function relearnBox(id) {
+  const box = el('div', 'wm-relearn');
+  const r = relearnOf(id);
+  if (r) {
+    const all = /-all(-\d+)?$/.test(String(r.aside || ''));
+    const note = el('div', 'callout');
+    note.appendChild(el('p', '', T(all ? 'setup.relearn_since_all' : 'setup.relearn_since', { when: fmt.date(r.at) })
+      + (r.pending ? ' ' + T('setup.relearn_pending') : '')));
+    note.appendChild(el('p', '', T('setup.relearn_until', { until: fmt.date(r.until) })));
+    const back = el('button', 'btn small plain', T('setup.relearn_back'));
+    back.type = 'button';
+    back.title = T('setup.relearn_back_title');
+    back.disabled = !Office.agent.running || !hired();
+    back.onclick = () => relearnBackAsk(id, r, all, back);
+    note.appendChild(back);
+    box.appendChild(note);
+  }
+  const acts = el('div', 'wm-setup-acts');
+  const b = el('button', 'btn small plain', T('setup.relearn'));
+  b.type = 'button';
+  b.title = T('setup.relearn_title');
+  b.disabled = !Office.agent.running || !hired() || !state.on_watch;
+  b.onclick = () => relearnAsk(id, b);
+  acts.appendChild(b);
+  box.appendChild(acts);
+  return box;
+}
+/** The clear question: id one area, null all of them */
+function relearnAsk(id, b) {
+  const cats = id ? [id] : setupAreas();
+  const open = ((state && state.book) || []).filter((e) => e && e.open && cats.includes(e.cat)).length;
+  const rules = cats.reduce((n, c) => n + rulesOf(c).length, 0);
+  const changed = cats.reduce((n, c) => n + changedOf(c).length, 0);
+  const area = id ? catName(id) : '';
+  const body = el('div', 'wm-rule-ask');
+  body.appendChild(el('p', '', T(id ? 'setup.relearn_ask' : 'setup.relearn_all_ask')));
+  if (open) body.appendChild(el('p', '', T('setup.relearn_open', { n: open })));
+  if (relearnFlow(cats)) body.appendChild(el('p', '', T('setup.relearn_flow', { n: (state.flow && state.flow.learn) || 7 })));
+  body.appendChild(el('p', 'callout warn', T('setup.relearn_warn')));
+  body.appendChild(el('p', 'wm-note', T('setup.relearn_keep')));
+  const check = (text) => {
+    const label = el('label', 'switch wm-relearn-check');
+    const cb = el('input');
+    cb.type = 'checkbox';
+    label.append(cb, el('span', '', text));
+    body.appendChild(label);
+    return cb;
+  };
+  const cbRules = rules ? check(T('setup.relearn_rules', { n: rules })) : null;
+  const cbSet = changed ? check(T('setup.relearn_settings')) : null;
+  Office.dialog({ title: id ? T('setup.relearn_ask_title', { area }) : T('setup.relearn_all_ask_title'), body, buttons: [
+    { text: id ? T('setup.relearn_yes', { area }) : T('setup.relearn_all_yes'), kind: 'danger',
+      act: () => relearnGo(id, !!(cbRules && cbRules.checked), !!(cbSet && cbSet.checked), b) },
+    { text: Office.t('common.cancel') },
+  ] });
+}
+async function relearnGo(id, rules, settings, b) {
+  if (!(await Office.freshState(ID))) return;
+  b.disabled = true;
+  const j = await Office.api.post(`${ID}.relearn`, { cat: id || 'all', rules, settings });
+  if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); b.disabled = false; return; }
+  if (j.state) state = j.state;
+  mood();
+  renderAt('.wm-setup');
+  Office.toast(T('setup.relearn_done'));
+  load(true);         // the round he started learns what needs its look
+}
+function relearnBackAsk(id, r, all, b) {
+  const body = el('div', 'wm-rule-ask');
+  body.append(el('p', '', T(all ? 'setup.relearn_back_ask_all' : 'setup.relearn_back_ask', { area: catName(id), when: fmt.date(r.at) })),
+    el('p', 'wm-note', T('setup.relearn_back_note')));
+  Office.dialog({ title: T('setup.relearn_back_ask_title'), body, buttons: [
+    { text: T('setup.relearn_back_yes'), kind: 'danger', act: () => relearnBack(r, b) },
+    { text: Office.t('common.cancel') },
+  ] });
+}
+async function relearnBack(r, b) {
+  if (!(await Office.freshState(ID))) return;
+  b.disabled = true;
+  const j = await Office.api.post(`${ID}.relearn_back`, { name: r.aside });
+  if (!j.ok) {
+    Office.toast(Office.errorText(j.error, ID), true);
+    if (j.error && ['watch_relearn_gone', 'watch_relearn_old'].includes(j.error.key)) await load(true);
+    else b.disabled = false;
+    return;
+  }
+  if (j.state) state = j.state;
+  mood();
+  renderAt('.wm-setup');
+  Office.toast(T('setup.relearn_back_done'));
+}
+
+/** An area's exceptions: what each lets through, since when, how often it did, «Lift» (and «Undo» right after) */
+function catRules(id) {
+  const list = ((state && state.rules) || []).filter((r) => r && r.cat === id);
+  if (!list.length) return null;
+  const box = el('div', 'wm-rules');
+  box.appendChild(el('h4', 'wm-hold-group', T('rule.list', { n: list.length })));
+  const rows = el('div', 'box');
+  list.forEach((r) => {
+    const row = el('div', 'row nocheck wm-rule');
+    const main = el('div', 'row-main');
+    main.appendChild(el('div', 'row-name text', offerName(r)));
+    const meta = el('div', 'row-meta');
+    meta.appendChild(el('span', '', T('rule.since', { when: fmt.date(r.at) })));
+    meta.appendChild(el('span', '', r.hits ? T('rule.hits', { n: r.hits, when: fmt.relative(r.hit) }) : T('rule.no_hits')));
+    main.appendChild(meta);
+    row.appendChild(main);
+    const acts = el('div', 'wm-entry-acts');
+    const mk = (undo) => {
+      const b = el('button', 'btn small plain', T(undo ? 'rule.undo' : 'rule.lift'));
+      b.type = 'button';
+      b.title = T(undo ? 'rule.undo_title' : 'rule.lift_title');
+      b.disabled = !Office.agent.running || !hired();
+      b.onclick = () => ruleRemove(r, undo, b);
+      return b;
+    };
+    if (justMade.has(r.id)) acts.appendChild(mk(true));
+    acts.appendChild(mk(false));
+    row.appendChild(acts);
+    rows.appendChild(row);
+  });
+  box.appendChild(rows);
+  return box;
+}
+
 async function ack(e, b) {
   b.disabled = true;
   const j = await Office.api.post(`${ID}.ack`, { id: e.id });
@@ -270,7 +923,15 @@ function renderAt(...selectors) {
 // right now); the others are his round's, said at any hour
 const greetOk = (key, hour = new Date().getHours()) => key !== 'greet.1' || hour >= 17 || hour < 6;
 
+/** «Known vulnerabilities» off (until switched on once — agent: watchman-vuln.php): his one sentence, the page's one button */
+const vulnOff = () => !!(state && state.on_watch && state.vuln && state.vuln.on === false && hired());
+
 function bubbleText() {
+  const text = bubbleBase();
+  return vulnOff() && !running() ? `${text} ${T('bubble.vuln_off')}` : text;
+}
+
+function bubbleBase() {
   if (!state) return T('bubble.loading');
   if (running()) return T('bubble.touring');
   if (!state.on_watch) return T('bubble.first');
@@ -301,12 +962,18 @@ function render() {
   btn.title = T('round_now_title');
   btn.disabled = !Office.agent.running || running() || !hired();
   btn.onclick = roundNow;
-  const { head } = Office.deskHead(Office.desks.get(ID), { bubble: Office.withGreeting(ID, bubbleText()), actions: [btn] });
+  const actions = [btn];
+  if (vulnOff()) actions.push(vulnButton());
+  const { head } = Office.deskHead(Office.desks.get(ID), { bubble: Office.withGreeting(ID, bubbleText()), actions,
+    pages: { list: PAGES(), current: page } });
   root.appendChild(head);
+  if (page === 'setup') { renderSetup(root); return; }
   const lim = (state && state.limits) || {};
   root.appendChild(Office.pageHelp(ID, [
+    [T('help.lights'), T('help.lights_text')],
     [T('help.posture'), T('help.posture_text')],
     [T('help.book'), T('help.book_text', { keep: lim.keep || 500, days: lim.days || 90 })],
+    [T('help.history'), T('help.history_text')],
     [T('ack'), T('help.ack_text')],
     [T('help.serious'), T('help.serious_text')],
     [T('help.normal'), T('help.normal_text')],
@@ -338,34 +1005,117 @@ function render() {
     [T('help.safe'), T('help.safe_text')],
   ]));
   if (!state) { root.appendChild(el('p', 'empty', Office.t('common.loading'))); return; }
-  if (sw.active() === 'open' && !bookHasOpen()) sw.pick('book', 'route');      // all noted meanwhile: the whole book
   root.append(roundHead(), sw.el);
   sw.render();
 }
 
-// ------------------------------------------------------------------ the row: his four tiles
+// ------------------------------------------------------------------ the row: his areas as lights (1.96)
 /**
- * His page on core's switcher (CLAUDE.md «Tiles», Office.sections): the watch book — whole, or only what is not noted
- * yet (a filter tile: never kept) —, how secure it stands, serious incidents, what he keeps an eye on, and the disks: what
- * holds the array, who woke the disks. «Watch book» to start; nothing chosen shows them all in the row's order. Over the
- * row stays the head of his last round.
+ * His page on core's switcher (CLAUDE.md «Tiles», Office.sections): every tile a light (core.js Office.light) — first
+ * the five that cut across (the watch book, how secure it stands, serious incidents, what he keeps an eye on, his
+ * schedule), then his areas (agent/desks/watchman-cats.php: state.cats — a light, its reasons, its entries), what holds
+ * the array and who woke the disks. The filter above the row (Office.sections({filter})): an area's words (its name,
+ * what it looks at, its open entries), «only with a finding». «Watch book» to start; nothing chosen shows every section
+ * of the row in its order. Over the row stays the head of his last round. #/watchman/<tile> picks one; the old
+ * #/watchman/open (the tile «Not noted yet», gone in 1.96) is the book with «only open» on.
  */
+// his areas with entries, in the order of state.cats (hold and wakes have sections of their own); vuln and hw only once
+// the messenger has them for real (their steps — `not_yet` until then)
+// his two pages (1.96 step 5): the watch and his setup — two tabs (core.js Office.pages)
+const PAGES = () => [{ id: '', text: T('page.watch') }, { id: 'setup', text: T('page.setup') }];
+let page = '';
+const CATS = ['login', 'container', 'plugin', 'flash', 'share', 'sched', 'pull', 'data', 'snap', 'host', 'door', 'partner', 'router', 'lan', 'array', 'vuln', 'hw'];
+const CAT_LATER = ['vuln', 'hw'];
+// an area's group in «What I keep an eye on» (the jump at the end of its section)
+const CAT_WATCH = { login: 'ips', container: 'containers', plugin: 'plugins', flash: 'flash', share: 'shares', sched: 'sched', pull: 'flow_clients',
+  data: 'flow_shares', snap: 'snaps', host: 'host', door: 'host', partner: 'partner', router: 'net', lan: 'net' };
+const CAT_SEEN = ['open', 'open_tell', 'tips'];        // reasons the light says by itself; the others stand in its section
+const FINDING = ['danger', 'warn', 'note'];
+const catOf = (id) => (state && state.cats && state.cats[id] && typeof state.cats[id] === 'object' ? state.cats[id] : null);
+const catLevel = (id) => { const c = catOf(id); return c ? String(c.level || '') : ''; };
+const catName = (id) => T('cat.' + id);
+const catShown = (id) => (catOf(id) ? !(catOf(id).why || []).includes('not_yet') : !CAT_LATER.includes(id));
+const crossLevel = (id, fallback) => (state && state.cats_cross && state.cats_cross[id]) || fallback;
+
 const sw = Office.sections({
   id: ID,
-  grid: 'stats wm-tiles',
+  grid: 'lights wm-tiles',
   default: 'book',
-  tiles: () => [               // a function: the filter's words in the language the page has now
-    { id: 'book', key: 'tile.book', place: 'tile.book', tile: (a) => bookTile(a), section: 'book' },
-    { id: 'open', key: 'stat.open', place: 'stat.open', tile: (a) => openTile(a), section: 'book', filters: T('stat.open') },
-    { id: 'posture', key: 'tile.posture', place: 'tile.posture', tile: (a) => postureTile(a), section: () => postureSection() },
-    { id: 'incidents', key: 'tile.incidents', place: 'tile.incidents', tile: (a) => incidentsTile(a), section: () => incidentsSection() },
-    { id: 'watch', key: 'tile.watch', place: 'tile.watch', tile: (a) => watchTile(a), section: () => watchSection() },
-    { id: 'hold', key: 'tile.hold', place: 'tile.hold', tile: (a) => holdTile(a), section: () => holdSection() },
-    { id: 'wakes', key: 'tile.wakes', place: 'tile.wakes', tile: (a) => wakesTile(a), section: () => wakesView() },
-    roundSchedule(),
+  tiles: () => [               // a function: the words in the language the page has now, the areas the state has
+    { id: 'book', key: 'tile.book', place: 'tile.book', tile: (a) => bookTile(a), section: 'book', words: () => [T('tile.book'), T('book.sub')],
+      level: () => crossLevel('book', openCount() ? 'warn' : state ? 'ok' : '') },
+    { id: 'posture', key: 'tile.posture', place: 'tile.posture', tile: (a) => postureTile(a), section: () => postureSection(), words: () => [T('tile.posture'), T('posture.sub')],
+      level: () => postureLevel() },
+    { id: 'incidents', key: 'tile.incidents', place: 'tile.incidents', tile: (a) => incidentsTile(a), section: () => incidentsSection(),
+      words: () => [T('tile.incidents'), T('incidents.sub')], level: () => incidentsLevel() },
+    { id: 'watch', key: 'tile.watch', place: 'tile.watch', tile: (a) => watchTile(a), section: () => watchSection(), words: () => [T('tile.watch'), T('watch.sub')],
+      level: () => '' },
+    { ...(roundSchedule()), words: () => [T('tile.schedule'), T('round.sub')], level: () => crossLevel('schedule', '') },
+    ...CATS.filter(catShown).map((id) => ({ id, key: `cat.${id}`, place: `tile.${id}`, tile: (a) => catTile(id, a), section: () => catSection(id),
+      words: () => catWords(id), level: () => catLevel(id) })),
+    { id: 'hold', key: 'tile.hold', place: 'tile.hold', tile: (a) => holdTile(a), section: () => holdSection(), words: () => [T('tile.hold'), T('hold.sub')],
+      level: () => catLevel('hold') },
+    { id: 'wakes', key: 'tile.wakes', place: 'tile.wakes', tile: (a) => wakesTile(a), section: () => wakesView(), words: () => [T('wakes.title'), T('tile.wakes')],
+      level: () => catLevel('wakes') },
   ],
   sections: { book: () => bookSection() },
+  filter: { label: () => T('cat.row_filter'), only: () => ({ text: T('cat.row_only'), hint: T('cat.row_only_hint') }),
+    words: (x) => (x.words ? x.words() : [x.id]), finding: (x) => FINDING.includes(x.level ? x.level() : '') },
 });
+
+/** A tile of his row as a light (core.js Office.light): what the number tile said becomes its mouse-over text */
+function lightTile(o) {
+  const subs = [].concat(o.sub ?? []).filter((x) => x !== '' && x !== null && x !== undefined);
+  const head = o.value !== undefined && o.value !== '' && o.value !== '–' ? `${o.label}: ${o.value}` : String(o.label);
+  const { value, sub, alert, ...rest } = o;
+  return Office.light({ ...rest, tip: [head, ...subs, ...(o.more || [])].join('\n') });
+}
+
+/** An area's light; its mouse-over text: how many open (how many important), the newest, what it couldn't see, when he looked */
+function catTile(id, a) {
+  return Office.light({ label: catName(id), level: catLevel(id), tip: catTip(id).join('\n'), ...a });
+}
+function catTip(id) {
+  const c = catOf(id);
+  if (!c) return [catName(id), T('cat.tip_unknown')];
+  const first = c.open ? [T('cat.tip_open', { n: c.open }), c.tell ? T('cat.tip_tell', { n: c.tell }) : ''].filter(Boolean).join(', ')
+    : Office.t('common.light.' + (Office.LIGHTS.includes(c.level) ? c.level : 'unknown'));
+  const lines = [`${catName(id)}: ${first}`];
+  const newest = catEntries(id).filter((e) => e.open).sort((x, y) => y.last - x.last)[0];
+  if (newest) {
+    const what = entryName(newest);
+    lines.push(T('cat.tip_newest', { what: what.length > 110 ? what.slice(0, 109) + '…' : what, when: fmt.relative(newest.last) }));
+  }
+  (c.why || []).filter((w) => !CAT_SEEN.includes(w) && Office.has(`${ID}.cat.why.${w}`)).slice(0, 2).forEach((w) => lines.push(whyWords(id, w)));
+  if (state && state.round && state.round.last) lines.push(T('cat.tip_checked', { when: fmt.relative(state.round.last) }));
+  return lines.slice(0, 4);
+}
+/** A reason of an area's light in words — a re-learn says since when (the data flow: how many days it still learns) */
+function whyWords(id, w) {
+  const r = relearnOf(id);
+  if ((w === 'relearn' || w === 'relearn_flow') && r) {
+    const learn = ((state && state.flow && state.flow.learn) || 7) * 86400;
+    return T('cat.why.' + w, { when: fmt.date(r.at), n: Math.max(1, Math.ceil((r.at + learn - ((state && state.time) || Date.now() / 1000)) / 86400)) });
+  }
+  return T('cat.why.' + w);
+}
+/** An area's entries in his book (each entry's `cat`, from the messenger) */
+const catEntries = (id) => ((state && state.book) || []).filter((e) => e && typeof e.id === 'string' && e.cat === id);
+/** The words the row's filter meets an area by: its name, what it looks at, its open entries' words */
+function catWords(id) {
+  return [catName(id), T(`cat.${id}_sub`), ...catEntries(id).filter((e) => e.open).slice(0, 50).map((e) => entryHay(e))];
+}
+
+/** «How secure does it stand?»: serious incidents red, advice not known yet green with «!» (a «good to know» tip never colours, W6) */
+function postureLevel() {
+  const p = state && state.posture;
+  if (!p) return '';
+  const tips = p.tips || [];
+  const advice = tips.some((x) => x.level) ? tips.filter((x) => x.level === 'advice' && !x.known).length : tips.filter((x) => !x.known).length;
+  return louderCount() ? 'danger' : advice ? 'note' : 'ok';
+}
+/** «Serious incidents»: grey while there are none, green with «!» while he keeps some (each one makes the same louder) */
+const incidentsLevel = () => (!state ? '' : ((state.incidents || []).length ? 'note' : 'none'));
 
 /**
  * «Schedule» on the office's schedule tile (Office.scheduleTile): his rounds go by themselves every five minutes — never
@@ -376,7 +1126,14 @@ function roundSchedule() {
   const r = (state && state.round) || {};
   const broken = r.broken ? (r.broken.why === 'stopped' ? 'stopped' : 'failed') : '';
   const last = running() ? { at: r.last || Date.now() / 1000, how: 'running' } : r.last ? { at: r.last, how: r.failed ? 'failed' : broken || 'ok' } : null;
-  return Office.scheduleTile(ID, { every: T('schedule.every'), next: running() ? 0 : r.next || 0, last, section: () => roundScheduleSection() });
+  const entry = Office.scheduleTile(ID, { every: T('schedule.every'), next: running() ? 0 : r.next || 0, last, section: () => roundScheduleSection() });
+  // as a light: the schedule tile's own words (when next, how the last ended) become its mouse-over text
+  return { ...entry, tile: (a) => {
+    const n = entry.tile({});
+    const txt = (c) => (n && n.querySelectorAll ? [...n.querySelectorAll(c)].map((x) => x.textContent).filter(Boolean) : []);
+    return lightTile({ label: T('tile.schedule'), value: txt('.stat-value')[0] || '', sub: txt('.stat-sub'),
+      level: crossLevel('schedule', r.failed || broken ? 'danger' : r.last ? 'ok' : ''), ...a });
+  } };
 }
 function roundScheduleSection() {
   const s = el('section', 'section');
@@ -393,21 +1150,9 @@ function bookTile(a) {
   const book = ((state && state.book) || []).filter((e) => e && typeof e.id === 'string');
   const open = book.filter((e) => e.open).length;
   const newest = Math.max(0, ...book.map((e) => Number(e.last) || 0));
-  return Office.stat({ label: T('tile.book'), value: T('tile.book_entries', { n: book.length }),
+  return lightTile({ label: T('tile.book'), value: T('tile.book_entries', { n: book.length }), level: crossLevel('book', open ? 'warn' : state ? 'ok' : ''),
     sub: book.length ? [T('tile.book_open', { n: open }), newest ? T('tile.book_newest', { when: fmt.relative(newest) }) : ''].filter(Boolean).join(' · ') : T('tile.book_empty'),
     ...a });
-}
-
-/**
- * «Not noted yet»: the book with only what is open (a filter tile — the bar's note line says it, a second click shows the
- * whole page again); with nothing open in the book there is nothing behind it (a div)
- */
-function openTile(a) {
-  const n = openCount();
-  const can = bookHasOpen();
-  return Office.stat({ label: T('stat.open'), value: fmt.number(n), alert: !!n,
-    sub: n ? T('stat.open_kinds', { n: Object.keys((state && state.open) || {}).length }) : T('stat.open_none'),
-    tip: can ? T('stat.open_tip') : '', ...a, ...(can ? {} : { on: null, pressed: null }) });
 }
 
 /** «How secure does it stand?»: his tips not known yet — or that you know them all — and how many you know */
@@ -419,7 +1164,7 @@ function postureTile(a) {
   // red only for his advice not known yet — a «good to know» tip is no alarm (W6; an older state: every open tip)
   const advice = tips.some((x) => x.level) ? tips.filter((x) => x.level === 'advice' && !x.known).length : open;
   const louder = louderCount();      // serious incidents lately: part of how it stands
-  return Office.stat({ label: T('tile.posture'), alert: !!advice || !!louder,
+  return lightTile({ label: T('tile.posture'), level: postureLevel(),
     value: !p ? '–' : open ? T('tile.posture_tips', { n: open }) : known ? T('tile.posture_all_known') : T('tile.posture_none'),
     sub: [known ? T('tile.posture_known', { n: known }) : '', louder ? T('tile.posture_incidents', { n: louder }) : ''].filter(Boolean).join(' · '), ...a });
 }
@@ -428,7 +1173,7 @@ function postureTile(a) {
 function incidentsTile(a) {
   const list = (state && state.incidents) || [];
   const louder = louderCount();
-  return Office.stat({ label: T('tile.incidents'), alert: !!louder,
+  return lightTile({ label: T('tile.incidents'), level: incidentsLevel(), sub: louder && louder !== list.length ? T('tile.posture_incidents', { n: louder }) : '',
     value: list.length ? T('tile.incidents_n', { n: list.length }) : T('tile.incidents_none'), ...a });
 }
 
@@ -490,7 +1235,8 @@ function watchTile(a) {
   const c = w && w.containers;
   const sh = w && w.shares;
   // Docker not answering: never «8 containers» as if counted now — said instead (truth review W7)
-  return Office.stat({ label: T('tile.watch'), value: dockerOff() ? Office.t('common.docker_off') : c ? T('count.containers', { n: Number(c.count) || 0 }) : '–',
+  return lightTile({ label: T('tile.watch'), level: !state ? '' : state.on_watch ? 'ok' : 'none',
+    value: dockerOff() ? Office.t('common.docker_off') : c ? T('count.containers', { n: Number(c.count) || 0 }) : '–',
     sub: w ? [T('count.plugins', { n: (w.plugins || []).length }), sh ? T('count.shares', { n: Number(sh.count) || 0 }) : ''].filter(Boolean).join(' · ') : '',
     ...a });
 }
@@ -656,6 +1402,8 @@ function postureRow(x) {
   main.appendChild(el('div', 'row-detail', T(`posture.${x.id}.why`, params)));
   // privileged containers that are stopped and start by nothing: not part of the tip, a quiet line in it (inbox #10)
   if (x.id === 'privileged' && params.quiet) main.appendChild(el('div', 'row-detail role', T('posture.privileged.quiet', { quiet: params.quiet, n: Number(params.quiet_n) || 1 })));
+  // what your exceptions call intended (1.96): named, no advice (lifted in his setup)
+  if ((x.id === 'privileged' || x.id === 'public') && params.intended) main.appendChild(el('div', 'row-detail role', T('posture.intended', { names: params.intended })));
   if (x.id === 'privileged' && dockerOff()) main.appendChild(el('div', 'row-detail role', T('posture.as_last_seen', { docker: Office.t('common.docker_off') })));
   r.appendChild(main);
   const acts = el('div', 'wm-tip-acts');
@@ -685,7 +1433,7 @@ async function postureAck(x, on, b) {
     return;
   }
   if (j.state) state = j.state;
-  renderAt('.wm-posture');
+  renderAt('.wm-posture', '.wm-cat-tips');
   Office.toast(T(on ? 'posture.acked' : 'posture.unacked'));
 }
 
@@ -811,6 +1559,7 @@ function bookBarGet() {
     key: 'watchman.book',
     label: T('book.filter_label'),
     select: { label: T('book.area_label'), all: T('book.area_all') },
+    only: { text: T('stat.open'), hint: T('stat.open_tip') },     // «Not noted yet» (the tile of that name up to 1.95; #/watchman/open)
     extra: [unfold],
     onChange: (f, what) => {
       if (what === 'words' || what === 'all') foldsShut.clear();
@@ -837,8 +1586,12 @@ function bookSection() {
   const bar = bookBarGet();
   s.appendChild(bar.el);
 
+  // what the book can't hold is said, never dropped quietly (concept 3.4, cases 6 and the answers' list)
+  const keep = Number(state.limits && state.limits.keep) || 500;
+  if (openCount() >= keep) s.appendChild(el('p', 'callout warn', T('book.full', { n: keep })));
+  if (state.known_full) s.appendChild(el('p', 'callout warn', T('known.full')));
   const box = el('div', 'box wm-book');
-  const onlyOpen = sw.active() === 'open';         // the tile «Not noted yet»
+  const onlyOpen = bar.read().only;                // «Not noted yet»: the bar's switch (a tile up to 1.95)
   const look = (asked) => {
     const f = bar.read();
     return bookView(state.book, {
@@ -885,12 +1638,203 @@ function bookSection() {
       box.appendChild(more);
     }
     bookLabel();
-    // while the tile «Not noted yet» filters, the note line names it (its × and «Show all»: the whole page again)
-    bar.done(v.rows.reduce((a, r) => a + r.members.length, 0), (state.book || []).length, sw.note('book'));
+    // «only open», the words and the area are named in the note line (its × and «Show all»: the whole book again)
+    bar.done(v.rows.reduce((a, r) => a + r.members.length, 0), (state.book || []).length, { onlyAvail: bookHasOpen() || onlyOpen });
   };
   fill();
   s.appendChild(box);
+  const hist = journalBox();
+  if (hist) s.appendChild(hist);
   return s;
+}
+
+// ------------------------------------------------------------------ his history (1.96 step 7, agent/desks/watchman-journal.php)
+/*
+ * What he noted himself (or an exception did) leaves his book after a quiet week into his history, by month: folded under
+ * the book, loaded only when unfolded (the action `journal`), a hundred lines at a time; a month that was full says how many
+ * lines it couldn't take. Read only.
+ */
+const journal = { open: false, data: null, loading: false };
+const NOTED_BY = ['teamlead', 'baseline', 'auto', 'office', 'office_partner', 'office_drill', 'office_cron', 'schedule', 'array', 'unraid', 'plugin', 'back',
+  'router', 'parity', 'rule', 'known', 'relearn'];
+function journalBox() {
+  const j = state.journal || {};
+  if (!j.has && !Number(j.cut)) return null;
+  const wrap = el('div', 'wm-journal');
+  const head = el('button', 'btn small plain wm-known-head', `${journal.open ? '▾' : '▸'} ${T('journal.title')}`);
+  head.type = 'button';
+  head.title = T('journal.title_title');
+  head.setAttribute('aria-expanded', journal.open ? 'true' : 'false');
+  head.onclick = () => {
+    journal.open = !journal.open;
+    if (journal.open && !journal.data) journalLoad('', 0, head);
+    else Office.keepInPlace(head, () => sw.render());
+  };
+  wrap.appendChild(head);
+  if (!journal.open) return wrap;
+  const d = journal.data;
+  if (!d) { wrap.appendChild(el('span', 'spin')); return wrap; }
+  if (!d.months.length) { wrap.appendChild(el('p', 'empty', T('journal.none'))); return wrap; }
+  const pick = el('select', 'picker');
+  d.months.forEach((m) => pick.appendChild(new Option(T('journal.month', { month: m.month, n: m.lines }), m.month)));
+  pick.value = d.month || '';
+  pick.setAttribute('aria-label', T('journal.month_label'));
+  pick.onchange = () => journalLoad(pick.value, 0, pick);
+  wrap.appendChild(pick);
+  const cur = d.months.find((m) => m.month === d.month);
+  if (cur && cur.cut) wrap.appendChild(el('p', 'callout warn', T('journal.cut', { n: cur.cut })));
+  const rows = el('div', 'box');
+  d.entries.forEach((e) => {
+    const r = el('div', 'row nocheck wm-journal-row');
+    const main = el('div', 'row-main');
+    main.appendChild(el('div', 'row-name text', entryName(e)));
+    const by = NOTED_BY.includes(e.by) ? e.by : 'page';
+    main.appendChild(el('div', 'row-meta', `${fmt.date(e.last)} · ${T('noted.' + by, { when: fmt.date(e.noted || e.last), at: fmt.date(e.noted || e.last) })}`));
+    r.appendChild(main);
+    rows.appendChild(r);
+  });
+  if (!d.entries.length) rows.appendChild(el('p', 'empty', T('journal.none')));
+  wrap.appendChild(rows);
+  if (d.more) {
+    const more = el('button', 'btn small plain', T('journal.more'));
+    more.type = 'button';
+    more.onclick = () => journalLoad(d.month || '', d.offset + d.entries.length, more, true);
+    wrap.appendChild(more);
+  }
+  return wrap;
+}
+async function journalLoad(month, offset, b, append = false) {
+  if (journal.loading) return;
+  journal.loading = true;
+  if (b) b.disabled = true;
+  const j = await Office.api.post(`${ID}.journal`, { month, offset });
+  journal.loading = false;
+  if (b) b.disabled = false;
+  if (!j.ok || !j.journal) { Office.toast(Office.errorText(j.error, ID), true); return; }
+  const was = append && journal.data ? journal.data.entries : [];
+  journal.data = { ...j.journal, entries: was.concat(j.journal.entries || []), offset: append ? 0 : j.journal.offset };
+  Office.keepInPlace(b, () => sw.render());
+}
+
+// ------------------------------------------------------------------ an area's section (1.96)
+/*
+ * One area of his (agent/desks/watchman-cats.php): what he looks at there, what he couldn't see in his last round (a
+ * callout each — state.cats[id].why), its entries of the book in the book's own rows (open first is the book's order by
+ * time; folded by day and kind, «I know, thanks» as there) under a bar of its own (words, «only open», the kind), and a
+ * jump to its group in «What I keep an eye on». An older messenger's state has no areas: one line says so.
+ */
+const catBars = {};             // each area's bar, built once and held across the renders (its words never kept)
+function catBarGet(id) {
+  catBars[id] ??= Office.filterBar({
+    label: T('cat.filter_label'),
+    only: { text: T('stat.open'), hint: T('stat.open_tip') },
+    select: { label: T('cat.kind_label'), all: T('cat.kind_all') },      // no key: the kind is never kept
+    onChange: () => { if (view) sw.render(); },
+  });
+  return catBars[id];
+}
+const CAT_CALLOUT_WARN = ['syslog_full', 'snaps_failed', 'snaps_capped', 'router_asleep', 'router_unreadable', 'router_unknown', 'parity_todo',
+  'parity_again', 'parity_errors'];
+function catSection(id) {
+  const c = catOf(id);
+  const s = el('section', 'section wm-cat');
+  const key = CAT_WATCH[id];
+  const extras = [];
+  if (key) {
+    const to = el('button', 'btn small plain', T('cat.to_watch'));
+    to.type = 'button';
+    to.onclick = () => { sw.pick('watch', 'click'); Office.reveal(`watch:${key}`); };
+    extras.push(to);
+  }
+  // the light in words beside the name (on a phone, without a mouse, the one place the tile's first line stands)
+  const said = catState(id);
+  s.appendChild(Office.sectionHead(catName(id), T(`cat.${id}_sub`), ...(said ? [said] : []), ...extras));
+  if (!c) {
+    s.appendChild(el('p', 'role', T('cat.unknown')));
+    return s;
+  }
+  (c.why || []).filter((w) => !CAT_SEEN.includes(w) && Office.has(`${ID}.cat.why.${w}`))
+    .forEach((w) => s.appendChild(el('p', 'callout' + (CAT_CALLOUT_WARN.includes(w) ? ' warn' : ''), whyWords(id, w))));
+  if (c.off) {
+    const on = el('button', 'btn small', T('rule.cat_on'));
+    on.type = 'button';
+    on.disabled = !Office.agent.running || !hired();
+    on.onclick = () => catOn(id, on);
+    s.appendChild(on);
+  }
+  const rules = catRules(id);
+  const known = catKnown(id);
+  const all = catEntries(id);
+  if (sw.active() !== id) {
+    // the whole page (nothing chosen): no entries again under the book — how many, a click shows this area alone
+    if (all.length) {
+      const open = all.filter((e) => e.open).length;
+      const what = [T('cat.in_book', { n: all.length }), open ? T('cat.tip_open', { n: open }) : ''].filter(Boolean).join(', ');
+      const b = el('button', 'btn small plain wm-cat-more', T('cat.in_book_go', { what }));
+      b.type = 'button';
+      b.onclick = () => sw.pick(id, 'click');
+      s.appendChild(b);
+    } else s.appendChild(el('p', 'role', T('cat.empty')));
+    const advice = catAdvice(id);
+    if (advice) s.appendChild(advice);
+    if (rules) s.appendChild(rules);
+    if (known) s.appendChild(known);
+    return s;
+  }
+  const bar = catBarGet(id);
+  s.appendChild(bar.el);
+  const f = bar.read();
+  // the kinds there are in this area's entries, for the bar's select (each by its book name: «3 new addresses»)
+  const kinds = new Map();
+  all.forEach((e) => kinds.set(e.kind, (kinds.get(e.kind) || 0) + 1));
+  bar.options([...kinds.entries()].map(([k, n]) => [k, Office.has(`${ID}.fold.${k}`) ? T('fold.' + k, { n }) : k]));
+  const list = all.filter((e) => !f.pick || e.kind === f.pick);
+  const box = el('div', 'box wm-book wm-cat-book');
+  const v = bookView(list, { onlyOpen: f.only, area: '', words: f.words, hay: entryHay, day: fmt.dayKey, chains: [], shown: 1000, page: 1000, wanted: null });
+  v.items.forEach((x) => box.appendChild(x.members ? (x.members.length > 1 ? foldRow(x, f.words.length > 0) : entryRow(x.members[0])) : dayHead(x.day)));
+  if (!v.rows.length) box.appendChild(el('p', 'empty', all.length ? T('cat.empty_filter') : T('cat.empty')));
+  s.appendChild(box);
+  bar.done(v.rows.reduce((n, r) => n + r.members.length, 0), all.length, { onlyAvail: all.some((e) => e.open) || f.only });
+  const advice = catAdvice(id);
+  if (advice) s.appendChild(advice);
+  if (rules) s.appendChild(rules);
+  if (known) s.appendChild(known);
+  return s;
+}
+
+/**
+ * The light in words for an area's head: «2 open, 1 of them important · looked 3 minutes ago» — the first line of its
+ * mouse-over text without the name (a phone has no mouse; the head stands at the top of the chosen section)
+ */
+function catState(id) {
+  const c = catOf(id);
+  if (!c) return null;
+  const lines = catTip(id);
+  const first = String(lines[0] || '').slice(catName(id).length + 2);
+  const looked = state && state.round && state.round.last ? T('cat.tip_checked', { when: fmt.relative(state.round.last) }) : '';
+  const span = el('span', 'wm-cat-state wm-cat-' + (Office.LIGHTS.includes(c.level) ? c.level : 'unknown'), [first, looked].filter(Boolean).join(' · '));
+  span.title = lines.join('\n');
+  return span;
+}
+
+/**
+ * «Advice» in an area: its tips of «How secure does it stand?» (the same rows, the same «I know, thanks» — they stay
+ * there too), the ones you know only counted; nothing when the area has none now
+ */
+function catAdvice(id) {
+  const tips = ((state && state.posture && state.posture.tips) || []).filter((x) => x && x.cat === id);
+  if (!tips.length) return null;
+  const open = tips.filter((x) => !x.known || showKnownTips);
+  const known = tips.length - tips.filter((x) => !x.known).length;
+  const box = el('div', 'wm-cat-tips');
+  box.appendChild(el('h4', 'wm-hold-group', T('cat.tips_title')));
+  if (open.length) {
+    const list = el('div', 'box');
+    open.forEach((x) => list.appendChild(postureRow(x)));
+    box.appendChild(list);
+  }
+  if (known && !showKnownTips) box.appendChild(el('p', 'role', T('cat.tips_known', { n: known })));
+  return box;
 }
 
 /** A day's heading between the rows: «Today», «Yesterday», then the date */
@@ -906,11 +1850,11 @@ function dayHead(day) {
  * members (open before noted), «All n: I know, thanks» for those still open; a click unfolds the entries, each as its
  * own row. While filter words are typed the rows unfold by themselves (only the entries the words meet are in them).
  */
-function foldRow(x) {
+function foldRow(x, typed) {
   const n = x.members.length;
   const first = x.members[0];
   const watch = first.kind === 'watch';
-  const words = !!(bookBar && bookBar.read().words.length);
+  const words = typed !== undefined ? !!typed : !!(bookBar && bookBar.read().words.length);      // an area's section hands its own bar's
   const wrap = el('div', 'wm-fold');
   const r = el('div', 'row nocheck wm-entry wm-fold-head unfolds' + (x.open ? ' wm-open' : ''));
   r.dataset.fold = x.key;
@@ -994,6 +1938,9 @@ function entryName(e) {
   if (e.kind === 'watch' && e.p && e.p.too_much) {
     return T(e.p.ros ? 'entry.net_too_much_mikrotik' : 'entry.net_too_much', { sender: e.p.sender || '', size: fmt.size(e.p.skipped || 0) });
   }
+  if (e.kind === 'watch' && e.p && (e.p.relearn || e.p.relearn_back)) {      // an area re-learned, or brought back (step 17)
+    return T(e.p.relearn ? 'entry.watch_relearn' : 'entry.watch_relearn_back', { area: catName(e.p.relearn || e.p.relearn_back) });
+  }
   return T('entry.' + (e.v || atVariant(e) || e.kind), entryParams(e));     // e.v: the shape a network entry has now (agent: watchnetEntryVariant())
 }
 
@@ -1041,12 +1988,31 @@ function entryRow(e, owner) {
   r.appendChild(main);
   if (e.open) {
     const acts = el('div', 'wm-entry-acts');
-    const b = el('button', 'btn small plain', T('ack'));
+    // 1.96: a state's answer holds until you take it back; an event's is for this time (the messenger says which: lasts)
+    const once = e.lasts === false;
+    const b = el('button', 'btn small plain', T(once ? 'ack_once' : 'ack'));
     b.type = 'button';
-    b.title = T('ack_title');
+    b.title = e.lasts === true ? `${T('ack_title')} ${T('ack_lasts_title')}` : T('ack_title');
     b.disabled = !Office.agent.running;
     b.onclick = () => ack(e, b);
     acts.appendChild(b);
+    // an exception (1.96): the narrowest the messenger offers as a button, the others under «more ▾»
+    const offers = watch ? [] : (Array.isArray(e.offers) ? e.offers : []).filter((o) => o && OFFERS.includes(o.type));
+    if (offers.length) {
+      const ob = el('button', 'btn small plain wm-offer', offerName(offers[0], e, true));
+      ob.type = 'button';
+      ob.title = T('rule.offer_title');
+      ob.disabled = !Office.agent.running || !hired();
+      ob.onclick = () => ruleAdd(e, offers[0], ob);
+      acts.appendChild(ob);
+      if (offers.length > 1) {
+        const more = el('button', 'btn small plain', T('rule.more'));
+        more.type = 'button';
+        more.disabled = ob.disabled;
+        more.onclick = (ev) => Office.menu(ev, offers.slice(1).map((o) => ({ text: offerName(o, e, true), act: () => ruleAdd(e, o, more) })));
+        acts.appendChild(more);
+      }
+    }
     if (!watch) {
       const sb = el('button', 'btn small plain wm-serious', T('serious'));
       sb.type = 'button';
@@ -1539,10 +2505,13 @@ function details(e) {
   if (e.group === 'flow' && p.learning) notes.push(T('detail.learning'));
   if (p.office && e.kind.startsWith('cron_file')) notes.push(T('detail.office_cron'));
   else if (p.office_file && e.kind.startsWith('cron_file')) notes.push(T('detail.office_file'));
-  if (e.open) notes.push(T('adopt.' + (e.v === 'net_ips_server_list' ? e.v : e.kind)));     // a block list: its own words (the whole list)
+  if (e.open) notes.push(T('adopt.' + (e.v === 'net_ips_server_list' || e.v === 'login_new_user' ? e.v : e.kind)));     // a block list: its own words (the whole list)
   const by = e.by === 'office' && e.kind === 'partner_paired' ? 'office_partner' : e.by === 'office' && e.kind === 'drill_throwaway' ? 'office_drill' : e.by;
   if (e.noted && by === 'plugin' && e.kind === 'at_plugin' && p.left) notes.push(T('noted.plugin_left', { when: fmt.date(p.left) }));     // agent: watchmanAtLeftNote()
-  else if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office', 'office_partner', 'office_drill', 'office_cron', 'schedule', 'array', 'unraid', 'plugin', 'back', 'router', 'parity'].includes(by) ? by : 'page'), { when: fmt.date(e.noted) }));
+  else if (e.noted) notes.push(T('noted.' + (NOTED_BY.includes(by) ? by : 'page'),
+    { when: fmt.date(e.noted), at: fmt.date(Number(e.p && e.p.known_at) || e.noted) }));
+  // you knew it — as it was then: something has changed since (1.96, the answer's fingerprint differs)
+  if (e.open && e.p && Number(e.p.known_at) > 0) notes.push(T('known.changed', { when: fmt.date(Number(e.p.known_at)) }));
   if (e.told) notes.push(T('detail.told', { when: fmt.date(e.told) }));
   else if (e.muted && e.tell) notes.push(T('detail.muted'));
   else if (e.open) notes.push(T(e.tell ? 'detail.not_told' : 'detail.book_only'));
@@ -1658,6 +2627,7 @@ async function holdCheck(quiet) {
 
 /** Opening his page looks again when the last look is older than HOLD_AGAIN (or there is none since the server started) */
 function holdAuto() {
+  if (((state && state.settings && state.settings.hold && state.settings.hold.auto) || {}).value === false) return;      // his setting (1.96)
   const l = holdLook();
   if (!l || Date.now() / 1000 - (Number(l.time) || 0) > HOLD_AGAIN) holdCheck(true);
 }
@@ -1667,7 +2637,7 @@ function holdTile(a) {
   const n = l ? Number(l.count) || 0 : 0;
   const short = !!(l && l.started && l.times && l.times.fits === false);
   const value = holdRunning() && !l ? T('hold.running') : !l ? '–' : !l.started ? T('tile.hold_stopped') : n ? T('tile.hold_n', { n }) : T('tile.hold_none');
-  return Office.stat({ label: T('tile.hold'), value, alert: !!n || short,
+  return lightTile({ label: T('tile.hold'), value, level: catLevel('hold') || (n || short ? 'warn' : l ? 'ok' : ''),
     sub: !l ? T('tile.hold_never') : [short ? T('tile.hold_short') : '', T('tile.hold_when', { when: fmt.relative(l.time) })].filter(Boolean).join(' · '), ...a });
 }
 
@@ -1761,7 +2731,8 @@ function holdRow(h) {
   const via = ['ssh', 'web', 'tmux', 'screen'].includes(h.via) ? h.via : 'ssh';
   main.appendChild(el('div', 'row-name text', kind === 'shell' ? T('hold.k.shell_' + via) : T('hold.k.' + kind, { name: String(h.name || ''), prog: String(h.prog || '') })));
   const meta = el('div', 'row-meta');
-  meta.appendChild(chip(T('hold.holds_chip'), 'warn', T('hold.holds_chip_title')));
+  const known = kind === 'userscript' && sideKnown('script', String(h.name || ''));
+  meta.appendChild(known ? chip(T('hold.known'), 'quiet', T('hold.known_title')) : chip(T('hold.holds_chip'), 'warn', T('hold.holds_chip_title')));
   if (kind !== 'loop' && h.prog) meta.appendChild(chip(String(h.prog), '', T('hold.prog_title', { pid: Number(h.pid) || 0 })));
   if (Number(h.procs) > 1) meta.appendChild(chip(T('hold.procs', { n: Number(h.procs) }), '', T('hold.procs_title')));
   if (kind === 'loop' && h.mount) meta.appendChild(chip(T('hold.loop_at', { mount: String(h.mount) }), '', T('hold.loop_at_title')));
@@ -1770,7 +2741,37 @@ function holdRow(h) {
   if (h.more) main.appendChild(el('div', 'row-detail role', T('hold.more_files', { n: Number(h.more) })));
   main.appendChild(el('div', 'row-detail role', T('hold.how.' + kind)));
   r.appendChild(main);
+  if (kind === 'userscript' && h.name && !known) r.appendChild(sideButton('hold', 'userscript', String(h.name), ''));
   return r;
+}
+
+/**
+ * Your exceptions for «What holds the array?» and «Who woke my disks?» (1.96 step 6f; agent/desks/watchman-cats.php
+ * watchmanHoldKnown()): a VM without the guest agent, a User Script that may run; a cause of a wake, a disk not counted
+ */
+function sideKnown(what, name) {
+  return ((state && state.rules) || []).some((r) => r && (r.cat === 'hold' || r.cat === 'wakes') && r.on && r.on[what] === name);
+}
+/** «Known» / «Expected» on a row: the exception by hand, as his setup makes it (listed there, lifted there) */
+function sideButton(cat, type, value, second) {
+  const b = el('button', 'btn small plain', T(`side.${type}`));
+  b.type = 'button';
+  b.title = T(`side.${type}_title`);
+  b.disabled = !Office.agent.running || !hired();
+  b.onclick = async () => {
+    if (!(await Office.freshState(ID))) return;
+    b.disabled = true;
+    const j = await Office.api.post(`${ID}.rule_hand`, { cat, type, value, user: second, sure: false });
+    if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); b.disabled = false; return; }
+    if (j.state) state = j.state;
+    if (j.rule) justMade.add(j.rule);
+    mood();
+    Office.keepInPlace(b, () => sw.render());
+    Office.toast(T('rule.added'));
+  };
+  const acts = el('div', 'wm-entry-acts');
+  acts.appendChild(b);
+  return acts;
 }
 
 /** A running VM: its guest agent, how long Unraid waits for it */
@@ -1784,8 +2785,11 @@ function vmRow(v, t) {
   if (v.state === 'paused') meta.appendChild(chip(T('hold.vm_paused'), '', T('hold.vm_paused_title')));
   meta.appendChild(chip(T('hold.wait_s', { s: t.vm }), '', T('hold.vm_wait_title', { s: t.vm })));
   main.appendChild(meta);
-  if (agent !== 'connected') main.appendChild(el('div', 'row-detail role', T(v.windows ? 'hold.vm_windows' : 'hold.vm_no_agent', { s: t.vm })));
+  const known = agent !== 'connected' && sideKnown('vm', String(v.name));
+  if (known) main.appendChild(el('div', 'row-detail role', T('hold.vm_known')));
+  else if (agent !== 'connected') main.appendChild(el('div', 'row-detail role', T(v.windows ? 'hold.vm_windows' : 'hold.vm_no_agent', { s: t.vm })));
   r.appendChild(main);
+  if (agent !== 'connected' && !known) r.appendChild(sideButton('hold', 'vm', String(v.name), ''));
   return r;
 }
 
@@ -1850,6 +2854,8 @@ const startOfToday = () => { const d = new Date(((state && state.time) || Date.n
 const wakeHead = (text) => { const h = el('div', 'wm-wake-subhead'); h.appendChild(el('span', 'wm-wake-subhead-name', text)); return h; };
 
 /** What woke it, in words: «Plex (container)», «SMB: laptop», «Scheduled task: …», «Mr. Backupsy (the office)» */
+/** A cause as an exception names it: «<kind>:<its name, desk or program>» (watchmanWakeCauseKey()) */
+const causeKey = (c) => `${c.kind}:${c.name || c.desk || c.prog || ''}`;
 function causeName(c) {
   if (!c) return T('wakes.cause.none');
   const name = c.name || '';
@@ -1890,7 +2896,7 @@ function wakesTile(a) {
     const today = all.filter((x) => x.time >= startOfToday()).length;
     [value, sub] = [T('tile.wakes_n', { n: all.length }), [T('tile.wakes_week'), today ? T('tile.wakes_today', { n: today }) : ''].filter(Boolean).join(' · ')];
   }
-  return Office.stat({ label: T('wakes.title'), value, sub, cls: 'wm-wakes-tile', ...a });
+  return lightTile({ label: T('wakes.title'), value, sub, level: catLevel('wakes'), cls: 'wm-wakes-tile', ...a });
 }
 
 /** His switch in the section's head: on unless switched off, kept on the server (never in the browser) */
@@ -1913,7 +2919,7 @@ function wakesSwitch() {
       return;
     }
     if (j.state) state = j.state;
-    Office.keepInPlace(label, () => sw.render());
+    Office.keepInPlace(label, () => (page === 'setup' ? render() : sw.render()));
     Office.toast(T(on ? 'wakes.switched_on' : 'wakes.switched_off'));
   };
   return label;
@@ -2073,6 +3079,7 @@ function wakeRow(w, look) {
   } else if (first) {
     meta.appendChild(el('b', 'wm-wake-who', causeName(first)));
     meta.appendChild(sureChip(first));
+    if (w.who.every((c) => sideKnown('cause', causeKey(c)))) meta.appendChild(chip(T('wakes.expected'), 'quiet', T('wakes.expected_title')));
     if (w.who.length > 1) meta.appendChild(chip(T('wakes.more', { n: w.who.length - 1 }), '', T('wakes.more_title')));
   } else if (trailDirs(w).length) {
     // nobody caught, but something was written on it just then: that folder, as a hint
@@ -2096,6 +3103,7 @@ function wakeRow(w, look) {
         if (i > 0 || lead) head.append(el('b', '', causeName(c)), ' ', sureChip(c));
         if (c.kind !== 'program' && c.prog) head.append(i > 0 ? ' ' : '', el('span', 'role', T('wakes.prog', { name: c.prog })));
         if (head.childNodes.length) one.appendChild(head);
+        if (!sideKnown('cause', causeKey(c)) && (c.name || c.desk || c.prog)) one.appendChild(sideButton('wakes', 'cause', causeKey(c).slice(c.kind.length + 1), c.kind));
         if (c.files && c.files.length) one.appendChild(el('pre', 'code wm-wake-files', c.files.join('\n')));
         else if (c.cmd) one.appendChild(el('pre', 'code wm-wake-files', c.cmd));
         box.appendChild(one);
@@ -2403,6 +3411,27 @@ function netGroup(n) {
   return group('net', T('watch.net'), sum, rows);
 }
 
+/** One click switches «Known vulnerabilities» on (the public lists once a day; off again in his setup) */
+function vulnButton() {
+  const b = el('button', 'btn plain wm-vuln-on', T('vuln.switch_on'));
+  b.type = 'button';
+  b.title = T('vuln.switch_on_title');
+  b.disabled = !Office.agent.running;
+  b.onclick = async () => {
+    b.disabled = true;
+    const j = await Office.api.post(`${ID}.vuln_set`, { on: true });
+    if (!j.ok) {
+      b.disabled = false;
+      Office.toast(Office.errorText(j.error, ID), true);
+      return;
+    }
+    if (j.state) state = j.state;
+    render();
+    Office.toast(T('vuln.on'));
+  };
+  return b;
+}
+
 /** The «Whole LAN» switch: per device on the LAN how often it connected and how many detections named it — counts, off by default */
 function lanSwitch() {
   const label = el('label', 'switch wm-net-lan');
@@ -2578,6 +3607,15 @@ Office.desk({
       that entry of the whole book among the rows shown */
   async mount(root, sub) {
     view = root;
+    page = Office.pageFrom(PAGES(), sub) === 'setup' ? 'setup' : '';
+    if (page === 'setup') {
+      // #/watchman/setup/<area> picks that area like a click; else «Everything changed»
+      const picked = setupSw.mount(String(sub || '').split('/').slice(1).join('/'));
+      if (picked) Office.subroute('setup');
+      render();
+      await load(false);
+      return;
+    }
     const m = /^entry\/([\w-]{1,64})$/.exec(sub || '');
     if (m) wanted = m[1];
     bookBarGet().reset();          // a new visit: the whole book (the area is a choice and stays)
@@ -2585,7 +3623,9 @@ Office.desk({
     watchShut.clear();
     wakesBarGet().reset();         // … and every wake, of every disk
     wakeDisk = '';
-    sw.mount(m ? 'book' : sub);    // a tile's sub-route picks it like a click (the address back to #/watchman)
+    Object.values(catBars).forEach((b) => b.reset().set({ pick: '' }));      // … and every area's list whole
+    if (sub === 'open') bookBarGet().set({ only: true });     // the tile «Not noted yet» up to 1.95: the book, only open
+    sw.mount(m || sub === 'open' ? 'book' : sub);    // a tile's sub-route picks it like a click (the address back to #/watchman)
     render();
     await load(false);
     holdAuto();
@@ -2624,13 +3664,18 @@ Office.places(ID, [
   { kind: 'section', key: 'incidents.title', route: `#/${ID}/incidents` },
   { kind: 'section', key: 'hold.title', route: `#/${ID}/hold` },
   { kind: 'section', key: 'wakes.title', route: `#/${ID}/wakes` },
+  { kind: 'section', key: 'setup.changed', route: `#/${ID}/setup/changed`, crumb: 'page.setup' },           // his setup (1.96 step 5)
+  { kind: 'help', key: 'help.setup', text: 'help.setup_text', route: `#/${ID}/setup`, crumb: 'page.setup' },
+  { kind: 'help', key: 'help.setup_off', text: 'help.setup_off_text', route: `#/${ID}/setup`, crumb: 'page.setup' },
+  { kind: 'help', key: 'help.setup_rules', text: 'help.setup_rules_text', route: `#/${ID}/setup`, crumb: 'page.setup' },
   // the same section by the words people search it with (disk wake-ups, spin-up), in every language — its page alone
   { kind: 'section', key: 'search.wakes', route: `#/${ID}/wakes`, anchor: 'search.wakes', text: 'help.wakes_text' },
   ...sw.places(),             // his tiles: the book, «Not noted yet», how secure, what he keeps an eye on
   { kind: 'help', key: 'ack', text: 'help.ack_text' },
   { kind: 'help', key: 'round_now', text: 'help.round_text' },
   ...['posture', 'book', 'serious', 'normal', 'logins', 'containers', 'plugins', 'office', 'flash', 'shares', 'sched', 'flow', 'flow_gone', 'flow_not',
-    'snaps', 'host', 'host_not', 'net', 'net_not', 'attack', 'siem', 'chain', 'night', 'parity', 'hold', 'wakes', 'grafana', 'notify', 'safe']
+    'snaps', 'host', 'host_not', 'net', 'net_not', 'attack', 'siem', 'chain', 'night', 'parity', 'hold', 'wakes', 'grafana', 'notify', 'safe', 'lights',
+    'history']
     .map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
 ]);
 

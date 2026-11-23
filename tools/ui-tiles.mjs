@@ -95,7 +95,7 @@ const slug = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCa
 
 // ------------------------------------------------------------------ in the page
 const PAGE_HELPERS = () => {
-  const SEL = '#sso-desk button.card, #sso-desk button.stat, #sso-desk [aria-pressed][data-filters]';
+  const SEL = '#sso-desk button.card, #sso-desk button.stat, #sso-desk button.light-tile, #sso-desk [aria-pressed][data-filters]';
   const shown = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !e.closest('[hidden]'); };
   const menuBottom = () => { const m = document.getElementById('menu'); return m && /^(sticky|fixed)$/.test(getComputedStyle(m).position) ? m.getBoundingClientRect().bottom : 0; };
   const inView = (e) => { const r = e.getBoundingClientRect(); return r.bottom > menuBottom() && r.top < innerHeight && r.width > 0 && r.height > 0; };

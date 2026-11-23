@@ -85,6 +85,7 @@ class FakeNode {
     return c;
   }
   remove() { if (this.parentNode) this.parentNode.removeChild(this); }
+  after(n) { const p = this.parentNode; if (!p) return; if (n.parentNode) n.parentNode.removeChild(n); n.parentNode = p; p.children.splice(p.children.indexOf(this) + 1, 0, n); }
   setAttribute(k, v) { if (k === 'id') this.id = v; else this.attrs[k] = String(v); }
   getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }
   hasAttribute(k) { return k in this.attrs; }
@@ -433,7 +434,67 @@ function schedule() {
     ['schedule', 'tile.schedule', 'schedule']);
 }
 
+// ------------------------------------------------------------------ light tiles and the row's filter (1.96)
+function lights() {
+  const levels = ['danger', 'warn', 'note', 'ok', 'none', 'bogus', ''];
+  const tiles = levels.map((lv) => O.light({ label: 'Logins', level: lv }));
+  same('light: one class per level, an unknown one «not known yet»', tiles.map((n) => n.className),
+    ['light-tile light-danger', 'light-tile light-warn', 'light-tile light-note', 'light-tile light-ok', 'light-tile light-none', 'light-tile light-unknown', 'light-tile light-unknown']);
+  same('light: the dot — «!» on note, «–» when not known, aria-hidden; the name beside it', tiles.map((n) => [n.children[0].className, n.children[0].textContent, n.children[0].getAttribute('aria-hidden'), n.children[1].textContent]),
+    [['light-dot', '', 'true', 'Logins'], ['light-dot', '', 'true', 'Logins'], ['light-dot', '!', 'true', 'Logins'], ['light-dot', '', 'true', 'Logins'], ['light-dot', '', 'true', 'Logins'],
+     ['light-dot', '–', 'true', 'Logins'], ['light-dot', '–', 'true', 'Logins']]);
+  same('light: never colour alone — the aria-label says the level in words', tiles.slice(0, 5).map((n) => n.getAttribute('aria-label')).concat(tiles[5].getAttribute('aria-label')),
+    ['danger', 'warn', 'note', 'ok', 'none', 'unknown'].map((k) => 'Logins: ' + O.t('common.light.' + k)));
+  same('light: words for every level in English', ['danger', 'warn', 'note', 'ok', 'none', 'unknown'].every((k) => O.has('common.light.' + k) && O.t('common.light.' + k) !== 'common.light.' + k), true);
+  let clicked = 0;
+  const b = O.light({ label: 'Router', level: 'warn', tip: 'Router: 2 open\nLooked 21:05', on: () => { clicked++; }, pressed: false, place: 'tile.router' });
+  same('light: a button with aria-pressed, its place; the tip as data-tip with data-own (a tap stays the tile\'s), never a native title',
+    [b.tagName, b.type, b.getAttribute('aria-pressed'), b.dataset.place, b.dataset.tip, b.dataset.own, b.title], ['BUTTON', 'button', 'false', 'tile.router', 'Router: 2 open\nLooked 21:05', '1', '']);
+  b.click();
+  same('light: the click is the tile\'s', clicked, 1);
+  const on = O.light({ label: 'Router', level: 'ok', on: () => {}, pressed: true, mark: 'Open' });
+  same('light: on — it glows and says «Open»', [on.classList.contains('tile-on'), on.find('tile-mark') && on.find('tile-mark').textContent], [true, 'Open']);
+
+  // the row's filter: Office.sections({filter})
+  const section = (name) => () => { const s = O.el('section', 'section'); s.appendChild(O.sectionHead(name, 'sub')); return s; };
+  const areas = [['login', 'Logins', ['ssh', 'web'], true], ['container', 'Containers', ['docker'], false], ['flash', 'Flash and accounts', ['ssh', 'key'], false],
+    ['door', 'Ways in', ['ssh', 'upnp'], true], ['hold', 'What holds the array?', [], false]];
+  const sw = O.sections({ id: 'shelf', grid: 'lights sh-lights', default: '',
+    tiles: () => areas.map(([id, name, words, f]) => ({ id, key: 'tile.' + id, tile: (a) => O.light({ label: name, level: f ? 'danger' : 'ok', ...a }), section: section(id), words, f })),
+    filter: { label: 'Filter the areas', only: { text: 'only with a finding', hint: 'x' }, words: (x) => [areas.find((y) => y[0] === x.id)[1], ...x.words], finding: (x) => x.f } });
+  desk.replaceChildren(sw.el);
+  sw.mount('');
+  sw.render();
+  const row = () => sw.grid.children.map((n) => n.dataset.tile);
+  const input = sw.bar.el.find('filter-words');
+  const cb = sw.bar.el.all().find((n) => n.tagName === 'INPUT' && n.type === 'checkbox');
+  const noteShown = () => !sw.bar.el.find('filter-note').hidden;
+  same('filter: the bar first, then the row and the body; nothing typed — every tile, every section, no note', [sw.el.children.map((n) => n.className.split(' ')[0]), sw.bar.el.classList.contains('sections-filter'), row(), sw.body.dataset.sections, noteShown()],
+    [['toolbar', 'lights', 'sections-body'], true, ['login', 'container', 'flash', 'door', 'hold'], 'login container flash door hold', false]);
+  same('filter: its field shown even for a short row (min 0)', [input.hidden, sw.bar.el.hidden], [false, false]);
+  input.value = 'ssh';
+  input.dispatch('input');
+  same('filter: «ssh» — the areas whose words fit, their sections only; the note line says it', [row(), sw.body.dataset.sections, noteShown(), sw.bar.el.find('filter-note').textContent.includes('3')],
+    [['login', 'flash', 'door'], 'login flash door', true, true]);
+  sw.pick('hold', 'click');
+  same('filter: a tile chosen that doesn\'t fit stays in the row; its section alone', [row(), sw.body.dataset.sections], [['login', 'flash', 'door', 'hold'], 'hold']);
+  sw.pick('hold', 'click');
+  input.value = '';
+  input.dispatch('input');
+  cb.checked = true;
+  cb.dispatch('change');
+  same('filter: «only with a finding» — the areas with one', [row(), sw.body.dataset.sections], [['login', 'door'], 'login door']);
+  sw.mount('');
+  sw.render();
+  same('filter: a new visit — the whole row again (never kept)', [row(), cb.checked, input.value, Object.keys(stored).filter((k) => /filter|words|only/.test(k))],
+    [['login', 'container', 'flash', 'door', 'hold'], false, '', []]);
+  const plain = O.sections({ id: 'shelf', tiles: [] });
+  same('filter: without the option no bar', [plain.bar, plain.el.children.length], [null, 2]);
+  delete stored['office.shelf.tile'];       // its clicks stored a choice: the next part starts from a first visit
+}
+
 try {
+  if (part === 'all' || part === 'lights') lights();
   if (part === 'all' || part === 'sections') sections();
   if (part === 'all' || part === 'pages') pages();
   if (part === 'all' || part === 'schedule') schedule();

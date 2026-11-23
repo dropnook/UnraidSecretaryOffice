@@ -2,6 +2,7 @@
 #sso{   /* nested in the office's element, like office.css */
 /* the watch book: an entry, its «I know, thanks» on the right (under it on a phone) */
 .row.wm-entry{grid-template-columns:minmax(0,1fr) auto}
+.row.wm-entry > .wm-entry-acts{max-width:40vw}      /* the answers wrap before they take the row's middle (1.96: an exception beside them) */
 .wm-entry:not(.wm-open) .row-name{color:var(--ink2); font-weight:500}
 .row.wm-watch{background:var(--surface2)}
 .wm-detail .kv{margin-top:2px}
@@ -54,6 +55,26 @@
 .wm-hold > .callout{margin-bottom:6px}
 .wm-hold .row-name, .wm-hold-file{overflow-wrap:anywhere; min-width:0}
 .wm-hold-file{font-family:var(--mono); font-size:12px}
+/* an area's section (1.96): the light in words in its head, its advice under its entries */
+.wm-cat-state{font-size:12px; color:var(--ink2); overflow-wrap:anywhere}
+.wm-cat-state.wm-cat-danger{color:var(--danger)}
+.wm-cat-state.wm-cat-warn{color:var(--warn)}
+.wm-cat-tips > .box{margin-top:2px}
+.wm-cat-tips > p.role{margin:6px 2px 0}
+/* his setup (1.96): a setting's row (its words, the field), the buttons under a list left-aligned, the hand dialog's rows */
+.row.wm-setting{grid-template-columns:minmax(0,1fr) auto; align-items:center}
+.wm-setting-num{width:8em}
+.wm-settings > .wm-entry-acts{justify-content:flex-start; padding:8px 12px}
+.wm-setup-acts{display:flex; gap:8px; flex-wrap:wrap}
+/* re-learn (step 17): at the end of an area's setup, «everything» above the tiles; its question's checkboxes wrap */
+.wm-relearn{margin-top:14px}
+.wm-relearn .callout{display:flex; flex-direction:column; gap:6px; align-items:flex-start; margin-bottom:8px}
+.wm-relearn .callout p{margin:0}
+.wm-relearn-all{justify-content:flex-end; margin-bottom:8px}
+.wm-relearn-check{white-space:normal; align-items:flex-start; margin:6px 0}
+.wm-hand-row{display:flex; flex-direction:column; gap:4px; margin:0 0 10px}
+.wm-known-head{align-self:flex-start}
+.wm-setup-to{padding-left:0}
 /* who woke my disks: the list's sub heads (by disk, every wake), the disk chosen, a wake's causes, files and facts */
 .wm-wakes{display:flex; flex-direction:column; gap:8px}
 .wm-wake-note{margin:0 2px}
@@ -84,5 +105,8 @@
   .row.wm-item{padding-left:14px}
   .row.wm-member{padding-left:20px}
   .wm-flow-note{padding-left:14px}
+  .row.wm-setting{grid-template-columns:minmax(0,1fr)}     /* a setting's field under its words */
+  .row.wm-setting > select{justify-self:stretch}
+  .row.wm-setting > input[type=checkbox]{justify-self:start}
 }
 }

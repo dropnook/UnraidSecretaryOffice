@@ -1,0 +1,26 @@
+{
+  "v": 1,
+  "about": "Known CPU faults the Night Watchman names as a posture tip (agent/desks/watchman-hw.php, watchmanHwCpuFault()). A fault applies when vendor, family and model match, the CPU's model name holds one of `names` as a whole word (when given), and its microcode is below `microcode_below`. A new known fault is one more entry in a release; one whose advice differs from the tip's words needs a tip of its own.",
+  "faults": [
+    {
+      "id": "intel_vmin",
+      "tip": "cpu_fault",
+      "name": "Intel Vmin Shift Instability",
+      "vendor": "GenuineIntel",
+      "family": 6,
+      "models": [183],
+      "names": ["i9-13900KS", "i9-13900K", "i9-13900KF", "i9-13900F", "i9-13900", "i7-13700K", "i7-13700KF", "i7-13790F", "i7-13700F", "i7-13700",
+                "i5-13600K", "i5-13600KF", "i9-14900KS", "i9-14900K", "i9-14900KF", "i9-14900F", "i9-14900", "i7-14700K", "i7-14700KF", "i7-14790F",
+                "i7-14700F", "i7-14700", "i5-14600K", "i5-14600KF"],
+      "microcode_below": "0x12b",
+      "fix": "bios",
+      "sources": [
+        "https://community.intel.com/t5/Processors/Intel-Core-13th-and-14th-Gen-Desktop-Instability-Root-Cause/m-p/1633442 (0x12B «must be loaded via BIOS update», it encompasses 0x125 and 0x129)",
+        "https://community.intel.com/t5/Processors/Intel-Core-13-14th-Gen-Instability-Update-Future-Products/m-p/1627440 (not affected: mobile incl. HX, i5 non-K, i3, Xeon, 12th Gen)",
+        "https://community.intel.com/t5/Mobile-and-Desktop-Processors/Additional-Warranty-Updates-on-Intel-Core-13th-14th-Gen-Desktop/td-p/1620853 (the 24 models: Intel's table is a picture; the names as the press transcribed it, gigazine.net 2024-08-07)",
+        "https://community.intel.com/t5/Processors/Intel-Core-13th-and-14th-Gen-Vmin-Shift-Instabilty-Update-New/m-p/1686948 (0x12F, May 2025)",
+        "Model 183 (0xB7) alone is not enough: Intel's HX mobile and Xeon E parts share it and are not affected — the name decides (kernel intel-family.h, Intel's microcode release notes)"
+      ]
+    }
+  ]
+}

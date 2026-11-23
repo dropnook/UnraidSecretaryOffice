@@ -2,7 +2,7 @@
 // The click test: every desk page of the office, built from this repository's files (tests/ui/harness.mjs, a stub state
 // per desk from tests/ui/states/), in a headless Chrome with a throwaway profile - both themes (Dark, Light) at 1440 and
 // 375 px. On each page it clicks what only opens or closes something - every <summary>, every row that unfolds, every
-// folding group head, every tile (button.card, and button.stat with aria-pressed: a number tile that filters or shows),
+// folding group head, every tile (button.card, and button.stat or button.light-tile with aria-pressed: a tile that filters or shows),
 // every other control with aria-expanded - and checks:
 //   - the clicked one changes state (opens or closes),
 //   - nothing else that folds changes with it (another <details>, row, group, tile - a tile's siblings excepted:
@@ -54,7 +54,7 @@ const REPO = path.resolve(HERE, '..');
 const require = createRequire(import.meta.url);
 
 // ------------------------------------------------------------------ the call
-const ROUTES = ['caretaker', 'backup', 'backup/setup', 'restore', 'snapshot', 'cleanup/tidy', 'cleanup/where', 'logs', 'logs/setup', 'watchman', 'advisor', 'jack', 'jack/setup', 'moverelli', 'moverelli/setup', 'fanboy', 'fanboy/setup'];
+const ROUTES = ['caretaker', 'backup', 'backup/setup', 'restore', 'snapshot', 'cleanup/tidy', 'cleanup/where', 'logs', 'logs/setup', 'watchman', 'watchman/setup', 'advisor', 'jack', 'jack/setup', 'moverelli', 'moverelli/setup', 'fanboy', 'fanboy/setup'];
 const opt = { only: null, themes: ['dark', 'light'], widths: [1440, 375], jobs: 6, verbose: false, perGroup: 5, perPage: 60, states: null };
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {
@@ -124,7 +124,7 @@ const PAGE_HELPERS = () => {
     if (e.matches('details > summary')) return 'summary';
     if (e.matches('.unfolds')) return 'row';
     if (e.matches('.group-head')) return 'group';
-    if (e.matches('button.card, button.stat[aria-pressed]')) return 'tile';
+    if (e.matches('button.card, button.stat[aria-pressed], button.light-tile[aria-pressed]')) return 'tile';
     if (e.matches('[aria-expanded]')) return 'expand';
     return null;
   }
@@ -142,7 +142,7 @@ const PAGE_HELPERS = () => {
     const d = desk();
     const out = [];
     const ranks = new Map();
-    d.querySelectorAll('details > summary, .unfolds, .group-head, button.card, button.stat[aria-pressed], [aria-expanded]').forEach((e) => {
+    d.querySelectorAll('details > summary, .unfolds, .group-head, button.card, button.stat[aria-pressed], button.light-tile[aria-pressed], [aria-expanded]').forEach((e) => {
       const kind = kindOf(e);
       if (!kind) return;
       // a control inside a row that unfolds is the row's own (its name, «Details»): the row stands for it
