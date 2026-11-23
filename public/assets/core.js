@@ -1615,6 +1615,9 @@ function showTip(node, pinned) {
   tipBox.hidden = false;
   tipFor = node;
   tipPinned = pinned;
+  // a tip shown by hovering never takes a click meant for what lies under it (1.96: a light tile's long tip over the
+  // rows below); a pinned one (a click, a tap) stays selectable
+  tipBox.style.pointerEvents = pinned ? '' : 'none';
   const s = fixedSpace();       // the office's own px (the text-size switch's zoom)
   const b = node.getBoundingClientRect();
   const r = { left: b.left / s.k, top: b.top / s.k, bottom: b.bottom / s.k };

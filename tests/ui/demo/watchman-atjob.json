@@ -63,7 +63,22 @@
    "night": false,
    "serious": false,
    "again": false,
-   "cat": "lan"
+   "cat": "lan",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "net_ips_server:w7a8b9c0d20"
+     },
+     "kinds": [
+      "net_ips_server"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w7a8b9c0d1e",
@@ -104,7 +119,22 @@
    "night": false,
    "serious": false,
    "again": false,
-   "cat": "sched"
+   "cat": "sched",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "at_job:w7a8b9c0d1e"
+     },
+     "kinds": [
+      "at_job"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w1a2b3c4d5e",
@@ -151,7 +181,22 @@
    "told": 1791562574,
    "muted": null,
    "night": false,
-   "cat": "data"
+   "cat": "data",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "flow_gone:w1a2b3c4d5e"
+     },
+     "kinds": [
+      "flow_gone"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w2b3c4d5e6f",
@@ -189,7 +234,22 @@
    "told": 1791562574,
    "muted": null,
    "night": false,
-   "cat": "data"
+   "cat": "data",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "flow_written:w2b3c4d5e6f"
+     },
+     "kinds": [
+      "flow_written"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "wd5e04cb7da",
@@ -220,7 +280,47 @@
    "told": 1791469874,
    "muted": null,
    "night": false,
-   "cat": "login"
+   "cat": "login",
+   "offers": [
+    {
+     "type": "user_net",
+     "on": {
+      "user": "root",
+      "net": "192.168.178.0/24"
+     },
+     "kinds": [
+      "login_new_ip"
+     ],
+     "ask": false,
+     "covers": 1
+    },
+    {
+     "type": "net",
+     "on": {
+      "net": "192.168.178.0/24"
+     },
+     "kinds": [
+      "login_new_ip",
+      "smb_client",
+      "smb_hour"
+     ],
+     "ask": false,
+     "covers": 1
+    },
+    {
+     "type": "key",
+     "on": {
+      "key": "login_new_ip:wd5e04cb7da"
+     },
+     "kinds": [
+      "login_new_ip"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w8825237f13",
@@ -257,7 +357,22 @@
    "told": 1791545474,
    "muted": null,
    "night": false,
-   "cat": "data"
+   "cat": "data",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "flow_written:w8825237f13"
+     },
+     "kinds": [
+      "flow_written"
+     ],
+     "ask": true,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "wfe162b7c9a",
@@ -291,7 +406,22 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "lan"
+   "cat": "lan",
+   "offers": [
+    {
+     "type": "network",
+     "on": {
+      "network": "Default"
+     },
+     "kinds": [
+      "net_new_device"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "we39e6da19f",
@@ -321,7 +451,10 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "array"
+   "cat": "array",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "wdc05fb1798",
@@ -351,7 +484,22 @@
    "told": 1791466274,
    "muted": null,
    "night": false,
-   "cat": "container"
+   "cat": "container",
+   "offers": [
+    {
+     "type": "key",
+     "on": {
+      "key": "container_new:wdc05fb1798"
+     },
+     "kinds": [
+      "container_new"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w41acb2239b",
@@ -383,7 +531,10 @@
    "muted": null,
    "night": false,
    "serious": true,
-   "cat": "login"
+   "cat": "login",
+   "offers": [],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "wa92b5cedfc",
@@ -409,7 +560,33 @@
    "told": 1791383474,
    "muted": null,
    "night": false,
-   "cat": "plugin"
+   "cat": "plugin",
+   "offers": [
+    {
+     "type": "source",
+     "on": {
+      "source": "raw.githubusercontent.com/unraid"
+     },
+     "kinds": [
+      "plugin_new"
+     ],
+     "ask": false,
+     "covers": 1
+    },
+    {
+     "type": "key",
+     "on": {
+      "key": "plugin_new:wa92b5cedfc"
+     },
+     "kinds": [
+      "plugin_new"
+     ],
+     "ask": false,
+     "covers": 1
+    }
+   ],
+   "rule": null,
+   "lasts": true
   },
   {
    "id": "w3bf6add5b4",
@@ -438,7 +615,10 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": "partner"
+   "cat": "partner",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w1236963b43",
@@ -471,7 +651,10 @@
    "told": null,
    "muted": null,
    "night": false,
-   "cat": null
+   "cat": null,
+   "offers": [],
+   "rule": null,
+   "lasts": false
   },
   {
    "id": "w7a8b9c0d1f",
@@ -503,7 +686,10 @@
    "night": false,
    "serious": false,
    "again": false,
-   "cat": "sched"
+   "cat": "sched",
+   "offers": [],
+   "rule": null,
+   "lasts": false
   }
  ],
  "watch": {
@@ -1939,5 +2125,305 @@
  "cats_cross": {
   "book": "danger",
   "schedule": "ok"
+ },
+ "rules": [],
+ "off": {},
+ "known": [],
+ "known_full": false,
+ "settings": {
+  "login": {
+   "burst": {
+    "value": 5,
+    "def": 5,
+    "min": 3,
+    "max": 50,
+    "unit": "n"
+   },
+   "window": {
+    "value": 600,
+    "def": 600,
+    "min": 60,
+    "max": 3600,
+    "unit": "s"
+   }
+  },
+  "container": {
+   "ports": {
+    "value": "quiet",
+    "def": "quiet",
+    "of": [
+     "quiet",
+     "tell",
+     "none"
+    ]
+   },
+   "plain": {
+    "value": false,
+    "def": false
+   }
+  },
+  "plugin": {
+   "versions": {
+    "value": false,
+    "def": false
+   }
+  },
+  "sched": {
+   "scripts": {
+    "value": "quiet",
+    "def": "quiet",
+    "of": [
+     "quiet",
+     "tell"
+    ]
+   },
+   "at_late": {
+    "value": 2,
+    "def": 2,
+    "min": 1,
+    "max": 14,
+    "unit": "d"
+   }
+  },
+  "pull": {
+   "factor": {
+    "value": 4,
+    "def": 4,
+    "min": 2,
+    "max": 20,
+    "unit": "x"
+   },
+   "min": {
+    "value": 2,
+    "def": 2,
+    "min": 1,
+    "max": 500,
+    "unit": "gb"
+   },
+   "new": {
+    "value": 50,
+    "def": 50,
+    "min": 10,
+    "max": 1000,
+    "unit": "gb"
+   }
+  },
+  "data": {
+   "factor": {
+    "value": 4,
+    "def": 4,
+    "min": 2,
+    "max": 20,
+    "unit": "x"
+   },
+   "gone_min": {
+    "value": 2,
+    "def": 2,
+    "min": 1,
+    "max": 500,
+    "unit": "gb"
+   },
+   "written_min": {
+    "value": 2,
+    "def": 2,
+    "min": 1,
+    "max": 500,
+    "unit": "gb"
+   },
+   "files_min": {
+    "value": 2000,
+    "def": 2000,
+    "min": 100,
+    "max": 200000,
+    "unit": "n"
+   },
+   "kept": {
+    "value": true,
+    "def": true
+   },
+   "must": {
+    "value": true,
+    "def": true
+   }
+  },
+  "snap": {
+   "offsite": {
+    "value": 50,
+    "def": 50,
+    "min": 25,
+    "max": 75,
+    "unit": "pct"
+   }
+  },
+  "flash": {
+   "go_blank": {
+    "value": false,
+    "def": false
+   }
+  },
+  "share": {
+   "secure_ok": {
+    "value": false,
+    "def": false
+   }
+  },
+  "partner": {
+   "burst": {
+    "value": 3,
+    "def": 3,
+    "min": 3,
+    "max": 20,
+    "unit": "n"
+   },
+   "window": {
+    "value": 60,
+    "def": 60,
+    "min": 30,
+    "max": 600,
+    "unit": "s"
+   }
+  },
+  "router": {
+   "silent": {
+    "value": 6,
+    "def": 6,
+    "min": 1,
+    "max": 72,
+    "unit": "h"
+   },
+   "flaps": {
+    "value": 10,
+    "def": 10,
+    "min": 2,
+    "max": 100,
+    "unit": "n"
+   },
+   "outage_short": {
+    "value": 2,
+    "def": 2,
+    "min": 1,
+    "max": 60,
+    "unit": "min"
+   },
+   "outage_tell": {
+    "value": 30,
+    "def": 30,
+    "min": 5,
+    "max": 240,
+    "unit": "min"
+   },
+   "clock": {
+    "value": 5,
+    "def": 5,
+    "min": 1,
+    "max": 60,
+    "unit": "min"
+   }
+  },
+  "lan": {
+   "random": {
+    "value": false,
+    "def": false
+   }
+  },
+  "array": {
+   "scheduled": {
+    "value": true,
+    "def": true
+   }
+  },
+  "hold": {
+   "auto": {
+    "value": true,
+    "def": true
+   }
+  },
+  "wakes": {
+   "warn_at": {
+    "value": 0,
+    "def": 0,
+    "min": 0,
+    "max": 100,
+    "unit": "n0"
+   }
+  }
+ },
+ "hand": {
+  "login": [
+   "net",
+   "ip",
+   "user_net"
+  ],
+  "container": [
+   "ports",
+   "rights"
+  ],
+  "plugin": [
+   "source"
+  ],
+  "sched": [
+   "script",
+   "cron_file",
+   "crond"
+  ],
+  "pull": [
+   "client",
+   "client_min",
+   "container"
+  ],
+  "data": [
+   "gone",
+   "written",
+   "gone_min",
+   "written_min",
+   "files_min",
+   "kept",
+   "layers",
+   "disk_gone",
+   "disk_written"
+  ],
+  "snap": [
+   "series",
+   "series_ds",
+   "dataset",
+   "hold"
+  ],
+  "flash": [
+   "extra"
+  ],
+  "share": [
+   "guest_read",
+   "guest_write"
+  ],
+  "host": [
+   "port",
+   "prog"
+  ],
+  "door": [
+   "tunnel"
+  ],
+  "router": [
+   "admin",
+   "vpn",
+   "link",
+   "sender"
+  ],
+  "lan": [
+   "network"
+  ],
+  "hold": [
+   "vm",
+   "userscript"
+  ],
+  "wakes": [
+   "cause",
+   "disk"
+  ]
+ },
+ "hand_amount": {
+  "client_min": "gb",
+  "gone_min": "gb",
+  "written_min": "gb",
+  "files_min": "n"
  }
 }

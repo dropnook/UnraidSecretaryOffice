@@ -27,9 +27,9 @@ declare(strict_types=1);
 // area => its kinds and its posture tips, in the order of his page
 const WATCH_CATS = [
     'login'     => ['kinds' => ['login_new_ip', 'login_failures', 'smb_user', 'smb_client', 'smb_hour'], 'tips' => []],
-    'container' => ['kinds' => ['container_new', 'container_privileged', 'container_host', 'container_ports', 'container_rights', 'drill_throwaway'],
+    'container' => ['kinds' => ['container_new', 'container_privileged', 'container_host', 'container_ports', 'container_rights', 'container_plain', 'drill_throwaway'],
                     'tips' => ['privileged']],
-    'plugin'    => ['kinds' => ['plugin_new', 'plugin_source'], 'tips' => []],
+    'plugin'    => ['kinds' => ['plugin_new', 'plugin_source', 'plugin_version'], 'tips' => []],
     'flash'     => ['kinds' => ['flash_go', 'flash_extra', 'flash_user', 'flash_password', 'flash_ssh_key', 'flash_boot', 'user_ram'], 'tips' => []],
     'share'     => ['kinds' => ['share_public'], 'tips' => ['flash', 'public']],
     'sched'     => ['kinds' => ['cron_new', 'cron_twice', 'cron_office', 'cron_file', 'cron_file_foreign', 'script_new', 'script_changed', 'at_job',
@@ -243,7 +243,11 @@ function watchmanCats(array $s, ?array $parity = null): array
         if (($look['times']['fits'] ?? null) === false) {
             $add('hold', 'danger', 'hold_short');
         }
-        if ((int) ($look['count'] ?? 0) > 0) {
+        // what your exceptions call known (6f: a User Script that may run) stays in the list but doesn't colour
+        $known = watchmanHoldKnown((array) ($s['rules'] ?? []));
+        $mine = count(array_filter((array) ($look['holds'] ?? []), fn ($h) => is_array($h) && ($h['kind'] ?? null) === 'userscript'
+            && isset($known['script'][(string) ($h['name'] ?? '')])));
+        if ((int) ($look['count'] ?? 0) - $mine > 0) {
             $add('hold', 'warn', 'hold_holds');
         }
         if ($now - (int) ($look['time'] ?? 0) > WATCH_CAT_HOLD_OLD) {
@@ -260,6 +264,8 @@ function watchmanCats(array $s, ?array $parity = null): array
         $add('wakes', 'none', 'wakes_off');
     } elseif (is_array($w['hdds'] ?? null) && !$w['hdds'] && !($w['wakes'] ?? [])) {
         $add('wakes', 'none', 'no_hdd');
+    } elseif (($n = (int) ($s['settings']['wakes']['warn_at']['value'] ?? 0)) > 0 && watchmanWakesMost($w, (array) ($s['rules'] ?? []), $now) >= $n) {
+        $add('wakes', 'warn', 'wakes_many');        // his setting (6f, off by default): a disk woken this often in a day
     }
     // known vulnerabilities: off (until switched on) grey; on but the lists never fetched, or older than WATCH_VULN_OLD: «!»
     $v = is_array($s['vuln'] ?? null) ? $s['vuln'] : null;
@@ -301,6 +307,60 @@ function watchmanCats(array $s, ?array $parity = null): array
     }
     $res = $out('');
     return ['areas' => $res, 'book' => watchmanCatBook($res), 'schedule' => !empty($r['failed']) || !empty($r['broken']) ? 'danger' : 'ok'];
+}
+
+/**
+ * Your exceptions for «What holds the array?» and «Who woke my disks?» (1.96 step 6f; rules on the side kinds `hold` and
+ * `wakes`): vm, script; cause (<kind>:<name>), disk
+ *
+ * @return array<string, array<string, true>>
+ */
+function watchmanHoldKnown(array $rules): array
+{
+    $out = [];
+    foreach ($rules as $r) {
+        if (!is_array($r) || !in_array($r['cat'] ?? null, ['hold', 'wakes'], true)) {
+            continue;
+        }
+        foreach (['vm', 'script', 'cause', 'disk'] as $k) {
+            if (is_string($r['on'][$k] ?? null)) {
+                $out[$k][$r['on'][$k]] = true;
+            }
+        }
+    }
+    return $out;
+}
+
+/** A wake's cause as an exception names it: «<kind>:<its name, desk or program>» */
+function watchmanWakeCauseKey(array $c): string
+{
+    $name = (string) ($c['name'] ?? '') ?: (string) ($c['desk'] ?? '') ?: (string) ($c['prog'] ?? '');
+    return (string) ($c['kind'] ?? '') . ':' . $name;
+}
+
+/**
+ * The most wakes of one disk in the last day — leaving out a disk you don't count and a wake all of whose causes you
+ * expect (a wake with no cause named always counts)
+ */
+function watchmanWakesMost(array $w, array $rules, int $now): int
+{
+    $known = watchmanHoldKnown($rules);
+    $per = [];
+    foreach ((array) ($w['wakes'] ?? []) as $x) {
+        if (!is_array($x) || (int) ($x['time'] ?? 0) < $now - 86400) {
+            continue;
+        }
+        $who = (array) ($x['who'] ?? []);
+        if ($who && !array_filter($who, fn ($c) => is_array($c) && !isset($known['cause'][watchmanWakeCauseKey($c)]))) {
+            continue;
+        }
+        foreach ((array) ($x['disks'] ?? []) as $d) {
+            if (is_string($d) && !isset($known['disk'][$d])) {
+                $per[$d] = ($per[$d] ?? 0) + 1;
+            }
+        }
+    }
+    return $per ? max($per) : 0;
 }
 
 /** The watch book's light: the worst of the areas that look at something (grey only when all are grey) */

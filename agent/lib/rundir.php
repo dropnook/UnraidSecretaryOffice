@@ -75,6 +75,7 @@ const RUNDIR_FILES = [
     'cleanup-tour\.due|logs-tour\.due' => ['max' => 64, 'bound' => 'a time', 'gone' => 'read and removed'],
     'backup-(?:silent|partner-rate|upload|rough|queued|abort)\.json|backup-queued\.cancel|moverelli-silent\.json'
         => ['max' => 262144, 'bound' => '≤ 80 samples, the looks of one run, one size per Kopia source', 'gone' => 'rewritten per run'],
+    'watchman-rules\.json' => ['max' => 262144, 'bound' => 'WATCH_RULES_MAX 300 rules, no notes', 'gone' => 'rewritten on every change'],
     'watchman-mirror\.json|watchman-hold\.json|watchman-flow-[0-9a-f]{8}\.json' => ['max' => 1 << 20, 'bound' => 'the mirror\'s caps; ≤ 5 per thing; ≤ WATCH_FLOW_CONNS 5000 connections', 'gone' => 'rewritten'],
     'watchman-round\.err|watchman-hold\.err|logs-tour\.err' => ['max' => 65536, 'bound' => 'one run\'s stderr: a fatal error\'s lines (a child of the agent; warnings never reach stderr on Unraid\'s php.ini)', 'gone' => 'truncated at the next run'],
     'logs-flood\.json|logs-flood-catch\.json' => ['max' => 1 << 20, 'bound' => '11 × 300 files', 'gone' => 'rewritten / at its end'],

@@ -1499,6 +1499,17 @@ function watchnetEvent(array &$b, array &$ns, array &$book, string $sender, arra
             if ($learn) {
                 return $out;
             }
+            // his setting and your exceptions (1.96): a phone's made-up address, a network whose new devices are fine — learned
+            // without a line (never one taking a known device's name)
+            $set = watchnetSet();
+            if ($taken === null && !empty($set['random']) && watchnetMacRandom($mac)) {
+                return $out;
+            }
+            $rid = $taken === null ? array_search((string) $ev['network'], (array) $set['nets'], true) : false;
+            if (is_string($rid) && (string) $ev['network'] !== '') {
+                watchnetHits($rid, mb_strcut('net_new_device:' . (string) $ev['network'], 0, 300, 'UTF-8'), $now);
+                return $out;
+            }
             $kind = watchmanSet($book, 'net_new_device', "net_new_device:$mac", $now, ['sender' => $sender, 'router' => $router, 'mac' => $mac,
                 'ip' => $ip, 'name' => $name, 'network' => (string) $ev['network'], 'taken' => $taken,
                 'random' => watchnetMacRandom($mac), 'evidence' => watchnetEvidence($ev, $allow + ($ip !== null ? [$ip => true] : []))]);
@@ -1734,7 +1745,7 @@ function watchnetLink(array &$book, array $ns, string $sender, string $router, a
         $e['noted'] = null;
         $e['by'] = null;
     }
-    if ((int) $e['count'] >= WATCHNET_FLAPS && empty($e['important'])) {
+    if ((int) $e['count'] >= watchnetSet()['flaps'] && empty($e['important'])) {        // WATCHNET_FLAPS, or his setting
         $e['important'] = true;                 // flapping: told once, open until noted
         $e['p']['flapping'] = true;
     }
@@ -1802,7 +1813,7 @@ function watchnetOutageEnd(array &$e, ?int $to, int $now): void
         $e['p']['unknown'] = true;
     }
     $e['last'] = max((int) $e['last'], $to ?? $now);
-    if ((int) $e['p']['secs'] >= WATCHNET_OUTAGE_SHORT || $to === null) {
+    if ((int) $e['p']['secs'] >= watchnetSet()['outage_short'] || $to === null) {        // WATCHNET_OUTAGE_SHORT, or his setting
         $e['important'] = true;
     } elseif (empty($e['important']) && watchmanOpen($e)) {
         $e['noted'] = $now;
@@ -1827,7 +1838,7 @@ function watchnetOutages(array &$book, string $sender, int $now): void
             continue;
         }
         $book[$i]['p']['minutes'] = (int) round(((int) ($e['p']['secs'] ?? 0) + $away) / 60);
-        if ($away >= WATCHNET_OUTAGE_TELL) {
+        if ($away >= watchnetSet()['outage_tell']) {           // WATCHNET_OUTAGE_TELL, or his setting
             $book[$i]['important'] = true;
         }
     }
@@ -1965,7 +1976,7 @@ function watchnetSilent(array &$book, array &$ns, string $sender, bool $grew, ar
         return null;                            // not known as a router (yet)
     }
     $usual = max(array_map('intval', (array) ($s['gaps'] ?? [])) ?: [0]);
-    $limit = max(WATCHNET_SILENT_FLOOR, WATCHNET_SILENT_FACTOR * $usual);
+    $limit = max(watchnetSet()['silent'], WATCHNET_SILENT_FACTOR * $usual);      // WATCHNET_SILENT_FLOOR, or his setting (1.96)
     if ($now - max($last, $since) <= $limit || !isset($arp[$sender])) {
         return null;
     }
@@ -2235,14 +2246,43 @@ function watchnetChains(array $book, array $chains, int $now): array
     return $chains;
 }
 
+/**
+ * The Night Watchman's settings and exceptions for the network (1.96 step 6e, his rules.json), set by his round before it
+ * compares (watchmanRound()): the defaults are the constants above — a caller that sets nothing judges as up to 1.95.
+ * silent (s), flaps, outage_short (s), outage_tell (s), clock (s); random: a device on a made-up Wi-Fi address learned
+ * without a line; nets: [rule id => network name] whose new devices are learned without a line (their hits: watchnetHits()).
+ */
+function watchnetSet(?array $set = null): array
+{
+    static $now = [];
+    if ($set !== null) {
+        $now = $set;
+    }
+    return $now + ['silent' => WATCHNET_SILENT_FLOOR, 'flaps' => WATCHNET_FLAPS, 'outage_short' => WATCHNET_OUTAGE_SHORT, 'outage_tell' => WATCHNET_OUTAGE_TELL,
+                   'clock' => WATCHNET_CLOCK, 'random' => false, 'nets' => []];
+}
+
+/** What a network exception kept from being a line this round: rule id => {n, last, key} — read and emptied by his round */
+function watchnetHits(?string $rid = null, string $key = '', int $now = 0): array
+{
+    static $hits = [];
+    if ($rid === null) {
+        $out = $hits;
+        $hits = [];
+        return $out;
+    }
+    $hits[$rid] = ['n' => (int) ($hits[$rid]['n'] ?? 0) + 1, 'last' => $now, 'key' => $key];
+    return $hits;
+}
+
 /** The router's clock (a posture tip): a sender whose newest line was off its arrival by more than WATCHNET_CLOCK */
 function watchnetClock(?array $ns): ?array
 {
     $off = [];
     foreach ((array) ($ns['senders'] ?? []) as $sender => $s) {
-        if (isset($s['skew']) && abs((int) $s['skew']) > WATCHNET_CLOCK) {
+        if (isset($s['skew']) && abs((int) $s['skew']) > watchnetSet()['clock']) {
             $off[] = ['sender' => (string) $sender, 'router' => (string) ($s['meta']['host'] ?? $sender), 'minutes' => (int) round((int) $s['skew'] / 60),
-                      'zone' => isset($s['zone']) && $s['zone'] !== null && abs((int) $s['zone']) > WATCHNET_CLOCK];
+                      'zone' => isset($s['zone']) && $s['zone'] !== null && abs((int) $s['zone']) > watchnetSet()['clock']];
         }
     }
     return $off ?: null;
