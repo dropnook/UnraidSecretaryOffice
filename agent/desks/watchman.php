@@ -126,6 +126,7 @@ require_once __DIR__ . '/../lib/arrayhold.php';     // «What holds the array?»
 require_once __DIR__ . '/watchman-diskwakes.php';    // «Who woke my disks?» (data/watchman/wakes.json): the sampler in his tick
 require_once __DIR__ . '/watchman-cats.php';         // his areas (1.96): every kind and tip in one, the lights of his page (state.cats)
 require_once __DIR__ . '/watchman-rules.php';        // the user's exceptions and areas switched off (1.96, data/watchman/rules.json)
+require_once __DIR__ . '/watchman-journal.php';      // his history (1.96): what he notes himself, by month (data/watchman/journal/)
 
 const WATCH_EVERY        = 300;              // a round every 5 minutes
 const WATCH_LOOK         = 20;               // the tick looks whether one is due this often (seconds)
@@ -372,6 +373,7 @@ desk('watchman', [
         'known_remove' => fn (array $r) => watchmanKnownRemove(textField($r, 'id')),       // «Take back» a lasting answer
         // «Who woke my disks?»: his switch (on unless switched off), kept on the server
         'wakes_watch' => fn (array $r) => watchmanWakeWatchSet(boolField($r, 'on')) + ['state' => watchmanPageState()],
+        'journal'     => fn (array $r) => watchmanJournalAction(optText($r, 'month'), (int) optInt($r, 'offset', 0)),    // his history, a page of it (1.96)
     ],
     'jobs'    => ['watchman-round' => fn (array $args) => watchmanRun(), 'watchman-hold' => fn (array $args) => watchmanHoldRun(),
                   'watchman-wake-name' => fn (array $args) => watchmanWakeNameRun()],
@@ -1671,6 +1673,10 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         if (!$fresh) {
             $told = watchmanNotifyDue($book, $st, $now, $notify);
             $told = array_merge($told, watchmanChainsDue($book, $st, $now, $notify));
+        }
+        if (!(is_array($st['night'] ?? null) && !isset($st['night']['until']))) {
+            // what he noted himself and is quiet goes into his history (1.96 step 7) — never from the night shift's RAM book
+            $book = watchmanJournalMove($dir, $book, $st, $now);
         }
         $st['hired'] = $hired;
         $st['syslog'] = $pos;
@@ -10595,6 +10601,10 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
     $state['known_full'] = $rules['known_full'];
     $state['hand'] = $rules['hand'];               // his setup page: per area the exceptions made by hand (types)
     $state['hand_amount'] = $rules['hand_amount']; // … those with an amount (GB, files)
+    // his history (1.96 step 7): how many lines went there, what a full month couldn't take — the lines on demand (action journal)
+    $jr = is_array($st['journal'] ?? null) ? $st['journal'] : [];
+    $state['journal'] = ['moved' => (int) ($jr['moved'] ?? 0), 'cut' => array_sum(array_map('intval', (array) ($jr['cut'] ?? []))),
+                         'has' => watchmanJournalDir($dir, false) !== null && (bool) glob("$dir/" . WATCH_JOURNAL_DIR . '/*.jsonl')];
     $state['off'] = $rules['off'] ?: new stdClass();
     // his areas' lights (watchman-cats.php), from what this state says; the watch book's and the schedule's light beside them
     $lights = watchmanCats($state, is_array($st['parity'] ?? null) ? $st['parity'] : null);
