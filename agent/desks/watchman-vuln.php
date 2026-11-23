@@ -26,9 +26,11 @@ declare(strict_types=1);
  * Three verdicts, never more (watchmanVulnVerdict()):
  *   affected   (`vuln_known`, told) only when the versions compare cleanly and this one lies in an affected range —
  *              «in your branch 6.12 fixed from 6.12.48, here runs 6.12.24»
- *   maybe      (`vuln_maybe`, quiet; told only with the setting set.vuln.maybe) the product is here, the record can't be
- *              compared (no record, another version scheme, n/a)
- *   not        no entry; counted («31 checked, not affected»)
+ *   maybe      no entry, never told, never a colour (1.96 «einfacher», 2026-11-23: 39 «maybe» lines of kernel CVEs from
+ *              2010–2024 on a current kernel were noise, not something waiting): the product is here, the record can't be
+ *              compared (no record, another version scheme, n/a) — the page's calm list «can't be checked for sure»
+ *              (vuln_look.unsure); an older office's open `vuln_maybe` lines are closed quietly (watchmanVulnCompare())
+ *   not        no entry; counted («31 checked, not affected»), the page's list «checked: doesn't concern you»
  * One entry a vulnerability, product and place (key vuln_known:<cve>:<product>:<where>), kept up to date wherever it
  * stands. Unraid's own version without security updates (eol, superseded): the advice `unraid_eol`.
  */
@@ -255,9 +257,12 @@ function watchmanVulnItem(array $item, string $have): array
     if ($default === 'unaffected') {
         return [$bad ? 'maybe' : 'no', null];
     }
-    if ($default !== 'affected' || $bad || !$ranges) {
+    if ($bad || !$ranges || ($default !== 'affected' && !in_array('affected', array_column($ranges, 'status'), true))) {
         return ['maybe', $fixed];
     }
+    // the record says nothing of the versions outside its ranges (defaultStatus unknown — the ADP's ranges, «0 < 2.6.36»):
+    // past its fix (in its branch, or past everything it names) is no; else it can't be said — maybe, never yes
+    $unsure = $default !== 'affected';
     // its own branch (major.minor) has an affected range, and this version is at or past that range's end: fixed in its
     // branch (PHP's «8.2.* < 8.2.20» for 8.2.25)
     foreach ($ranges as $x) {
@@ -269,7 +274,7 @@ function watchmanVulnItem(array $item, string $have): array
     // newer than everything the record names, nothing open-ended: a branch it didn't know of
     $open = array_filter($ranges, fn ($x) => !$x['exact'] && $x['end'] === null);
     $newer = !$open && !array_filter($ranges, fn ($x) => watchmanVulnCmp($h, $x['end'] ?? $x['start']) <= 0);
-    return $newer ? ['no', null] : ['yes', $fixed];
+    return $newer ? ['no', null] : [$unsure ? 'maybe' : 'yes', $fixed];
 }
 
 /**
@@ -281,17 +286,24 @@ function watchmanVulnItem(array $item, string $have): array
  */
 function watchmanVulnVerdict(?array $record, array $cna, string $have): array
 {
+    // a name as the lists write it: lower case, the ADP's CPE spelling («linux_kernel», «sudo_project») with spaces
+    $name = fn (mixed $x): string => strtolower(trim(str_replace('_', ' ', (string) $x)));
     $items = [];
-    foreach ((array) ($record['affected'] ?? []) as $a) {
-        if (!is_array($a)) {
-            continue;
+    foreach (['affected', 'adp'] as $from) {
+        foreach ((array) ($record[$from] ?? []) as $a) {
+            if (!is_array($a)) {
+                continue;
+            }
+            $key = $name($a['vendor'] ?? '') . '|' . $name($a['product'] ?? $a['packageName'] ?? '');
+            // a package name alone (no vendor) is the upstream's item (Red Hat's «OpenSSH»); a distribution's (vendor Red Hat,
+            // product RHEL 9, packageName openssh, rpm versions) only by its vendor/product
+            $pkgOnly = trim((string) ($a['vendor'] ?? '')) === '' ? '|' . $name($a['packageName'] ?? '') : null;
+            if (in_array($key, $cna, true) || ($pkgOnly !== null && in_array($pkgOnly, $cna, true))) {
+                $items[] = $a;
+            }
         }
-        $key = strtolower(trim((string) ($a['vendor'] ?? ''))) . '|' . strtolower(trim((string) ($a['product'] ?? $a['packageName'] ?? '')));
-        // a package name alone (no vendor) is the upstream's item (Red Hat's «OpenSSH»); a distribution's (vendor Red Hat,
-        // product RHEL 9, packageName openssh, rpm versions) only by its vendor/product
-        $pkgOnly = trim((string) ($a['vendor'] ?? '')) === '' ? '|' . strtolower(trim((string) ($a['packageName'] ?? ''))) : null;
-        if (in_array($key, $cna, true) || ($pkgOnly !== null && in_array($pkgOnly, $cna, true))) {
-            $items[] = $a;
+        if ($items) {
+            break;          // the CNA's own items decide; the ADP's only when the CNA named none of the product
         }
     }
     if (!$items) {
@@ -452,24 +464,35 @@ function watchmanVulnReduce(array $rec): ?array
     if (!is_string($id) || !preg_match('/^CVE-\d{4}-\d{4,7}$/D', $id)) {
         return null;
     }
-    $affected = [];
-    foreach ((array) ($rec['containers']['cna']['affected'] ?? []) as $a) {
-        if (!is_array($a)) {
-            continue;
-        }
-        $versions = [];
-        foreach (array_slice((array) ($a['versions'] ?? []), 0, 100) as $v) {
-            if (is_array($v)) {
-                $versions[] = array_intersect_key($v, array_flip(['version', 'lessThan', 'lessThanOrEqual', 'status', 'versionType', 'changes']));
+    $items = function (array $list): array {
+        $affected = [];
+        foreach ($list as $a) {
+            if (!is_array($a)) {
+                continue;
+            }
+            $versions = [];
+            foreach (array_slice((array) ($a['versions'] ?? []), 0, 100) as $v) {
+                if (is_array($v)) {
+                    $versions[] = array_intersect_key($v, array_flip(['version', 'lessThan', 'lessThanOrEqual', 'status', 'versionType', 'changes']));
+                }
+            }
+            $affected[] = array_filter(['vendor' => $a['vendor'] ?? null, 'product' => $a['product'] ?? null, 'packageName' => $a['packageName'] ?? null,
+                'platforms' => $a['platforms'] ?? null, 'defaultStatus' => $a['defaultStatus'] ?? null, 'versions' => $versions], fn ($x) => $x !== null);
+            if (count($affected) >= 50) {
+                break;
             }
         }
-        $affected[] = array_filter(['vendor' => $a['vendor'] ?? null, 'product' => $a['product'] ?? null, 'packageName' => $a['packageName'] ?? null,
-            'platforms' => $a['platforms'] ?? null, 'defaultStatus' => $a['defaultStatus'] ?? null, 'versions' => $versions], fn ($x) => $x !== null);
-        if (count($affected) >= 50) {
-            break;
+        return $affected;
+    };
+    // the ADP's items (CISA's «vulnrichment» adds affected ranges to records whose CNA named none — old kernel and Bash
+    // CVEs: vendor «n/a»): read only when the CNA has no item of the product (watchmanVulnVerdict())
+    $adp = [];
+    foreach ((array) ($rec['containers']['adp'] ?? []) as $c) {
+        if (is_array($c) && is_array($c['affected'] ?? null)) {
+            $adp = array_merge($adp, $items($c['affected']));
         }
     }
-    return ['id' => $id, 'affected' => $affected];
+    return ['id' => $id, 'affected' => $items((array) ($rec['containers']['cna']['affected'] ?? []))] + ($adp ? ['adp' => array_slice($adp, 0, 50)] : []);
 }
 
 /**
@@ -720,7 +743,7 @@ function watchmanVulnSet(mixed $on, ?string $dir = null, bool $page = true): arr
  *
  * Step 16: the containers' software against endoflife.date (watchmanVulnEol(); $images: container => its versions).
  *
- * @return array{found: list<array>, checked: int, fresh: bool, kev: ?int, pending: list<string>, not: list<array>, unraid: ?array{version: string, status: string, newest: ?string},
+ * @return array{found: list<array>, checked: int, fresh: bool, kev: ?int, pending: list<string>, not: list<array>, unsure: list<array>, unraid: ?array{version: string, status: string, newest: ?string},
  *               software: list<array>, unknown: list<string>}
  */
 function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []): array
@@ -731,7 +754,7 @@ function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []
     $status = readJson("$f/status.json") ?? [];
     $ok = is_int($status['kev']['ok'] ?? null) ? $status['kev']['ok'] : $fetched;
     $out = ['found' => [], 'checked' => 0, 'fresh' => $ok !== null && $now - $ok <= WATCH_VULN_OLD && $ok <= $now + 300, 'kev' => $ok, 'unraid' => null,
-            'pending' => [], 'not' => []] + watchmanVulnEol($dir, $inv, $images);
+            'pending' => [], 'not' => [], 'unsure' => []] + watchmanVulnEol($dir, $inv, $images);
     $tried = readJson("$f/cve-tried.json");
     $tried = is_array($tried) ? $tried : [];
     $byProduct = [];
@@ -764,6 +787,14 @@ function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []
                 if (count($out['not']) < WATCH_VULN_NOT_MAX) {
                     $out['not'][] = ['cve' => $e['cve'], 'product' => $e['product'], 'where' => $x['where'], 'have' => $x['version'], 'fixed' => $verdict[1],
                                      'name' => mb_strcut((string) ($e['name'] ?? ''), 0, 120, 'UTF-8')];
+                }
+                continue;
+            }
+            if ($verdict[0] === 'maybe') {
+                // can't be checked for sure (1.96, 2026-11-23): never an entry — the page's calm list, at most WATCH_VULN_NOT_MAX
+                if (count($out['unsure']) < WATCH_VULN_NOT_MAX) {
+                    $out['unsure'][] = ['cve' => $e['cve'], 'product' => $e['product'], 'where' => $x['where'], 'have' => $x['version'],
+                                        'name' => mb_strcut((string) ($e['name'] ?? ''), 0, 120, 'UTF-8')];
                 }
                 continue;
             }
@@ -808,17 +839,28 @@ function watchmanVulnUnraidLater(string $f, string $version, string $added): boo
 }
 
 /**
- * The verdicts into his book: one entry a vulnerability, product and place — `vuln_known` (affected, told) or `vuln_maybe`
- * (quiet; `important` with set.vuln.maybe) — kept up to date wherever it stands, never a second one for the same.
+ * The verdicts into his book: one entry a vulnerability, product and place — `vuln_known` (affected, told) — kept up to
+ * date wherever it stands, never a second one for the same. «Maybe» is never an entry (1.96, 2026-11-23): an open
+ * `vuln_maybe` line an older office wrote is closed quietly at once (noted by himself, never told); its vulnerability
+ * stands in the page's list «can't be checked for sure».
  *
  * @return list<string>  the kinds booked new
  */
-function watchmanVulnCompare(array &$book, array $found, bool $tellMaybe, int $now, array &$seen = [], bool $fresh = false, array $pending = []): array
+function watchmanVulnCompare(array &$book, array $found, int $now, array &$seen = [], bool $fresh = false, array $pending = []): array
 {
     $added = [];
     $foundNow = [];
+    watchmanVulnMaybeClose($book, $now);
+    foreach (array_keys($seen) as $k) {
+        if (str_starts_with((string) $k, 'vuln_maybe:')) {
+            unset($seen[$k]);
+        }
+    }
     foreach ($found as $x) {
-        $kind = $x['verdict'] === 'yes' ? 'vuln_known' : 'vuln_maybe';
+        if (($x['verdict'] ?? '') !== 'yes') {
+            continue;
+        }
+        $kind = 'vuln_known';
         $key = "$kind:{$x['cve']}:{$x['product']}:{$x['where']}";
         $foundNow[$key] = true;
         $p = ['cve' => $x['cve'], 'product' => $x['product'], 'where' => $x['where'], 'have' => $x['have'], 'fixed' => $x['fixed'],
@@ -840,7 +882,7 @@ function watchmanVulnCompare(array &$book, array $found, bool $tellMaybe, int $n
         if (isset($seen[$key])) {
             continue;       // still found, its line gone from the book (pruned after 90 days, into his history): no second one
         }
-        $book[] = watchmanEntry($kind, $key, $now, $p) + ($kind === 'vuln_maybe' && $tellMaybe ? ['important' => true] : []);
+        $book[] = watchmanEntry($kind, $key, $now, $p);
         $seen[$key] = $now;
         $added[] = $kind;
     }
@@ -870,7 +912,21 @@ function watchmanVulnCompare(array &$book, array $found, bool $tellMaybe, int $n
     return $added;
 }
 
-/** set.vuln of his rules file (concept 3.1), only in exactly that shape: `maybe` (also tell «maybe affected») */
+/** An older office's open «maybe affected» lines (`vuln_maybe`): closed quietly — noted by himself, never told */
+function watchmanVulnMaybeClose(array &$book, int $now): void
+{
+    foreach ($book as $i => $e) {
+        if (($e['kind'] ?? '') === 'vuln_maybe' && watchmanOpen($e)) {
+            $book[$i]['noted'] = $now;
+            $book[$i]['by'] = 'auto';
+        }
+    }
+}
+
+/**
+ * set.vuln of his rules file (concept 3.1), only in exactly that shape: `maybe` («maybe affected» told too) — kept in the
+ * file's shape, read by nothing since «maybe» is never an entry (1.96, 2026-11-23); his setup no longer shows it
+ */
 function watchmanVulnSettings(string $dir): array
 {
     $r = readJson("$dir/rules.json");
@@ -904,13 +960,16 @@ function watchmanVulnPage(array $st, ?array $judged): array
     return ['on' => $on, 'since' => is_int($st['vuln_since'] ?? null) ? $st['vuln_since'] : null, 'checked_at' => $j['kev'] ?? null,
             'fresh' => !empty($j['fresh']), 'checked' => (int) ($j['checked'] ?? 0),
             'affected' => count(array_filter((array) ($j['found'] ?? []), fn ($x) => ($x['verdict'] ?? '') === 'yes')),
-            'maybe' => count(array_filter((array) ($j['found'] ?? []), fn ($x) => ($x['verdict'] ?? '') === 'maybe')),
+            'maybe' => count((array) ($j['unsure'] ?? [])),
             // step 16: the containers' software — past its end, or a newer release of its line; images that name no version
             'software' => array_values(array_filter((array) ($j['software'] ?? []), fn ($x) => is_array($x) && (($x['eol'] ?? null) === true || ($x['latest'] ?? null) !== null))),
             'unknown' => array_values(array_filter((array) ($j['unknown'] ?? []), 'is_string')),
             // checked against what runs here, not affected (1.96): the calm proof he looked — an older state has none
             'not' => array_map(fn ($x) => $x + ['label' => WATCH_VULN_PRODUCTS[$x['product']]['label'] ?? $x['product']],
-                array_values(array_filter((array) ($j['not'] ?? []), fn ($x) => is_array($x) && is_string($x['cve'] ?? null) && is_string($x['product'] ?? null))))];
+                array_values(array_filter((array) ($j['not'] ?? []), fn ($x) => is_array($x) && is_string($x['cve'] ?? null) && is_string($x['product'] ?? null)))),
+            // can't be checked for sure (1.96, 2026-11-23): the record names no version he can compare — calm, never an entry
+            'unsure' => array_map(fn ($x) => $x + ['label' => WATCH_VULN_PRODUCTS[$x['product']]['label'] ?? $x['product']],
+                array_values(array_filter((array) ($j['unsure'] ?? []), fn ($x) => is_array($x) && is_string($x['cve'] ?? null) && is_string($x['product'] ?? null))))];
 }
 
 /** An entry's words */

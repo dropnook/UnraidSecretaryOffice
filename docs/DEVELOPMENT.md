@@ -916,11 +916,12 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   shared by day and night; C known CPU faults: watchman-cpu-faults.json, tips cpu_fault, old_microcode; E the disks' wear:
   hw_wear from Unraid's SMART files via `waSmart()`, data/watchman/hw.json a point a day, 90 days), watchman-heat.php (D
   hw_hot), agent/lib/logsigns.php + watchman-signs.php (H: host_oom, host_crash, host_flood, hw_io), watchman-boot.php (F
-  flash_boot, ld_preload) and watchnet.php (G net_gateway, net_dns), watchman-vuln.php (A vuln_known, vuln_maybe, tips
-  unraid_eol, software_eol; off until switched on). Their entries live in **book-more.json** (`WATCH_KINDS_MORE`, every kind
+  flash_boot, ld_preload) and watchnet.php (G net_gateway, net_dns), watchman-vuln.php (A vuln_known, tips unraid_eol,
+  software_eol; off until switched on; «maybe» is never an entry since 2026-11-23 — the page's list `vuln.unsure`, a CVE
+  record's ADP ranges read when its CNA named none; an older office's open vuln_maybe lines close quietly). Their entries live in **book-more.json** (`WATCH_KINDS_MORE`, every kind
   newer than 1.95 — an older office never reads it, so never drops them; `watchmanLoad()`/`watchmanSave()` treat both as one
   book). The hardware has no ATT&CK technique and never joins a chain. Settings (`WATCH_SETTINGS` hw, host, lan.dns,
-  vuln.maybe; the defaults the constants the steps hard-coded — the heat reads its keys of set.hw itself); the rule shape
+  vuln.maybe — kept in the file's shape, no longer shown or read; the defaults the constants the steps hard-coded — the heat reads its keys of set.hw itself); the rule shape
   `{thing}` names what an entry is about across days and boots (`watchmanRuleThings()`: a sensor, disk, program, port,
   module, device, the CPU, a CVE, a product), `{thing, max_c}` a sensor up to so many °C; asked more clearly: flash_boot,
   ld_preload, net_gateway, vuln_known, hw_mce, hw_ecc, a whole product.

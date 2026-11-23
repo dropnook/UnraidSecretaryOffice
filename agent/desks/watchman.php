@@ -1638,7 +1638,6 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         isset($paths['vuln_inspect']) && is_callable($paths['vuln_inspect']) ? $paths['vuln_inspect'] : null) : [[], null];
     $vuln = $vulnOn ? watchmanVulnJudge($dir, watchmanVulnInventory($paths + ['vuln_images' => $vulnImages]), $now, $vulnImages) : null;
     $facts['vuln'] = $vuln;
-    $vulnSet = watchmanVulnSettings($dir);
     // snapshots that vanish: only rounds write snaps.json (one at a time), so it is read out here
     $snapKnown = $snaps ? readJson("$dir/snaps.json") : null;
     $snapRes = $snaps ? watchmanSnaps($paths, $fresh ? null : $snapKnown, $fresh ? [] : (array) ($snap['baseline']['snaps']['series'] ?? []), $now) : null;
@@ -1660,7 +1659,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
     return watchmanLocked($dir, function () use ($dir, $hired, $now, $fresh, $events, $pos, $read, $seen, $notify, $acks, $t0, $look, $facts, $snapKnown, $snapRes,
                                                $office, $paths, $boot, $btime, $netLook, $netServer, $parity, $kopiaLook, $netContainers, $automounts,
                                                $hotLook, $hotSet, $signHost, $signDisks, $hwLook,
-                                               $vuln, $vulnSet, $vulnImagesCache, $relearnEvents): array {
+                                               $vuln, $vulnImagesCache, $relearnEvents): array {
         $old = watchmanLoad($dir);
         $set = watchmanSettings(watchmanRulesRaw($dir));        // his settings (1.96 step 5: the defaults are what he did up to 1.95)
         $old['seen'] = readJson("$dir/seen.json");
@@ -1795,14 +1794,16 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         // known vulnerabilities: the verdicts into his book (taken over anew too: an affected one is never «normal»); what the page says
         if ($vuln !== null) {
             $vulnSeen = is_array($st['vuln_seen'] ?? null) ? $st['vuln_seen'] : [];
-            $added = array_merge($added, watchmanVulnCompare($book, $vuln['found'], $vulnSet['maybe'], $now, $vulnSeen, $vuln['fresh'], $vuln['pending']));
+            $added = array_merge($added, watchmanVulnCompare($book, $vuln['found'], $now, $vulnSeen, $vuln['fresh'], $vuln['pending']));
             $st['vuln_seen'] = $vulnSeen;           // what he found and still finds, by key (not by the book: gap 3)
             $st['vuln_look'] = ['time' => $now, 'kev' => $vuln['kev'], 'fresh' => $vuln['fresh'], 'checked' => $vuln['checked'], 'found' => array_map(
                 fn ($x) => ['verdict' => $x['verdict']], $vuln['found']), 'software' => $vuln['software'], 'unknown' => $vuln['unknown'],
-                'not' => $vuln['not']];
+                'not' => $vuln['not'], 'unsure' => $vuln['unsure']];
             if ($vulnImagesCache !== null) {
                 $st['vuln_images'] = $vulnImagesCache;
             }
+        } else {
+            watchmanVulnMaybeClose($book, $now);     // switched off: an older office's open «maybe» lines go quietly all the same
         }
         // the logins of the last half hour (for the array's lines); an array stopped or started since the last round: a plain line
         $st['logins'] = watchmanRecentLogins((array) ($st['logins'] ?? []), $events, $now);

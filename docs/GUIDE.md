@@ -303,7 +303,8 @@ When you hire him he learns what is normal. Then he walks his round every five m
 - What runs at the next start (a plugin file nothing installed, `stop`, modprobe.d, the start line, ld.so.preload) and the
   router or DNS suddenly different (the gateway with another MAC).
 - Only if you switch on «Known vulnerabilities»: an actively exploited vulnerability that applies to a version running here
-  (only when the versions compare cleanly; else «maybe»), an Unraid or software without security updates.
+  (only when the versions compare cleanly — what can't be compared stands calmly under «Can't be checked for sure», never
+  an entry or a notification), an Unraid or software without security updates.
 
 **How:**
 

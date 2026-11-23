@@ -21213,6 +21213,82 @@ function testWatchmanHot(): void
  * PHP, Slackware's packages), the book (one entry a vulnerability, product and place; told only when affected), the light,
  * Unraid's advice, a whole round.
  */
+/**
+ * Known vulnerabilities against real-shaped CVE records (2026-11-23, nostromo: 39 «maybe affected» lines of kernel CVEs
+ * from 2010–2024 on kernel 6.18 waited for an answer): kernel.org's records (an item of git ranges, an item of stable
+ * branches «6.6.15 ≤ 6.6.*» with defaultStatus affected) decide by the branch; an old record whose CNA wrote «n/a» is
+ * judged by CISA's ADP ranges («0 < 2.6.36», defaultStatus unknown) when there are some; with none it can't be checked
+ * for sure — the calm list, never an entry. No dates guessed.
+ */
+function testWatchmanVulnRanges(): void
+{
+    $kc = WATCH_VULN_PRODUCTS['kernel']['cna'];
+    $kernelOrg = ['cveMetadata' => ['cveId' => 'CVE-2024-1086'], 'containers' => ['cna' => ['affected' => [
+        ['product' => 'Linux', 'vendor' => 'Linux', 'defaultStatus' => 'unaffected', 'repo' => 'https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git',
+         'programFiles' => ['net/netfilter/nf_tables_api.c'], 'versions' => [
+            ['version' => '1da177e4c3f41524e886b7f1b8a0c1fc7321cac2', 'lessThan' => 'b1db244ffd041a49ecc9618e8feb6b5c1afcdaa7', 'status' => 'affected', 'versionType' => 'git'],
+            ['version' => '1da177e4c3f41524e886b7f1b8a0c1fc7321cac2', 'lessThan' => 'f342de4e2f33e0e39165d8639387aa6c19dff660', 'status' => 'affected', 'versionType' => 'git']]],
+        ['product' => 'Linux', 'vendor' => 'Linux', 'defaultStatus' => 'affected', 'repo' => 'https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git',
+         'programFiles' => ['net/netfilter/nf_tables_api.c'], 'versions' => [
+            ['version' => '3.15', 'status' => 'affected'],
+            ['version' => '0', 'lessThan' => '3.15', 'status' => 'unaffected', 'versionType' => 'semver'],
+            ['version' => '5.4.269', 'lessThanOrEqual' => '5.4.*', 'status' => 'unaffected', 'versionType' => 'semver'],
+            ['version' => '5.10.210', 'lessThanOrEqual' => '5.10.*', 'status' => 'unaffected', 'versionType' => 'semver'],
+            ['version' => '5.15.149', 'lessThanOrEqual' => '5.15.*', 'status' => 'unaffected', 'versionType' => 'semver'],
+            ['version' => '6.1.76', 'lessThanOrEqual' => '6.1.*', 'status' => 'unaffected', 'versionType' => 'semver'],
+            ['version' => '6.6.15', 'lessThanOrEqual' => '6.6.*', 'status' => 'unaffected', 'versionType' => 'semver'],
+            ['version' => '6.7.3', 'lessThanOrEqual' => '6.7.*', 'status' => 'unaffected', 'versionType' => 'semver'],
+            ['version' => '6.8', 'lessThanOrEqual' => '*', 'status' => 'unaffected', 'versionType' => 'original_commit_for_fix']]]]]]];
+    $r = watchmanVulnReduce($kernelOrg);
+    same('vuln ranges: kernel.org\'s record — past the fix in its branch, past the mainline fix, before the bug: not affected; in its branch before the fix: affected, fixed from',
+        [['no', null], ['no', null], ['no', null], ['yes', '6.6.15'], ['yes', '6.1.76']],
+        [watchmanVulnVerdict($r, $kc, '6.6.20'), watchmanVulnVerdict($r, $kc, '6.18.64'), watchmanVulnVerdict($r, $kc, '3.10.108'),
+         watchmanVulnVerdict($r, $kc, '6.6.10'), watchmanVulnVerdict($r, $kc, '6.1.70')]);
+
+    // an old record: the CNA wrote «n/a»; CISA's ADP added the range (vulnrichment, CPE names)
+    $old = ['cveMetadata' => ['cveId' => 'CVE-2010-3904'], 'containers' => [
+        'cna' => ['affected' => [['vendor' => 'n/a', 'product' => 'n/a', 'versions' => [['version' => 'n/a', 'status' => 'affected']]]]],
+        'adp' => [['providerMetadata' => ['shortName' => 'CVE'], 'references' => [['url' => 'https://example.org']]],
+                  ['providerMetadata' => ['shortName' => 'CISA-ADP'], 'affected' => [['vendor' => 'linux', 'product' => 'linux_kernel',
+                   'cpes' => ['cpe:2.3:o:linux:linux_kernel:*:*:*:*:*:*:*:*'], 'defaultStatus' => 'unknown',
+                   'versions' => [['version' => '0', 'status' => 'affected', 'lessThan' => '2.6.36', 'versionType' => 'custom']]]]]]]];
+    $ro = watchmanVulnReduce($old);
+    $bash = ['cveMetadata' => ['cveId' => 'CVE-2014-6278'], 'containers' => [
+        'cna' => ['affected' => [['vendor' => 'n/a', 'product' => 'n/a', 'versions' => [['version' => 'n/a', 'status' => 'affected']]]]],
+        'adp' => [['providerMetadata' => ['shortName' => 'CISA-ADP'], 'affected' => [['vendor' => 'gnu', 'product' => 'bash', 'defaultStatus' => 'unknown',
+                   'versions' => [['version' => '1.14.0', 'status' => 'affected', 'lessThanOrEqual' => '4.3', 'versionType' => 'custom']]]]]]]];
+    $bare = ['cveMetadata' => ['cveId' => 'CVE-2016-5195'], 'containers' => ['cna' => ['affected' => [['vendor' => 'n/a', 'product' => 'n/a',
+        'versions' => [['version' => 'n/a', 'status' => 'affected']]]]]]];
+    same('vuln ranges: an old record by the ADP\'s range (CPE names) — a current kernel and Bash not affected, an old one affected; no range at all: maybe',
+        [true, ['no', null], ['yes', '2.6.36'], ['no', null], 'maybe'],
+        [isset($ro['adp'][0]['versions']), watchmanVulnVerdict($ro, $kc, '6.18.64'), watchmanVulnVerdict($ro, $kc, '2.6.35'),
+         watchmanVulnVerdict(watchmanVulnReduce($bash), WATCH_VULN_PRODUCTS['bash']['cna'], '5.3.3'), watchmanVulnVerdict(watchmanVulnReduce($bare), $kc, '6.18.64')[0]]);
+    // the CNA's own item decides: the ADP is read only when the CNA named nothing of the product
+    $both = $kernelOrg;
+    $both['containers']['adp'] = [['affected' => [['vendor' => 'linux', 'product' => 'linux_kernel', 'defaultStatus' => 'affected',
+        'versions' => [['version' => '0', 'status' => 'affected', 'lessThan' => '7.0', 'versionType' => 'custom']]]]]];
+    same('vuln ranges: the CNA\'s item decides, the ADP\'s only without one', ['no', null], watchmanVulnVerdict(watchmanVulnReduce($both), $kc, '6.18.64'));
+
+    // judged end to end: the three on a 6.18 kernel — none found, one in the calm list, two checked; nothing waits
+    $tmp = hardeningTmp('vuln-ranges');
+    $f = watchmanVulnDir($tmp);
+    @mkdir("$f/cve", 0700, true);
+    $now = 1_795_000_000;
+    writeAtomic("$f/kev.json", jsonEncode(['fetched' => $now, 'entries' => [
+        ['cve' => 'CVE-2024-1086', 'product' => 'kernel', 'name' => 'Linux Kernel Use-After-Free Vulnerability', 'added' => '2024-05-30', 'ransom' => true, 'desc' => ''],
+        ['cve' => 'CVE-2010-3904', 'product' => 'kernel', 'name' => 'Linux Kernel Improper Input Validation Vulnerability', 'added' => '2023-06-02', 'ransom' => false, 'desc' => ''],
+        ['cve' => 'CVE-2016-5195', 'product' => 'kernel', 'name' => 'Linux Kernel Race Condition Vulnerability', 'added' => '2022-03-03', 'ransom' => false, 'desc' => '']]]), 0600, 0, 0);
+    foreach ([$kernelOrg, $old, $bare] as $rec) {
+        writeAtomic("$f/cve/{$rec['cveMetadata']['cveId']}.json", jsonEncode(watchmanVulnReduce($rec)), 0600, 0, 0);
+    }
+    $j = watchmanVulnJudge($tmp, [['product' => 'kernel', 'version' => '6.18.64-Unraid', 'clean' => '6.18.64', 'where' => 'host']], $now + 60);
+    $book = [];
+    $seen = [];
+    same('vuln ranges: judged on 6.18.64 — nothing found, two checked, one can\'t be checked for sure; the book stays empty, nothing told',
+        [[], 2, ['CVE-2016-5195'], [], 0],
+        [$j['found'], $j['checked'], array_column($j['unsure'], 'cve'), watchmanVulnCompare($book, $j['found'], $now + 60, $seen, $j['fresh'], $j['pending']), count($book)]);
+}
+
 function testWatchmanVuln(): void
 {
     $tmp = hardeningTmp('watch-vuln');
@@ -21263,11 +21339,15 @@ function testWatchmanVuln(): void
     $git = ['affected' => [['vendor' => 'Linux', 'product' => 'Linux', 'defaultStatus' => 'affected', 'versions' => [['version' => 'abc123', 'lessThan' => 'def456', 'status' => 'affected', 'versionType' => 'git']]]]];
     $both = ['affected' => [['vendor' => 'Samba', 'product' => 'Samba', 'versions' => [['version' => '4.0', 'lessThan' => '4.30', 'status' => 'affected'], ['version' => '4.22', 'lessThan' => '4.23', 'status' => 'unaffected']]]]];
     $unknown = ['affected' => [['vendor' => 'Samba', 'product' => 'Samba', 'versions' => [['version' => '4.10', 'lessThan' => '4.12', 'status' => 'affected']]]]];
-    same('vuln maybe: «n/a» (no item of the product), only commits, ranges that contradict each other, no defaultStatus outside the ranges, no record at all, a version that isn\'t clean',
+    same('vuln maybe: «n/a» (no item of the product), only commits, ranges that contradict each other, no defaultStatus and below the ranges, no record at all, a version that isn\'t clean',
         ['maybe', 'maybe', 'maybe', 'maybe', 'maybe', 'maybe'],
         [watchmanVulnVerdict($na, WATCH_VULN_PRODUCTS['unraid']['cna'], '7.4.1')[0], watchmanVulnVerdict($git, $kc, '6.12.24')[0],
-         watchmanVulnVerdict($both, WATCH_VULN_PRODUCTS['samba']['cna'], '4.22.5')[0], watchmanVulnVerdict($unknown, WATCH_VULN_PRODUCTS['samba']['cna'], '4.22.5')[0],
+         watchmanVulnVerdict($both, WATCH_VULN_PRODUCTS['samba']['cna'], '4.22.5')[0], watchmanVulnVerdict($unknown, WATCH_VULN_PRODUCTS['samba']['cna'], '4.9.1')[0],
          watchmanVulnVerdict(null, $kc, '6.12.24')[0], watchmanVulnItem($kernel['affected'][1], '6.13-rc1')[0]]);
+    // no defaultStatus (the record says nothing outside its ranges), every range clean and closed, this version past all
+    // of them: fixed long ago (2026-11-23: 39 «maybe» lines of kernel CVEs from 2010–2024 on a current kernel)
+    same('vuln: no defaultStatus, past every range it names — not affected (never «maybe» for a fix long done)', ['no', 'yes'],
+        [watchmanVulnVerdict($unknown, WATCH_VULN_PRODUCTS['samba']['cna'], '4.22.5')[0], watchmanVulnVerdict($unknown, WATCH_VULN_PRODUCTS['samba']['cna'], '4.11.2')[0]]);
 
     // the fetch against recorded answers: KEV (fillers of other vendors, real-shaped entries of the name table's), the CVE records, Unraid's releases
     $kevEntry = fn (string $cve, string $vendor, string $product, string $name, string $added = '2024-05-30') => ['cveID' => $cve, 'vendorProject' => $vendor,
@@ -21390,16 +21470,19 @@ function testWatchmanVuln(): void
         [['CVE-2024-4577', 'php', '8.3.4'], ['CVE-2020-5847', 'unraid', '7.4.1']],
         (function () use ($j) { $x = array_map(fn ($n) => [$n['cve'], $n['product'], $n['have']], $j['not']); usort($x, fn ($a, $b) => strcmp($a[1], $b[1])); return $x; })());
     $j2 = watchmanVulnJudge($dir, [['product' => 'unraid', 'version' => '7.3.0-beta.2', 'clean' => null, 'where' => 'host']], $t0 + 3 * 86400);
-    same('vuln judge: a version that doesn\'t compare (a beta) — maybe', [['CVE-2020-5847', 'maybe']], array_map(fn ($x) => [$x['cve'], $x['verdict']], $j2['found']));
+    same('vuln judge: a version that doesn\'t compare (a beta) — can\'t be checked for sure: the calm list, never found (1.96, 2026-11-23)',
+        [[], [['CVE-2020-5847', 'unraid', '7.3.0-beta.2']]], [$j2['found'], array_map(fn ($x) => [$x['cve'], $x['product'], $x['have']], $j2['unsure'])]);
     same('vuln judge: the lists older than three days — not fresh («not checked», never «all fine»)', false, watchmanVulnJudge($dir, $inv, $t0 + 8 * 86400)['fresh']);
 
     // the book: one entry a vulnerability, product and place; told only when affected; its words
     $book = [];
-    $found = [...$j['found'], ...array_map(fn ($x) => $x + ['where' => 'host'], $j2['found'])];
-    same('vuln book: vuln_known (told) and vuln_maybe (quiet)', [['vuln_known', 'vuln_maybe'], true, false],
-        [watchmanVulnCompare($book, $found, false, $t0), WATCH_KINDS['vuln_known'][1], WATCH_KINDS['vuln_maybe'][1]]);
+    // a «maybe» handed in (an older judge's shape) is never an entry: only «affected» is (1.96, 2026-11-23)
+    $found = [...$j['found'], ['cve' => 'CVE-2020-5847', 'product' => 'unraid', 'where' => 'host', 'verdict' => 'maybe', 'have' => '7.3.0-beta.2',
+              'fixed' => null, 'name' => 'x', 'ransom' => false, 'added' => null]];
+    same('vuln book: vuln_known (told); a «maybe» never an entry', [['vuln_known'], true, 1],
+        [watchmanVulnCompare($book, $found, $t0), WATCH_KINDS['vuln_known'][1], count($book)]);
     $book[0]['noted'] = $t0 + 10;
-    same('vuln book: seen again (noted or not) — no second entry', [[], 2], [watchmanVulnCompare($book, $found, false, $t0 + 300), count($book)]);
+    same('vuln book: seen again (noted or not) — no second entry', [[], 1], [watchmanVulnCompare($book, $found, $t0 + 300), count($book)]);
     // gap 3 (concept 12.1): a KEV entry whose record wasn't fetched (or tried) yet is never judged; what isn't found any
     // more closes; a line gone from the book (pruned, his history) never comes back while still found
     $kev = readJson(watchmanVulnDir($dir) . '/kev.json');
@@ -21411,33 +21494,48 @@ function testWatchmanVuln(): void
     $jt = watchmanVulnJudge($dir, $inv, $t0 + 3 * 86400);
     @unlink(watchmanVulnDir($dir) . '/cve-tried.json');
     writeAtomic(watchmanVulnDir($dir) . '/kev.json', jsonEncode($kev), 0600, 0, 0);
-    same('vuln judge: a record not fetched yet — not judged (pending, never «maybe»); asked and not had — judged without it (maybe)',
-        [['CVE-2099-0001'], false, true],
-        [$jp['pending'], in_array('CVE-2099-0001', array_column($jp['found'], 'cve'), true), in_array('CVE-2099-0001', array_column($jt['found'], 'cve'), true)]);
+    same('vuln judge: a record not fetched yet — not judged (pending, never «maybe»); asked and not had — judged without it (can\'t be checked for sure)',
+        [['CVE-2099-0001'], false, false, true],
+        [$jp['pending'], in_array('CVE-2099-0001', array_column($jp['unsure'], 'cve'), true), in_array('CVE-2099-0001', array_column($jt['found'], 'cve'), true),
+         in_array('CVE-2099-0001', array_column($jt['unsure'], 'cve'), true)]);
     $vb = [];
     $vs = [];
-    watchmanVulnCompare($vb, $found, false, $t0, $vs, true);
+    watchmanVulnCompare($vb, $found, $t0, $vs, true);
     $vb[0]['noted'] = $t0 + 10;
     $vb[0]['by'] = 'page';
     $kept = $vb;
-    $vb = [$vb[1]];                                     // the noted one gone from the book (90 days, his history)
-    same('vuln book: a noted one gone from the book, still found — no second entry, nothing told', [[], 1],
-        [watchmanVulnCompare($vb, $found, false, $t0 + 91 * 86400, $vs, true), count($vb)]);
+    $vb = [];                                           // the noted one gone from the book (90 days, his history)
+    same('vuln book: a noted one gone from the book, still found — no second entry, nothing told', [[], 0],
+        [watchmanVulnCompare($vb, $found, $t0 + 91 * 86400, $vs, true), count($vb)]);
     $vb2 = $kept;
-    watchmanVulnCompare($vb2, [$found[1]], false, $t0 + 400, $vs, true, ['CVE-2099-0001']);
-    same('vuln book: the lists fresh — your noted line stays yours; the maybe still found stays open', ['page', true], [$vb2[0]['by'], watchmanOpen($vb2[1])]);
+    watchmanVulnCompare($vb2, [$found[0]], $t0 + 400, $vs, true, ['CVE-2099-0001']);
+    same('vuln book: the lists fresh — your noted line stays yours', 'page', $vb2[0]['by']);
     $vb3 = [watchmanEntry('vuln_known', 'vuln_known:CVE-2024-1086:kernel:host', $t0, ['cve' => 'CVE-2024-1086'])];
-    watchmanVulnCompare($vb3, [], false, $t0 + 500, $vs, true, ['CVE-2024-1086']);
-    watchmanVulnCompare($vb3, [], false, $t0 + 600, $vs, false);
+    watchmanVulnCompare($vb3, [], $t0 + 500, $vs, true, ['CVE-2024-1086']);
+    watchmanVulnCompare($vb3, [], $t0 + 600, $vs, false);
     same('vuln book: never closed while its record is still to come, nor while the lists are old', true, watchmanOpen($vb3[0]));
-    watchmanVulnCompare($vb3, [], false, $t0 + 700, $vs, true);
+    watchmanVulnCompare($vb3, [], $t0 + 700, $vs, true);
     same('vuln book: gone — closed (by himself, resolved); found again later — news again', [false, 'auto', ['vuln_known']],
-        [watchmanOpen($vb3[0]), $vb3[0]['by'], watchmanVulnCompare($vb3, [$found[0]], false, $t0 + 800, $vs, true)]);
+        [watchmanOpen($vb3[0]), $vb3[0]['by'], watchmanVulnCompare($vb3, [$found[0]], $t0 + 800, $vs, true)]);
     same('vuln book: its words — the fixed version; the area', ['entry.vuln_known_fixed', ['cve' => 'CVE-2024-1086', 'product' => 'Linux kernel', 'have' => '6.12.24-Unraid',
         'fixed' => '6.12.48', 'name' => 'Linux Kernel Use-After-Free Vulnerability', 'where' => ''], 'vuln'], [watchmanEntryKey($book[0]), watchmanText($book[0]), watchmanCatOf('vuln_known')]);
-    $b2 = [];
-    watchmanVulnCompare($b2, $j2['found'], true, $t0);
-    same('vuln book: set.vuln.maybe — «maybe» told too', true, !empty($b2[0]['important']));
+    // an older office's open «maybe» lines (39 kernel CVEs on nostromo, 2026-11-23): closed quietly at the next round —
+    // by himself, nothing told, their keys gone from what he has seen; a closed one stays as it was; your own noted one too
+    $old = [watchmanEntry('vuln_maybe', 'vuln_maybe:CVE-2010-3904:kernel:host', $t0, ['cve' => 'CVE-2010-3904', 'product' => 'kernel', 'where' => 'host']),
+            watchmanEntry('vuln_maybe', 'vuln_maybe:CVE-2014-6278:bash:host', $t0, ['cve' => 'CVE-2014-6278', 'product' => 'bash', 'where' => 'host']) + ['important' => true],
+            array_merge(watchmanEntry('vuln_maybe', 'vuln_maybe:CVE-2016-5195:kernel:host', $t0, ['cve' => 'CVE-2016-5195']), ['noted' => $t0 + 5, 'by' => 'page'])];
+    $os = ['vuln_maybe:CVE-2010-3904:kernel:host' => $t0, 'vuln_known:CVE-2024-1086:kernel:host' => $t0];
+    same('vuln book: an older office\'s open «maybe» lines — closed quietly (by himself, nothing told, forgotten as seen); yours kept',
+        [[], [false, 'auto'], [false, 'auto'], [false, 'page', $t0 + 5], ['vuln_known:CVE-2024-1086:kernel:host']],
+        [watchmanVulnCompare($old, [], $t0 + 900, $os, false), [watchmanOpen($old[0]), $old[0]['by']], [watchmanOpen($old[1]), $old[1]['by']],
+         [watchmanOpen($old[2]), $old[2]['by'], $old[2]['noted']], array_keys($os)]);
+    $old2 = [watchmanEntry('vuln_maybe', 'vuln_maybe:CVE-2010-3904:kernel:host', $t0, ['cve' => 'CVE-2010-3904'])];
+    watchmanVulnMaybeClose($old2, $t0 + 950);
+    same('vuln book: switched off — the «maybe» lines go quietly all the same (watchmanVulnMaybeClose)', [false, 'auto'], [watchmanOpen($old2[0]), $old2[0]['by']]);
+    same('vuln page: «can\'t be checked for sure» with its product\'s name; counted as maybe; an older state without it: none',
+        [[['CVE-2020-5847', 'Unraid']], 1, []],
+        [array_map(fn ($x) => [$x['cve'], $x['label']], watchmanVulnPage(['vuln_on' => true], $j2)['unsure']), watchmanVulnPage(['vuln_on' => true], $j2)['maybe'],
+         watchmanVulnPage(['vuln_on' => true], ['found' => []])['unsure']]);
 
     // Unraid's advice: eol or superseded
     $tips = [];
@@ -21476,7 +21574,7 @@ function testWatchmanVuln(): void
             $light(['on' => true, 'checked_at' => $t0, 'fresh' => true]), $light(['on' => true, 'checked_at' => $t0, 'fresh' => true], [$open('vuln_maybe', false)]),
             $light(['on' => true, 'checked_at' => $t0, 'fresh' => true], [$open('vuln_known', true)])]));
     same('vuln page: the switch, freshness, counts', ['on' => true, 'since' => null, 'checked_at' => $t0, 'fresh' => true, 'checked' => 2, 'affected' => 1, 'maybe' => 0],
-        array_diff_key(watchmanVulnPage(['vuln_on' => true], ['kev' => $t0, 'fresh' => true, 'checked' => 2, 'found' => [['verdict' => 'yes']]]), ['software' => 1, 'unknown' => 1, 'not' => 1]));
+        array_diff_key(watchmanVulnPage(['vuln_on' => true], ['kev' => $t0, 'fresh' => true, 'checked' => 2, 'found' => [['verdict' => 'yes']]]), ['software' => 1, 'unknown' => 1, 'not' => 1, 'unsure' => 1]));
     // 1.96 «einfacher»: «Checked: doesn't concern you» — what runs here, the vulnerability, fixed from; an older state has none
     same('vuln page: the list «checked, doesn\'t concern you» (only exactly-shaped lines); none in an older state',
         [[['cve' => 'CVE-2024-4577', 'product' => 'php', 'where' => 'host', 'have' => '8.5.12', 'fixed' => '8.5.12', 'name' => 'x', 'label' => 'PHP']], []],
@@ -21595,7 +21693,7 @@ function testWatchmanVulnSoftware(): void
     same('vuln software: a container\'s PHP judged like the host\'s — 8.3.4 in web affected (fixed 8.3.8), 8.1.31 and the host\'s 8.4.28 not',
         [['CVE-2024-4577', 'php', 'web', 'yes', '8.3.8']], array_map(fn ($x) => [$x['cve'], $x['product'], $x['where'], $x['verdict'], $x['fixed']], $j['found']));
     $book = [];
-    watchmanVulnCompare($book, $j['found'], false, $t0);
+    watchmanVulnCompare($book, $j['found'], $t0);
     same('vuln software: its words name the container', ['entry.vuln_known_ct_fixed', 'web'], [watchmanEntryKey($book[0]), watchmanText($book[0])['where']]);
     $tips = [];
     watchmanVulnTips($j, function (string $id, array $p, string $about, ?array $link) use (&$tips): void { $tips[$id] = [$p, $link['to'] ?? null]; });
@@ -23917,6 +24015,38 @@ function testWatchmanFrom195(): void
  * one meaning per colour — red/yellow only for what waits (and a few hard findings), green «!» for an advice, green while
  * it learns or a part sleeps, grey when he can't look (only when every part is grey); a tile off when all its areas are.
  */
+/**
+ * His greeting comes first in the bubble, at random (core.js Office.greet()); the bubble then says how things stand. A
+ * greeting never says a state (2026-11-23: «Bin auf meinem Rundgang.» was greeting 3 — the bubble said it with no round
+ * running, and twice while one ran), so none repeats or contains a bubble sentence, in any language.
+ */
+function testWatchmanGreet(): void
+{
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $d = json_decode((string) file_get_contents(OFFICE_DIR . "/public/desks/watchman/lang/$l.json"), true);
+        $bubbles = [];
+        foreach ($d as $k => $v) {
+            if (str_starts_with($k, 'bubble.')) {
+                foreach (is_array($v) ? $v : [$v] as $text) {
+                    foreach (preg_split('/(?<=[.!?…])\s+/u', (string) $text) as $sentence) {
+                        $bubbles[] = trim((string) preg_replace('/\{\w+\}/', '', $sentence));
+                    }
+                }
+            }
+        }
+        $bad = [];
+        for ($i = 1; isset($d["greet.$i"]); $i++) {
+            $g = trim((string) $d["greet.$i"]);
+            foreach ($bubbles as $b) {
+                if ($b !== '' && (mb_strtolower($g) === mb_strtolower($b) || str_contains(mb_strtolower($b), mb_strtolower(rtrim($g, '.…'))))) {
+                    $bad[] = "greet.$i «{$g}» ~ «{$b}»";
+                }
+            }
+        }
+        same("his greeting never says how things stand ($l): no bubble sentence in it", $bad, []);
+    }
+}
+
 /**
  * «What he checks here» (1.96 «einfacher»): every one of the 12 areas has its fold in all five languages — what he looks
  * at, when he speaks up, how often, an example — numbered from 1 without a gap; every placeholder is one the page fills
@@ -71369,7 +71499,7 @@ function testSkipPlaces(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackPlan', 'testJackNoPython', 'testJackRun', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testWatchWakesPage', 'testWatchmanWakes', 'testWatchmanWakeTrail', 'testMetrics', 'testWatchmanCats', 'testWatchmanTiles', 'testWatchmanScope', 'testWatchmanRules', 'testWatchmanKnown', 'testWatchmanSettings', 'testWatchmanRules6a', 'testWatchmanRules6b', 'testWatchmanRules6c', 'testWatchmanRules6d', 'testWatchmanRules6e', 'testWatchmanRules6f', 'testWatchmanRules6g', 'testWatchmanFrom195', 'testWatchmanRelearn', 'testWatchmanStandRender', 'testWatchmanPageBars', 'testWatchmanRulesNew', 'testWatchmanJournal', 'testWatchmanBookMore', 'testWatchmanVuln', 'testWatchmanVulnSoftware', 'testWatchmanHot', 'testLogsigns', 'testWatchmanSigns', 'testWatchmanHw', 'testWatchmanCpuFaults', 'testWatchmanWear', 'testWatchmanHwBookMore', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanStartFiles', 'testWatchmanGateway', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testWatchWakesPage', 'testWatchmanWakes', 'testWatchmanWakeTrail', 'testMetrics', 'testWatchmanCats', 'testWatchmanTiles', 'testWatchmanScope', 'testWatchmanGreet', 'testWatchmanRules', 'testWatchmanKnown', 'testWatchmanSettings', 'testWatchmanRules6a', 'testWatchmanRules6b', 'testWatchmanRules6c', 'testWatchmanRules6d', 'testWatchmanRules6e', 'testWatchmanRules6f', 'testWatchmanRules6g', 'testWatchmanFrom195', 'testWatchmanRelearn', 'testWatchmanStandRender', 'testWatchmanPageBars', 'testWatchmanRulesNew', 'testWatchmanJournal', 'testWatchmanBookMore', 'testWatchmanVuln', 'testWatchmanVulnRanges', 'testWatchmanVulnSoftware', 'testWatchmanHot', 'testLogsigns', 'testWatchmanSigns', 'testWatchmanHw', 'testWatchmanCpuFaults', 'testWatchmanWear', 'testWatchmanHwBookMore', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanStartFiles', 'testWatchmanGateway', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testMigrateWakes', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics', 'testReportDialogOwnWords', 'testReportDialogDesk',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testBackupRunEnded', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanAtLeft', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testSkipPlaces', 'testCleanupSkipGreeting', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testLights', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],

@@ -124,10 +124,13 @@ const SETTING_TILE = { 'flash.go_blank': 'plugins' };
 const HAND_TILE = { 'flash.extra': 'plugins' };
 const setupAreas = () => CATS.filter(catShown);
 /** A tile's settings: per area its keys shown here, [[area, {key: setting}], …] */
+// settings his rules file keeps but his setup no longer shows: «maybe affected» is never told (2026-11-23)
+const SETTING_GONE = new Set(['vuln.maybe']);
 function settingsFor(tid) {
   const out = [];
   Object.entries((state && state.settings) || {}).forEach(([cat, keys]) => {
-    const here = Object.fromEntries(Object.entries(keys || {}).filter(([k]) => (SETTING_TILE[`${cat}.${k}`] || tileOfCat(cat)) === tid));
+    const here = Object.fromEntries(Object.entries(keys || {})
+      .filter(([k]) => !SETTING_GONE.has(`${cat}.${k}`) && (SETTING_TILE[`${cat}.${k}`] || tileOfCat(cat)) === tid));
     if (Object.keys(here).length) out.push([cat, here]);
   });
   return out;
@@ -625,7 +628,7 @@ async function ruleRemove(r, undo, b) {
   Office.toast(T(undo ? 'rule.undone' : 'rule.lifted'));
 }
 /** What differs from the defaults in an area: its settings off their default */
-const changedOf = (id) => Object.entries((state && state.settings && state.settings[id]) || {}).filter(([, v]) => v && v.value !== v.def);
+const changedOf = (id) => Object.entries((state && state.settings && state.settings[id]) || {}).filter(([k, v]) => v && v.value !== v.def && !SETTING_GONE.has(`${id}.${k}`));
 /**
  * «Noted (n)»: your lasting answers in an area (1.96, concept 3.4) — folded until opened on this visit; each with when,
  * and «Take back» (it comes out of what is normal: still there, his next round tells it)
@@ -3684,28 +3687,35 @@ function vulnLists() {
   if (!v || v.on === false) return null;
   const box = el('div', 'wm-vuln-lists');
   box.appendChild(el('p', 'role', T('vuln.kev_line')));
-  const not = (Array.isArray(v.not) ? v.not : []).filter((x) => x && typeof x.cve === 'string');
-  if (!not.length) return box;
-  const open = knownOpen.has('vuln.not');
-  const head = el('button', 'btn small plain wm-known-head', `${open ? '▾' : '▸'} ${T('vuln.not_title', { n: not.length })}`);
+  const lines = (list) => (Array.isArray(list) ? list : []).filter((x) => x && typeof x.cve === 'string');
+  const where = (x) => (x.where && x.where !== 'host' ? T('vuln.not_in', { where: x.where }) : '');
+  // checked, doesn't concern you; and (2026-11-23) can't be checked for sure — both calm, folded, never waiting
+  vulnFold(box, 'vuln.not', lines(v.not), (x) => T(x.fixed ? 'vuln.not_row' : 'vuln.not_row_never',
+    { product: x.label || x.product, cve: x.cve, fixed: x.fixed || '', have: x.have || '', where: where(x) }));
+  vulnFold(box, 'vuln.unsure', lines(v.unsure), (x) => T('vuln.unsure_row', { product: x.label || x.product, cve: x.cve, have: x.have || '', where: where(x) }));
+  return box;
+}
+/** One calm list of «Known vulnerabilities», folded: its head with the count, unfolded its sentence and a row each */
+function vulnFold(box, key, list, words) {
+  if (!list.length) return;
+  const open = knownOpen.has(key);
+  const head = el('button', 'btn small plain wm-known-head', `${open ? '▾' : '▸'} ${T(`${key}_title`, { n: list.length })}`);
   head.type = 'button';
   head.setAttribute('aria-expanded', open ? 'true' : 'false');
-  head.onclick = () => { if (open) knownOpen.delete('vuln.not'); else knownOpen.add('vuln.not'); Office.keepInPlace(head, () => sw.render()); };
+  head.onclick = () => { if (open) knownOpen.delete(key); else knownOpen.add(key); Office.keepInPlace(head, () => sw.render()); };
   box.appendChild(head);
-  if (!open) return box;
-  box.appendChild(el('p', 'role', T('vuln.not_sub')));
+  if (!open) return;
+  box.appendChild(el('p', 'role', T(`${key}_sub`)));
   const rows = el('div', 'box');
-  not.forEach((x) => {
+  list.forEach((x) => {
     const r = el('div', 'row nocheck wm-vuln-not');
     const main = el('div', 'row-main');
-    const where = x.where && x.where !== 'host' ? T('vuln.not_in', { where: x.where }) : '';
-    main.appendChild(el('div', 'row-name text', T(x.fixed ? 'vuln.not_row' : 'vuln.not_row_never', { product: x.label || x.product, cve: x.cve, fixed: x.fixed || '', have: x.have || '', where })));
+    main.appendChild(el('div', 'row-name text', words(x)));
     if (x.name) main.appendChild(el('div', 'row-meta', x.name));
     r.appendChild(main);
     rows.appendChild(r);
   });
   box.appendChild(rows);
-  return box;
 }
 /** One click switches «Known vulnerabilities» on (the public lists once a day; off again in his setup) */
 function vulnButton() {
