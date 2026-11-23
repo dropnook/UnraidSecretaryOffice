@@ -1837,9 +1837,12 @@ function tileSection(id) {
   if (sw.active() !== id && !open.length && !tileWaits(tileLevel(id))) return quietLine(id);
   if (id === 'wakes') {
     const w = wakesView();
-    // the fold only with something to explain: before his first look, or with no spinning disk, the section is one line
-    const scope = sw.active() === id && state && state.wakes && !wakesNoHdd() ? scopeBox(id) : null;
-    if (scope) w.appendChild(scope);
+    // the help's «what he checks» only with something to explain: before his first look, or with no spinning disk, one line
+    if (sw.active() === id && state && state.wakes && !wakesNoHdd()) {
+      const j = el('div', 'wm-jumps');
+      j.appendChild(scopeLink(id));
+      w.appendChild(j);
+    }
     return w;
   }
   const s = el('section', 'section wm-cat');
@@ -1896,8 +1899,6 @@ function tileSection(id) {
   }
   const inv = knownFolds(id, open.length ? bar.read().words : []);       // what he knows here: the tile's filter words find in it too
   if (inv) s.appendChild(inv);
-  const scope = sw.active() === id ? scopeBox(id) : null;       // what he checks here: shown alone, folded at first
-  if (scope) s.appendChild(scope);
   const jumps = jumpLines(id);
   if (jumps) s.appendChild(jumps);
   return s;
@@ -1974,6 +1975,8 @@ function helpAreas(help) {
   TILES.forEach((id) => {
     const li = el('li');
     li.append(el('b', '', tileName(id)), document.createTextNode(` — ${T(`area.${id}_sub`)}`));
+    const fold = scopeBox(id);
+    if (fold) li.appendChild(Office.place(`scope.${id}`, fold));      // the search's place (scope.<tile>.help) and the area's link land here
     ul.appendChild(li);
   });
   dd.append(ul, el('p', '', T('help.read_areas_more')));
@@ -2024,7 +2027,8 @@ function jumpLines(id) {
   const rules = ((state && state.rules) || []).filter((r) => r && (r.tile || tileOfCat(r.cat)) === id).length;
   const known = ((state && state.known) || []).filter((k) => k && (k.tile || tileOfCat(k.cat)) === id).length;
   const done = tileEntries(id).filter((e) => !e.open).length;
-  if (!rules && !known && !done) return null;
+  const told = Office.has(`${ID}.scope.${id}.look_1`);
+  if (!rules && !known && !done && !told) return null;
   const box = el('div', 'wm-jumps');
   if (rules || known) {
     const a = el('a', 'wm-jump', [rules ? T('jump.rules', { n: rules }) : '', known ? T('jump.known', { n: known }) : ''].filter(Boolean).join(' · ') + ' → ' + T('page.setup'));
@@ -2037,7 +2041,29 @@ function jumpLines(id) {
     b.onclick = () => { bookBarGet().set({ text: '', pick: id }); bookOnly.incidents = false; sw.pick('book', 'click'); };
     box.appendChild(b);
   }
+  if (told) box.appendChild(scopeLink(id));
   return box;
+}
+
+/**
+ * «What he checks here and how he knows →» (2026-11-23: the explanation stands in the help, not at the area's foot): opens
+ * the page's help, «The areas», this area's fold — and goes there
+ */
+function scopeLink(id) {
+  const b = el('button', 'btn small plain wm-jump wm-scope-link', T('scope.link'));
+  b.type = 'button';
+  b.onclick = () => {
+    const help = view && view.querySelector('details.page-help');
+    const det = help && help.querySelector(`[data-place="scope.${id}"]`);
+    if (!det) return;
+    help.open = true;
+    det.open = true;
+    scopeOpen.add(id);
+    det.scrollIntoView({ block: 'start', behavior: 'smooth' });      /* reveal */      // the jump this link asks for
+    const sum = det.querySelector('summary');
+    if (sum) sum.focus({ preventScroll: true });
+  };
+  return b;
 }
 
 /** His advice in a tile (each advice only here since 1.96 «einfacher»): the ones you don't know yet, the known ones counted */
@@ -3743,7 +3769,6 @@ function vulnLists(words) {
   const v = state && state.vuln;
   if (!v || v.on === false) return null;
   const box = el('div', 'wm-vuln-lists');
-  box.appendChild(el('p', 'role', T('vuln.kev_line')));
   if (Number.isInteger(v.kev_total)) {
     const prods = (Array.isArray(v.kev_products) ? v.kev_products : []).filter((x) => x && Number(x.n) > 0).sort((a, b) => b.n - a.n || String(a.label).localeCompare(String(b.label)));
     const here = Number(v.kev_here) || 0;
@@ -4058,6 +4083,8 @@ Office.places(ID, [
     'history']
     .map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
   { kind: 'help', key: 'help.read_areas', text: 'help.read_areas_more' },     // each area in a line (helpAreas())
+  // each area's «What he checks» in the help (2026-11-23): found by its words, the fold opened
+  ...TILES.map((id) => ({ kind: 'section', key: `scope.${id}.help`, text: `scope.${id}.look_1`, anchor: `scope.${id}` })),
 ]);
 
 // what his state holds for the search (core.js «items»): the entries of his book not noted yet (in his words, never a
