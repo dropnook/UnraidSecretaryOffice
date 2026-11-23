@@ -72,6 +72,9 @@
 .wm-relearn .callout p{margin:0}
 .wm-relearn-all{justify-content:flex-end; margin-bottom:8px}
 .wm-relearn-check{white-space:normal; align-items:flex-start; margin:6px 0}
+/* «Known vulnerabilities» switched off: what he would check, the switch right in the callout */
+.wm-vuln-off{display:flex; flex-direction:column; gap:6px; align-items:flex-start}
+.wm-vuln-off p{margin:0}
 .wm-hand-row{display:flex; flex-direction:column; gap:4px; margin:0 0 10px}
 .wm-known-head{align-self:flex-start}
 .wm-setup-to{padding-left:0}

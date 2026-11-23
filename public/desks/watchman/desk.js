@@ -193,11 +193,12 @@ function setupSection(id) {
   const label = el('label', 'switch');
   const cb = el('input');
   cb.type = 'checkbox';
-  cb.checked = !offAt(id);
+  const vuln = id === 'vuln' && state.vuln;           // «Known vulnerabilities»: its own switch (off until switched on — nothing fetched)
+  cb.checked = vuln ? state.vuln.on !== false && !offAt(id) : !offAt(id);
   cb.disabled = !Office.agent.running || !hired();
   label.append(cb, el('span', '', T('setup.watch_switch')));
-  label.title = T('setup.watch_switch_title');
-  cb.onchange = () => catOffAsk(id, !cb.checked, cb);
+  label.title = T(vuln ? 'vuln.switch_title' : 'setup.watch_switch_title');
+  cb.onchange = () => (vuln ? vulnSet(cb.checked, cb) : catOffAsk(id, !cb.checked, cb));
   s.appendChild(Office.sectionHead(catName(id), T(`cat.${id}_sub`), label));
   if (offAt(id)) s.appendChild(el('p', 'callout', T('setup.off_since', { when: fmt.date(offAt(id)) })));
   if (id === 'lan') {
@@ -301,6 +302,20 @@ async function catSet(id, body, b) {
   if (j.state) state = j.state;
   renderAt('.wm-setup');
   Office.toast(T(body.reset ? 'setup.reset_done' : 'setup.saved'));
+}
+/** «Known vulnerabilities» on or off from his setup (off: nothing fetched any more; an area switched off by hand is on again with it) */
+async function vulnSet(on, cb) {
+  cb.disabled = true;
+  if (on && offAt('vuln')) {
+    const k = await Office.api.post(`${ID}.cat_off`, { cat: 'vuln', off: false, sure: false });
+    if (!k.ok) { Office.toast(Office.errorText(k.error, ID), true); cb.checked = !on; cb.disabled = false; return; }
+  }
+  const j = await Office.api.post(`${ID}.vuln_set`, { on });
+  if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); cb.checked = !on; cb.disabled = false; return; }
+  if (j.state) state = j.state;
+  mood();
+  renderAt('.wm-setup');
+  Office.toast(T(on ? 'vuln.on' : 'vuln.off_done'));
 }
 /** «Watch this area» off: one clear question naming what you won't see any more; on again at once */
 function catOffAsk(id, off, cb) {
@@ -581,14 +596,17 @@ function catKnown(id) {
   const head = el('button', 'btn small plain wm-known-head', `${knownOpen.has(id) ? '▾' : '▸'} ${T('known.list', { n: list.length })}`);
   head.type = 'button';
   head.setAttribute('aria-expanded', knownOpen.has(id) ? 'true' : 'false');
-  head.onclick = () => { if (knownOpen.has(id)) knownOpen.delete(id); else knownOpen.add(id); Office.keepInPlace(head, () => sw.render()); };
+  head.onclick = () => { if (knownOpen.has(id)) knownOpen.delete(id); else knownOpen.add(id); Office.keepInPlace(head, () => pageSw().render()); };
   box.appendChild(head);
   if (!knownOpen.has(id)) return box;
+  const bar = listBar('known.' + id, T('known.filter_label'));
+  box.appendChild(bar.el);
   const rows = el('div', 'box');
-  list.slice().sort((a, b) => b.at - a.at).slice(0, 200).forEach((k) => {
+  const knownName = (k) => entryName({ kind: k.kind, p: k.p || {}, t: k.t || {}, v: null });
+  barRows(bar, list.slice().sort((a, b) => b.at - a.at).slice(0, 200), (k) => [knownName(k), entryHay({ kind: k.kind, p: k.p || {}, t: k.t || {}, v: null })], (k) => {
     const row = el('div', 'row nocheck wm-rule');
     const main = el('div', 'row-main');
-    main.appendChild(el('div', 'row-name text', entryName({ kind: k.kind, p: k.p || {}, t: k.t || {}, v: null })));
+    main.appendChild(el('div', 'row-name text', knownName(k)));
     const meta = el('div', 'row-meta');
     meta.appendChild(el('span', '', T('known.since', { when: fmt.date(k.at) })));
     main.appendChild(meta);
@@ -601,8 +619,8 @@ function catKnown(id) {
     b.onclick = () => knownRemove(k, b);
     acts.appendChild(b);
     row.appendChild(acts);
-    rows.appendChild(row);
-  });
+    return row;
+  }, rows);
   box.appendChild(rows);
   return box;
 }
@@ -732,14 +750,40 @@ async function relearnBack(r, b) {
   Office.toast(T('setup.relearn_back_done'));
 }
 
+/*
+ * His lists' filter bars show from the first row on, not from Office.FILTER_MIN (Benj, 1.96: «hier will man vielleicht
+ * kurz eine IP einfügen, ohne die Zeilen zu lesen») — the book, an area's entries, its exceptions and your answers, what
+ * he keeps an eye on, the wakes, his history. Only his: the other desks keep the office's rule. An empty list has none.
+ */
+const WM_FILTER_MIN = 1;
+/** The sections of the page shown now (his setup lists your answers and exceptions too) */
+const pageSw = () => (page === 'setup' ? setupSw : sw);
+const listBars = {};
+/** A short list's own bar (built once, held across the renders like the book's): its words only, never kept */
+function listBar(key, label) {
+  listBars[key] ??= Office.filterBar({ label, min: WM_FILTER_MIN, onChange: () => { if (view) pageSw().render(); } });
+  return listBars[key];
+}
+/** Rows through a list bar: those whose words fit, the bar told how many; a line when none fits */
+function barRows(bar, list, hay, row, into) {
+  const words = bar.read().words;
+  const fit = list.filter((x) => Office.fits(words, hay(x)));
+  fit.forEach((x) => into.appendChild(row(x)));
+  if (!fit.length && list.length) into.appendChild(el('p', 'empty', T('list.none_fit')));
+  bar.done(fit.length, list.length);
+  return fit;
+}
+
 /** An area's exceptions: what each lets through, since when, how often it did, «Lift» (and «Undo» right after) */
 function catRules(id) {
   const list = ((state && state.rules) || []).filter((r) => r && r.cat === id);
   if (!list.length) return null;
   const box = el('div', 'wm-rules');
   box.appendChild(el('h4', 'wm-hold-group', T('rule.list', { n: list.length })));
+  const bar = listBar('rules.' + id, T('rule.filter_label'));
+  box.appendChild(bar.el);
   const rows = el('div', 'box');
-  list.forEach((r) => {
+  barRows(bar, list, (r) => [offerName(r), r.note || '', ...Object.values(r.on || {}).map(String)], (r) => {
     const row = el('div', 'row nocheck wm-rule');
     const main = el('div', 'row-main');
     main.appendChild(el('div', 'row-name text', offerName(r)));
@@ -760,8 +804,8 @@ function catRules(id) {
     if (justMade.has(r.id)) acts.appendChild(mk(true));
     acts.appendChild(mk(false));
     row.appendChild(acts);
-    rows.appendChild(row);
-  });
+    return row;
+  }, rows);
   box.appendChild(rows);
   return box;
 }
@@ -1561,6 +1605,7 @@ function bookBarGet() {
   };
   bookBar = Office.filterBar({
     key: 'watchman.book',
+    min: WM_FILTER_MIN,
     label: T('book.filter_label'),
     select: { label: T('book.area_label'), all: T('book.area_all') },
     only: { text: T('stat.open'), hint: T('stat.open_tip') },     // «Not noted yet» (the tile of that name up to 1.95; #/watchman/open)
@@ -1687,16 +1732,18 @@ function journalBox() {
   wrap.appendChild(pick);
   const cur = d.months.find((m) => m.month === d.month);
   if (cur && cur.cut) wrap.appendChild(el('p', 'callout warn', T('journal.cut', { n: cur.cut })));
+  const bar = listBar('journal', T('journal.filter_label'));      // over the lines loaded so far («Show more» loads more)
+  wrap.appendChild(bar.el);
   const rows = el('div', 'box');
-  d.entries.forEach((e) => {
+  barRows(bar, d.entries, (e) => entryHay(e), (e) => {
     const r = el('div', 'row nocheck wm-journal-row');
     const main = el('div', 'row-main');
     main.appendChild(el('div', 'row-name text', entryName(e)));
     const by = NOTED_BY.includes(e.by) ? e.by : 'page';
     main.appendChild(el('div', 'row-meta', `${fmt.date(e.last)} · ${T('noted.' + by, { when: fmt.date(e.noted || e.last), at: fmt.date(e.noted || e.last) })}`));
     r.appendChild(main);
-    rows.appendChild(r);
-  });
+    return r;
+  }, rows);
   if (!d.entries.length) rows.appendChild(el('p', 'empty', T('journal.none')));
   wrap.appendChild(rows);
   if (d.more) {
@@ -1731,6 +1778,7 @@ const catBars = {};             // each area's bar, built once and held across t
 function catBarGet(id) {
   catBars[id] ??= Office.filterBar({
     label: T('cat.filter_label'),
+    min: WM_FILTER_MIN,
     only: { text: T('stat.open'), hint: T('stat.open_tip') },
     select: { label: T('cat.kind_label'), all: T('cat.kind_all') },      // no key: the kind is never kept
     onChange: () => { if (view) sw.render(); },
@@ -1757,8 +1805,10 @@ function catSection(id) {
     s.appendChild(el('p', 'role', T('cat.unknown')));
     return s;
   }
-  (c.why || []).filter((w) => !CAT_SEEN.includes(w) && Office.has(`${ID}.cat.why.${w}`))
-    .forEach((w) => s.appendChild(el('p', 'callout' + (CAT_CALLOUT_WARN.includes(w) ? ' warn' : ''), whyWords(id, w))));
+  (c.why || []).filter((w) => !CAT_SEEN.includes(w) && Office.has(`${ID}.cat.why.${w}`)).forEach((w) => {
+    if (w === 'vuln_off' && vulnOff()) { s.appendChild(vulnOffBox()); return; }      // what he would check, and the switch right there
+    s.appendChild(el('p', 'callout' + (CAT_CALLOUT_WARN.includes(w) ? ' warn' : ''), whyWords(id, w)));
+  });
   if (c.off) {
     const on = el('button', 'btn small', T('rule.cat_on'));
     on.type = 'button';
@@ -2876,7 +2926,7 @@ const wakesNoHdd = () => !!(state && state.wakes && Array.isArray(state.wakes.hd
 // the wakes' filter bar (core.js Office.filterBar, built once like the book's): its words and the disk chosen are never kept
 let wakesBar = null;
 function wakesBarGet() {
-  wakesBar ??= Office.filterBar({ key: 'watchman.wakes', label: T('wakes.filter_label'), onChange: () => { if (view) sw.render(); } });
+  wakesBar ??= Office.filterBar({ key: 'watchman.wakes', label: T('wakes.filter_label'), min: WM_FILTER_MIN, onChange: () => { if (view) sw.render(); } });
   return wakesBar;
 }
 /** Midnight of the state's day (the server looked just now; a kept state counts by its own day) */
@@ -3252,6 +3302,7 @@ function watchBarGet() {
   if (watchBar) return watchBar;
   watchBar = Office.filterBar({
     key: 'watchman.watch',
+    min: WM_FILTER_MIN,
     label: T('watch.filter.label'),
     onChange: (f, what) => {
       if (what === 'words' || what === 'all') watchShut.clear();
@@ -3441,6 +3492,19 @@ function netGroup(n) {
   return group('net', T('watch.net'), sum, rows);
 }
 
+/**
+ * «Known vulnerabilities» switched off, in its section: what he checks once on — which public lists, what of this server
+ * he compares, that nothing of it goes along, what he says — and the switch right there (Benj: «welcher Klick wo?»)
+ */
+function vulnOffBox() {
+  const box = el('div', 'callout wm-vuln-off');
+  box.append(el('p', '', T('cat.why.vuln_off')), el('p', '', T('vuln.explain_lists')), el('p', '', T('vuln.explain_here')),
+    el('p', '', T('vuln.explain_says')));
+  const b = vulnButton();
+  b.className = 'btn small wm-vuln-on';
+  box.appendChild(b);
+  return box;
+}
 /** One click switches «Known vulnerabilities» on (the public lists once a day; off again in his setup) */
 function vulnButton() {
   const b = el('button', 'btn plain wm-vuln-on', T('vuln.switch_on'));

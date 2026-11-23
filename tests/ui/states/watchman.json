@@ -5079,7 +5079,7 @@
   "vuln": {
    "level": "none",
    "why": [
-    "not_yet"
+    "vuln_off"
    ],
    "open": 0,
    "tell": 0,
@@ -5537,5 +5537,16 @@
    "until": 1792164674,
    "pending": true
   }
+ },
+ "vuln": {
+  "on": false,
+  "since": null,
+  "checked_at": null,
+  "fresh": false,
+  "checked": 0,
+  "affected": 0,
+  "maybe": 0,
+  "software": [],
+  "unknown": []
  }
 }
