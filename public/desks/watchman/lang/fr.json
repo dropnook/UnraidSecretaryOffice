@@ -442,7 +442,7 @@
   "watch.last_seen": "dernière fois {when}",
   "watch.since": "depuis le {when}",
   "help.book": "Main courante",
-  "help.book_text": "Chaque entrée est quelque chose qui sortait de l'ordinaire : quand, quoi, d'où. Les entrées ouvertes attendent ta réponse dans leur zone et comptent sur ses tuiles ; la main courante garde ce qui est réglé. Les entrées du même genre le même jour tiennent sur une ligne ; « Les … : d'accord » les règle ensemble. La main courante garde {keep} entrées, celles réglées pendant {days} jours.",
+  "help.book_text": "Chaque entrée est quelque chose qui sortait de l'ordinaire : quand, quoi, d'où. Les entrées ouvertes attendent ta réponse dans leur zone et comptent sur ses tuiles ; la main courante garde ce qui est réglé. Les entrées du même genre le même jour tiennent sur une ligne ; « Les … : d'accord » les règle ensemble. Les entrées ouvertes restent jusqu'à ta réponse ; ce à quoi tu as répondu et les incidents restent {days} jours dans la main courante (au plus {keep} entrées). Ce qu'il a réglé lui-même ou ne signale pas parce que c'est toujours en ordre passe, après une semaine calme, dans son historique en bas.",
   "help.ack_text": "Il retient ce que l'entrée nomme, tel que c'est maintenant. Ensuite il ne signale que ce qui change à nouveau.",
   "help.normal": "Connu",
   "help.normal_text": "À sa première vérification après l'embauche, il retient ce qui est là et ne le signale pas, les adresses de connexion du syslog aussi. Cela figure dans chaque zone sous « Connu », et ce à quoi tu réponds « D'accord, retiens-le » s'y ajoute. Si tu le réembauches plus tard, il regarde à nouveau.",

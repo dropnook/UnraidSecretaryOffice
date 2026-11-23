@@ -442,7 +442,7 @@
   "watch.last_seen": "last {when}",
   "watch.since": "since {when}",
   "help.book": "Watch book",
-  "help.book_text": "Every entry is something that was different from usual: when, what, from where. Open ones wait in their area for your answer and count on his tiles; the watch book holds what is done. Entries of the same kind on the same day share one row; «All …: all right» settles them together. The book keeps {keep} entries, done ones for {days} days.",
+  "help.book_text": "Every entry is something that was different from usual: when, what, from where. Open ones wait in their area for your answer and count on his tiles; the watch book holds what is done. Entries of the same kind on the same day share one row; «All …: all right» settles them together. Open ones stay until you answer; what you answered and incidents stay {days} days in the watch book (at most {keep} entries). What he settled himself or doesn't tell because it is always all right goes into his history at the bottom after a quiet week.",
   "help.ack_text": "He remembers what the entry names, as it is now. After that he only tells what changes again.",
   "help.normal": "Known",
   "help.normal_text": "At his first check after hiring he remembers what is there and tells nothing for it, also the login addresses in the syslog. That stands in each area under «Known», and what you answer with «All right, remember this» joins it. Hire him again later and he takes a fresh look.",

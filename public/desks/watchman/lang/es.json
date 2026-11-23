@@ -442,7 +442,7 @@
   "watch.last_seen": "última vez {when}",
   "watch.since": "desde el {when}",
   "help.book": "Libro de guardia",
-  "help.book_text": "Cada entrada es algo que era distinto de lo habitual: cuándo, qué, desde dónde. Las abiertas esperan tu respuesta en su área y cuentan en sus mosaicos; el libro de guardia guarda lo resuelto. Las entradas del mismo tipo el mismo día van en una fila; «Las …: de acuerdo» las resuelve juntas. El libro guarda {keep} entradas, las resueltas durante {days} días.",
+  "help.book_text": "Cada entrada es algo que era distinto de lo habitual: cuándo, qué, desde dónde. Las abiertas esperan tu respuesta en su área y cuentan en sus mosaicos; el libro de guardia guarda lo resuelto. Las entradas del mismo tipo el mismo día van en una fila; «Las …: de acuerdo» las resuelve juntas. Las abiertas se quedan hasta tu respuesta; lo que has respondido y los incidentes se quedan {days} días en el libro de guardia (como mucho {keep} entradas). Lo que resolvió él mismo o no avisa porque siempre está en orden pasa, tras una semana tranquila, a su historial abajo.",
   "help.ack_text": "Recuerda lo que nombra la entrada, tal como está ahora. Después solo avisa de lo que vuelva a cambiar.",
   "help.normal": "Conocido",
   "help.normal_text": "En su primera comprobación tras la contratación recuerda lo que hay y no avisa de ello, también las direcciones de acceso del syslog. Eso está en cada área bajo «Conocido», y lo que respondes con «De acuerdo, recuérdalo» se suma. Si lo vuelves a contratar más tarde, vuelve a mirar.",

@@ -442,7 +442,7 @@
   "watch.last_seen": "zuletzt {when}",
   "watch.since": "seit {when}",
   "help.book": "Wachbuch",
-  "help.book_text": "Jeder Eintrag ist etwas, das anders war als sonst: wann, was, von wo. Offene warten in ihrem Bereich auf deine Antwort und zählen auf seinen Kacheln; im Wachbuch steht, was erledigt ist. Gleiche Einträge vom selben Tag stehen in einer Zeile, «Alle …: In Ordnung» erledigt sie zusammen. Das Buch behält {keep} Einträge, erledigte {days} Tage lang.",
+  "help.book_text": "Jeder Eintrag ist etwas, das anders war als sonst: wann, was, von wo. Offene warten in ihrem Bereich auf deine Antwort und zählen auf seinen Kacheln; im Wachbuch steht, was erledigt ist. Gleiche Einträge vom selben Tag stehen in einer Zeile, «Alle …: In Ordnung» erledigt sie zusammen. Offenes bleibt bis zu deiner Antwort; was du beantwortet hast und Vorfälle bleiben {days} Tage im Wachbuch (höchstens {keep} Einträge). Was er selbst erledigt oder nicht meldet, weil es immer in Ordnung ist, kommt nach einer ruhigen Woche unten in seinen Verlauf.",
   "help.ack_text": "Er merkt sich, was der Eintrag nennt, so wie es jetzt ist. Danach meldet er nur, was sich wieder ändert.",
   "help.normal": "Bekannt",
   "help.normal_text": "Beim ersten Prüfen nach der Anstellung merkt er sich, was da ist, und meldet dafür nichts, auch die Anmeldeadressen im Syslog. Das steht in jedem Bereich unter «Bekannt», und was du mit «In Ordnung, merk dir das» beantwortest, kommt dazu. Stellst du ihn später wieder ein, schaut er neu.",
