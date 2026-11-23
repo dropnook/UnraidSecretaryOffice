@@ -387,7 +387,9 @@ async function vulnPage() {
   const none = await typed('php2shell');
   same('vulnerabilities: the filter searches both calm lists (product, name, CVE) — the list with hits open; nothing found says so',
     [bash[0], ssh[0], cve[0], none[0]], [1, 1, 1, 0]);
-  same('vulnerabilities: the filter\'s count is over all the lines (4 here)', /\b4\b/.test(none[1]), true);
+  const old = await typed('CVE-2010-3904');
+  same('vulnerabilities: the filter finds a line «long fixed» too (its own fold, open while it holds hits)', old[0], 1);
+  same('vulnerabilities: the filter\'s count is over all the lines (5 here)', /\b5\b/.test(none[1]), true);
   wm.unmount();
 }
 

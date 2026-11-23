@@ -918,7 +918,9 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   hw_hot), agent/lib/logsigns.php + watchman-signs.php (H: host_oom, host_crash, host_flood, hw_io), watchman-boot.php (F
   flash_boot, ld_preload) and watchnet.php (G net_gateway, net_dns), watchman-vuln.php (A vuln_known, tips unraid_eol,
   software_eol; off until switched on; «maybe» is never an entry since 2026-11-23 — the page's list `vuln.unsure`, a CVE
-  record's ADP ranges read when its CNA named none; an older office's open vuln_maybe lines close quietly). Their entries live in **book-more.json** (`WATCH_KINDS_MORE`, every kind
+  record's ADP ranges read when its CNA named none; then NVD's CPE ranges (CVE API 2.0, no key, only the unsure CVEs, 40 a
+  day, one every 6.5 s: watchmanVulnNvdReduce()); «long fixed» below WATCH_VULN_FLOOR — the kernel line of the .plg's min
+  Unraid; an older office's open vuln_maybe lines close quietly). Their entries live in **book-more.json** (`WATCH_KINDS_MORE`, every kind
   newer than 1.95 — an older office never reads it, so never drops them; `watchmanLoad()`/`watchmanSave()` treat both as one
   book). The hardware has no ATT&CK technique and never joins a chain. Settings (`WATCH_SETTINGS` hw, host, lan.dns,
   vuln.maybe — kept in the file's shape, no longer shown or read; the defaults the constants the steps hard-coded — the heat reads its keys of set.hw itself); the rule shape

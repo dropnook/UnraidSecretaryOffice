@@ -531,7 +531,9 @@ You need Unraid **7.3.2 or a newer 7.x**. Nothing else to install.
 - Only if you switch on the Night Watchman's «Known vulnerabilities» (off until you do): once a day public lists —
   cisa.gov (actively exploited vulnerabilities), raw.githubusercontent.com (the CVE records of those), releases.unraid.net
   (Unraid's releases and their support), endoflife.date (which release lines still get fixes). Every office asks the
-  same; nothing of your server goes along.
+  same; nothing of your server goes along. Then services.nvd.nist.gov (NIST's NVD), only for the vulnerabilities that
+  concern a program here and that the CVE record can't settle: the request names the CVE id and nothing else, at most 40
+  a day, one every 6.5 seconds (NVD's limit without a key).
 - It sends a report only when you send one. No telemetry.
 - The desks never wake a sleeping disk unless you ask. The scheduled backup does, unless you leave sleeping pools out.
 

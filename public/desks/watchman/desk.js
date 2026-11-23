@@ -3753,32 +3753,38 @@ function vulnLists(words) {
   }
   const where = (x) => (x.where && x.where !== 'host' ? T('vuln.not_in', { where: x.where }) : '');
   const fit = (list) => vulnLines(list).filter((x) => !words || !words.length || Office.fits(words, vulnHay(x)));
-  const not = fit(v.not);
+  const checked = fit(v.not);
+  const not = checked.filter((x) => !x.ancient);
+  const old = checked.filter((x) => x.ancient);           // fixed long before anything the office runs on: folded apart
   const unsure = fit(v.unsure);
   const forced = !!(words && words.length);
-  vulnFold(box, 'vuln.not', not, forced, (x) => T(x.fixed ? 'vuln.not_row' : 'vuln.not_row_never',
-    { product: x.label || x.product, cve: x.cve, fixed: x.fixed || '', have: x.have || '', where: where(x) }));
-  vulnFold(box, 'vuln.unsure', unsure, forced, (x) => T('vuln.unsure_row', { product: x.label || x.product, cve: x.cve, have: x.have || '', where: where(x) }));
-  return { el: box, shown: not.length + unsure.length };
+  const notRow = (x) => T(x.fixed ? 'vuln.not_row' : 'vuln.not_row_never', { product: x.label || x.product, cve: x.cve, fixed: x.fixed || '', have: x.have || '', where: where(x) });
+  const nvdSaid = (x) => (x.src === 'nvd' ? T('vuln.src_nvd') : '');
+  vulnFold(box, 'vuln.not', not, forced, notRow, nvdSaid);
+  vulnFold(box, 'vuln.old', old, forced, notRow, nvdSaid, { floor: v.floor || '7.3.2' });
+  vulnFold(box, 'vuln.unsure', unsure, forced, (x) => T('vuln.unsure_row', { product: x.label || x.product, cve: x.cve, have: x.have || '', where: where(x) }),
+    (x) => T(x.nvd ? 'vuln.unsure_nvd_asked' : 'vuln.unsure_nvd_wait'));
+  return { el: box, shown: checked.length + unsure.length };
 }
 /** One calm list, folded: its head with the count, unfolded (or holding the filter's hits) its sentence and a row each */
-function vulnFold(box, key, list, forced, words) {
+function vulnFold(box, key, list, forced, words, more, params) {
   if (!list.length) return;
   const open = forced || knownOpen.has(key);
-  const head = el('button', 'btn small plain wm-known-head', `${open ? '▾' : '▸'} ${T(`${key}_title`, { n: list.length })}`);
+  const head = el('button', 'btn small plain wm-known-head', `${open ? '▾' : '▸'} ${T(`${key}_title`, { ...(params || {}), n: list.length })}`);
   head.type = 'button';
   head.setAttribute('aria-expanded', open ? 'true' : 'false');
   head.disabled = forced;          // the filter's words hold it open
   head.onclick = () => { if (open) knownOpen.delete(key); else knownOpen.add(key); Office.keepInPlace(head, () => sw.render()); };
   box.appendChild(head);
   if (!open) return;
-  box.appendChild(el('p', 'role', T(`${key}_sub`)));
+  box.appendChild(el('p', 'role', T(`${key}_sub`, params || {})));
   const rows = el('div', 'box');
   list.forEach((x) => {
     const r = el('div', 'row nocheck wm-vuln-not');
     const main = el('div', 'row-main');
     main.appendChild(el('div', 'row-name text', words(x)));
-    if (x.name) main.appendChild(el('div', 'row-meta', x.name));
+    const meta = [x.name || '', more ? more(x) : ''].filter(Boolean).join(' · ');
+    if (meta) main.appendChild(el('div', 'row-meta', meta));
     r.appendChild(main);
     rows.appendChild(r);
   });

@@ -16,6 +16,11 @@ declare(strict_types=1);
  *   raw.githubusercontent.com  the CVE record (CVE List V5) of each of those entries: the vendor's own affected versions
  *   releases.unraid.net        Unraid's list of releases with their support status (not Unraid's own update check: that
  *                              one sends an id of the server)
+ *   services.nvd.nist.gov      (2026-11-23) NIST's NVD, CVE API 2.0 without a key: only for the CVEs that concern a program
+ *                              here and stayed «can't be checked for sure» — its CPE configurations (versionStart…/
+ *                              versionEnd…) judge them cleanly. Nothing goes along but the CVE id; NVD's limit without a key
+ *                              (5 requests in 30 s) kept by one request every WATCH_VULN_NVD_GAP s, at most WATCH_VULN_NVD_RUN
+ *                              a day, each answer kept (nvd/<id>.json) and asked anew after WATCH_VULN_CVE_AGE
  * Kept in data/watchman/feeds/ (kev.json, cve/<id>.json reduced to the affected data, unraid.json, status.json): at
  * most WATCH_VULN_CVE_MAX records, each file small; a list missing, broken, too big or older than WATCH_VULN_OLD is «not
  * checked», never «all fine».
@@ -43,8 +48,15 @@ const WATCH_VULN_CVE_MAX = 300;            // CVE records kept at most
 const WATCH_VULN_CVE_RUN = 60;             // fetched in one run at most (the rest the next day)
 const WATCH_VULN_CVE_AGE = 7 * 86400;      // a kept record fetched anew after this long
 const WATCH_VULN_UA      = 'UnraidSecretaryOffice';      // the same for every office: no version, no name
+const WATCH_VULN_NVD_RUN = 40;             // NVD (2026-11-23): records asked in one run at most …
+const WATCH_VULN_NVD_GAP = 6.5;            // … one every this many seconds (NVD without a key: 5 requests in 30 s)
+// every Unraid the office installs on (the .plg's min, a test holds them equal) runs this kernel line or newer: a
+// vulnerability whose every range the record names ends below it was fixed long before — «long fixed» on the page
+const WATCH_VULN_FLOOR_UNRAID = '7.3.2';
+const WATCH_VULN_FLOOR = ['kernel' => '6.12'];
 const WATCH_VULN_URLS    = [
     'kev'    => 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json',
+    'nvd'    => 'https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=',
     'cve'    => 'https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/',
     'unraid' => 'https://releases.unraid.net/json',
     'eol'    => 'https://endoflife.date/api/v1/products/',      // step 16: <slug> of a fixed list (WATCH_VULN_PRODUCTS' eol)
@@ -55,7 +67,7 @@ const WATCH_VULN_ENV = ['PHP_VERSION', 'NGINX_VERSION', 'MARIADB_VERSION', 'PG_V
                         'GOLANG_VERSION', 'JAVA_VERSION'];
 const WATCH_VULN_IMAGES_EVERY = 3600;      // the images' versions looked at anew at most this often (or when the images change)
 const WATCH_VULN_IMAGES_MAX   = 100;       // images asked at most
-const WATCH_VULN_MAX     = ['kev' => 8 << 20, 'cve' => 2 << 20, 'unraid' => 1 << 20, 'eol' => 1 << 20];     // bytes of an answer at most
+const WATCH_VULN_MAX     = ['kev' => 8 << 20, 'cve' => 2 << 20, 'unraid' => 1 << 20, 'eol' => 1 << 20, 'nvd' => 4 << 20];     // bytes of an answer at most
 const WATCH_VULN_TIMEOUT = 60;             // seconds a fetch may take
 const WATCH_VULN_DESC    = 300;            // characters of a description kept
 const WATCH_VULN_NOT_MAX = 100;            // «checked: doesn't concern you» kept for his page (state.json vuln_look.not)
@@ -66,7 +78,7 @@ const WATCH_VULN_NOT_MAX = 100;            // «checked: doesn't concern you» k
  * «PHP», two spellings of Bash). `pkg`: Slackware's package name; `host`: unraid, kernel or php (the office's own).
  */
 const WATCH_VULN_PRODUCTS = [
-    'unraid'   => ['label' => 'Unraid', 'kev' => ['unraid|unraid'], 'cna' => ['unraid|unraid', 'lime technology|unraid'], 'host' => 'unraid'],
+    'unraid'   => ['label' => 'Unraid', 'kev' => ['unraid|unraid'], 'cna' => ['unraid|unraid', 'lime technology|unraid', 'lime-technology|unraid'], 'host' => 'unraid'],
     'kernel'   => ['label' => 'Linux kernel', 'kev' => ['linux|kernel'], 'cna' => ['linux|linux', 'linux|linux kernel'], 'host' => 'kernel'],
     'php'      => ['label' => 'PHP', 'kev' => ['php group|php', 'php|php', 'php|fastcgi process manager (fpm)'], 'cna' => ['php group|php', 'php|php'], 'host' => 'php',
                    'env' => 'PHP_VERSION', 'eol' => 'php'],
@@ -75,7 +87,7 @@ const WATCH_VULN_PRODUCTS = [
     'samba'    => ['label' => 'Samba', 'kev' => ['samba|samba'], 'cna' => ['samba|samba'], 'pkg' => 'samba'],
     'sudo'     => ['label' => 'sudo', 'kev' => ['sudo|sudo', 'todd miller|sudo'], 'cna' => ['sudo|sudo', 'sudo project|sudo'], 'pkg' => 'sudo'],
     'bash'     => ['label' => 'Bash', 'kev' => ['gnu|gnu bash', 'gnu|bourne-again shell (bash)', 'gnu|bash'], 'cna' => ['gnu|bash'], 'pkg' => 'bash'],
-    'polkit'   => ['label' => 'polkit', 'kev' => ['red hat|polkit'], 'cna' => ['polkit|polkit', 'freedesktop|polkit'], 'pkg' => 'polkit'],
+    'polkit'   => ['label' => 'polkit', 'kev' => ['red hat|polkit'], 'cna' => ['polkit|polkit', 'freedesktop|polkit', 'polkit project|polkit'], 'pkg' => 'polkit'],
     'inetutils' => ['label' => 'GNU Inetutils', 'kev' => ['gnu|inetutils'], 'cna' => ['gnu|inetutils'], 'pkg' => 'inetutils'],
     'nginx'    => ['label' => 'nginx', 'kev' => ['f5|nginx', 'nginx|nginx'], 'cna' => ['f5|nginx', 'f5|nginx open source', 'nginx|nginx'], 'pkg' => 'nginx',
                    'env' => 'NGINX_VERSION', 'eol' => 'nginx'],
@@ -84,7 +96,7 @@ const WATCH_VULN_PRODUCTS = [
     'postgresql' => ['label' => 'PostgreSQL', 'kev' => ['postgresql|postgresql'], 'cna' => ['postgresql|postgresql'], 'env' => 'PG_VERSION', 'eol' => 'postgresql'],
     'redis'    => ['label' => 'Redis', 'kev' => ['redis|redis'], 'cna' => ['redis|redis'], 'env' => 'REDIS_VERSION', 'eol' => 'redis'],
     'nodejs'   => ['label' => 'Node.js', 'kev' => ['nodejs|node.js', 'node.js|node.js'], 'cna' => ['nodejs|node', 'nodejs|node.js'], 'env' => 'NODE_VERSION', 'eol' => 'nodejs'],
-    'python'   => ['label' => 'Python', 'kev' => ['python software foundation|python'], 'cna' => ['python software foundation|cpython'], 'env' => 'PYTHON_VERSION', 'eol' => 'python'],
+    'python'   => ['label' => 'Python', 'kev' => ['python software foundation|python'], 'cna' => ['python software foundation|cpython', 'python|python'], 'env' => 'PYTHON_VERSION', 'eol' => 'python'],
     'go'       => ['label' => 'Go', 'kev' => ['golang|go'], 'cna' => ['go standard library|crypto/tls', 'golang|go'], 'env' => 'GOLANG_VERSION', 'eol' => 'go'],
     'java'     => ['label' => 'Java', 'kev' => [], 'cna' => [], 'env' => 'JAVA_VERSION'],
 ];
@@ -256,8 +268,29 @@ function watchmanVulnItem(array $item, string $have): array
         return ['yes', $fixed];
     }
     $default = $item['defaultStatus'] ?? 'unknown';
+    // past everything the record names, nothing open-ended: «fixed from» its highest end (null when that is a version
+    // named alone — «never affected»)
+    $past = function () use ($ranges, $h): ?array {
+        if (!$ranges || array_filter($ranges, fn ($x) => !$x['exact'] && $x['end'] === null)
+            || array_filter($ranges, fn ($x) => watchmanVulnCmp($h, $x['end'] ?? $x['start']) <= 0)) {
+            return null;
+        }
+        $top = null;
+        $exactTop = false;      // the highest bound is a version named alone, or affected itself («≤ 9.7p1»): no «fixed from» to name
+        foreach ($ranges as $x) {
+            $b = $x['end'] ?? $x['start'];
+            $c = $top === null ? 1 : watchmanVulnCmp($b, $top);
+            if ($c > 0) {
+                $top = $b;
+                $exactTop = $x['exact'] || $x['incl'];
+            } elseif ($c === 0 && ($x['exact'] || $x['incl'])) {
+                $exactTop = true;
+            }
+        }
+        return ['no', $top === null || $exactTop ? null : watchmanVulnText1($top)];
+    };
     if ($default === 'unaffected') {
-        return [$bad ? 'maybe' : 'no', null];
+        return $bad ? ['maybe', null] : ($past() ?? ['no', null]);
     }
     if ($bad || !$ranges || ($default !== 'affected' && !in_array('affected', array_column($ranges, 'status'), true))) {
         return ['maybe', $fixed];
@@ -270,13 +303,74 @@ function watchmanVulnItem(array $item, string $have): array
     foreach ($ranges as $x) {
         if ($x['status'] === 'affected' && $x['end'] !== null && array_slice($x['start'][0], 0, 2) === array_slice($h[0], 0, 2)
             && watchmanVulnCmp($h, $x['end']) >= ($x['incl'] ? 1 : 0)) {
-            return ['no', null];
+            return ['no', watchmanVulnText1($x['end'])];
         }
     }
-    // newer than everything the record names, nothing open-ended: a branch it didn't know of
-    $open = array_filter($ranges, fn ($x) => !$x['exact'] && $x['end'] === null);
-    $newer = !$open && !array_filter($ranges, fn ($x) => watchmanVulnCmp($h, $x['end'] ?? $x['start']) <= 0);
-    return $newer ? ['no', null] : [$unsure ? 'maybe' : 'yes', $fixed];
+    // newer than everything the record names, nothing open-ended: a branch it didn't know of — «fixed from» the highest end
+    return $past() ?? [$unsure ? 'maybe' : 'yes', $fixed];
+}
+
+/** A parsed version as text («2.6.36», «9.8p1») */
+function watchmanVulnText1(array $v): string
+{
+    return implode('.', $v[0]) . ($v[1] ? 'p' . $v[1] : '');
+}
+
+/**
+ * NVD's answer (CVE API 2.0) reduced to what the comparison needs, in the shape of a record's affected items: per
+ * vendor/product of its vulnerable CPE matches one item, defaultStatus unaffected (NVD lists what is vulnerable), the
+ * ranges from versionStartIncluding / versionEndExcluding / versionEndIncluding, an exact version from the CPE itself.
+ * A pre-release (an update field: «6.8:rc1») never runs here and is left out; what can't be said cleanly (a start
+ * excluding, every version without a bound, a negated node) is kept as a range that can't be compared — the item stays
+ * «maybe». null: not NVD's answer for this CVE.
+ *
+ * @return array{id: string, affected: list<array>}|null
+ */
+function watchmanVulnNvdReduce(array $j, string $cve): ?array
+{
+    $v = $j['vulnerabilities'][0]['cve'] ?? null;
+    if (!is_array($v) || ($v['id'] ?? null) !== $cve) {
+        return is_array($j['vulnerabilities'] ?? null) && $j['vulnerabilities'] === [] ? ['id' => $cve, 'affected' => []] : null;
+    }
+    $items = [];
+    foreach ((array) ($v['configurations'] ?? []) as $conf) {
+        foreach (is_array($conf) ? (array) ($conf['nodes'] ?? []) : [] as $node) {
+            if (!is_array($node)) {
+                continue;
+            }
+            foreach ((array) ($node['cpeMatch'] ?? []) as $m) {
+                if (!is_array($m) || ($m['vulnerable'] ?? false) !== true || !is_string($m['criteria'] ?? null) || str_contains($m['criteria'], '\\')) {
+                    continue;
+                }
+                $c = explode(':', $m['criteria']);
+                if (count($c) < 7 || $c[0] !== 'cpe' || $c[1] !== '2.3') {
+                    continue;
+                }
+                $key = "{$c[3]}|{$c[4]}";
+                $items[$key] ??= ['vendor' => $c[3], 'product' => $c[4], 'defaultStatus' => 'unaffected', 'versions' => []];
+                $r = null;
+                if (!empty($node['negate']) || isset($m['versionStartExcluding'])) {
+                    $r = ['version' => 'n/a', 'status' => 'affected'];
+                } elseif ($c[5] !== '*' && $c[5] !== '-') {
+                    if ($c[6] !== '*' && $c[6] !== '-' && $c[6] !== '') {
+                        continue;           // a pre-release («rc1»): never what runs here
+                    }
+                    $r = ['version' => $c[5], 'status' => 'affected', 'versionType' => 'custom'];
+                } elseif (isset($m['versionEndExcluding']) || isset($m['versionEndIncluding'])) {
+                    $r = ['version' => (string) ($m['versionStartIncluding'] ?? '0'), 'status' => 'affected', 'versionType' => 'custom']
+                        + (isset($m['versionEndExcluding']) ? ['lessThan' => (string) $m['versionEndExcluding']] : ['lessThanOrEqual' => (string) $m['versionEndIncluding']]);
+                } elseif (isset($m['versionStartIncluding'])) {
+                    $r = ['version' => (string) $m['versionStartIncluding'], 'lessThanOrEqual' => '*', 'status' => 'affected', 'versionType' => 'custom'];
+                } else {
+                    $r = ['version' => 'n/a', 'status' => 'affected'];      // every version, no bound: not said cleanly
+                }
+                if (count($items[$key]['versions']) < 200) {
+                    $items[$key]['versions'][] = $r;
+                }
+            }
+        }
+    }
+    return ['id' => $cve, 'affected' => array_slice(array_values($items), 0, 50)];
 }
 
 /**
@@ -405,7 +499,7 @@ function watchmanVulnGet(string $url, int $max, ?string $since, array $ctx = [])
     if (isset($ctx['get'])) {
         return $ctx['get']($url, $since);
     }
-    if (!str_starts_with($url, 'https://') || !preg_match('#^https://[A-Za-z0-9.-]+/[A-Za-z0-9._/~%-]*$#D', $url)) {
+    if (!str_starts_with($url, 'https://') || !preg_match('#^https://[A-Za-z0-9.-]+/[A-Za-z0-9._/~%-]*(?:\?cveId=CVE-\d{4}-\d{4,7})?$#D', $url)) {
         return ['code' => 0, 'body' => '', 'lm' => null, 'err' => 'bad_url'];
     }
     [$exit, $out, $err] = hostNet(watchmanVulnCurl($url, $max, $since), WATCH_VULN_TIMEOUT + 10);
@@ -504,7 +598,7 @@ function watchmanVulnReduce(array $rec): ?array
  * was tried, when it last worked, and what went wrong — never a body. A list that failed keeps what it had (it ages into
  * «not checked»). $ctx: `get` (the tests' answers), `now`.
  *
- * @return array{kev: ?string, cve: int, unraid: ?string}  what went wrong per list (null: fine), the records fetched
+ * @return array{kev: ?string, cve: int, unraid: ?string, nvd: int}  what went wrong per list (null: fine), the records fetched
  */
 function watchmanVulnFetch(string $dir, array $ctx = []): array
 {
@@ -527,7 +621,7 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
         }
         $status[$list] = $s;
     };
-    $res = ['kev' => null, 'cve' => 0, 'unraid' => null];
+    $res = ['kev' => null, 'cve' => 0, 'unraid' => null, 'nvd' => 0];
 
     // KEV: only when newer than what is kept
     $kept = readJson("$f/kev.json");
@@ -608,6 +702,53 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
     writeAtomic("$f/cve-tried.json", (string) json_encode((object) $tried), 0600, 0, 0);
     $mark('cve', $errors ? "$errors failed" : null);
 
+    // NVD (2026-11-23): only the CVEs that concern a program here and stayed «can't be checked for sure» (his last round's
+    // vuln_look.unsure), and those asked before while still on the list — new ones first, then the oldest; one request every
+    // WATCH_VULN_NVD_GAP s, at most WATCH_VULN_NVD_RUN; each answer written at once (a stopped job keeps what it had)
+    $res['nvd'] = 0;
+    if (!is_dir("$f/nvd")) {
+        @mkdir("$f/nvd", 0700, true);
+    }
+    $unsure = $ctx['unsure'] ?? array_column(array_filter((array) ((readJson("$dir/state.json") ?? [])['vuln_look']['unsure'] ?? []), 'is_array'), 'cve');
+    $unsure = array_values(array_unique(array_filter($unsure, fn ($x) => is_string($x) && in_array($x, $want, true))));
+    $nvdHave = [];
+    foreach (glob("$f/nvd/CVE-*.json") ?: [] as $file) {
+        $id = basename($file, '.json');
+        if (!in_array($id, $want, true)) {
+            @unlink($file);                  // left the list
+            continue;
+        }
+        $nvdHave[$id] = (int) (readJson($file)['fetched'] ?? 0);
+    }
+    $nvdDue = array_values(array_filter($unsure, fn ($id) => !isset($nvdHave[$id])));
+    asort($nvdHave);
+    foreach ($nvdHave as $id => $t) {
+        if ($t <= $now - WATCH_VULN_CVE_AGE) {
+            $nvdDue[] = $id;
+        }
+    }
+    $nvdErr = null;
+    $sleep = $ctx['sleep'] ?? fn (float $s) => usleep((int) ($s * 1e6));
+    foreach (array_slice(array_values(array_unique($nvdDue)), 0, WATCH_VULN_NVD_RUN) as $i => $id) {
+        if ($i > 0) {
+            $sleep(WATCH_VULN_NVD_GAP);
+        }
+        $b = watchmanVulnGet(WATCH_VULN_URLS['nvd'] . $id, WATCH_VULN_MAX['nvd'], null, $ctx);
+        if (in_array($b['code'], [403, 429, 503], true)) {
+            $nvdErr = 'HTTP ' . $b['code'];   // NVD says slow down (or is away): the rest the next day
+            break;
+        }
+        $j = $b['code'] === 200 ? json_decode($b['body'], true, 64) : null;
+        $red = is_array($j) ? watchmanVulnNvdReduce($j, $id) : null;
+        if ($red === null) {
+            $nvdErr = $b['err'] ?? ('HTTP ' . $b['code']);
+            continue;
+        }
+        writeAtomic("$f/nvd/$id.json", jsonEncode(['v' => 1, 'fetched' => $now] + $red), 0600, 0, 0);
+        $res['nvd']++;
+    }
+    $mark('nvd', $nvdErr);
+
     // Unraid's releases: version, support status, date
     $u = watchmanVulnGet(WATCH_VULN_URLS['unraid'], WATCH_VULN_MAX['unraid'], null, $ctx);
     $rel = $u['code'] === 200 ? json_decode($u['body'], true, 16) : null;
@@ -669,7 +810,7 @@ function watchmanVulnFetchRun(): int
     $r = watchmanVulnFetch($dir);
     $bad = array_filter(['kev' => $r['kev'], 'unraid' => $r['unraid']]);
     logLine('Night watchman: the lists of known vulnerabilities fetched — ' . ($bad ? 'not all: ' . implode(', ', array_map(fn ($k, $v) => "$k $v", array_keys($bad), $bad)) : 'fine')
-        . " ({$r['cve']} records)");
+        . " ({$r['cve']} records, {$r['nvd']} from NVD)");
     return 0;
 }
 
@@ -790,13 +931,22 @@ function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []
                 if ($verdict[0] === 'maybe' && $e['product'] === 'unraid' && watchmanVulnUnraidLater($f, $x['version'], (string) ($e['added'] ?? ''))) {
                     $verdict = ['no', null];
                 }
+                // still «maybe»: NVD's CPE ranges, when it was asked (2026-11-23) — only a clean verdict counts
+                if ($verdict[0] === 'maybe') {
+                    $nvd = readJson("$f/nvd/{$e['cve']}.json");
+                    $byNvd = is_array($nvd) ? watchmanVulnVerdict($nvd, WATCH_VULN_PRODUCTS[$e['product']]['cna'], $x['clean']) : ['maybe', null];
+                    if ($byNvd[0] !== 'maybe') {
+                        $verdict = [$byNvd[0], $byNvd[1], 'nvd'];
+                    }
+                }
             }
             if ($verdict[0] === 'no') {
                 $out['checked']++;
                 // «Checked: doesn't concern you» on his page (1.96): what runs here, the vulnerability, fixed from — at most WATCH_VULN_NOT_MAX
                 if (count($out['not']) < WATCH_VULN_NOT_MAX) {
                     $out['not'][] = ['cve' => $e['cve'], 'product' => $e['product'], 'where' => $x['where'], 'have' => $x['version'], 'fixed' => $verdict[1],
-                                     'name' => mb_strcut((string) ($e['name'] ?? ''), 0, 120, 'UTF-8')];
+                                     'name' => mb_strcut((string) ($e['name'] ?? ''), 0, 120, 'UTF-8')]
+                        + (watchmanVulnAncient($e['product'], $verdict[1]) ? ['ancient' => true] : []) + (($verdict[2] ?? null) === 'nvd' ? ['src' => 'nvd'] : []);
                 }
                 continue;
             }
@@ -804,11 +954,13 @@ function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []
                 // can't be checked for sure (1.96, 2026-11-23): never an entry — the page's calm list, at most WATCH_VULN_NOT_MAX
                 if (count($out['unsure']) < WATCH_VULN_NOT_MAX) {
                     $out['unsure'][] = ['cve' => $e['cve'], 'product' => $e['product'], 'where' => $x['where'], 'have' => $x['version'],
-                                        'name' => mb_strcut((string) ($e['name'] ?? ''), 0, 120, 'UTF-8')];
+                                        'name' => mb_strcut((string) ($e['name'] ?? ''), 0, 120, 'UTF-8'),
+                                        'nvd' => is_file("$f/nvd/{$e['cve']}.json")];      // NVD asked already (and it couldn't say either)
                 }
                 continue;
             }
             $out['found'][] = ['cve' => $e['cve'], 'product' => $e['product'], 'where' => $x['where'], 'verdict' => $verdict[0], 'have' => $x['version'],
+                               'src' => $verdict[2] ?? 'cve',
                                'fixed' => $verdict[1], 'name' => (string) ($e['name'] ?? ''), 'ransom' => !empty($e['ransom']), 'added' => $e['added'] ?? null];
         }
     }
@@ -831,6 +983,17 @@ function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []
         }
     }
     return $out;
+}
+
+/**
+ * Fixed long before anything the office runs on (2026-11-23): the record's highest bound («fixed from») lies below the line
+ * every Unraid from WATCH_VULN_FLOOR_UNRAID on runs (WATCH_VULN_FLOOR) — «long fixed» on the page, folded apart
+ */
+function watchmanVulnAncient(string $product, ?string $fixed): bool
+{
+    $floor = isset(WATCH_VULN_FLOOR[$product]) ? watchmanVulnParse(WATCH_VULN_FLOOR[$product]) : null;
+    $f = $fixed !== null ? watchmanVulnParse($fixed) : null;
+    return $floor !== null && $f !== null && watchmanVulnCmp($f, $floor) < 0;
 }
 
 /** Unraid: this version was released more than a year after the entry was listed (Unraid's own list says when) */
@@ -981,7 +1144,7 @@ function watchmanVulnPage(array $st, ?array $judged): array
             'kev_total' => is_int($j['kev_total'] ?? null) ? $j['kev_total'] : null, 'kev_here' => (int) ($j['kev_here'] ?? 0),
             'kev_products' => array_map(fn ($id, $n) => ['product' => (string) $id, 'label' => WATCH_VULN_PRODUCTS[$id]['label'] ?? (string) $id, 'n' => (int) $n],
                 array_keys(array_filter((array) ($j['kev_products'] ?? []), 'is_int')), array_filter((array) ($j['kev_products'] ?? []), 'is_int')),
-            'pending' => is_array($j['pending'] ?? null) ? count($j['pending']) : 0,
+            'pending' => is_array($j['pending'] ?? null) ? count($j['pending']) : 0, 'floor' => WATCH_VULN_FLOOR_UNRAID,
             // can't be checked for sure (1.96, 2026-11-23): the record names no version he can compare — calm, never an entry
             'unsure' => array_map(fn ($x) => $x + ['label' => WATCH_VULN_PRODUCTS[$x['product']]['label'] ?? $x['product']],
                 array_values(array_filter((array) ($j['unsure'] ?? []), fn ($x) => is_array($x) && is_string($x['cve'] ?? null) && is_string($x['product'] ?? null))))];
