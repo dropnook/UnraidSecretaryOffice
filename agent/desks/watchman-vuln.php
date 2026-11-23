@@ -561,6 +561,10 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
         }
     }
     $errors = 0;
+    // what was asked and didn't come (no such record, an answer not in its shape): judged without it from then on — an entry
+    // nobody asked about yet is never judged («maybe» for every entry of a first fetch: concept 12.1, gap 3)
+    $tried = readJson("$f/cve-tried.json");
+    $tried = is_array($tried) ? array_intersect_key(array_filter($tried, 'is_int'), array_flip($want)) : [];
     foreach (array_slice($due, 0, WATCH_VULN_CVE_RUN) as $id) {
         $url = watchmanVulnCveUrl($id);
         $b = $url === null ? ['code' => 0, 'body' => '', 'err' => 'bad_id'] : watchmanVulnGet($url, WATCH_VULN_MAX['cve'], null, $ctx);
@@ -568,11 +572,14 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
         $red = is_array($rec) ? watchmanVulnReduce($rec) : null;
         if ($red === null || $red['id'] !== $id) {
             $errors++;
+            $tried[$id] = $now;
             continue;
         }
+        unset($tried[$id]);
         writeAtomic("$f/cve/$id.json", jsonEncode(['v' => 1, 'fetched' => $now] + $red), 0600, 0, 0);
         $res['cve']++;
     }
+    writeAtomic("$f/cve-tried.json", (string) json_encode((object) $tried), 0600, 0, 0);
     $mark('cve', $errors ? "$errors failed" : null);
 
     // Unraid's releases: version, support status, date
@@ -712,7 +719,7 @@ function watchmanVulnSet(mixed $on, ?string $dir = null, bool $page = true): arr
  *
  * Step 16: the containers' software against endoflife.date (watchmanVulnEol(); $images: container => its versions).
  *
- * @return array{found: list<array>, checked: int, fresh: bool, kev: ?int, unraid: ?array{version: string, status: string, newest: ?string},
+ * @return array{found: list<array>, checked: int, fresh: bool, kev: ?int, pending: list<string>, unraid: ?array{version: string, status: string, newest: ?string},
  *               software: list<array>, unknown: list<string>}
  */
 function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []): array
@@ -722,8 +729,10 @@ function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []
     $fetched = is_array($kev) && is_int($kev['fetched'] ?? null) ? $kev['fetched'] : null;
     $status = readJson("$f/status.json") ?? [];
     $ok = is_int($status['kev']['ok'] ?? null) ? $status['kev']['ok'] : $fetched;
-    $out = ['found' => [], 'checked' => 0, 'fresh' => $ok !== null && $now - $ok <= WATCH_VULN_OLD && $ok <= $now + 300, 'kev' => $ok, 'unraid' => null]
-        + watchmanVulnEol($dir, $inv, $images);
+    $out = ['found' => [], 'checked' => 0, 'fresh' => $ok !== null && $now - $ok <= WATCH_VULN_OLD && $ok <= $now + 300, 'kev' => $ok, 'unraid' => null,
+            'pending' => []] + watchmanVulnEol($dir, $inv, $images);
+    $tried = readJson("$f/cve-tried.json");
+    $tried = is_array($tried) ? $tried : [];
     $byProduct = [];
     foreach ($inv as $x) {
         $byProduct[$x['product']][] = $x;
@@ -733,6 +742,10 @@ function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []
             continue;
         }
         $rec = readJson("$f/cve/{$e['cve']}.json");
+        if (!is_array($rec) && !isset($tried[$e['cve']])) {
+            $out['pending'][] = (string) $e['cve'];         // its record not fetched yet (a first fetch, over 60 a day): not judged yet
+            continue;
+        }
         foreach ($byProduct[$e['product']] as $x) {
             if ($x['clean'] === null) {
                 $verdict = ['maybe', null];
@@ -794,18 +807,20 @@ function watchmanVulnUnraidLater(string $f, string $version, string $added): boo
  *
  * @return list<string>  the kinds booked new
  */
-function watchmanVulnCompare(array &$book, array $found, bool $tellMaybe, int $now): array
+function watchmanVulnCompare(array &$book, array $found, bool $tellMaybe, int $now, array &$seen = [], bool $fresh = false, array $pending = []): array
 {
     $added = [];
+    $foundNow = [];
     foreach ($found as $x) {
         $kind = $x['verdict'] === 'yes' ? 'vuln_known' : 'vuln_maybe';
         $key = "$kind:{$x['cve']}:{$x['product']}:{$x['where']}";
+        $foundNow[$key] = true;
         $p = ['cve' => $x['cve'], 'product' => $x['product'], 'where' => $x['where'], 'have' => $x['have'], 'fixed' => $x['fixed'],
               'name' => $x['name'], 'ransom' => $x['ransom'], 'added' => $x['added']];
         $at = null;
         foreach ($book as $i => $e) {
-            if (($e['key'] ?? '') === $key) {
-                $at = $i;
+            if (($e['key'] ?? '') === $key && !isset($e['p']['resolved'])) {
+                $at = $i;           // a line he closed as resolved: one that comes back is news again
             }
         }
         if ($at !== null) {
@@ -813,10 +828,38 @@ function watchmanVulnCompare(array &$book, array $found, bool $tellMaybe, int $n
                 $book[$at]['p'] = $p;
                 $book[$at]['last'] = $now;
             }
+            $seen[$key] ??= $now;
             continue;
         }
+        if (isset($seen[$key])) {
+            continue;       // still found, its line gone from the book (pruned after 90 days, into his history): no second one
+        }
         $book[] = watchmanEntry($kind, $key, $now, $p) + ($kind === 'vuln_maybe' && $tellMaybe ? ['important' => true] : []);
+        $seen[$key] = $now;
         $added[] = $kind;
+    }
+    if ($fresh) {
+        // the lists are fresh: what isn't found any more (fixed, updated, a «maybe» now judged) is closed — noted by himself
+        // with when; never one whose record is still to come
+        $wait = array_flip($pending);
+        foreach ($book as $i => $e) {
+            $k = (string) ($e['key'] ?? '');
+            if (in_array($e['kind'] ?? '', ['vuln_known', 'vuln_maybe'], true) && watchmanOpen($e) && !isset($foundNow[$k])
+                && !isset($wait[(string) ($e['p']['cve'] ?? '')])) {
+                $book[$i]['noted'] = $now;
+                $book[$i]['by'] = 'auto';
+                $book[$i]['p']['resolved'] = $now;
+            }
+        }
+        foreach (array_keys($seen) as $k) {
+            if (!isset($foundNow[$k]) && !isset($wait[explode(':', (string) $k)[1] ?? ''])) {
+                unset($seen[$k]);   // gone: should it come back, it is news again
+            }
+        }
+    }
+    if (count($seen) > 2000) {
+        asort($seen);
+        $seen = array_slice($seen, -2000, null, true);
     }
     return $added;
 }

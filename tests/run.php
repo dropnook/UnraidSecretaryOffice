@@ -21395,6 +21395,39 @@ function testWatchmanVuln(): void
         [watchmanVulnCompare($book, $found, false, $t0), WATCH_KINDS['vuln_known'][1], WATCH_KINDS['vuln_maybe'][1]]);
     $book[0]['noted'] = $t0 + 10;
     same('vuln book: seen again (noted or not) — no second entry', [[], 2], [watchmanVulnCompare($book, $found, false, $t0 + 300), count($book)]);
+    // gap 3 (concept 12.1): a KEV entry whose record wasn't fetched (or tried) yet is never judged; what isn't found any
+    // more closes; a line gone from the book (pruned, his history) never comes back while still found
+    $kev = readJson(watchmanVulnDir($dir) . '/kev.json');
+    $kev2 = $kev;
+    $kev2['entries'][] = ['cve' => 'CVE-2099-0001', 'product' => 'kernel', 'name' => 'x', 'added' => '2099-01-01', 'ransom' => false, 'desc' => ''];
+    writeAtomic(watchmanVulnDir($dir) . '/kev.json', jsonEncode($kev2), 0600, 0, 0);
+    $jp = watchmanVulnJudge($dir, $inv, $t0 + 3 * 86400);
+    writeAtomic(watchmanVulnDir($dir) . '/cve-tried.json', jsonEncode(['CVE-2099-0001' => $t0]), 0600, 0, 0);
+    $jt = watchmanVulnJudge($dir, $inv, $t0 + 3 * 86400);
+    @unlink(watchmanVulnDir($dir) . '/cve-tried.json');
+    writeAtomic(watchmanVulnDir($dir) . '/kev.json', jsonEncode($kev), 0600, 0, 0);
+    same('vuln judge: a record not fetched yet — not judged (pending, never «maybe»); asked and not had — judged without it (maybe)',
+        [['CVE-2099-0001'], false, true],
+        [$jp['pending'], in_array('CVE-2099-0001', array_column($jp['found'], 'cve'), true), in_array('CVE-2099-0001', array_column($jt['found'], 'cve'), true)]);
+    $vb = [];
+    $vs = [];
+    watchmanVulnCompare($vb, $found, false, $t0, $vs, true);
+    $vb[0]['noted'] = $t0 + 10;
+    $vb[0]['by'] = 'page';
+    $kept = $vb;
+    $vb = [$vb[1]];                                     // the noted one gone from the book (90 days, his history)
+    same('vuln book: a noted one gone from the book, still found — no second entry, nothing told', [[], 1],
+        [watchmanVulnCompare($vb, $found, false, $t0 + 91 * 86400, $vs, true), count($vb)]);
+    $vb2 = $kept;
+    watchmanVulnCompare($vb2, [$found[1]], false, $t0 + 400, $vs, true, ['CVE-2099-0001']);
+    same('vuln book: the lists fresh — your noted line stays yours; the maybe still found stays open', ['page', true], [$vb2[0]['by'], watchmanOpen($vb2[1])]);
+    $vb3 = [watchmanEntry('vuln_known', 'vuln_known:CVE-2024-1086:kernel:host', $t0, ['cve' => 'CVE-2024-1086'])];
+    watchmanVulnCompare($vb3, [], false, $t0 + 500, $vs, true, ['CVE-2024-1086']);
+    watchmanVulnCompare($vb3, [], false, $t0 + 600, $vs, false);
+    same('vuln book: never closed while its record is still to come, nor while the lists are old', true, watchmanOpen($vb3[0]));
+    watchmanVulnCompare($vb3, [], false, $t0 + 700, $vs, true);
+    same('vuln book: gone — closed (by himself, resolved); found again later — news again', [false, 'auto', ['vuln_known']],
+        [watchmanOpen($vb3[0]), $vb3[0]['by'], watchmanVulnCompare($vb3, [$found[0]], false, $t0 + 800, $vs, true)]);
     same('vuln book: its words — the fixed version; the area', ['entry.vuln_known_fixed', ['cve' => 'CVE-2024-1086', 'product' => 'Linux kernel', 'have' => '6.12.24-Unraid',
         'fixed' => '6.12.48', 'name' => 'Linux Kernel Use-After-Free Vulnerability', 'where' => ''], 'vuln'], [watchmanEntryKey($book[0]), watchmanText($book[0]), watchmanCatOf('vuln_known')]);
     $b2 = [];

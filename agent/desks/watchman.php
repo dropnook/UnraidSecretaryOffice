@@ -1780,7 +1780,9 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         $added = array_merge($added, watchmanHotCompare($book, $st, $hotLook, $hotSet, $now, $fresh));
         // known vulnerabilities: the verdicts into his book (taken over anew too: an affected one is never «normal»); what the page says
         if ($vuln !== null) {
-            $added = array_merge($added, watchmanVulnCompare($book, $vuln['found'], $vulnSet['maybe'], $now));
+            $vulnSeen = is_array($st['vuln_seen'] ?? null) ? $st['vuln_seen'] : [];
+            $added = array_merge($added, watchmanVulnCompare($book, $vuln['found'], $vulnSet['maybe'], $now, $vulnSeen, $vuln['fresh'], $vuln['pending']));
+            $st['vuln_seen'] = $vulnSeen;           // what he found and still finds, by key (not by the book: gap 3)
             $st['vuln_look'] = ['time' => $now, 'kev' => $vuln['kev'], 'fresh' => $vuln['fresh'], 'checked' => $vuln['checked'], 'found' => array_map(
                 fn ($x) => ['verdict' => $x['verdict']], $vuln['found']), 'software' => $vuln['software'], 'unknown' => $vuln['unknown']];
             if ($vulnImagesCache !== null) {
