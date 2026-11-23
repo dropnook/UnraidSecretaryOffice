@@ -1106,13 +1106,17 @@ function catWords(id) {
   return [catName(id), T(`cat.${id}_sub`), ...catEntries(id).filter((e) => e.open).slice(0, 50).map((e) => entryHay(e))];
 }
 
-/** «How secure does it stand?»: serious incidents red, advice not known yet green with «!» (a «good to know» tip never colours, W6) */
+/**
+ * «How secure does it stand?»: by its tips only — advice not known yet green with «!», all known green (a «good to know» tip
+ * never colours, W6). Serious incidents have their own tile (answered «That was serious»: nothing waits for an answer) — the
+ * mouse-over may still count them, the light never (Benj, 1.96 on the test stand)
+ */
 function postureLevel() {
   const p = state && state.posture;
   if (!p) return '';
   const tips = p.tips || [];
   const advice = tips.some((x) => x.level) ? tips.filter((x) => x.level === 'advice' && !x.known).length : tips.filter((x) => !x.known).length;
-  return louderCount() ? 'danger' : advice ? 'note' : 'ok';
+  return advice ? 'note' : 'ok';
 }
 /** «Serious incidents»: grey while there are none, green with «!» while he keeps some (each one makes the same louder) */
 const incidentsLevel = () => (!state ? '' : ((state.incidents || []).length ? 'note' : 'none'));
@@ -1163,7 +1167,7 @@ function postureTile(a) {
   const open = tips.length - known;
   // red only for his advice not known yet — a «good to know» tip is no alarm (W6; an older state: every open tip)
   const advice = tips.some((x) => x.level) ? tips.filter((x) => x.level === 'advice' && !x.known).length : open;
-  const louder = louderCount();      // serious incidents lately: part of how it stands
+  const louder = louderCount();      // serious incidents on his list: said beside it, never its light (their own tile)
   return lightTile({ label: T('tile.posture'), level: postureLevel(),
     value: !p ? '–' : open ? T('tile.posture_tips', { n: open }) : known ? T('tile.posture_all_known') : T('tile.posture_none'),
     sub: [known ? T('tile.posture_known', { n: known }) : '', louder ? T('tile.posture_incidents', { n: louder }) : ''].filter(Boolean).join(' · '), ...a });
@@ -3710,6 +3714,6 @@ Office.placesFrom(ID, (s) => {
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.watchman = { setState: (s) => { state = s; }, greetOk, bookView, entryArea, foldKind, plainWords, entryHay, foldName,
-    groupFit, fitTally, groupOpen, watchSection, srcFrom, srcNone, wakesTile, wakesView, causeName };
+    groupFit, fitTally, groupOpen, watchSection, srcFrom, srcNone, wakesTile, wakesView, causeName, postureLevel, incidentsLevel, catLevel };
 }
 })();

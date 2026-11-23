@@ -221,4 +221,15 @@ same('src line: one read-only container — the line, the detail row', [none({ g
 same('src line: an entry of an older office (no sources) says nothing', W.srcFrom({ share: 'maple/Media' }), '');
 dict = null;
 
+// «How secure does it stand?»: its light by its tips only — serious incidents answered «That was serious» are their own
+// tile's (green with «!»), never red here (Benj on the test stand, 1.96); the areas' lights count only open entries
+const tip = (known, level = 'advice') => ({ id: 'x', level, known });
+const incidents = Array.from({ length: 10 }, (_, i) => ({ id: 'i' + i, kind: 'login_new_ip' }));
+const lights = (tips, inc) => { W.setState({ posture: { tips }, incidents: inc, cats: { login: { level: 'ok', why: [] } } }); return [W.postureLevel(), W.incidentsLevel(), W.catLevel('login')]; };
+same('posture light: both hints known, 10 serious incidents on his list — green; the incidents\' own tile «!»; the area green',
+  lights([tip(true), tip(true)], incidents), ['ok', 'note', 'ok']);
+same('posture light: an advice not known yet — «!», with or without incidents', [lights([tip(false), tip(true)], incidents)[0], lights([tip(false)], [])[0]], ['note', 'note']);
+same('posture light: a «good to know» tip not known never colours', lights([tip(false, 'info')], incidents)[0], 'ok');
+same('posture light: no incidents, nothing open — green; their tile grey', lights([], []).slice(0, 2), ['ok', 'none']);
+
 console.log(JSON.stringify(out));
