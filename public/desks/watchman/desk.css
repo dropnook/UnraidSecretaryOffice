@@ -101,7 +101,10 @@
 .wm-scope-list > li{margin:2px 0; overflow-wrap:anywhere}
 .wm-scope-ex > li{font-style:italic}
 .wm-help-areas{margin:0 0 6px; padding-left:18px}
-.wm-help-areas > li{margin:2px 0}
+.wm-help-areas > li{margin:2px 0; overflow-wrap:anywhere}
+.page-help-list > dd:has(> .wm-help-areas){min-width:0}      /* the areas' folds never widen the help's grid (375 px) */
+.wm-scope{min-width:0}
+.wm-scope > summary > *{min-width:0}
 .wm-jumps{display:flex; flex-wrap:wrap; gap:6px 16px; align-items:center; margin:10px 2px 0}
 .wm-jump{font-size:12.5px}
 .wm-cat-tips > .btn, .wm-jumps .btn{white-space:normal; text-align:left; max-width:100%}
