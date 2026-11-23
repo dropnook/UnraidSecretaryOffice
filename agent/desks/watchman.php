@@ -10310,15 +10310,14 @@ function watchmanFindings(array $book): array
 
 /**
  * What stays a line of its own at the team lead: what he needs to watch at all (the router's log gone silent) — every
- * other kind is on his own list and comes to the team lead as one line (watchmanOpenFinding(), 2026-11-22)
+ * other kind is on his own list only (1.96: nothing of it at the team lead; 2026-11-22 … 1.96 one line, watchmanOpenFinding())
  */
 const WATCH_TEAMLEAD_OWN = ['net_log_silent'];
 
 /**
- * The team lead's one line for the incidents on his list (2026-11-22, the owner: «solche Meldungen beim Teamchef vom
- * Nachtwächter sollen nicht doppelt sein, denn der Nachtwächter gibt diese ja aus»): «The night watchman has n open
- * incidents» (recommended, the way to him) — n the open entries of every kind but WATCH_TEAMLEAD_OWN, `newest` the newest
- * of them (its sig: a new one makes it another finding, his «I know, thanks» counts for what he saw); null: none open
+ * The team lead's one line for the incidents on his list as it was 2026-11-22 … 1.96 («The night watchman has n open
+ * incidents», recommended) — no longer shown (watchmanChecks()); kept to read a note given on it then: its sig named the
+ * newest entry, the note counts for what was seen (watchmanTeamLeadNotes()); null: none open
  */
 function watchmanOpenFinding(array $book): ?array
 {
@@ -10331,10 +10330,12 @@ function watchmanOpenFinding(array $book): ?array
 }
 
 /**
- * For the team lead: what he needs to watch (WATCH_TEAMLEAD_OWN, a line per kind), the incidents on his list as ONE line
- * (watchmanOpenFinding()) — or "quiet" —, and — good to know, never a finding — how many of his security advice (posture
- * tips you haven't noted) there are. Before 2026-11-22 a line per kind: a note given to one of those still notes its
- * entries here (watchmanTeamLeadNotes()) while it is kept; the team lead forgets it after CARETAKER_ACK_KEEP.
+ * For the team lead: only what he needs to watch at all (WATCH_TEAMLEAD_OWN: the router's log gone silent, a line per kind)
+ * and — good to know, never a finding — how many of his security advice (posture tips you haven't noted) there are.
+ * Nothing of his book otherwise: the one line «The night watchman has n open incidents» (2026-11-22), its «quiet» and
+ * the areas switched off (`areas_off`) are gone since 1.96 (Benj, 2026-11-23: his page, the reception card and Unraid's
+ * notifications show it — never twice). A note given at the team lead before still notes its entries while it is kept
+ * (watchmanTeamLeadNotes(), watchmanOpenFinding()); the team lead forgets it after CARETAKER_ACK_KEEP.
  */
 function watchmanChecks(?string $dir = null): array
 {
@@ -10344,19 +10345,9 @@ function watchmanChecks(?string $dir = null): array
         return [];                  // his first round is still to come
     }
     $out = array_values(array_filter(watchmanFindings($d['book']), fn ($f) => in_array($f['id'], WATCH_TEAMLEAD_OWN, true)));
-    $open = watchmanOpenFinding($d['book']);
-    if ($open !== null) {
-        $out[] = $open;
-    }
-    $out = $out ?: [finding('quiet', 'recommended', true, [], '#/watchman')];
     $posture = watchmanPosturePage($d['state']['posture'] ?? null, readJson("$dir/posture.json"));
     if ($posture !== null && $posture['open'] > 0) {
         $out[] = finding('posture', 'hint', null, ['n' => $posture['open']], '#/watchman');
-    }
-    // 1.96: areas switched off — one line, so it isn't forgotten in half a year (its «I know, thanks» as any hint)
-    $off = count(watchmanRules(watchmanRulesRaw($dir))['off']);
-    if ($off > 0) {
-        $out[] = finding('areas_off', 'hint', null, ['n' => $off], '#/watchman');
     }
     return $out;
 }
