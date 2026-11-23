@@ -88,6 +88,9 @@
 .wm-quiet-row:hover, .wm-quiet-row:focus-visible{border-color:var(--accent)}
 .wm-quiet-row b{font-weight:600; white-space:nowrap}
 .wm-quiet-words{color:var(--muted); min-width:0; overflow-wrap:anywhere}
+/* «By disk»: a disk unfolds its wakes right beneath its row */
+.wm-wake-disk-fold{padding:0 0 6px 18px; border-bottom:1px solid var(--line)}
+.wm-wake-disk-more{margin:6px 12px}
 /* «What he checks here»: a fold per area, closed at first */
 .wm-scope{margin:12px 0 0; border:1px solid var(--line); border-radius:8px; background:var(--surface)}
 .wm-scope > summary{cursor:pointer; padding:9px 12px; display:flex; flex-wrap:wrap; gap:2px 10px; align-items:baseline}
