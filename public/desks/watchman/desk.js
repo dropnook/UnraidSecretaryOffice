@@ -1978,7 +1978,10 @@ function helpAreas(help) {
     li.append(el('b', '', tileName(id)), el('span', '', ` — ${T(`area.${id}_sub`)}`));
     const fold = scopeBox(id);
     if (fold) li.appendChild(Office.place(`scope.${id}`, fold));
-    if (id === 'vuln') vulnDownLines().forEach((x) => li.appendChild(x));      // a source away for days: said here too      // the search's place (scope.<tile>.help) and the area's link land here
+    if (id === 'vuln') {
+      vulnDownLines().forEach((x) => li.appendChild(x));      // a source away for days: said here too
+      li.appendChild(el('p', 'wm-vuln-nvd-note', T('vuln.nvd_notice')));     // NVD's terms of use
+    }      // the search's place (scope.<tile>.help) and the area's link land here
     ul.appendChild(li);
   });
   dd.append(ul, el('p', '', T('help.read_areas_more')));
@@ -3778,6 +3781,13 @@ function vulnLists(words) {
     const line = here ? T('vuln.counted', { n: here, total: fmt.number(v.kev_total), list: prods.map((x) => `${x.label} ${x.n}`).join(' · ') })
       : T('vuln.counted_none', { total: fmt.number(v.kev_total) });
     box.appendChild(el('p', 'role wm-vuln-counted', [line, v.pending ? T('vuln.pending', { n: v.pending }) : ''].filter(Boolean).join(' ')));
+    // the routers by their own log (2026-11-23, never asked of the router): the version it said and since when — or plainly
+    // that it hasn't said one yet (no line under «can't be checked for sure» for it)
+    (Array.isArray(v.routers) ? v.routers : []).filter((x) => x && typeof x.label === 'string').forEach((x) => {
+      box.appendChild(el('p', 'role wm-vuln-router', !x.version ? T('vuln.router_unknown', { product: x.label })
+        : x.at ? T('vuln.router_seen', { product: x.label, version: x.version, date: fmt.date(x.at) }) : T('vuln.router_seen_undated', { product: x.label, version: x.version })));
+    });
+    box.appendChild(el('p', 'wm-vuln-nvd-note', T('vuln.nvd_notice')));     // NVD's terms of use: this notice, as they word it
   }
   const where = (x) => (x.where && x.where !== 'host' ? T('vuln.not_in', { where: x.where }) : '');
   const fit = (list) => vulnLines(list).filter((x) => !words || !words.length || Office.fits(words, vulnHay(x)));

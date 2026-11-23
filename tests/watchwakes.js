@@ -377,6 +377,10 @@ async function vulnPage() {
   same('vulnerabilities: the NVD away for 3 days — one calm line in the area, the same in the help; the area stays green',
     [downs.length, downs[0], downs[0] === downs[1], tileWords(r.all().find((n) => n.dataset && n.dataset.tile === 'vuln'))[0] !== undefined],
     [2, [T('vuln.down', { source: T('vuln.source.nvd'), n: 3, when: O.fmt.date(state.vuln.down[0].next) }), T('vuln.down_nvd', { n: 2 })].join(' '), true, true]);
+  const routers = sec.querySelectorAll('.wm-vuln-router').map(tx);
+  same('vulnerabilities: the routers by their log — one with its version and since when, one plainly «version unknown»',
+    routers, [T('vuln.router_seen', { product: 'MikroTik RouterOS', version: '7.24.5', date: O.fmt.date(state.vuln.routers[0].at) }),
+      T('vuln.router_unknown', { product: 'MikroTik RouterOS' })]);
   const typed = async (words) => {
     const input = barIn(sectionOf(r, 'area.vuln')).querySelector('.filter-words');
     input.value = words;
