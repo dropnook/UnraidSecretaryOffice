@@ -20049,9 +20049,10 @@ function testTruthLogsWatch(): void
     $wjs = (string) file_get_contents(OFFICE_DIR . '/public/desks/watchman/desk.js');
     check('truth watch: the bubble never «all quiet» with /var/log full, the round says it', str_contains($wjs, "if (state.round && state.round.syslog_full) return T('bubble.syslog_full'")
         && str_contains($wjs, "T('round.syslog_full', {"));
-    // 1.96: the tile is a light — serious incidents red, advice not known yet green with «!», a «good to know» tip never
-    check('truth watch: the posture tile coloured only by advice (W6)', str_contains($wjs, "tips.filter((x) => x.level === 'advice' && !x.known).length")
-        && str_contains($wjs, "return louderCount() ? 'danger' : advice ? 'note' : 'ok';"));
+    // 1.96: the tile is a light — advice not known yet green with «!», a «good to know» tip never; serious incidents have
+    // their own tile (Benj on the test stand: answered, they never make it red)
+    check('truth watch: the posture tile coloured only by advice (W6), never by serious incidents', str_contains($wjs, "tips.filter((x) => x.level === 'advice' && !x.known).length")
+        && str_contains($wjs, "return advice ? 'note' : 'ok';") && !str_contains($wjs, "louderCount() ? 'danger'"));
     check('truth watch: the network\'s head says its state while the files aren\'t read (W9)', str_contains($wjs, "senders.length && !stateText[n.state] ? T('watch.net_sum'"));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
@@ -22604,7 +22605,7 @@ function testWatchmanRules(): void
     same('area off: a new plugin — nothing in the book, nothing told, made normal underneath', [[], 0, true],
         [array_values(array_filter($d['book'], fn ($x) => $x['kind'] === 'plugin_new')), $told() - $toldBefore, isset($d['baseline']['plugins']['new'])]);
     $pg = watchmanPageState($data, $t0 + 1800, false);
-    same('area off: grey, «off» said, when; the Team Lead\'s hint', ['none', 'off', $t0 + 1600, true],
+    same('area off: grey, «off» said, when; nothing of it at the Team Lead (1.96: his setup lists it)', ['none', 'off', $t0 + 1600, false],
         [$pg['cats']['plugin']['level'], $pg['cats']['plugin']['why'][0] ?? null, $pg['cats']['plugin']['off'] ?? null,
          in_array('areas_off', array_column(watchmanChecks($data), 'id'), true)]);
     watchmanCatOff('plugin', false, false, $data, $t0 + 1900, false);
@@ -24231,7 +24232,7 @@ function testWatchman(): void
          array_keys($d['baseline']['shares'])]);
     same('watch: one line in the book that he took over', ['watch'], array_column($d['book'], 'kind'));
     check('watch: never a password field in his files', !str_contains((string) file_get_contents("$data/baseline.json") . file_get_contents("$data/seen.json"), '$6$'));
-    same('watch: the team lead hears "quiet"', [['quiet', true]], array_map(fn ($f) => [$f['id'], $f['ok']], watchmanChecks($data)));
+    same('watch: the team lead hears nothing of his book (1.96: no «quiet» either)', [], array_map(fn ($f) => [$f['id'], $f['ok']], watchmanChecks($data)));
 
     // the night: what differs
     $t = $now + 300;
@@ -24278,11 +24279,11 @@ function testWatchman(): void
         str_contains(implode("\n", $c), OFFICE_NOTIFY_EVENT . ': ' . officeNotifyText('watchman', 'notify.login_failures', ['n' => 1] + watchmanText($by['login_failures']), $lang)));
     $f = array_column(watchmanChecks($data), null, 'id');
     $kinds = array_column(watchmanFindings(watchmanLoad($data)['book']), null, 'id');
-    // 2026-11-22 (the owner: not twice — his own list has them): ONE line for them all at the team lead
-    same('watch: the team lead gets ONE line for every open entry (recommended, to his page) — his list has one per kind, with the newest',
-        [['open', 'posture'], 'recommended', false, array_sum(array_column(array_column($kinds, 'params'), 'n')), '#/watchman', 13, 1, '10.9.8.7'],
-        [array_keys($f), $f['open']['level'] ?? null, $f['open']['ok'] ?? null, $f['open']['params']['n'] ?? null, $f['open']['link'] ?? null,
-         count($kinds), $kinds['login_new_ip']['params']['n'] ?? null, $kinds['login_new_ip']['params']['ip'] ?? null]);
+    // 1.96 (Benj, 2026-11-23: never twice — his page, the reception card and Unraid's notifications have them): nothing of his
+    // book at the team lead; his list keeps one line per kind, with the newest
+    same('watch: the team lead gets no line for open entries — only the security tips; his list has one per kind, with the newest',
+        [['posture'], 13, 1, '10.9.8.7'],
+        [array_keys($f), count($kinds), $kinds['login_new_ip']['params']['n'] ?? null, $kinds['login_new_ip']['params']['ip'] ?? null]);
     same('watch: and, good to know, how many security tips (Media open to everyone; privileged plex is only good to know)', ['hint', 1],
         [$f['posture']['level'] ?? null, $f['posture']['params']['n'] ?? null]);
 
@@ -24504,9 +24505,11 @@ function testWatchmanTeamLeadOne(): void
     same('watch team lead: an old per-kind note — its entries noted as before, the others untouched', [null, null, 'teamlead', null, 'page'], array_column($after, 'by'));
     // the router log gone silent: a line of its own at the team lead (he needs it to watch)
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/watchman.php');
-    check('watch team lead: what he needs to watch stays a line of its own (the router log); the checks fold the rest into the one line',
+    // 1.96 (Benj, 2026-11-23): nothing else of his book at the team lead — no one line, no «quiet», no areas switched off
+    check('watch team lead: what he needs to watch stays a line of its own (the router log); nothing else of his book, no areas off',
         str_contains($src, "const WATCH_TEAMLEAD_OWN = ['net_log_silent'];") && preg_match('/function watchmanChecks\(.*?\n\}/s', $src, $m)
-        && str_contains($m[0], "in_array(\$f['id'], WATCH_TEAMLEAD_OWN, true)") && str_contains($m[0], 'watchmanOpenFinding($d[\'book\'])'));
+        && str_contains($m[0], "in_array(\$f['id'], WATCH_TEAMLEAD_OWN, true)") && !str_contains($m[0], 'watchmanOpenFinding(')
+        && !str_contains($m[0], "'quiet'") && !str_contains($m[0], "'areas_off'"));
     hardeningRm($tmp);
 }
 
@@ -32572,7 +32575,7 @@ function testWatchmanPosture(): void
     same('posture: on the page — nobody knows them yet, six of his advice open', [6, [false]], [$page['posture']['open'], array_values(array_unique(array_column($page['posture']['tips'], 'known')))]);
     check('posture: no signatures on the page', !str_contains(json_encode($page['posture']), 'sig'));
     $hint = array_column(watchmanChecks($data), null, 'id');
-    same('posture: the team lead hears it as good to know, next to "quiet"', [true, 'hint', null, 6, '#/watchman'],
+    same('posture: the team lead hears it as good to know (1.96: nothing of his book beside it, no «quiet»)', [false, 'hint', null, 6, '#/watchman'],
         [isset($hint['quiet']), $hint['posture']['level'] ?? null, array_key_exists('ok', $hint['posture'] ?? []) ? $hint['posture']['ok'] : 'x',
          $hint['posture']['params']['n'] ?? null, $hint['posture']['link'] ?? null]);
     same('posture: never in the watch book', ['watch'], array_column(watchmanLoad($data)['book'], 'kind'));
@@ -34113,9 +34116,8 @@ function testWatchmanApiDoor(): void
         [$tips['api_admin']['level'] ?? null, $tips['api_admin']['p']['names'] ?? null, $tips['api_admin']['p']['n'] ?? null, $tips['api_admin']['link']['path'] ?? null]);
     $checks = array_column(watchmanChecks($day), null, 'id');
     $kinds = array_column(watchmanFindings(watchmanLoad($day)['book']), null, 'id');
-    same('api: both kinds on his list, the team lead\'s one line counts them, and the advice', ['recommended', 'recommended', 'recommended', true, 'hint'],
-        [$kinds['api_key_new']['level'] ?? null, $kinds['api_key_changed']['level'] ?? null, $checks['open']['level'] ?? null,
-         ($checks['open']['params']['n'] ?? 0) >= 2, $checks['posture']['level'] ?? null]);
+    same('api: both kinds on his list; at the team lead only the advice (1.96: no line for open entries)', ['recommended', 'recommended', false, 'hint'],
+        [$kinds['api_key_new']['level'] ?? null, $kinds['api_key_changed']['level'] ?? null, isset($checks['open']), $checks['posture']['level'] ?? null]);
     $syslogged = (string) @file_get_contents("$tmp/syslogged");
     check('api: the SIEM line carries the kind and the technique', str_contains($syslogged, '"kind":"api_key_new"') && str_contains($syslogged, '"attack":"T1098"'));
     check('api: told to Unraid\'s notifications', str_contains((string) @file_get_contents("$tmp/notified"), 'Remote tool'));
@@ -34743,7 +34745,7 @@ function testWatchmanSnaps(): void
     same('snaps gone in words', '3 snapshots vanished on hazel — not removed by the office: hazel/data@manual2, hazel/data@uso-backup-20261006-0100, hazel/media@uso-plan-x-20261005-0100',
         officeNotifyText('watchman', 'entry.snap_gone', ['n' => 3] + watchmanText($g, 'en'), 'en'));
     $checks = array_column(watchmanFindings(watchmanLoad($data)['book']), null, 'id');
-    same('snaps: both on his list (the team lead\'s one line counts them) — important, so to Unraid\'s notifications too', ['recommended', 'recommended', true, true, true],
+    same('snaps: both on his list (1.96: nothing of it at the team lead) — important, so to Unraid\'s notifications too', ['recommended', 'recommended', true, true, false],
         [$checks['snap_gone']['level'] ?? null, $checks['snap_hold_released']['level'] ?? null, WATCH_KINDS['snap_gone'][1], WATCH_KINDS['snap_hold_released'][1],
          isset(array_column(watchmanChecks($data), null, 'id')['open'])]);
     same('snaps: the sleeping pool named', ['cold', 'disk3'], $summary()['asleep'] ?? null);

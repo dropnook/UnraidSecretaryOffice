@@ -876,7 +876,8 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   once), `rules` (≤ 300, ≤ 50 an area; `on` in one of its shapes — key, ip, net, user+net, machine, source, file, cmd,
   share, disk, open, prog, tunnel, pair/admin + ip|net, vpn, sender (+iface), network, series (+dataset), dataset, vm, script,
   cause, thing (+max_c: the new abilities' thing across days and boots, below); `opt` makes it a threshold where the data flow is judged), `off` (areas switched off: what comes there is made
-  normal, the Team Lead says `areas_off`), `known` (your lasting answers, a fingerprint each, 3.4). **Re-learn** (step 17,
+  normal; listed in «Everything changed» — since 1.96 the Team Lead shows nothing of his book but the router's log gone
+  silent and the posture tips' count: no «n open incidents», no areas off), `known` (your lasting answers, a fingerprint each, 3.4). **Re-learn** (step 17,
   agent/desks/watchman-relearn.php, actions `relearn` {cat|all, rules, settings} and `relearn_back` {name}): a take-over in
   small, never keys simply deleted — what it takes is written to `data/watchman/aside/<Ymd-His>-<area|all>/relearn.json`
   first (never deleted; brought back within 7 days, then renamed `…-back`); open entries of the area noted `by: relearn`
