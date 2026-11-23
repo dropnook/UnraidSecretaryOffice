@@ -550,40 +550,62 @@ function offerName(o, e, here) {
   return what ? T('rule.key_of', { what: what.length > 70 ? what.slice(0, 69) + '…' : what }) : T('rule.offer.key');
 }
 /**
- * «… always okay» on an open entry: what it covers, what not, where it is lifted — asked once for anything wider than
- * this one thing, and more clearly for the kinds he asks about (the button names it); the messenger looks the offer up
- * anew from the entry (never trusts a net or a name from the page)
+ * «Such a thing is always in order …» on an open entry (1.96 «einfacher»: one button, before «… always okay» and «more ▾»):
+ * a short choice in whole sentences, the narrowest first — under the chosen one what it covers, what not, where it is
+ * lifted, a clearer word for the kinds he asks about; the confirm button names what follows. The messenger looks the
+ * offer up anew from the entry (never trusts a net or a name from the page). Then the undo line.
  */
+function ruleAsk(e, offers, b) {
+  const body = el('div', 'wm-rule-ask');
+  const name = `wm-offer-${e.id}`;
+  let chosen = offers[0];
+  const why = el('div', 'wm-rule-why');
+  const yes = { text: '', kind: 'primary', act: () => { ruleAdd(e, chosen, b); } };
+  const say = () => {
+    const what = offerName(chosen, e, true);
+    const n = Math.max(1, Number(chosen.covers) || 1);
+    why.replaceChildren();
+    [T('rule.ask_covers', { what: offerName(chosen, e), n }), chosen.type === 'net' || chosen.type === 'ip' ? T('rule.ask_net_not') : '',
+      chosen.ask ? T('rule.ask_serious') : '', e.again ? T('rule.ask_incident') : '',
+      (chosen.kinds || []).some((k) => k === 'flow_gone') ? T('rule.ask_must') : '', T('rule.ask_where')]
+      .filter(Boolean).forEach((x) => why.appendChild(el('p', chosen.ask && x === T('rule.ask_serious') ? 'callout warn' : '', x)));
+    yes.text = T('rule.confirm', { what });
+    const btn = document.querySelector('#sso-dialog-foot .btn.primary');
+    if (btn) btn.textContent = yes.text;
+  };
+  offers.forEach((o, i) => {
+    const label = el('label', 'switch wm-offer-pick');
+    const r = el('input');
+    r.type = 'radio';
+    r.name = name;
+    r.checked = i === 0;
+    r.onchange = () => { if (r.checked) { chosen = o; say(); } };
+    label.append(r, el('span', '', offerName(o, e, true)));
+    body.appendChild(label);
+  });
+  body.appendChild(why);
+  say();
+  Office.dialog({ title: T('rule.always'), body, buttons: [yes, { text: Office.t('common.cancel') }] });
+  if (b) b.blur();
+}
 async function ruleAdd(e, o, b) {
   if (!(await Office.freshState(ID))) return;
-  const what = offerName(o, e);
-  const n = Math.max(1, Number(o.covers) || 1);
-  const go = async (sure) => {
-    b.disabled = true;
-    const j = await Office.api.post(`${ID}.rule_add`, { id: e.id, type: o.type, sure });
-    if (!j.ok) {
-      Office.toast(Office.errorText(j.error, ID), true);
-      if (j.error && j.error.key === 'watch_gone') await load(true);
-      else b.disabled = false;
-      return;
-    }
-    if (j.state) state = j.state;
-    if (j.rule) justMade.add(j.rule);
-    mood();
-    renderKeeping(e.id);
-    const more = Math.max(0, (Number(j.noted) || 1) - 1);
-    Office.toast(more ? `${T('rule.added')} ${T('rule.added_more', { n: more })}` : T('rule.added'));
-  };
-  if (!o.ask && o.type === 'key' && n === 1) { go(false); return; }
-  const body = el('div', 'wm-rule-ask');
-  const lines = [T('rule.ask_covers', { what, n }), o.type === 'net' || o.type === 'ip' ? T('rule.ask_net_not') : '',
-    o.ask ? T('rule.ask_serious') : '', e.again ? T('rule.ask_incident') : '',
-    (o.kinds || []).some((k) => k === 'flow_gone') ? T('rule.ask_must') : '', T('rule.ask_where')];
-  lines.filter(Boolean).forEach((x) => body.appendChild(el('p', o.ask && x === T('rule.ask_serious') ? 'callout warn' : '', x)));
-  Office.dialog({ title: T('rule.ask_title'), body, buttons: [
-    { text: o.ask ? T('rule.ask_yes', { what }) : T('rule.add'), kind: 'primary', act: () => { go(!!o.ask); } },
-    { text: Office.t('common.cancel') },
-  ] });
+  b.disabled = true;
+  const j = await Office.api.post(`${ID}.rule_add`, { id: e.id, type: o.type, sure: !!o.ask });
+  if (!j.ok) {
+    Office.toast(Office.errorText(j.error, ID), true);
+    if (j.error && j.error.key === 'watch_gone') await load(true);
+    else b.disabled = false;
+    return;
+  }
+  if (j.state) state = j.state;
+  if (j.rule) justMade.add(j.rule);
+  mood();
+  renderKeeping(e.id);
+  const more = Math.max(0, (Number(j.noted) || 1) - 1);
+  const rid = j.rule;
+  undoLine(more ? `${T('undo.rule')} ${T('rule.added_more', { n: more })}` : T('undo.rule'),
+    () => (rid ? ruleRemove({ id: rid }, true, el('button')) : null));
 }
 /** «Lift» an exception (undo: right after it was made — its entries open again) */
 async function ruleRemove(r, undo, b) {
@@ -844,7 +866,41 @@ async function ack(e, b) {
   if (j.state) state = j.state;
   mood();
   renderKeeping(e.id);
-  Office.toast(T('acked'));
+  undoLine(T(e.lasts === false ? 'undo.ack_once' : 'undo.ack'), () => ackUndo([e.id]));
+}
+
+/*
+ * After each answer a line at the bottom says what holds now, with «Undo» (1.96 «einfacher»): «Remembered. He no longer
+ * tells it, unless it changes.» — the answer taken back at once (ack_undo: the entry open again; rule_remove with undo;
+ * serious_undo then ack_undo). One at a time; it goes by itself after a while. In #sso, never body.
+ */
+let undoNode = null;
+function undoLine(text, undo) {
+  if (undoNode) undoNode.remove();
+  const host = document.getElementById('sso');
+  if (!host) return;
+  const n = el('div', 'wm-undo');
+  n.setAttribute('role', 'status');
+  const b = el('button', 'btn small', T('undo.do'));
+  b.type = 'button';
+  b.disabled = !Office.agent.running;
+  b.onclick = async () => { b.disabled = true; n.remove(); undoNode = null; await undo(); };
+  n.append(el('span', '', text), b);
+  host.appendChild(n);
+  undoNode = n;
+  setTimeout(() => { if (undoNode === n) { n.remove(); undoNode = null; } }, 15000);
+}
+/** «Undo» on «In order …»: each entry open again, what it made known taken out */
+async function ackUndo(ids) {
+  let j = null;
+  for (const id of ids) {
+    j = await Office.api.post(`${ID}.ack_undo`, { id });
+    if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); break; }
+  }
+  if (j && j.state) state = j.state;
+  mood();
+  if (view) Office.keepInPlace(null, render);
+  if (j && j.ok) Office.toast(T('undo.done'));
 }
 
 /**
@@ -882,9 +938,13 @@ function seriousAck(e, b, ab) {
       if (j.state) state = j.state;
       mood();
       renderKeeping(e.id);
-      Office.toast(T('serious_done'));
+      undoLine(T('undo.serious'), async () => {
+        const k = await Office.api.post(`${ID}.serious_undo`, { id: e.id });
+        if (!k.ok) { Office.toast(Office.errorText(k.error, ID), true); return; }
+        await ackUndo([e.id]);            // «Not an incident after all» leaves it as «In order» would: open again
+      });
       return true;
-    } }, { text: T('ack'), kind: '', act: async () => {
+    } }, { text: T(e.lasts === false ? 'ack_once' : 'ack'), kind: '', act: async () => {
       if (!Office.agent.running) return false;
       await ack(e, ab);
       return true;
@@ -942,8 +1002,8 @@ async function ackSome(list, b, key) {
   }
   if (j.state) state = j.state;
   mood();
-  renderAt(`.wm-fold-head[data-fold="${CSS.escape(key)}"]`, '.wm-book');
-  Office.toast(T('acked_all', { n: Number(j.noted) || list.length }));
+  renderAt(`.wm-fold-head[data-fold="${CSS.escape(key)}"]`, '.wm-book', '.wm-cat');
+  undoLine(T('undo.ack_all', { n: Number(j.noted) || list.length }), () => ackUndo(list.map((e) => e.id)));
 }
 
 async function ackAll() {
@@ -1414,7 +1474,7 @@ function postureRow(x) {
     a.href = href;
     acts.appendChild(a);
   }
-  const b = el('button', 'btn small plain', T(x.known ? 'posture.show_again' : 'ack'));
+  const b = el('button', 'btn small plain', T(x.known ? 'posture.show_again' : 'posture.ack'));      // a hint: «I know, thanks» (only here, 1.96 «einfacher»)
   b.type = 'button';
   b.title = T(x.known ? 'posture.show_again_title' : 'posture.ack_title');
   b.disabled = !Office.agent.running || !hired();
@@ -1934,12 +1994,9 @@ function foldRow(x, typed) {
   if (watch) {
     meta.appendChild(first.p && first.p.too_much ? chip(T('state.too_much'), 'warn', T('state.too_much_title')) : chip(T('state.watch'), 'accent', T('state.watch_title')));
   } else {
+    // in the line only how many are open (or «done») and the time (1.96 «einfacher»); each entry's tags when unfolded
     meta.appendChild(x.open ? chip(T('book.open_n', { n: x.open }), 'warn', T('state.open_title')) : chip(T('state.noted'), 'quiet', T('state.noted_title')));
-    meta.appendChild(chip(T('group.' + first.group), '', T('group_title.' + first.group)));
-    const tech = attackLink(first.attack);
-    if (tech) meta.appendChild(tech);
     if (x.chain) meta.appendChild(chip(T('chain_chip'), 'warn', T('chain_title_fold')));
-    if (x.night) meta.appendChild(chip(T('state.night'), 'accent', T('state.night_title')));
   }
   const when = el('span', '', fmt.date(x.last));
   when.dataset.tip = fmt.relative(x.last);
@@ -2032,21 +2089,23 @@ function entryRow(e, owner) {
   const main = el('div', 'row-main');
   const name = el('div', 'row-name text', entryName(e));
   const meta = el('div', 'row-meta');
+  const more = [];                // its other tags, shown when the row is unfolded
   if (tooMuch) {
     meta.appendChild(chip(T('state.too_much'), 'warn', T('state.too_much_title')));
   } else if (watch) {
     meta.appendChild(chip(T('state.watch'), 'accent', T('state.watch_title')));
   } else {
     name.title = T('details');
+    // in the line only «open» or «done» (an incident says so) and the time (1.96 «einfacher»); the rest when unfolded
     meta.appendChild(e.open ? chip(T('state.open'), 'warn', T('state.open_title'))
       : e.serious ? chip(T('state.serious'), 'warn', T('state.serious_title')) : chip(T('state.noted'), 'quiet', T('state.noted_title')));
-    if (e.again) meta.appendChild(chip(T('state.again'), 'warn', T('state.again_title')));
-    meta.appendChild(chip(T('group.' + e.group), '', T('group_title.' + e.group)));
-    const tech = attackLink(e.attack);
-    if (tech) meta.appendChild(tech);
+    if (e.again) more.push(chip(T('state.again'), 'warn', T('state.again_title')));
     const chain = (state.chains || []).find((c) => c.ids.includes(e.id));
-    if (chain) meta.appendChild(chip(T('chain_chip'), 'warn', T('chain_title', { n: chain.ids.length })));
-    if (e.night) meta.appendChild(chip(T('state.night'), 'accent', T('state.night_title')));
+    if (chain) more.push(chip(T('chain_chip'), 'warn', T('chain_title', { n: chain.ids.length })));
+    if (e.night) more.push(chip(T('state.night'), 'accent', T('state.night_title')));
+    more.push(chip(T('group.' + e.group), '', T('group_title.' + e.group)));
+    const tech = attackLink(e.attack);            // for experts: the ATT&CK technique
+    if (tech) more.push(tech);
   }
   const when = el('span', '', fmt.date(e.last));
   when.dataset.tip = fmt.relative(e.last);
@@ -2065,22 +2124,15 @@ function entryRow(e, owner) {
     b.disabled = !Office.agent.running;
     b.onclick = () => ack(e, b);
     acts.appendChild(b);
-    // an exception (1.96): the narrowest the messenger offers as a button, the others under «more ▾»
+    // «Such a thing is always in order …» (1.96 «einfacher»): one button, its choice in whole sentences (ruleAsk())
     const offers = watch ? [] : (Array.isArray(e.offers) ? e.offers : []).filter((o) => o && OFFERS.includes(o.type));
     if (offers.length) {
-      const ob = el('button', 'btn small plain wm-offer', offerName(offers[0], e, true));
+      const ob = el('button', 'btn small plain wm-offer', T('rule.always'));
       ob.type = 'button';
       ob.title = T('rule.offer_title');
       ob.disabled = !Office.agent.running || !hired();
-      ob.onclick = () => ruleAdd(e, offers[0], ob);
+      ob.onclick = () => ruleAsk(e, offers, ob);
       acts.appendChild(ob);
-      if (offers.length > 1) {
-        const more = el('button', 'btn small plain', T('rule.more'));
-        more.type = 'button';
-        more.disabled = ob.disabled;
-        more.onclick = (ev) => Office.menu(ev, offers.slice(1).map((o) => ({ text: offerName(o, e, true), act: () => ruleAdd(e, o, more) })));
-        acts.appendChild(more);
-      }
     }
     if (!watch) {
       const sb = el('button', 'btn small plain wm-serious', T('serious'));
@@ -2096,7 +2148,11 @@ function entryRow(e, owner) {
   let box = null;
   const set = (open) => {
     if (!open && box) { box.remove(); box = null; unfolded.delete(e.id); r.classList.remove('open'); }
-    if (open && !box) { box = details(e); r.appendChild(box); unfolded.add(e.id); r.classList.add('open'); }
+    if (open && !box) {
+      box = details(e);
+      if (more.length) { const tags = el('div', 'row-meta wm-more-tags'); more.forEach((x) => tags.appendChild(x)); box.prepend(tags); }
+      r.appendChild(box); unfolded.add(e.id); r.classList.add('open');
+    }
   };
   r.onclick = (ev) => {
     if (ev.target.closest('button, a, input, .row-detail, [data-own]')) return;

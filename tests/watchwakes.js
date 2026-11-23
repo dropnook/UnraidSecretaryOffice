@@ -299,15 +299,18 @@ async function rules() {
   const sec = sectionOf(r, 'help.lights') || r;
   const offer = r.all().find((n) => n.classList && n.classList.contains('wm-offer'));
   const first = state.book.find((e) => e.open && e.cat === 'login');
-  same('exceptions: an open login offers the narrowest first (root from its /24), the others under «more ▾»',
-    [offer && tx(offer), !!(offer && offer.parentNode.children.some((n) => tx(n) === T('rule.more')))],
-    [T('rule.offer.user_net', { user: first.offers[0].on.user, net: first.offers[0].on.net }), true]);
+  // 1.96 «einfacher»: one button «Something like this is always all right …», its choice in whole sentences (the narrowest first)
+  same('exceptions: an open login has one button «… always all right …», no «more ▾»',
+    [offer && tx(offer), !!(offer && offer.parentNode.children.some((n) => tx(n) === T('rule.more')))], [T('rule.always'), false]);
   offer.click();
   await tick();
   const d = dialogs[dialogs.length - 1];
-  same('exceptions: wider than this one thing — asked once: what it covers, what a net never does, where it is lifted; nothing sent yet',
-    [d && d.title, d && d.body.querySelectorAll('p').map(tx).filter((x) => x === T('rule.ask_net_not') || x === T('rule.ask_where')).length, posts.filter((p) => p[0] === 'watchman.rule_add').length],
-    [T('rule.ask_title'), 1, 0]);
+  const picks = d ? d.body.querySelectorAll('.wm-offer-pick').map(tx) : [];
+  same('exceptions: the choice — every offer a sentence, the narrowest first; what it covers, what a net never does, where it is lifted; the confirm names it; nothing sent yet',
+    [d && d.title, picks[0], picks.length, d && d.body.querySelectorAll('p').map(tx).filter((x) => x === T('rule.ask_where')).length,
+      d && d.buttons[0].text, posts.filter((p) => p[0] === 'watchman.rule_add').length],
+    [T('rule.always'), T('rule.offer.user_net', { user: first.offers[0].on.user, net: first.offers[0].on.net }), first.offers.length, 1,
+      T('rule.confirm', { what: T('rule.offer.user_net', { user: first.offers[0].on.user, net: first.offers[0].on.net }) }), 0]);
   // 1.96 «einfacher»: each thing in one place — the watch page only jumps there; the lists stand in his setup
   const jump = r.all().find((n) => n.classList && n.classList.contains('wm-jump') && n.tagName === 'A');
   same('the tile jumps to its setup (what is always in order, what you had him remember) — no lists on the watch page',
