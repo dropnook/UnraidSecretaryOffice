@@ -20049,10 +20049,11 @@ function testTruthLogsWatch(): void
     $wjs = (string) file_get_contents(OFFICE_DIR . '/public/desks/watchman/desk.js');
     check('truth watch: the bubble never «all quiet» with /var/log full, the round says it', str_contains($wjs, "if (state.round && state.round.syslog_full) return T('bubble.syslog_full'")
         && str_contains($wjs, "T('round.syslog_full', {"));
-    // 1.96: the tile is a light — advice not known yet green with «!», a «good to know» tip never; serious incidents have
-    // their own tile (Benj on the test stand: answered, they never make it red)
-    check('truth watch: the posture tile coloured only by advice (W6), never by serious incidents', str_contains($wjs, "tips.filter((x) => x.level === 'advice' && !x.known).length")
-        && str_contains($wjs, "return advice ? 'note' : 'ok';") && !str_contains($wjs, "louderCount() ? 'danger'"));
+    // 1.96 «einfacher»: one meaning per colour — the tiles' lights are the messenger's (watchmanTiles()); «Only what waits
+    // for you» is red and yellow; «How secure» and «Serious incidents» are no tiles (advice in its tile, incidents in the book)
+    check('truth watch: the lights are the messenger\'s tiles; only red and yellow wait; no tile «posture» or «incidents»',
+        str_contains($wjs, "const tileWaits = (level) => level === 'danger' || level === 'warn';") && str_contains($wjs, 'level: () => tileLevel(id)')
+        && !str_contains($wjs, "id: 'posture', key: 'tile.posture'") && !str_contains($wjs, "id: 'incidents', key: 'tile.incidents'"));
     check('truth watch: the network\'s head says its state while the files aren\'t read (W9)', str_contains($wjs, "senders.length && !stateText[n.state] ? T('watch.net_sum'"));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
@@ -21385,6 +21386,9 @@ function testWatchmanVuln(): void
     same('vuln judge: the kernel affected with its fix; PHP (Windows only) and Unraid 7.4.1 (released long after a 2021 entry) checked, not affected; the lists fresh',
         [[['CVE-2024-1086', 'kernel', 'yes', '6.12.24-Unraid', '6.12.48']], 2, true, ['version' => '7.4.1', 'status' => 'supported', 'newest' => '7.4.1']],
         [array_map(fn ($x) => [$x['cve'], $x['product'], $x['verdict'], $x['have'], $x['fixed']], $j['found']), $j['checked'], $j['fresh'], $j['unraid']]);
+    same('vuln judge: the two checked and not affected listed for his page (1.96 «einfacher»: what runs here, the vulnerability)',
+        [['CVE-2024-4577', 'php', '8.3.4'], ['CVE-2020-5847', 'unraid', '7.4.1']],
+        (function () use ($j) { $x = array_map(fn ($n) => [$n['cve'], $n['product'], $n['have']], $j['not']); usort($x, fn ($a, $b) => strcmp($a[1], $b[1])); return $x; })());
     $j2 = watchmanVulnJudge($dir, [['product' => 'unraid', 'version' => '7.3.0-beta.2', 'clean' => null, 'where' => 'host']], $t0 + 3 * 86400);
     same('vuln judge: a version that doesn\'t compare (a beta) — maybe', [['CVE-2020-5847', 'maybe']], array_map(fn ($x) => [$x['cve'], $x['verdict']], $j2['found']));
     same('vuln judge: the lists older than three days — not fresh («not checked», never «all fine»)', false, watchmanVulnJudge($dir, $inv, $t0 + 8 * 86400)['fresh']);
@@ -21472,7 +21476,12 @@ function testWatchmanVuln(): void
             $light(['on' => true, 'checked_at' => $t0, 'fresh' => true]), $light(['on' => true, 'checked_at' => $t0, 'fresh' => true], [$open('vuln_maybe', false)]),
             $light(['on' => true, 'checked_at' => $t0, 'fresh' => true], [$open('vuln_known', true)])]));
     same('vuln page: the switch, freshness, counts', ['on' => true, 'since' => null, 'checked_at' => $t0, 'fresh' => true, 'checked' => 2, 'affected' => 1, 'maybe' => 0],
-        array_diff_key(watchmanVulnPage(['vuln_on' => true], ['kev' => $t0, 'fresh' => true, 'checked' => 2, 'found' => [['verdict' => 'yes']]]), ['software' => 1, 'unknown' => 1]));
+        array_diff_key(watchmanVulnPage(['vuln_on' => true], ['kev' => $t0, 'fresh' => true, 'checked' => 2, 'found' => [['verdict' => 'yes']]]), ['software' => 1, 'unknown' => 1, 'not' => 1]));
+    // 1.96 «einfacher»: «Checked: doesn't concern you» — what runs here, the vulnerability, fixed from; an older state has none
+    same('vuln page: the list «checked, doesn\'t concern you» (only exactly-shaped lines); none in an older state',
+        [[['cve' => 'CVE-2024-4577', 'product' => 'php', 'where' => 'host', 'have' => '8.5.12', 'fixed' => '8.5.12', 'name' => 'x', 'label' => 'PHP']], []],
+        [watchmanVulnPage(['vuln_on' => true], ['not' => [['cve' => 'CVE-2024-4577', 'product' => 'php', 'where' => 'host', 'have' => '8.5.12', 'fixed' => '8.5.12', 'name' => 'x'], 'junk', ['cve' => 7]]])['not'],
+         watchmanVulnPage(['vuln_on' => true], ['kev' => $t0])['not']]);
 
     // a whole round: off — nothing judged; on — the kernel's entry in book-more.json, the page says so; the night shift never
     $data = "$tmp/round";
@@ -23903,6 +23912,52 @@ function testWatchmanFrom195(): void
 }
 
 /**
+ * His 12 tiles over the 19 areas (1.96 «Der Nachtwächter, einfacher», watchman-cats.php): every area on exactly one tile;
+ * the flash's go, extra packages and start files on «Plugins and scripts», the server's start line on «The server»;
+ * one meaning per colour — red/yellow only for what waits (and a few hard findings), green «!» for an advice, green while
+ * it learns or a part sleeps, grey when he can't look (only when every part is grey); a tile off when all its areas are.
+ */
+function testWatchmanTiles(): void
+{
+    $all = array_merge(...array_values(WATCH_TILES));
+    same('tiles: every area on exactly one tile', [[], []], [array_values(array_diff(array_keys(WATCH_CATS), $all)), array_values(array_diff_assoc($all, array_unique($all)))]);
+    same('tiles: the kinds that move', ['plugins', 'plugins', 'plugins', 'server', 'access', 'access', 'login', 'net', 'array'],
+        array_map('watchmanTileOf', ['flash_go', 'flash_extra', 'flash_boot', 'server_boot', 'flash_ssh_key', 'share_public', 'door_key_moved', 'net_dns', 'parity_check']));
+    $area = fn (array $why, ?int $off = null) => ['level' => '', 'why' => $why, 'tips' => in_array('tips', $why, true) ? 1 : 0] + ($off ? ['off' => $off] : []);
+    $areas = array_map(fn () => $area([]), WATCH_CATS);
+    $t = fn (array $over, array $book = []) => watchmanTiles(array_replace($areas, $over), $book);
+    $lvl = fn (array $tiles, string $id) => [$tiles[$id]['level'], $tiles[$id]['why']];
+    same('tiles: all quiet — green everywhere', ['ok'], array_values(array_unique(array_column($t([]), 'level'))));
+    same('tiles: an important entry open — red; one not important — yellow (counted on its own tile: go on «Plugins»)',
+        [['danger', ['open_tell']], ['warn', ['open']], ['ok', []]],
+        [$lvl($t([], [['kind' => 'login_new_ip', 'open' => true, 'tell' => true]]), 'login'), $lvl($t([], [['kind' => 'flash_go', 'open' => true, 'tell' => false]]), 'plugins'),
+         $lvl($t([], [['kind' => 'flash_go', 'open' => true, 'tell' => false]]), 'access')]);
+    same('tiles: an advice not known — green «!»; learning, a pool asleep — green with the reason',
+        [['note', ['tips']], ['ok', ['relearn_flow']], ['ok', ['asleep']]],
+        [$lvl($t(['door' => $area(['tips'])]), 'access'), $lvl($t(['pull' => $area(['relearn_flow'])]), 'data'), $lvl($t(['snap' => $area(['asleep'])]), 'snap')]);
+    same('tiles: can\'t reach one part — the other part keeps it green; every part — grey',
+        [['ok', ['syslog_full']], ['none', ['no_router']], ['none', ['docker_off']]],
+        [$lvl($t(['login' => $area(['syslog_full'])]), 'login'), $lvl($t(['router' => $area(['no_router']), 'lan' => $area(['no_router'])]), 'net'),
+         $lvl($t(['container' => $area(['docker_off'])]), 'container')]);
+    same('tiles: hard findings — a second unclean stop red, the time-out too short yellow, an NVMe\'s warning red',
+        ['danger', 'warn', 'danger'], [$t(['array' => $area(['parity_again'])])['array']['level'], $t(['hold' => $area(['hold_short'])])['array']['level'],
+         $t(['hw' => $area(['hw_nvme_warning'])])['hw']['level']]);
+    same('tiles: off when every area of it is off (its open entries no longer wait); one area off — not the tile',
+        [['none', ['off'], 50, 0], null], [(fn ($x) => [$x['level'], $x['why'], $x['off'], $x['open']])($t(['router' => $area([], 40), 'lan' => $area([], 50)],
+            [['kind' => 'net_dns', 'open' => true, 'tell' => false]])['net']), $t(['router' => $area([], 40)])['net']['off']]);
+    // the page state carries them, each entry and tip its tile; the old areas stay for an older page
+    $tmp = hardeningTmp('watch-tiles');
+    mkdir("$tmp/watchman", 0700, true);
+    writeAtomic("$tmp/watchman/baseline.json", jsonEncode(['hired' => 1000, 'time' => 1000, 'ips' => []]), 0600);
+    writeAtomic("$tmp/watchman/state.json", jsonEncode([]), 0600);
+    writeAtomic("$tmp/watchman/book.json", jsonEncode(['entries' => [watchmanEntry('flash_boot', 'flash_boot:x', 2000, ['file' => 'x'])]]), 0600);
+    $pg = watchmanPageState("$tmp/watchman", 3000, false);
+    same('tiles: the page state — 12 tiles, the 19 areas kept, an entry with its tile', [12, count(WATCH_CATS), 'plugins'],
+        [count($pg['tiles'] ?? []), count($pg['cats'] ?? []), $pg['book'][0]['tile'] ?? null]);
+    hardeningRm($tmp);
+}
+
+/**
  * His page (1.96, Benj on the test stand): every filter bar of his shows from the first row on (the other desks keep
  * Office.FILTER_MIN); his short lists (exceptions, your answers, the history) have one; «Known vulnerabilities» switched
  * off says what he would check and has its switch right there; his setup's switch for it is the real one (vuln_set).
@@ -23921,13 +23976,73 @@ function testWatchmanPageBars(): void
         str_contains($js, 'Office.keepInPlace(head, () => pageSw().render()); };'));
     same('vuln off: what he would check, the switch in the callout; his setup\'s switch is vuln_set', [true, true, true],
         [str_contains($js, "T('vuln.explain_lists')") && str_contains($js, "T('vuln.explain_here')") && str_contains($js, "T('vuln.explain_says')"),
-         (bool) preg_match('/function vulnOffBox\(\).*?vulnButton\(\)/s', $js), str_contains($js, "cb.onchange = () => (vuln ? vulnSet(cb.checked, cb) : catOffAsk(id, !cb.checked, cb));")]);
+         (bool) preg_match('/function vulnOffBox\(\).*?vulnButton\(\)/s', $js), str_contains($js, "cb.onchange = () => (vuln ? vulnSet(cb.checked, cb) : tileOffAsk(id, !cb.checked, cb));")]);
     // the words name only what the code fetches and compares (watchman-vuln.php)
     $en = langFile(OFFICE_WEB . '/desks/watchman/lang/en.json');
     $hosts = array_map(fn ($u) => preg_replace('/^www\./', '', (string) parse_url($u, PHP_URL_HOST)), WATCH_VULN_URLS);
     same('vuln off: its words name every list he fetches', [], array_values(array_filter($hosts, fn ($h) => !str_contains($en['vuln.explain_lists'] ?? '', $h))));
     $labels = array_column(array_filter(WATCH_VULN_PRODUCTS, fn ($p) => isset($p['env'])), 'label');
     same('vuln off: … every software an image may declare', [], array_values(array_filter($labels, fn ($l) => !str_contains($en['vuln.explain_here'] ?? '', $l))));
+}
+
+/**
+ * A data folder as the 1.96 test stand left it renders in the new page (1.96 «Der Nachtwächter, einfacher»: the brief
+ * asked for it — the core's files unchanged in shape): rounds on copies, an answer given («I know, thanks» → a lasting
+ * answer in rules.json), an exception by hand, a setting off its default, an area switched off; the messenger's page state
+ * from it, drawn by desk.js under node (tests/watchwakes.js «stand»): every tile, the book, the schedule, old places and
+ * every tile of his setup without an error, the exception and the answer in the setup of «Logins», the area off said.
+ */
+function testWatchmanStandRender(): void
+{
+    $tmp = hardeningTmp('watch-stand');
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['plugins', 'extra', 'ssh/root'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini",
+              'share_cfg' => "$src/share.cfg", 'etc_passwd' => "$src/passwd"];
+    $t0 = strtotime('2026-11-20 10:00:00');
+    $line = fn (int $t, string $s) => date('M ', $t) . str_pad(date('j', $t), 2, ' ', STR_PAD_LEFT) . date(' H:i:s', $t) . " Tower $s\n";
+    file_put_contents($paths['syslog'], $line($t0 - 3600, 'webgui: Successful login user root from 192.168.20.10'));
+    foreach (['go' => "#!/bin/bash\n", 'passwd' => "root:x:0:0::/root:/bin/bash\n", 'shadow' => 'root:$6$aa$bb:20000:0:99999:7:::' . "\n",
+              'sec' => "[\"appdata\"]\nexport=\"e\"\nsecurity=\"private\"\n", 'sec_nfs' => '', 'share_cfg' => "shareSMBEnabled=\"yes\"\n"] as $k => $v) {
+        file_put_contents($paths[$k], $v);
+    }
+    $docker = fn () => ['web' => ['image' => 'nginx', 'tokens' => ['-p 80:80/tcp']]];
+    watchmanRound($paths, $data, 1000, $t0, $docker, false, "$tmp/acks.json");
+    file_put_contents($paths['syslog'], $line($t0 + 100, 'webgui: Successful login user root from 192.168.30.5'), FILE_APPEND);
+    file_put_contents($paths['syslog'], $line($t0 + 110, 'webgui: Successful login user root from 192.168.40.6'), FILE_APPEND);
+    watchmanRound($paths, $data, 1000, $t0 + 300, $docker, false, "$tmp/acks.json");
+    $open = array_values(array_filter(watchmanLoad($data)['book'], fn ($e) => watchmanOpen($e) && ($e['p']['ip'] ?? '') === '192.168.30.5'));
+    watchmanAck($open[0]['id'], $data, $t0 + 400, false);                        // a lasting answer (rules.json known)
+    watchmanRuleHand('login', 'net', '192.168.50.0/24', '', false, $data, $t0 + 410, false);     // an exception by hand
+    watchmanCatSettings('login', ['burst' => 8], false, $data, false);           // a setting off its default
+    watchmanCatOff('snap', true, true, $data, $t0 + 420, false);                 // an area switched off
+    $raw = watchmanRulesRaw($data);
+    same('stand: rules.json as the test stand has it — an exception, an answer, a setting, an area off', [1, 1, 8, true],
+        [count($raw['rules'] ?? []), count($raw['known'] ?? []), $raw['set']['login']['burst'] ?? null, isset($raw['off']['snap'])]);
+    $page = watchmanPageState($data, $t0 + 500, false);
+    same('stand: the page state carries the tiles, «Snapshots and backup» off, the login waiting on «Logins»', [12, true, 'login'],
+        [count($page['tiles']), !empty($page['tiles']['snap']['off']), array_values(array_filter($page['book'], fn ($e) => $e['open']))[0]['tile'] ?? null]);
+    @mkdir("$tmp/states", 0700);
+    file_put_contents("$tmp/states/watchman.json", json_encode($page));
+    $node = testsNode();
+    if ($node === '') {
+        check('stand: node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    $out = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg(OFFICE_DIR . '/tests/watchwakes.js') . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' '
+        . escapeshellarg(OFFICE_WEB . '/desks/watchman/desk.js') . ' ' . escapeshellarg("$tmp/states") . ' stand 2>&1');
+    $lines = array_values(array_filter(explode("\n", trim($out))));
+    $r = json_decode((string) end($lines), true);
+    check('stand: drawn under node (' . (is_array($r) ? $r['pass'] : '?') . ' checks)', is_array($r) && $r['pass'] >= 3 && !$r['fail'], $out);
+    foreach (is_array($r) ? $r['fail'] : [] as $f) {
+        check('stand: ' . ($f[0] ?? '?'), false, 'got ' . json_encode($f[1] ?? null) . ', want ' . json_encode($f[2] ?? null));
+    }
+    hardeningRm($tmp);
 }
 
 /**
@@ -26328,10 +26443,10 @@ function testWatchmanFlowGone(): void
         [$added, (function (array $a) { sort($a); return $a; })(array_keys($by)), [$se['bytes'] ?? null, $se['pct'] ?? null, $se['kept'] ?? null, $se['asleep'] ?? null, $se['from'] ?? null, $se['clients'] ?? null],
          $by['flow_gone:share:Filme']['p']['bytes'] ?? null, $by['flow_gone:disk:disk1']['p']['bytes'] ?? null,
          [array_sum($flow['gone']['disk:disk3']['h'] ?? []), array_sum($flow['gone']['disk:disk3']['o'] ?? [])]]);
-    same('gone in words', "300 GB gone from Serien in 5 min — 27 % of the share while I'm still learning what is normal. 200 GB of it still in its snapshots. "
+    same('gone in words', "300 GB gone from Serien in 5 min — 27 % of the share while he is still learning what is usual. 200 GB of it still in its snapshots. "
         . "Moving data over SMB, NFS or SSH then: 192.0.2.7 (SSH). Not looked at (asleep): cold.",
         officeNotifyText('watchman', 'entry.flow_gone', watchmanText($by['flow_gone:share:Serien'], 'en'), 'en'));
-    same('gone in words: a disk', "200 GB gone from disk1 (Filme, Serien) in 5 min — more than 100 GB in one round while I'm still learning what is normal. "
+    same('gone in words: a disk', "200 GB gone from disk1 (Filme, Serien) in 5 min — more than 100 GB in one check while he is still learning what is usual. "
         . "Moving data over SMB, NFS or SSH then: 192.0.2.7 (SSH). Measured for the whole disk (btrfs), not per share.",
         officeNotifyText('watchman', 'entry.flow_gone', watchmanText($by['flow_gone:disk:disk1'], 'en'), 'en'));
 
@@ -26669,10 +26784,10 @@ function testWatchmanFlowFiles(): void
         [[], ['flow_gone', 'flow_written'], ['flow_gone:files:disk:disk1', 'flow_written:disk:disk3'], [25000, true, 'server', 'disk1'], [60 * $gb, 'disk3', 'btrfs', ['Familienfilme']]],
         [$a0, (function (array $a) { sort($a); return $a; })($a1), (function (array $a) { sort($a); return $a; })(array_keys($open)),
          [$d1['files'] ?? null, $d1['renames'] ?? null, $d1['from'] ?? null, $d1['disk'] ?? null], [$d3['bytes'] ?? null, $d3['disk'] ?? null, $d3['fs'] ?? null, $d3['shares'] ?? null]]);
-    same('files deleted in words', "25000 files gone from disk1 (Fotos, Dokumente) in 5 min — more than 20000 files in one round while I'm still learning what is normal. "
+    same('files deleted in words', "25000 files gone from disk1 (Fotos, Dokumente) in 5 min — more than 20000 files in one check while he is still learning what is usual. "
         . "No client moved data over SMB, NFS or SSH then — it came from the server itself. On XFS a renamed file counts too. Measured for the whole disk (xfs), not per share.",
         officeNotifyText('watchman', 'entry.flow_gone', watchmanText($open['flow_gone:files:disk:disk1'], 'en'), 'en'));
-    same('a disk written in words', "60 GB written into disk3 (Familienfilme) in 5 min — more than 50 GB in one round while I'm still learning what is normal. Measured for the whole disk (btrfs), not per share.",
+    same('a disk written in words', "60 GB written into disk3 (Familienfilme) in 5 min — more than 50 GB in one check while he is still learning what is usual. Measured for the whole disk (btrfs), not per share.",
         officeNotifyText('watchman', 'entry.flow_written', watchmanText($open['flow_written:disk:disk3'], 'en'), 'en'));
     same('the notification and the team lead\'s line', ['Night watchman: 25000 files gone from disk1 (Fotos, Dokumente)', 'Nachtwächter: 60 GB geschrieben in disk3 (Familienfilme)'],
         [officeNotifyText('watchman', 'notify.flow_gone', ['n' => 1] + watchmanText($open['flow_gone:files:disk:disk1'], 'en'), 'en'),
@@ -26727,7 +26842,7 @@ function testWatchmanFlowFiles(): void
         [['flow_gone', 'flow_gone'], ['flow_gone:files:share:Fotos', 'flow_gone:share:Musik'], 21000, [200 * $gb, 30000]],
         [$z1, (function (array $a) { sort($a); return $a; })(array_keys($open)), $open['flow_gone:files:share:Fotos']['p']['files'] ?? null,
          [$open['flow_gone:share:Musik']['p']['bytes'] ?? null, $open['flow_gone:share:Musik']['p']['files'] ?? null]]);
-    same('ZFS: both in words (de)', ['21000 Dateien weg aus Fotos in 5 Min. — mehr als 20000 Dateien in einem Rundgang, während ich noch lerne, was normal ist. '
+    same('ZFS: both in words (de)', ['21000 Dateien weg aus Fotos in 5 Min. — mehr als 20000 Dateien in einer Prüfung, während er noch lernt, was üblich ist. '
         . 'Kein Client bewegte damals über SMB, NFS oder SSH Daten — es kam vom Server selbst.', '30000 Dateien wurden gelöscht.'],
         [officeNotifyText('watchman', 'entry.flow_gone', watchmanText($open['flow_gone:files:share:Fotos'], 'de'), 'de'),
          officeNotifyText('watchman', 'gone.files', ['n' => 30000], 'de')]);
@@ -26783,7 +26898,7 @@ function testWatchmanFlowFiles(): void
     [, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $bfs(62 * $gb, 160), 'where' => $where]), $book, $t0 + 1200);
     $we = array_column(array_filter($book, 'watchmanOpen'), null, 'key')['flow_written:disk:disk3'] ?? ['p' => []];
     same('btrfs where: never asked for a quiet round, for the entry from the generation its run began at — also when brought up to date',
-        [[], ['flow_written'], [['disk3', 100], ['disk3', 100]], "62 GB written into disk3 (Familienfilme) in 15 min — more than 50 GB in one round while I'm still learning what is normal. "
+        [[], ['flow_written'], [['disk3', 100], ['disk3', 100]], "62 GB written into disk3 (Familienfilme) in 15 min — more than 50 GB in one check while he is still learning what is usual. "
             . "Most of it into: Familienfotos (55 GB). Measured for the whole disk (btrfs), not per share."],
         [$quiet, $w1, $calls, officeNotifyText('watchman', 'entry.flow_written', watchmanText($we, 'en'), 'en')]);
 
@@ -26910,7 +27025,7 @@ function testWatchmanFlow(): void
         [[$h => 100 * $gb], [], [$h => 40 * $gb], [], [$h => 30 * $gb], [$h => 80 * $gb]],
         [$flow['containers']['kopia']['o'], $flow['containers']['kopia']['h'], $flow['shares']['tank/UnraidSecretaryOffice']['o'],
          $flow['shares']['tank/UnraidSecretaryOffice']['h'], $flow['shares']['tank/data']['h'], $flow['containers']['EmbyServer']['h']]);
-    same('flow entry: a share in words', '30 GB written into tank/data in 5 min — 30 % of the share while I\'m still learning what is normal. Most of it: tank/data itself, not a dataset below it, 30 GB.',
+    same('flow entry: a share in words', '30 GB written into tank/data in 5 min — 30 % of the share while he is still learning what is usual. Most of it: tank/data itself, not a dataset below it, 30 GB.',
         officeNotifyText('watchman', 'entry.flow_written', watchmanText($by['flow_written'], 'en'), 'en'));
     same('flow: per client and service, the server talking to itself left out', [['192.0.2.7|smb', '192.0.2.9|smb', '192.0.2.7|web'], 61 * $gb, 2 * 1024 ** 2],
         [array_keys($flow['clients']), $flow['totals']['sent']['smb'], $flow['totals']['sent']['web']]);
@@ -26926,7 +27041,7 @@ function testWatchmanFlow(): void
         [$added, $by['flow_written']['p']['bytes'], $by['flow_written']['p']['pct'], $by['flow_written']['p']['minutes'], $by['flow_client']['p']['bytes'],
          $by['flow_client']['p']['minutes'], $by['flow_client']['count']]);
     same('flow: Kopia outside the backup is learned like any other', [$h => 5 * $gb], $flow['containers']['kopia']['h']);
-    same('flow entry: in words (English)', '192.0.2.9 pulled 70 GB over SMB in 10 min — more than 50 GB in one round while I\'m still learning what is normal',
+    same('flow entry: in words (English)', '192.0.2.9 pulled 70 GB over SMB in 10 min — more than 50 GB in one check while he is still learning what is usual',
         officeNotifyText('watchman', 'entry.flow_client', watchmanText($by['flow_client'], 'en'), 'en'));
 
     // snapshots: one taken (written drops: what came since), one deleted (it grew: can't be told — left out)
@@ -27479,10 +27594,10 @@ function testWatchmanFlowSources(): void
     same('flow sources: Docker asked once, only for the entry', 1, $asks);
     same('flow sources: a share of one dataset — no single source', [['t' => 'none', 'b' => 30 * $gb]], $by['flow_written:maple/appdata']['p']['src']);
     same('flow sources: the entry in words, the biggest source named',
-        '8.4 GB written into maple/system in 5 min — 42 % of the share while I\'m still learning what is normal. Most of it: Container EmbyServer (its writable layer), 3.5 GB.',
+        '8.4 GB written into maple/system in 5 min — 42 % of the share while he is still learning what is usual. Most of it: Container EmbyServer (its writable layer), 3.5 GB.',
         officeNotifyText('watchman', 'entry.flow_written', watchmanText($e, 'en'), 'en'));
     same('flow sources: no single source, in words (German)',
-        '30 GB geschrieben in maple/appdata in 5 Min. — 30 % des Shares, während ich noch lerne, was normal ist. Keine einzelne Quelle sichtbar — maple/appdata ist ein einziges Dataset.',
+        '30 GB geschrieben in maple/appdata in 5 Min. — 30 % des Shares, während er noch lernt, was üblich ist. Keine einzelne Quelle sichtbar — maple/appdata ist ein einziges Dataset.',
         officeNotifyText('watchman', 'entry.flow_written', watchmanText($by['flow_written:maple/appdata'], 'de'), 'de'));
 
     // five minutes on: the container writes on, the unknown layer is deleted meanwhile
@@ -53313,10 +53428,10 @@ function testWatchFilter(): void
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/watchman/desk.js');
     // 1.96 (Benj): no tile «What I keep an eye on» — each area's section has its folds «Known: …», found by the area's
     // own filter words; the old route lands on the book; the search's places name the area
-    check('known folds: in each area\'s section, with its filter words', str_contains($js, 'const inv = knownFolds(id, bar.read().words);'));
+    check('known folds: in each tile\'s section, with its filter words', str_contains($js, 'const inv = knownFolds(id, open.length ? bar.read().words : []);'));
     check('known folds: no tile «watch», no jump button, #/watchman/watch lands on the book',
         !str_contains($js, "id: 'watch', key: 'tile.watch'") && !str_contains($js, "T('cat.to_watch')")
-        && str_contains($js, "sw.mount(m || sub === 'open' || sub === 'watch' ? 'book' : sub);"));
+        && str_contains($js, "watch: 'book', open: 'book', incidents: 'book', posture: ''") && str_contains($js, "sw.mount(m ? 'book' : old !== null ? old : sub);"));
     check('known folds: the search\'s places go to the area, its anchor kept', str_contains($js, 'route: `#/${ID}/${areaOf(key)}`, anchor: `watch:${key}`'));
     $phrases = ['en' => 'keep an eye', 'de' => 'im auge', 'it' => "tengo d'occhio", 'fr' => "garde à l'œil", 'es' => 'lo que vigilo'];
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
@@ -71202,7 +71317,7 @@ function testSkipPlaces(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackPlan', 'testJackNoPython', 'testJackRun', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testWatchWakesPage', 'testWatchmanWakes', 'testWatchmanWakeTrail', 'testMetrics', 'testWatchmanCats', 'testWatchmanRules', 'testWatchmanKnown', 'testWatchmanSettings', 'testWatchmanRules6a', 'testWatchmanRules6b', 'testWatchmanRules6c', 'testWatchmanRules6d', 'testWatchmanRules6e', 'testWatchmanRules6f', 'testWatchmanRules6g', 'testWatchmanFrom195', 'testWatchmanRelearn', 'testWatchmanPageBars', 'testWatchmanRulesNew', 'testWatchmanJournal', 'testWatchmanBookMore', 'testWatchmanVuln', 'testWatchmanVulnSoftware', 'testWatchmanHot', 'testLogsigns', 'testWatchmanSigns', 'testWatchmanHw', 'testWatchmanCpuFaults', 'testWatchmanWear', 'testWatchmanHwBookMore', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanStartFiles', 'testWatchmanGateway', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testWatchWakesPage', 'testWatchmanWakes', 'testWatchmanWakeTrail', 'testMetrics', 'testWatchmanCats', 'testWatchmanTiles', 'testWatchmanRules', 'testWatchmanKnown', 'testWatchmanSettings', 'testWatchmanRules6a', 'testWatchmanRules6b', 'testWatchmanRules6c', 'testWatchmanRules6d', 'testWatchmanRules6e', 'testWatchmanRules6f', 'testWatchmanRules6g', 'testWatchmanFrom195', 'testWatchmanRelearn', 'testWatchmanStandRender', 'testWatchmanPageBars', 'testWatchmanRulesNew', 'testWatchmanJournal', 'testWatchmanBookMore', 'testWatchmanVuln', 'testWatchmanVulnSoftware', 'testWatchmanHot', 'testLogsigns', 'testWatchmanSigns', 'testWatchmanHw', 'testWatchmanCpuFaults', 'testWatchmanWear', 'testWatchmanHwBookMore', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanStartFiles', 'testWatchmanGateway', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testMigrateWakes', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics', 'testReportDialogOwnWords', 'testReportDialogDesk',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testBackupRunEnded', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanAtLeft', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testSkipPlaces', 'testCleanupSkipGreeting', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testLights', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],

@@ -56,6 +56,7 @@ const WATCH_VULN_IMAGES_MAX   = 100;       // images asked at most
 const WATCH_VULN_MAX     = ['kev' => 8 << 20, 'cve' => 2 << 20, 'unraid' => 1 << 20, 'eol' => 1 << 20];     // bytes of an answer at most
 const WATCH_VULN_TIMEOUT = 60;             // seconds a fetch may take
 const WATCH_VULN_DESC    = 300;            // characters of a description kept
+const WATCH_VULN_NOT_MAX = 100;            // «checked: doesn't concern you» kept for his page (state.json vuln_look.not)
 
 /**
  * The name table: how the lists name a product (lower case «vendor|product»: KEV's vendorProject/product, a CVE record's
@@ -310,7 +311,7 @@ function watchmanVulnVerdict(?array $record, array $cna, string $have): array
         return ['yes', array_values(array_filter(array_column($clean, 1)))[0] ?? null];
     }
     if ($say === ['no']) {
-        return ['no', null];
+        return ['no', array_values(array_filter(array_column($clean, 1)))[0] ?? null];      // fixed from (the page's «checked» list, 1.96)
     }
     return ['maybe', array_values(array_filter(array_column(array_merge($clean, $unclean), 1)))[0] ?? null];
 }
@@ -719,7 +720,7 @@ function watchmanVulnSet(mixed $on, ?string $dir = null, bool $page = true): arr
  *
  * Step 16: the containers' software against endoflife.date (watchmanVulnEol(); $images: container => its versions).
  *
- * @return array{found: list<array>, checked: int, fresh: bool, kev: ?int, pending: list<string>, unraid: ?array{version: string, status: string, newest: ?string},
+ * @return array{found: list<array>, checked: int, fresh: bool, kev: ?int, pending: list<string>, not: list<array>, unraid: ?array{version: string, status: string, newest: ?string},
  *               software: list<array>, unknown: list<string>}
  */
 function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []): array
@@ -730,7 +731,7 @@ function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []
     $status = readJson("$f/status.json") ?? [];
     $ok = is_int($status['kev']['ok'] ?? null) ? $status['kev']['ok'] : $fetched;
     $out = ['found' => [], 'checked' => 0, 'fresh' => $ok !== null && $now - $ok <= WATCH_VULN_OLD && $ok <= $now + 300, 'kev' => $ok, 'unraid' => null,
-            'pending' => []] + watchmanVulnEol($dir, $inv, $images);
+            'pending' => [], 'not' => []] + watchmanVulnEol($dir, $inv, $images);
     $tried = readJson("$f/cve-tried.json");
     $tried = is_array($tried) ? $tried : [];
     $byProduct = [];
@@ -759,6 +760,11 @@ function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []
             }
             if ($verdict[0] === 'no') {
                 $out['checked']++;
+                // «Checked: doesn't concern you» on his page (1.96): what runs here, the vulnerability, fixed from — at most WATCH_VULN_NOT_MAX
+                if (count($out['not']) < WATCH_VULN_NOT_MAX) {
+                    $out['not'][] = ['cve' => $e['cve'], 'product' => $e['product'], 'where' => $x['where'], 'have' => $x['version'], 'fixed' => $verdict[1],
+                                     'name' => mb_strcut((string) ($e['name'] ?? ''), 0, 120, 'UTF-8')];
+                }
                 continue;
             }
             $out['found'][] = ['cve' => $e['cve'], 'product' => $e['product'], 'where' => $x['where'], 'verdict' => $verdict[0], 'have' => $x['version'],
@@ -901,7 +907,10 @@ function watchmanVulnPage(array $st, ?array $judged): array
             'maybe' => count(array_filter((array) ($j['found'] ?? []), fn ($x) => ($x['verdict'] ?? '') === 'maybe')),
             // step 16: the containers' software — past its end, or a newer release of its line; images that name no version
             'software' => array_values(array_filter((array) ($j['software'] ?? []), fn ($x) => is_array($x) && (($x['eol'] ?? null) === true || ($x['latest'] ?? null) !== null))),
-            'unknown' => array_values(array_filter((array) ($j['unknown'] ?? []), 'is_string'))];
+            'unknown' => array_values(array_filter((array) ($j['unknown'] ?? []), 'is_string')),
+            // checked against what runs here, not affected (1.96): the calm proof he looked — an older state has none
+            'not' => array_map(fn ($x) => $x + ['label' => WATCH_VULN_PRODUCTS[$x['product']]['label'] ?? $x['product']],
+                array_values(array_filter((array) ($j['not'] ?? []), fn ($x) => is_array($x) && is_string($x['cve'] ?? null) && is_string($x['product'] ?? null))))];
 }
 
 /** An entry's words */

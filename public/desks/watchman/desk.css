@@ -72,6 +72,28 @@
 .wm-relearn .callout p{margin:0}
 .wm-relearn-all{justify-content:flex-end; margin-bottom:8px}
 .wm-relearn-check{white-space:normal; align-items:flex-start; margin:6px 0}
+/* 1.96 «einfacher»: a quiet tile on the whole page — one line, a click shows it alone; the jumps to setup and book */
+/* «Undo» after an answer (1.96 «einfacher»): a line at the bottom, in #sso */
+.wm-undo{position:fixed; left:50%; bottom:20px; transform:translateX(-50%); z-index:60; display:flex; align-items:center; gap:12px;
+  max-width:calc(100vw - 32px); box-sizing:border-box; padding:10px 14px; background:var(--surface); color:var(--ink);
+  border:1px solid var(--line); border-radius:var(--radius, 6px); box-shadow:0 4px 16px rgba(0,0,0,.25)}
+.wm-undo span{min-width:0; overflow-wrap:anywhere}
+.wm-offer-pick{white-space:normal; align-items:flex-start; margin:4px 0}
+.dialog.wm-ask-dialog .btn{white-space:normal; max-width:100%; text-align:left}      /* the confirm names what follows: it wraps */
+.wm-rule-why{margin-top:10px}
+.wm-more-tags{margin:0 0 8px}
+.wm-quiet{margin:0 0 6px; padding:0}
+.wm-quiet-row{display:flex; align-items:center; gap:8px; width:100%; box-sizing:border-box; padding:9px 12px; text-align:left; cursor:pointer;
+  background:var(--surface); color:var(--ink); border:1px solid var(--line); border-radius:var(--radius, 6px); font:inherit}
+.wm-quiet-row:hover, .wm-quiet-row:focus-visible{border-color:var(--accent)}
+.wm-quiet-row b{font-weight:600; white-space:nowrap}
+.wm-quiet-words{color:var(--muted); min-width:0; overflow-wrap:anywhere}
+.wm-jumps{display:flex; flex-wrap:wrap; gap:6px 16px; align-items:center; margin:10px 2px 0}
+.wm-jump{font-size:12.5px}
+.wm-cat-tips > .btn, .wm-jumps .btn{white-space:normal; text-align:left; max-width:100%}
+.wm-subhead{display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-top:14px}
+.wm-alerts{margin-bottom:10px}
+.wm-setup-top{display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px}
 /* «Known vulnerabilities» switched off: what he would check, the switch right in the callout */
 .wm-vuln-off{display:flex; flex-direction:column; gap:6px; align-items:flex-start}
 .wm-vuln-off p{margin:0}

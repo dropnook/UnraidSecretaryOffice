@@ -81,7 +81,8 @@
     }
    ],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "data"
   },
   {
    "id": "w2b3c4d5e6f",
@@ -134,7 +135,8 @@
     }
    ],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "data"
   },
   {
    "id": "wd5e04cb7da",
@@ -205,7 +207,8 @@
     }
    ],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "login"
   },
   {
    "id": "w8825237f13",
@@ -257,7 +260,8 @@
     }
    ],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "data"
   },
   {
    "id": "wfe162b7c9a",
@@ -306,7 +310,8 @@
     }
    ],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "net"
   },
   {
    "id": "we39e6da19f",
@@ -339,7 +344,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "array"
   },
   {
    "id": "wdc05fb1798",
@@ -384,7 +390,8 @@
     }
    ],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "container"
   },
   {
    "id": "w41acb2239b",
@@ -419,7 +426,8 @@
    "cat": "login",
    "offers": [],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "login"
   },
   {
    "id": "wa92b5cedfc",
@@ -471,7 +479,8 @@
     }
    ],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "plugins"
   },
   {
    "id": "w3bf6add5b4",
@@ -503,7 +512,8 @@
    "cat": "partner",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "login"
   },
   {
    "id": "w1236963b43",
@@ -539,7 +549,8 @@
    "cat": null,
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": null
   }
  ],
  "watch": {
@@ -1566,7 +1577,8 @@
      "path": "/Settings/BootParameters"
     },
     "known": true,
-    "cat": "host"
+    "cat": "host",
+    "tile": "server"
    }
   ],
   "open": 0
@@ -2460,7 +2472,8 @@
    "from": "hand",
    "note": "",
    "hits": 2,
-   "hit": 1791559874
+   "hit": 1791559874,
+   "tile": "login"
   },
   {
    "id": "r0123456790",
@@ -2475,7 +2488,8 @@
    "from": "hand",
    "note": "",
    "hits": 0,
-   "hit": null
+   "hit": null,
+   "tile": "container"
   },
   {
    "id": "r0123456791",
@@ -2490,7 +2504,8 @@
    "from": "hand",
    "note": "",
    "hits": 3,
-   "hit": 1791556274
+   "hit": 1791556274,
+   "tile": "data"
   },
   {
    "id": "r0123456792",
@@ -2508,7 +2523,8 @@
    "from": "hand",
    "note": "",
    "hits": 0,
-   "hit": null
+   "hit": null,
+   "tile": "data"
   },
   {
    "id": "r0123456793",
@@ -2524,7 +2540,8 @@
    "from": "hand",
    "note": "",
    "hits": 12,
-   "hit": 1791559874
+   "hit": 1791559874,
+   "tile": "snap"
   }
  ],
  "off": {},
@@ -2544,7 +2561,8 @@
      "web"
     ]
    },
-   "t": []
+   "t": [],
+   "tile": "login"
   }
  ],
  "known_full": false,
@@ -2843,5 +2861,188 @@
   "gone_min": "gb",
   "written_min": "gb",
   "files_min": "n"
+ },
+ "tiles": {
+  "login": {
+   "why": [
+    "open_tell"
+   ],
+   "open": 1,
+   "tell": 1,
+   "tips": 0,
+   "entries": 3,
+   "last": 1791556274,
+   "off": null,
+   "parts": [
+    "login",
+    "partner"
+   ],
+   "level": "danger"
+  },
+  "access": {
+   "why": [],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null,
+   "off": null,
+   "parts": [
+    "door",
+    "share",
+    "flash"
+   ],
+   "level": "ok"
+  },
+  "container": {
+   "why": [
+    "open_tell"
+   ],
+   "open": 1,
+   "tell": 1,
+   "tips": 0,
+   "entries": 1,
+   "last": 1791466274,
+   "off": null,
+   "parts": [
+    "container"
+   ],
+   "level": "danger"
+  },
+  "plugins": {
+   "why": [
+    "open_tell"
+   ],
+   "open": 1,
+   "tell": 1,
+   "tips": 0,
+   "entries": 1,
+   "last": 1791383474,
+   "off": null,
+   "parts": [
+    "plugin",
+    "sched"
+   ],
+   "level": "danger"
+  },
+  "server": {
+   "why": [],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null,
+   "off": null,
+   "parts": [
+    "host"
+   ],
+   "level": "ok"
+  },
+  "data": {
+   "why": [
+    "open_tell",
+    "learning"
+   ],
+   "open": 3,
+   "tell": 3,
+   "tips": 0,
+   "entries": 3,
+   "last": 1791562874,
+   "off": null,
+   "parts": [
+    "pull",
+    "data"
+   ],
+   "level": "danger"
+  },
+  "snap": {
+   "why": [],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null,
+   "off": null,
+   "parts": [
+    "snap"
+   ],
+   "level": "ok"
+  },
+  "net": {
+   "why": [
+    "open"
+   ],
+   "open": 1,
+   "tell": 0,
+   "tips": 0,
+   "entries": 1,
+   "last": 1791531074,
+   "off": null,
+   "parts": [
+    "router",
+    "lan"
+   ],
+   "level": "warn"
+  },
+  "hw": {
+   "why": [
+    "not_yet"
+   ],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null,
+   "off": null,
+   "parts": [
+    "hw"
+   ],
+   "level": "none"
+  },
+  "vuln": {
+   "why": [
+    "not_yet"
+   ],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null,
+   "off": null,
+   "parts": [
+    "vuln"
+   ],
+   "level": "none"
+  },
+  "array": {
+   "why": [
+    "hold_short",
+    "hold_holds"
+   ],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 1,
+   "last": 1791491674,
+   "off": null,
+   "parts": [
+    "array",
+    "hold"
+   ],
+   "level": "warn"
+  },
+  "wakes": {
+   "why": [],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null,
+   "off": null,
+   "parts": [
+    "wakes"
+   ],
+   "level": "ok"
+  }
  }
 }

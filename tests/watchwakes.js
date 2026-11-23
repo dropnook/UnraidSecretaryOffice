@@ -299,15 +299,27 @@ async function rules() {
   const sec = sectionOf(r, 'help.lights') || r;
   const offer = r.all().find((n) => n.classList && n.classList.contains('wm-offer'));
   const first = state.book.find((e) => e.open && e.cat === 'login');
-  same('exceptions: an open login offers the narrowest first (root from its /24), the others under «more ▾»',
-    [offer && tx(offer), !!(offer && offer.parentNode.children.some((n) => tx(n) === T('rule.more')))],
-    [T('rule.offer.user_net', { user: first.offers[0].on.user, net: first.offers[0].on.net }), true]);
+  // 1.96 «einfacher»: one button «Something like this is always all right …», its choice in whole sentences (the narrowest first)
+  same('exceptions: an open login has one button «… always all right …», no «more ▾»',
+    [offer && tx(offer), !!(offer && offer.parentNode.children.some((n) => tx(n) === T('rule.more')))], [T('rule.always'), false]);
   offer.click();
   await tick();
   const d = dialogs[dialogs.length - 1];
-  same('exceptions: wider than this one thing — asked once: what it covers, what a net never does, where it is lifted; nothing sent yet',
-    [d && d.title, d && d.body.querySelectorAll('p').map(tx).filter((x) => x === T('rule.ask_net_not') || x === T('rule.ask_where')).length, posts.filter((p) => p[0] === 'watchman.rule_add').length],
-    [T('rule.ask_title'), 1, 0]);
+  const picks = d ? d.body.querySelectorAll('.wm-offer-pick').map(tx) : [];
+  same('exceptions: the choice — every offer a sentence, the narrowest first; what it covers, what a net never does, where it is lifted; the confirm names it; nothing sent yet',
+    [d && d.title, picks[0], picks.length, d && d.body.querySelectorAll('p').map(tx).filter((x) => x === T('rule.ask_where')).length,
+      d && d.buttons[0].text, posts.filter((p) => p[0] === 'watchman.rule_add').length],
+    [T('rule.always'), T('rule.offer.user_net', { user: first.offers[0].on.user, net: first.offers[0].on.net }), first.offers.length, 1,
+      T('rule.confirm', { what: T('rule.offer.user_net', { user: first.offers[0].on.user, net: first.offers[0].on.net }) }), 0]);
+  // 1.96 «einfacher»: each thing in one place — the watch page only jumps there; the lists stand in his setup
+  const jump = r.all().find((n) => n.classList && n.classList.contains('wm-jump') && n.tagName === 'A');
+  same('the tile jumps to its setup (what is always in order, what you had him remember) — no lists on the watch page',
+    [!!jump && String(jump.href || jump.getAttribute('href')).endsWith('/setup/login'), !!r.all().find((n) => n.classList && n.classList.contains('wm-rules'))], [true, false]);
+  wm.unmount();
+  desk.replaceChildren(r);
+  await wm.mount(r, 'setup/login');
+  await tick();
+  await tick();
   const list = r.all().find((n) => n.classList && n.classList.contains('wm-rules'));
   same('exceptions: the area lists its exceptions — what, since when, how often, «Lift»',
     [list && tx(list.querySelector('.row-name')), !!(list && list.querySelectorAll('button').some((b) => tx(b) === T('rule.lift')))],
@@ -324,5 +336,43 @@ async function rules() {
   wm.unmount();
 }
 
-run().then(rules).then(() => { console.log(JSON.stringify(out)); process.exit(0); },
+// ------------------------------------------------------------------ a data folder as the 1.96 test stand left it (5th argument «stand»)
+/*
+ * tests/run.php testWatchmanStandRender hands in the page state the messenger made from a data folder with what the
+ * 1.96 test stand has (rules.json with exceptions, lasting answers, settings, an area off): the new page («einfacher»)
+ * draws every tile, the book, the schedule and every tile of his setup without an error; the exception and the answer
+ * stand in the setup of their tile; the area switched off says so there.
+ */
+async function stand() {
+  state = JSON.parse(JSON.stringify(base));
+  const errs = [];
+  const visitAll = async (subs) => {
+    for (const sub of subs) {
+      const r = new FakeNode('div');
+      desk.replaceChildren(r);
+      try { await wm.mount(r, sub); await tick(); await tick(); } catch (e) { errs.push(`${sub}: ${String(e && e.stack || e).slice(0, 300)}`); }
+      wm.unmount();
+    }
+  };
+  const TILES = ['login', 'access', 'container', 'plugins', 'server', 'data', 'snap', 'net', 'hw', 'vuln', 'array', 'wakes'];
+  await visitAll(['', ...TILES, 'book', 'schedule', 'incidents', 'posture', 'pull', 'hold', 'setup', 'setup/changed', ...TILES.map((t) => `setup/${t}`)]);
+  same('stand: every tile, the book, the schedule, the old places and every tile of his setup drawn without an error', errs, []);
+  const r = new FakeNode('div');
+  desk.replaceChildren(r);
+  await wm.mount(r, 'setup/login');
+  await tick();
+  await tick();
+  const rules = r.all().find((n) => n.classList && n.classList.contains('wm-rules'));
+  const known = r.all().find((n) => n.classList && n.classList.contains('wm-known-head'));
+  same('stand: its exception and its answer in the setup of «Logins»', [!!rules, !!known], [true, true]);
+  wm.unmount();
+  desk.replaceChildren(r);
+  await wm.mount(r, 'setup/snap');
+  await tick();
+  await tick();
+  same('stand: the area switched off says so in its tile\'s setup', r.all().some((n) => n.classList && n.classList.contains('callout') && /off|aus/i.test(tx(n))), true);
+  wm.unmount();
+}
+
+(process.argv[5] === 'stand' ? stand() : run().then(rules)).then(() => { console.log(JSON.stringify(out)); process.exit(0); },
   (e) => { out.fail.push(['ran', String(e && e.stack || e).slice(0, 600), 'no error']); console.log(JSON.stringify(out)); process.exit(0); });

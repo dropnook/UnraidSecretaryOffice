@@ -309,31 +309,34 @@ When you hire him he learns what is normal. Then he walks his round every five m
 
 - Each entry names its MITRE ATT&CK technique. The important ones go to Unraid's notifications.
 - Where he can't see who did it, he names who likely did, always as a guess.
-- *I know, thanks* makes it the new normal — and it holds until you take it back in his setup.
-- *This was a real incident…* keeps it with your note. As long as it is on that list, the same from the same source is
-  told at once and as important; *Not serious after all…* there takes it back.
+- Your answers on an entry: *All right, remember this* (or *… this time* for what happens once) — he no longer tells
+  it unless it changes; *Something like this is always all right …* — you choose, in whole sentences, what he no longer
+  tells; *That was an incident …* — he records it, and the same from the same source is told at once. A line at the
+  bottom then says what holds now, with *Undo*.
+- An advice keeps *I know, thanks*. Every answer can be taken back: in the setup of its area, an incident in the watch
+  book (*Not an incident after all …*).
 - While the array is stopped, his night shift keeps watch from RAM and the flash.
 
-**Areas and lights:** his page is a row of small tiles, one for each area he watches — logins, containers, plugins, the
-flash and accounts, open shares, what starts by itself, who pulls data, data in the shares, snapshots and offsite, the
-server itself, ways in, the partner door, the router, the network, array and parity, known vulnerabilities, hardware,
-what holds the array, disk wakes —
-and the watch book, how securely it stands, serious incidents and his schedule. Each tile is a
-light: red, look now; yellow, worth a look; «!», advice; green, fine; grey, nothing to look at (switched off, not there,
-not looked at yet). The mouse says why; a click shows that area alone, with its entries and, folded, what he knows
-there (*Known: 12 addresses*, *Known: 8 containers* …) — a word in its filter finds in both.
+**Areas and lights:** his page is a row of 12 tiles — Logins, Accounts and ways in, Containers, Plugins and scripts, The
+server, Data, Snapshots and backup, Network, Hardware, Known vulnerabilities, Array, Who woke my disks? — then the
+watch book (everything done) and his schedule. One meaning per colour: red — something waits for your answer and is
+urgent; yellow — something waits, not urgent; green — all quiet; green with «!» — quiet, with an advice; grey — not
+checked (switched off, not there, or he can't reach it now). *Only what waits for you* leaves red and yellow. Nothing
+chosen, the page shows every area: a quiet one in a line, one where something waits with its entries. A tile shows what
+waits, its advice, and folded what he knows there (*Known: 12 addresses* …); two lines jump to what is always all right
+or remembered there (his setup) and to what is done (the watch book).
 
-**Setup** (his second tab): for each area its settings (the default is always what he did before — for the hardware the
-degrees and hours a sensor may be warm, how many memory or PCIe errors count, an SSD's wear; a service's crashes an hour;
-whether out-of-memory, floods and DNS changes are told), its exceptions, your
-lasting answers, and the switch to watch it at all — off only after one clear question naming what you won't see.
-*Everything changed* lists all of it: the one place to see what he no longer says.
+**Setup** (his second tab), the same 12 areas: when he tells (its settings — the default is always what he did before —
+for the hardware the degrees and hours a sensor may be warm, how many memory or PCIe errors count, an SSD's wear; a
+service's crashes an hour; whether out-of-memory, floods and DNS changes are told), *Always all right (n)*,
+*Remembered (n)*, and the switch to watch it at all — off only after one clear question naming what you won't see.
+*Only what is changed* over the row: the one place to see what he no longer says.
 *Re-learn this area…* (at the end of each area) and *Re-learn everything…* (at the top) make what is there now normal and
 let him learn what is usual anew (the data flow: its 7 days again) — after one clear question; the area's open entries are
 noted as done by it, your answers there go, and with its checkboxes its exceptions and settings too. Nothing is deleted: it
 is set aside first and *Bring back…* puts it back within 7 days.
 
-**Exceptions:** *… always okay* on an entry, or *Add an exception…* in his setup — a net for logins, a container's ports,
+**Always all right:** *Something like this is always all right …* on an entry, or *Add…* in his setup — a net for logins, a container's ports,
 a share whose deletions aren't judged, a snapshot series that may be thinned, a router's admin from your net, a sensor
 that may get warm up to so many degrees, a service whose crashes you know, a vulnerability that doesn't apply here (a
 whole product only with a clear yes), a disk not to judge. What it

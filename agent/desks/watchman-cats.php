@@ -405,3 +405,141 @@ function watchmanCatBook(array $areas): string
     $seen = array_values(array_diff(array_column($areas, 'level'), ['none']));
     return $seen ? watchmanCatWorst($seen) : 'none';
 }
+
+// ===================================================================== his tiles (1.96, «Der Nachtwächter, einfacher»)
+
+/*
+ * His page shows 12 tiles, not the 19 areas (Fable's nw196-einfacher.md, Benj 2026-11-23): what can't be told apart by
+ * theme lies on one tile. The 19 areas stay what everything else knows — rules.json (`set`, `off`, `rules[].cat`), the
+ * learning, the re-learn, the night shift: unchanged; a tile is only a view over them. A tile's switch and «re-learn»
+ * work on all its areas. Two kinds of one area show on another tile (WATCH_TILE_KINDS): the flash's go file, extra
+ * packages and start files are «Plugins and scripts» (what runs at the start), the server's start line «The server»;
+ * the area «flash» itself (its switch, its re-learn) belongs to «Accounts and ways in».
+ *
+ * One meaning per colour (WATCH_TILE_WHY): red — waits for your answer and is urgent (an important entry open, a second
+ * unclean stop, a check with errors, an NVMe's critical warning); yellow — waits for your answer, not urgent; green with
+ * «!» — quiet, with an advice you don't know yet; green — quiet (also while it learns, or a part sleeps: said in its
+ * tip); grey — not looked at: switched off, not there, or he can't reach it now. A tile takes the worst of its parts;
+ * grey only when every part is grey.
+ */
+const WATCH_TILES = [
+    'login'     => ['login', 'partner'],
+    'access'    => ['door', 'share', 'flash'],
+    'container' => ['container'],
+    'plugins'   => ['plugin', 'sched'],
+    'server'    => ['host'],
+    'data'      => ['pull', 'data'],
+    'snap'      => ['snap'],
+    'net'       => ['router', 'lan'],
+    'hw'        => ['hw'],
+    'vuln'      => ['vuln'],
+    'array'     => ['array', 'hold'],
+    'wakes'     => ['wakes'],
+];
+const WATCH_TILE_KINDS = ['flash_go' => 'plugins', 'flash_extra' => 'plugins', 'flash_boot' => 'plugins', 'server_boot' => 'server'];
+// an area's reason => the colour it gives its tile now (any reason not listed: grey — not looked at, or can't reach)
+const WATCH_TILE_WHY = [
+    'open_tell' => 'danger', 'parity_again' => 'danger', 'parity_errors' => 'danger', 'hw_nvme_warning' => 'danger',
+    'open' => 'warn', 'parity_todo' => 'warn', 'hold_short' => 'warn', 'hold_holds' => 'warn', 'hw_worn' => 'warn', 'wakes_many' => 'warn',
+    'tips' => 'note',
+    'learning' => 'ok', 'relearn' => 'ok', 'relearn_flow' => 'ok', 'asleep' => 'ok', 'hold_old' => 'ok', 'hold_cut' => 'ok',
+    'hw_no_ecc' => 'ok', 'hw_unread' => 'ok', 'syslog_signs' => 'ok',
+];
+const WATCH_TILE_LEVELS = ['danger', 'warn', 'note', 'ok', 'none'];      // a tile's worst part (grey last: only when all are)
+
+/** The tile of an area */
+function watchmanTileOfCat(string $cat): ?string
+{
+    foreach (WATCH_TILES as $tile => $cats) {
+        if (in_array($cat, $cats, true)) {
+            return $tile;
+        }
+    }
+    return null;
+}
+
+/** The tile of a kind of his book (null: a take-over line, or a kind no area knows) */
+function watchmanTileOf(string $kind): ?string
+{
+    if (isset(WATCH_TILE_KINDS[$kind])) {
+        return WATCH_TILE_KINDS[$kind];
+    }
+    $cat = watchmanCatOf($kind);
+    return $cat === null ? null : watchmanTileOfCat($cat);
+}
+
+/**
+ * The tiles' lights from the areas' (watchmanCats(), the areas switched off already set) and his page's book (each entry
+ * with `kind`, `open`, `tell`): per tile {level, why, open, tell, tips, entries, last, off (when every area of it is off:
+ * the latest time), parts (its areas)}. What waits is counted by the entries' own tiles (the flash's go on «Plugins and
+ * scripts»), the other reasons come from its areas.
+ */
+function watchmanTiles(array $areas, array $book): array
+{
+    $out = [];
+    foreach (WATCH_TILES as $tile => $cats) {
+        $out[$tile] = ['levels' => [], 'why' => [], 'open' => 0, 'tell' => 0, 'tips' => 0, 'entries' => 0, 'last' => null, 'off' => null, 'parts' => $cats];
+        $offs = [];
+        foreach ($cats as $cat) {
+            $a = is_array($areas[$cat] ?? null) ? $areas[$cat] : ['why' => ['never'], 'level' => 'none'];
+            $out[$tile]['tips'] += (int) ($a['tips'] ?? 0);
+            $why = array_values(array_diff((array) ($a['why'] ?? []), ['open', 'open_tell']));
+            $offs[] = $a['off'] ?? null;
+            if (!empty($a['off'])) {
+                $out[$tile]['levels'][] = 'none';
+                $why = ['off'];
+            } else {
+                $levels = array_map(fn ($w) => WATCH_TILE_WHY[$w] ?? 'none', $why);
+                $out[$tile]['levels'][] = $levels ? watchmanTileWorst($levels, false) : 'ok';
+            }
+            foreach ($why as $w) {
+                if (!in_array($w, $out[$tile]['why'], true)) {
+                    $out[$tile]['why'][] = $w;
+                }
+            }
+        }
+        if (!in_array(null, $offs, true) && !in_array(0, $offs, true)) {
+            $out[$tile]['off'] = max(array_map('intval', $offs));
+        }
+    }
+    foreach ($book as $e) {
+        $tile = is_array($e) ? watchmanTileOf((string) ($e['kind'] ?? '')) : null;
+        if ($tile === null) {
+            continue;
+        }
+        $out[$tile]['entries'] += 1;
+        $out[$tile]['last'] = max((int) $out[$tile]['last'], (int) ($e['last'] ?? 0));
+        if (!empty($e['open']) && $out[$tile]['off'] === null) {
+            $out[$tile]['open'] += 1;
+            $out[$tile]['tell'] += !empty($e['tell']) ? 1 : 0;
+        }
+    }
+    foreach ($out as $tile => $t) {
+        $levels = $t['levels'];
+        if ($t['tell']) {
+            $levels[] = 'danger';
+            array_unshift($out[$tile]['why'], 'open_tell');
+        } elseif ($t['open']) {
+            $levels[] = 'warn';
+            array_unshift($out[$tile]['why'], 'open');
+        }
+        $out[$tile]['level'] = watchmanTileWorst($levels, true);
+        unset($out[$tile]['levels']);
+    }
+    return $out;
+}
+
+/**
+ * The worst of some levels. $greyLast (a tile over its parts): grey only when every one is grey. Else (one area's own
+ * reasons): what waits still wins, but grey beats quiet — an area he can't reach isn't «quiet».
+ */
+function watchmanTileWorst(array $levels, bool $greyLast): string
+{
+    $order = $greyLast ? WATCH_TILE_LEVELS : ['danger', 'warn', 'none', 'note', 'ok'];
+    foreach ($order as $l) {
+        if (in_array($l, $levels, true)) {
+            return $l;
+        }
+    }
+    return 'ok';
+}
