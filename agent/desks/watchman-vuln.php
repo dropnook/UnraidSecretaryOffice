@@ -6,7 +6,7 @@ declare(strict_types=1);
  * Off until the user switches it on once (state.json `vuln_on`; the coordinator's decision, concept 12): «Nothing leaves
  * the server unless you set it up». Off is really off — nothing is fetched.
  *
- * On, once a day (WATCH_VULN_EVERY; a failed try again after WATCH_VULN_RETRY) a job of its own (`job watchman-feeds`,
+ * On, once a day (WATCH_VULN_EVERY; a source that failed waits longer: watchmanVulnBackoff()) a job of its own (`job watchman-feeds`,
  * started by his tick like his round, niced, never as the agent's child that must outlive it) fetches public lists —
  * the same for every office, nothing of this server goes along but the request itself (a fixed User-Agent without a
  * version, no name, no id), https only, no redirects, each with a size cap (WATCH_VULN_MAX):
@@ -41,7 +41,11 @@ declare(strict_types=1);
  */
 
 const WATCH_VULN_EVERY   = 86400;          // the lists once a day …
-const WATCH_VULN_RETRY   = 6 * 3600;       // … a failed try again after this long
+// a source that doesn't answer (2026-11-23): tried again the next day, each further failure doubles the wait up to a week,
+// one answer resets it — never told, never a colour; after this many failures in a row the page says so in a calm line
+const WATCH_VULN_BACKOFF_MAX = 7 * 86400;
+const WATCH_VULN_DOWN_FAILS  = 3;
+const WATCH_VULN_SOURCES     = ['kev', 'cve', 'nvd', 'unraid', 'eol'];
 const WATCH_VULN_OLD     = 3 * 86400;      // a list older than this: «not checked»
 const WATCH_VULN_RUN_MAX = 900;            // a fetch that takes longer is stopped
 const WATCH_VULN_CVE_MAX = 300;            // CVE records kept at most
@@ -610,24 +614,21 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
         }
     }
     $status = readJson("$f/status.json") ?? [];
+    $status['run'] = $now;          // the job's day (watchmanVulnDue()): a source waiting out its back-off isn't tried
+    // each source: try, ok, err, and while it fails: fails (in a row), since (the first of them), next (not before)
     $mark = function (string $list, ?string $err) use (&$status, $now): void {
-        $s = is_array($status[$list] ?? null) ? $status[$list] : [];
-        $s['try'] = $now;
-        if ($err === null) {
-            $s['ok'] = $now;
-            unset($s['err']);
-        } else {
-            $s['err'] = substr($err, 0, 120);
-        }
-        $status[$list] = $s;
+        $status[$list] = watchmanVulnBackoff(is_array($status[$list] ?? null) ? $status[$list] : [], $err, $now);
     };
+    $may = fn (string $list): bool => watchmanVulnSourceDue($status, $list, $now);
     $res = ['kev' => null, 'cve' => 0, 'unraid' => null, 'nvd' => 0];
 
     // KEV: only when newer than what is kept
     $kept = readJson("$f/kev.json");
     $since = is_array($kept) && is_string($kept['lm'] ?? null) ? $kept['lm'] : null;
-    $a = watchmanVulnGet(WATCH_VULN_URLS['kev'], WATCH_VULN_MAX['kev'], $since, $ctx);
-    if ($a['code'] === 304 && is_array($kept)) {
+    $a = $may('kev') ? watchmanVulnGet(WATCH_VULN_URLS['kev'], WATCH_VULN_MAX['kev'], $since, $ctx) : ['code' => -1, 'body' => '', 'lm' => null, 'err' => null];
+    if ($a['code'] === -1) {
+        // waiting out its back-off: what was kept stays
+    } elseif ($a['code'] === 304 && is_array($kept)) {
         $mark('kev', null);
     } elseif ($a['code'] === 200 && strlen($a['body']) <= WATCH_VULN_MAX['kev']) {
         $j = json_decode($a['body'], true, 16);
@@ -681,13 +682,21 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
         }
     }
     $errors = 0;
+    $down = 0;              // the source itself not answering (no connection, «slow down», a server error): back-off
     // what was asked and didn't come (no such record, an answer not in its shape): judged without it from then on — an entry
     // nobody asked about yet is never judged («maybe» for every entry of a first fetch: concept 12.1, gap 3)
     $tried = readJson("$f/cve-tried.json");
     $tried = is_array($tried) ? array_intersect_key(array_filter($tried, 'is_int'), array_flip($want)) : [];
-    foreach (array_slice($due, 0, WATCH_VULN_CVE_RUN) as $id) {
+    foreach ($may('cve') ? array_slice($due, 0, WATCH_VULN_CVE_RUN) : [] as $id) {
         $url = watchmanVulnCveUrl($id);
         $b = $url === null ? ['code' => 0, 'body' => '', 'err' => 'bad_id'] : watchmanVulnGet($url, WATCH_VULN_MAX['cve'], null, $ctx);
+        if ($url !== null && watchmanVulnSourceDown((int) $b['code'])) {
+            $down++;
+            if ($down >= 3 && !$res['cve']) {
+                break;      // three in a row and nothing came: the source is away — the rest another day
+            }
+            continue;
+        }
         $rec = $b['code'] === 200 ? json_decode($b['body'], true, 64) : null;
         $red = is_array($rec) ? watchmanVulnReduce($rec) : null;
         if ($red === null || $red['id'] !== $id) {
@@ -700,7 +709,12 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
         $res['cve']++;
     }
     writeAtomic("$f/cve-tried.json", (string) json_encode((object) $tried), 0600, 0, 0);
-    $mark('cve', $errors ? "$errors failed" : null);
+    if ($may('cve')) {
+        $mark('cve', $down && !$res['cve'] ? "$down not answered" : null);
+        if ($errors || ($down && $res['cve'])) {
+            $status['cve']['err'] = ($errors ? "$errors failed" : '') . ($errors && $down ? ', ' : '') . ($down ? "$down not answered" : '');
+        }
+    }
 
     // NVD (2026-11-23): only the CVEs that concern a program here and stayed «can't be checked for sure» (his last round's
     // vuln_look.unsure), and those asked before while still on the list — new ones first, then the oldest; one request every
@@ -728,14 +742,15 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
         }
     }
     $nvdErr = null;
+    $nvdAsk = $may('nvd') ? array_slice(array_values(array_unique($nvdDue)), 0, WATCH_VULN_NVD_RUN) : [];
     $sleep = $ctx['sleep'] ?? fn (float $s) => usleep((int) ($s * 1e6));
-    foreach (array_slice(array_values(array_unique($nvdDue)), 0, WATCH_VULN_NVD_RUN) as $i => $id) {
+    foreach ($nvdAsk as $i => $id) {
         if ($i > 0) {
             $sleep(WATCH_VULN_NVD_GAP);
         }
         $b = watchmanVulnGet(WATCH_VULN_URLS['nvd'] . $id, WATCH_VULN_MAX['nvd'], null, $ctx);
-        if (in_array($b['code'], [403, 429, 503], true)) {
-            $nvdErr = 'HTTP ' . $b['code'];   // NVD says slow down (or is away): the rest the next day
+        if (watchmanVulnSourceDown((int) $b['code'])) {
+            $nvdErr = $b['code'] ? 'HTTP ' . $b['code'] : (string) ($b['err'] ?? 'no answer');   // NVD says slow down (or is away): the rest another day
             break;
         }
         $j = $b['code'] === 200 ? json_decode($b['body'], true, 64) : null;
@@ -747,11 +762,16 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
         writeAtomic("$f/nvd/$id.json", jsonEncode(['v' => 1, 'fetched' => $now] + $red), 0600, 0, 0);
         $res['nvd']++;
     }
-    $mark('nvd', $nvdErr);
+    if ($nvdAsk) {
+        $mark('nvd', $nvdErr !== null && !$res['nvd'] ? $nvdErr : null);       // one answer is an answer: the rest the next day
+        if ($nvdErr !== null && $res['nvd']) {
+            $status['nvd']['err'] = $nvdErr;
+        }
+    }
 
     // Unraid's releases: version, support status, date
-    $u = watchmanVulnGet(WATCH_VULN_URLS['unraid'], WATCH_VULN_MAX['unraid'], null, $ctx);
-    $rel = $u['code'] === 200 ? json_decode($u['body'], true, 16) : null;
+    $u = $may('unraid') ? watchmanVulnGet(WATCH_VULN_URLS['unraid'], WATCH_VULN_MAX['unraid'], null, $ctx) : null;
+    $rel = $u !== null && $u['code'] === 200 ? json_decode($u['body'], true, 16) : null;
     $rows = [];
     foreach (is_array($rel) && array_is_list($rel) ? $rel : [] as $r) {
         if (is_array($r) && is_string($r['version'] ?? null) && preg_match('/^[0-9A-Za-z.+-]{1,40}$/D', $r['version'])
@@ -762,7 +782,7 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
     if ($rows) {
         writeAtomic("$f/unraid.json", jsonEncode(['v' => 1, 'fetched' => $now, 'releases' => $rows]), 0600, 0, 0);
         $mark('unraid', null);
-    } else {
+    } elseif ($u !== null) {
         $res['unraid'] = $u['err'] ?? 'shape';
         $mark('unraid', $res['unraid']);
     }
@@ -771,7 +791,8 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
         @mkdir("$f/eol", 0700, true);
     }
     $eolErr = 0;
-    foreach (array_unique(array_filter(array_column(WATCH_VULN_PRODUCTS, 'eol'))) as $slug) {
+    $slugs = $may('eol') ? array_unique(array_filter(array_column(WATCH_VULN_PRODUCTS, 'eol'))) : [];
+    foreach ($slugs as $slug) {
         $e = watchmanVulnGet(WATCH_VULN_URLS['eol'] . $slug, WATCH_VULN_MAX['eol'], null, $ctx);
         $j = $e['code'] === 200 ? json_decode($e['body'], true, 16) : null;
         $cycles = [];
@@ -789,7 +810,12 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
             $eolErr++;
         }
     }
-    $mark('eol', $eolErr ? "$eolErr failed" : null);
+    if ($slugs) {
+        $mark('eol', $eolErr === count($slugs) ? "$eolErr failed" : null);       // one list that came is an answer
+        if ($eolErr && $eolErr < count($slugs)) {
+            $status['eol']['err'] = "$eolErr failed";
+        }
+    }
     writeAtomic("$f/status.json", jsonEncode($status), 0600, 0, 0);
     return $res;
 }
@@ -814,16 +840,65 @@ function watchmanVulnFetchRun(): int
     return 0;
 }
 
-/** Is a fetch due? On, and the last try a day ago (a failed one: WATCH_VULN_RETRY) — a clock set back: due */
+/** Is a fetch due? On, and the last run a day ago (an older status: KEV's last try) — a clock set back: due */
 function watchmanVulnDue(array $st, ?array $status, int $now): bool
 {
     if (($st['vuln_on'] ?? false) !== true) {
         return false;
     }
-    $kev = is_array($status['kev'] ?? null) ? $status['kev'] : [];
-    $try = (int) ($kev['try'] ?? 0);
-    $wait = isset($kev['err']) ? WATCH_VULN_RETRY : WATCH_VULN_EVERY;
-    return $try === 0 || $now < $try || $now - $try >= $wait;
+    $run = is_int($status['run'] ?? null) ? $status['run'] : (int) ($status['kev']['try'] ?? 0);
+    return $run === 0 || $now < $run || $now - $run >= WATCH_VULN_EVERY;
+}
+
+/**
+ * A source's status after a try: an answer — ok, its failures forgotten; none — err, fails in a row, since (the first),
+ * next: the next day, each further failure double the wait, at most WATCH_VULN_BACKOFF_MAX
+ */
+function watchmanVulnBackoff(array $s, ?string $err, int $now): array
+{
+    $s['try'] = $now;
+    if ($err === null) {
+        $s['ok'] = $now;
+        unset($s['err'], $s['fails'], $s['since'], $s['next']);
+        return $s;
+    }
+    $fails = (is_int($s['fails'] ?? null) ? $s['fails'] : 0) + 1;
+    $s['err'] = substr($err, 0, 120);
+    $s['fails'] = $fails;
+    $s['since'] = is_int($s['since'] ?? null) ? $s['since'] : $now;
+    $s['next'] = $now + min(WATCH_VULN_EVERY << min($fails - 1, 10), WATCH_VULN_BACKOFF_MAX);
+    return $s;
+}
+
+/** May this source be asked now? (not while it waits out its back-off; a clock set back, or a wait past the bound: yes) */
+function watchmanVulnSourceDue(array $status, string $src, int $now): bool
+{
+    $next = $status[$src]['next'] ?? null;
+    return !is_int($next) || $now >= $next - 300 || $next - $now > WATCH_VULN_BACKOFF_MAX;
+}
+
+/** An answer that says the source itself is away (no connection, «slow down», forbidden, a server error) — not «no such record» */
+function watchmanVulnSourceDown(int $code): bool
+{
+    return $code === 0 || $code === 403 || $code === 429 || $code >= 500;
+}
+
+/**
+ * The sources that haven't answered WATCH_VULN_DOWN_FAILS times in a row (the page's calm line): src, since, next, ok
+ *
+ * @return list<array{src: string, since: int, next: ?int, ok: ?int, fails: int}>
+ */
+function watchmanVulnDown(?array $status): array
+{
+    $out = [];
+    foreach (WATCH_VULN_SOURCES as $src) {
+        $s = is_array($status[$src] ?? null) ? $status[$src] : [];
+        if (is_int($s['fails'] ?? null) && $s['fails'] >= WATCH_VULN_DOWN_FAILS && is_int($s['since'] ?? null)) {
+            $out[] = ['src' => $src, 'since' => $s['since'], 'next' => is_int($s['next'] ?? null) ? $s['next'] : null,
+                      'ok' => is_int($s['ok'] ?? null) ? $s['ok'] : null, 'fails' => $s['fails']];
+        }
+    }
+    return $out;
 }
 
 /** His tick: the fetch in a process of its own when due (one at a time; stopped after WATCH_VULN_RUN_MAX) */
@@ -887,7 +962,7 @@ function watchmanVulnSet(mixed $on, ?string $dir = null, bool $page = true): arr
  * Step 16: the containers' software against endoflife.date (watchmanVulnEol(); $images: container => its versions).
  *
  * @return array{found: list<array>, checked: int, fresh: bool, kev: ?int, pending: list<string>, not: list<array>, unsure: list<array>,
- *               kev_total: ?int, kev_known: int, kev_here: int, kev_products: array<string, int>, unraid: ?array{version: string, status: string, newest: ?string},
+ *               kev_total: ?int, kev_known: int, kev_here: int, kev_products: array<string, int>, down: list<array>, unraid: ?array{version: string, status: string, newest: ?string},
  *               software: list<array>, unknown: list<string>}
  */
 function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []): array
@@ -902,7 +977,8 @@ function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []
             // what he looked at (2026-11-23: an empty result must be believable): the whole list, the entries of products
             // the name table knows, those of products running here — by product
             'kev_total' => is_array($kev) && is_int($kev['count'] ?? null) ? $kev['count'] : null,
-            'kev_known' => is_array($kev) ? count((array) ($kev['entries'] ?? [])) : 0, 'kev_here' => 0, 'kev_products' => []]
+            'kev_known' => is_array($kev) ? count((array) ($kev['entries'] ?? [])) : 0, 'kev_here' => 0, 'kev_products' => [],
+            'down' => watchmanVulnDown($status)]
         + watchmanVulnEol($dir, $inv, $images);
     $tried = readJson("$f/cve-tried.json");
     $tried = is_array($tried) ? $tried : [];
@@ -1145,6 +1221,8 @@ function watchmanVulnPage(array $st, ?array $judged): array
             'kev_products' => array_map(fn ($id, $n) => ['product' => (string) $id, 'label' => WATCH_VULN_PRODUCTS[$id]['label'] ?? (string) $id, 'n' => (int) $n],
                 array_keys(array_filter((array) ($j['kev_products'] ?? []), 'is_int')), array_filter((array) ($j['kev_products'] ?? []), 'is_int')),
             'pending' => is_array($j['pending'] ?? null) ? count($j['pending']) : 0, 'floor' => WATCH_VULN_FLOOR_UNRAID,
+            // the sources that haven't answered for days (2026-11-23): a calm line each, never a colour, never told
+            'down' => array_values(array_filter((array) ($j['down'] ?? []), fn ($x) => is_array($x) && in_array($x['src'] ?? null, WATCH_VULN_SOURCES, true))),
             // can't be checked for sure (1.96, 2026-11-23): the record names no version he can compare — calm, never an entry
             'unsure' => array_map(fn ($x) => $x + ['label' => WATCH_VULN_PRODUCTS[$x['product']]['label'] ?? $x['product']],
                 array_values(array_filter((array) ($j['unsure'] ?? []), fn ($x) => is_array($x) && is_string($x['cve'] ?? null) && is_string($x['product'] ?? null))))];

@@ -372,6 +372,11 @@ async function vulnPage() {
   const counted = sec && sec.querySelector('.wm-vuln-counted');
   same('vulnerabilities: how many of the list concern programs here, by product',
     counted && tx(counted), T('vuln.counted', { n: 47, total: O.fmt.number(1484), list: 'Linux kernel 39 · PHP 5 · Bash 3' }));
+  // a source away for days (2026-11-23): a calm line in the area and in the help's «Known vulnerabilities», never a colour
+  const downs = r.all().filter((n) => n.classList && n.classList.contains('wm-vuln-down')).map(tx);
+  same('vulnerabilities: the NVD away for 3 days — one calm line in the area, the same in the help; the area stays green',
+    [downs.length, downs[0], downs[0] === downs[1], tileWords(r.all().find((n) => n.dataset && n.dataset.tile === 'vuln'))[0] !== undefined],
+    [2, [T('vuln.down', { source: T('vuln.source.nvd'), n: 3, when: O.fmt.date(state.vuln.down[0].next) }), T('vuln.down_nvd', { n: 2 })].join(' '), true, true]);
   const typed = async (words) => {
     const input = barIn(sectionOf(r, 'area.vuln')).querySelector('.filter-words');
     input.value = words;
