@@ -221,16 +221,15 @@ same('src line: one read-only container — the line, the detail row', [none({ g
 same('src line: an entry of an older office (no sources) says nothing', W.srcFrom({ share: 'maple/Media' }), '');
 dict = null;
 
-// «How secure does it stand?»: its light by its tips only — serious incidents answered «That was serious» are their own
-// tile's (green with «!»), never red here (Benj on the test stand, 1.96); the areas' lights count only open entries
-const tip = (known, level = 'advice') => ({ id: 'x', level, known });
-const incidents = Array.from({ length: 10 }, (_, i) => ({ id: 'i' + i, kind: 'login_new_ip' }));
-const lights = (tips, inc) => { W.setState({ posture: { tips }, incidents: inc, cats: { login: { level: 'ok', why: [] } } }); return [W.postureLevel(), W.incidentsLevel(), W.catLevel('login')]; };
-same('posture light: both hints known, 10 serious incidents on his list — green; the incidents\' own tile «!»; the area green',
-  lights([tip(true), tip(true)], incidents), ['ok', 'note', 'ok']);
-same('posture light: an advice not known yet — «!», with or without incidents', [lights([tip(false), tip(true)], incidents)[0], lights([tip(false)], [])[0]], ['note', 'note']);
-same('posture light: a «good to know» tip not known never colours', lights([tip(false, 'info')], incidents)[0], 'ok');
-same('posture light: no incidents, nothing open — green; their tile grey', lights([], []).slice(0, 2), ['ok', 'none']);
+// 1.96 «einfacher»: 12 tiles over the areas — «Only what waits for you» is red and yellow, nothing else; an entry's tile
+same('tiles: «only what waits for you» — red and yellow only', ['danger', 'warn', 'note', 'ok', 'none', ''].map((l) => W.tileWaits(l)), [true, true, false, false, false, false]);
+W.setState({ tiles: { login: { level: 'warn', why: ['open'], parts: ['login', 'partner'] } } });
+same('tiles: a tile\'s light from the messenger; none known — no light', [W.tileLevel('login'), W.tileLevel('net')], ['warn', '']);
+same('tiles: an entry\'s tile — the messenger\'s, else by kind (go on «Plugins and scripts»), else by area (an older state)',
+  [W.entryTile({ tile: 'access', kind: 'flash_ssh_key' }), W.entryTile({ kind: 'flash_go', cat: 'flash' }), W.entryTile({ kind: 'net_dns', cat: 'lan' }), W.entryTile({ kind: 'watch' })],
+  ['access', 'plugins', 'net', null]);
+same('tiles: every area on one tile, the old places on theirs', [Object.values(W.TILE_PARTS).flat().length, new Set(Object.values(W.TILE_PARTS).flat()).size, W.TILE_ROUTE.pull, W.TILE_ROUTE.hold, W.TILE_ROUTE.posture],
+  [19, 19, 'data', 'array', '']);
 
 // «What holds the array?»: what still waits for you, in words — a User Script that may run and a VM you know never count
 const holdLookOf = (more = {}) => ({ started: true, time: 1, count: 3, times: { fits: true, disk: 90, need: 60 },
@@ -251,21 +250,6 @@ same('hold tile: one VM waits — yellow, its tip says why; what you know said b
 W.setState({ rules: [rule('script', 'sync'), rule('vm', 'Win11'), rule('vm', 'Lab')], hold: { look: holdLookOf() } });
 same('hold tile: everything known — green, «nothing»', [W.holdTile({}).level, W.holdTile({}).tip.split('\n')[0]], ['ok', 'What holds the array?: nothing']);
 dict = null;
-
-// «only with a finding» (Benj on the test stand): red and yellow always; green «!» only for an advice not known yet —
-// never the serious incidents' list, a learning time, a part not read lately, grey
-W.setState({ cats: {
-  sched: { level: 'warn', why: ['open'] }, snap: { level: 'note', why: ['asleep'] }, hw: { level: 'note', why: ['hw_no_ecc'] },
-  pull: { level: 'note', why: ['relearn_flow'] }, data: { level: 'note', why: ['learning'] }, door: { level: 'note', why: ['tips'] },
-  hold: { level: 'note', why: ['hold_old'] }, login: { level: 'danger', why: ['open_tell'] }, vuln: { level: 'none', why: ['vuln_off'] } } });
-const counts = (id, level) => W.tileFinding(id, level);
-same('only with a finding: red and yellow always (an area, the book)', [counts('login', 'danger'), counts('sched', 'warn'), counts('book', 'warn')], [true, true, true]);
-same('only with a finding: green «!» for an advice not known yet — an area\'s, «How secure»\'s', [counts('door', 'note'), counts('posture', 'note')], [true, true]);
-same('only with a finding: never the serious incidents, the book\'s own «!», a learning time, a part asleep or unread, an old look',
-  [counts('incidents', 'note'), counts('book', 'note'), counts('pull', 'note'), counts('data', 'note'), counts('snap', 'note'), counts('hw', 'note'), counts('hold', 'note')],
-  [false, false, false, false, false, false, false]);
-same('only with a finding: never grey or green, never the schedule while fine', [counts('vuln', 'none'), counts('posture', 'ok'), counts('schedule', 'ok')], [false, false, false]);
-same('only with a finding: the reasons that count, in one list', W.NOTE_COUNTS, ['tips']);
 
 // the hand-made exception's note (1.96, Benj: no second yes — the note says what it means, as he types); the address
 // rule is the agent's watchmanIpPrivate(): 10/8, 172.16/12, 192.168/16, 100.64/10, fc00::/7, fe80::/10

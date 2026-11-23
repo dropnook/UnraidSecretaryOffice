@@ -92,7 +92,8 @@
     }
    ],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "data"
   },
   {
    "id": "w2b3c4d5e6f",
@@ -145,7 +146,8 @@
     }
    ],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "data"
   },
   {
    "id": "w54e6489316",
@@ -208,7 +210,8 @@
     }
    ],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "net"
   },
   {
    "id": "wbb38aac28c",
@@ -271,7 +274,8 @@
     }
    ],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "net"
   },
   {
    "id": "wda4a752ea7",
@@ -334,7 +338,8 @@
     }
    ],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "net"
   },
   {
    "id": "wd3e4169d75",
@@ -397,7 +402,8 @@
     }
    ],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "net"
   },
   {
    "id": "we39e6da19f",
@@ -436,7 +442,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "array"
   },
   {
    "id": "w3b41b7080b",
@@ -481,7 +488,8 @@
     }
    ],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "access"
   },
   {
    "id": "w2a19a76ee8",
@@ -533,7 +541,8 @@
     }
    ],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "plugins"
   },
   {
    "id": "wfd4fc19641",
@@ -575,7 +584,8 @@
     }
    ],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "plugins"
   },
   {
    "id": "w2dbba062ab",
@@ -627,7 +637,8 @@
     }
    ],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "plugins"
   },
   {
    "id": "wa92b5cedfc",
@@ -679,7 +690,8 @@
     }
    ],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "plugins"
   },
   {
    "id": "wb44b5c2f92",
@@ -724,7 +736,8 @@
     }
    ],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "plugins"
   },
   {
    "id": "w60263f57e5",
@@ -757,7 +770,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "server"
   },
   {
    "id": "w043a3dc3dc",
@@ -800,7 +814,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "array"
   },
   {
    "id": "w10eeb60ac4",
@@ -839,7 +854,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "array"
   },
   {
    "id": "w915f8925c3",
@@ -872,7 +888,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "server"
   },
   {
    "id": "w79d2e622c8",
@@ -917,7 +934,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "array"
   },
   {
    "id": "w39b1706544",
@@ -950,7 +968,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "server"
   },
   {
    "id": "wb2dda43023",
@@ -989,7 +1008,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "array"
   },
   {
    "id": "w84677cd4de",
@@ -1015,7 +1035,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "server"
   },
   {
    "id": "wd5e04cb7da",
@@ -1087,7 +1108,8 @@
     }
    ],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "login"
   },
   {
    "id": "w3a580811c6",
@@ -1126,7 +1148,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "array"
   },
   {
    "id": "w93a0d0d9ea",
@@ -1152,7 +1175,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "server"
   },
   {
    "id": "wfe162b7c9a",
@@ -1201,7 +1225,8 @@
     }
    ],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "net"
   },
   {
    "id": "w8023c95ba4",
@@ -1252,7 +1277,8 @@
     }
    ],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "net"
   },
   {
    "id": "w8825237f13",
@@ -1301,7 +1327,8 @@
     }
    ],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "data"
   },
   {
    "id": "wf5ba8983a8",
@@ -1340,7 +1367,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "array"
   },
   {
    "id": "w63008f09e2",
@@ -1379,7 +1407,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "array"
   },
   {
    "id": "w5668eda953",
@@ -1418,7 +1447,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "array"
   },
   {
    "id": "wc063e8ad2d",
@@ -1448,7 +1478,8 @@
    "cat": "sched",
    "offers": [],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "plugins"
   },
   {
    "id": "w5a1e7f0c3b",
@@ -1483,7 +1514,8 @@
    "cat": "sched",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "plugins"
   },
   {
    "id": "w8e9e664fdb",
@@ -1522,7 +1554,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "array"
   },
   {
    "id": "wee17d287f0",
@@ -1561,7 +1594,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "array"
   },
   {
    "id": "w86a678e52c",
@@ -1594,7 +1628,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "server"
   },
   {
    "id": "wd3eabf582d",
@@ -1653,7 +1688,8 @@
     }
    ],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "data"
   },
   {
    "id": "w3bf6add5b4",
@@ -1685,7 +1721,8 @@
    "cat": "partner",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "login"
   },
   {
    "id": "w8b0797eaff",
@@ -1762,7 +1799,8 @@
     }
    ],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "net"
   },
   {
    "id": "w5a3ee8d94c",
@@ -1799,7 +1837,8 @@
    "cat": "router",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "net"
   },
   {
    "id": "w07568b1abf",
@@ -1868,7 +1907,8 @@
     }
    ],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "net"
   },
   {
    "id": "waac5d29ba8",
@@ -1919,7 +1959,8 @@
     }
    ],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "net"
   },
   {
    "id": "w84833d7a59",
@@ -1970,7 +2011,8 @@
     }
    ],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "net"
   },
   {
    "id": "w41acb2239b",
@@ -2006,7 +2048,8 @@
    "cat": "login",
    "offers": [],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "login"
   },
   {
    "id": "w57f8cbc78b",
@@ -2096,7 +2139,8 @@
     }
    ],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "net"
   },
   {
    "id": "w5083c20876",
@@ -2141,7 +2185,8 @@
    "cat": "snap",
    "offers": [],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "snap"
   },
   {
    "id": "w4c7a66770e",
@@ -2180,7 +2225,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "array"
   },
   {
    "id": "w4446c99b98",
@@ -2213,7 +2259,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "server"
   },
   {
    "id": "wcb41de23c5",
@@ -2252,7 +2299,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "array"
   },
   {
    "id": "w31bf64e671",
@@ -2291,7 +2339,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "array"
   },
   {
    "id": "w967f303e44",
@@ -2324,7 +2373,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "array"
   },
   {
    "id": "wbddd76b648",
@@ -2357,7 +2407,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "server"
   },
   {
    "id": "wefd5a94556",
@@ -2393,7 +2444,8 @@
    "cat": "sched",
    "offers": [],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "plugins"
   },
   {
    "id": "w0ff91622ed",
@@ -2426,7 +2478,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "array"
   },
   {
    "id": "w2d6da8a8cd",
@@ -2459,7 +2512,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "array"
   },
   {
    "id": "w2dfd00c23e",
@@ -2498,7 +2552,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "array"
   },
   {
    "id": "w7c215ef4b8",
@@ -2531,7 +2586,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "server"
   },
   {
    "id": "w734cd95f15",
@@ -2570,7 +2626,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "array"
   },
   {
    "id": "w44d7b19c43",
@@ -2609,7 +2666,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "array"
   },
   {
    "id": "wdba5bdde33",
@@ -2642,7 +2700,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "array"
   },
   {
    "id": "w68f3698957",
@@ -2697,7 +2756,8 @@
     }
    ],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "server"
   },
   {
    "id": "wcef47810c4",
@@ -2727,7 +2787,8 @@
    "cat": "sched",
    "offers": [],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "plugins"
   },
   {
    "id": "w3935c23946",
@@ -2766,7 +2827,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "array"
   },
   {
    "id": "w4b839bcde0",
@@ -2821,7 +2883,8 @@
     }
    ],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "server"
   },
   {
    "id": "we2c751ce61",
@@ -2854,7 +2917,8 @@
    "cat": "array",
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": "array"
   },
   {
    "id": "w10bd9b6781",
@@ -2884,7 +2948,8 @@
    "cat": "sched",
    "offers": [],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "plugins"
   },
   {
    "id": "wdc05fb1798",
@@ -2929,7 +2994,8 @@
     }
    ],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "container"
   },
   {
    "id": "w6477d0ca59",
@@ -3000,7 +3066,8 @@
     }
    ],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "login"
   },
   {
    "id": "w5c519c4a94",
@@ -3045,7 +3112,8 @@
     }
    ],
    "rule": null,
-   "lasts": true
+   "lasts": true,
+   "tile": "container"
   },
   {
    "id": "w1236963b43",
@@ -3081,7 +3149,8 @@
    "cat": null,
    "offers": [],
    "rule": null,
-   "lasts": false
+   "lasts": false,
+   "tile": null
   }
  ],
  "watch": {
@@ -4118,7 +4187,8 @@
      "path": "/Settings/BootParameters"
     },
     "known": true,
-    "cat": "host"
+    "cat": "host",
+    "tile": "server"
    }
   ],
   "open": 0
@@ -5140,7 +5210,8 @@
    "from": "hand",
    "note": "",
    "hits": 2,
-   "hit": 1791559874
+   "hit": 1791559874,
+   "tile": "login"
   },
   {
    "id": "r0123456790",
@@ -5155,7 +5226,8 @@
    "from": "hand",
    "note": "",
    "hits": 0,
-   "hit": null
+   "hit": null,
+   "tile": "container"
   },
   {
    "id": "r0123456791",
@@ -5170,7 +5242,8 @@
    "from": "hand",
    "note": "",
    "hits": 3,
-   "hit": 1791556274
+   "hit": 1791556274,
+   "tile": "data"
   },
   {
    "id": "r0123456792",
@@ -5188,7 +5261,8 @@
    "from": "hand",
    "note": "",
    "hits": 0,
-   "hit": null
+   "hit": null,
+   "tile": "data"
   },
   {
    "id": "r0123456793",
@@ -5204,7 +5278,8 @@
    "from": "hand",
    "note": "",
    "hits": 12,
-   "hit": 1791559874
+   "hit": 1791559874,
+   "tile": "snap"
   }
  ],
  "off": {},
@@ -5224,7 +5299,8 @@
      "web"
     ]
    },
-   "t": []
+   "t": [],
+   "tile": "login"
   }
  ],
  "known_full": false,
@@ -5548,5 +5624,195 @@
   "maybe": 0,
   "software": [],
   "unknown": []
+ },
+ "tiles": {
+  "login": {
+   "why": [
+    "open_tell"
+   ],
+   "open": 2,
+   "tell": 2,
+   "tips": 0,
+   "entries": 4,
+   "last": 1791526251,
+   "off": null,
+   "parts": [
+    "login",
+    "partner"
+   ],
+   "level": "danger"
+  },
+  "access": {
+   "why": [
+    "open_tell"
+   ],
+   "open": 1,
+   "tell": 1,
+   "tips": 0,
+   "entries": 1,
+   "last": 1791530689,
+   "off": null,
+   "parts": [
+    "door",
+    "share",
+    "flash"
+   ],
+   "level": "danger"
+  },
+  "container": {
+   "why": [
+    "open_tell"
+   ],
+   "open": 2,
+   "tell": 2,
+   "tips": 0,
+   "entries": 2,
+   "last": 1791322792,
+   "off": null,
+   "parts": [
+    "container"
+   ],
+   "level": "danger"
+  },
+  "plugins": {
+   "why": [
+    "open_tell"
+   ],
+   "open": 5,
+   "tell": 5,
+   "tips": 0,
+   "entries": 10,
+   "last": 1791530689,
+   "off": null,
+   "parts": [
+    "plugin",
+    "sched"
+   ],
+   "level": "danger"
+  },
+  "server": {
+   "why": [
+    "open_tell"
+   ],
+   "open": 2,
+   "tell": 2,
+   "tips": 0,
+   "entries": 11,
+   "last": 1791530629,
+   "off": null,
+   "parts": [
+    "host"
+   ],
+   "level": "danger"
+  },
+  "data": {
+   "why": [
+    "open_tell",
+    "relearn_flow",
+    "learning"
+   ],
+   "open": 4,
+   "tell": 4,
+   "tips": 0,
+   "entries": 4,
+   "last": 1791562874,
+   "off": null,
+   "parts": [
+    "pull",
+    "data"
+   ],
+   "level": "danger"
+  },
+  "snap": {
+   "why": [
+    "relearn"
+   ],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 1,
+   "last": 1791438876,
+   "off": null,
+   "parts": [
+    "snap"
+   ],
+   "level": "ok"
+  },
+  "net": {
+   "why": [
+    "open_tell"
+   ],
+   "open": 11,
+   "tell": 7,
+   "tips": 0,
+   "entries": 12,
+   "last": 1791563474,
+   "off": null,
+   "parts": [
+    "router",
+    "lan"
+   ],
+   "level": "danger"
+  },
+  "hw": {
+   "why": [
+    "not_yet"
+   ],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null,
+   "off": null,
+   "parts": [
+    "hw"
+   ],
+   "level": "none"
+  },
+  "vuln": {
+   "why": [
+    "vuln_off"
+   ],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null,
+   "off": null,
+   "parts": [
+    "vuln"
+   ],
+   "level": "none"
+  },
+  "array": {
+   "why": [
+    "hold_short",
+    "hold_holds"
+   ],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 23,
+   "last": 1791530711,
+   "off": null,
+   "parts": [
+    "array",
+    "hold"
+   ],
+   "level": "warn"
+  },
+  "wakes": {
+   "why": [],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null,
+   "off": null,
+   "parts": [
+    "wakes"
+   ],
+   "level": "ok"
+  }
  }
 }

@@ -166,8 +166,8 @@ const AREAS = ['login', 'container', 'plugin', 'flash', 'share', 'sched', 'pull'
 let drawn = [];
 try { drawn = AREAS.map((id) => groupsOf(folds(id))); } catch (e) { ok = String(e && e.stack); }
 same('demo: every area\'s folds drawn without words', ok, true);
-same('demo: the server itself and its ways in apart; the data flow in its two areas', [drawn[9], drawn[10], drawn[6], drawn[7]],
-  [['host'], ['doors'], ['flow_clients', 'flow_containers'], ['flow_shares', 'flow_gone']]);
+same('demo: the server itself and its ways in apart; the data flow\'s areas — and its tile «Data» both (1.96 «einfacher»)', [drawn[9], drawn[10], drawn[6], groupsOf(folds('data'))],
+  [['host'], ['doors'], ['flow_clients', 'flow_containers'], ['flow_clients', 'flow_containers', 'flow_shares', 'flow_gone']]);
 same('demo: a container\'s name — its special rights in its area, its data flow in «who pulls»',
   [groupsOf(folds('container', 'immich_server')), groupsOf(folds('pull', 'immich_server'))], [['containers'], ['flow_containers']]);
 
