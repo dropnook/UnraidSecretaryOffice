@@ -5640,6 +5640,7 @@
    }
   ],
   "pending": 0,
+  "floor": "7.3.2",
   "software": [],
   "unknown": [],
   "not": [
@@ -5660,6 +5661,17 @@
     "fixed": "9.8p1",
     "name": "regreSSHion",
     "label": "OpenSSH"
+   },
+   {
+    "cve": "CVE-2010-3904",
+    "product": "kernel",
+    "where": "host",
+    "have": "6.12.54-Unraid",
+    "fixed": "2.6.36",
+    "name": "Linux Kernel Improper Input Validation Vulnerability",
+    "label": "Linux kernel",
+    "ancient": true,
+    "src": "nvd"
    }
   ],
   "unsure": [
@@ -5669,7 +5681,8 @@
     "where": "host",
     "have": "6.12.54-Unraid",
     "name": "Linux Kernel Race Condition Vulnerability",
-    "label": "Linux kernel"
+    "label": "Linux kernel",
+    "nvd": true
    },
    {
     "cve": "CVE-2014-6278",
