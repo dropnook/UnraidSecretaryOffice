@@ -1221,6 +1221,33 @@ function watchmanUnadopt(array &$b, string $kind, array $p): void
         case 'net_router_login_failures':
             unset($b['net']['fail_ips'][$str('ip') !== '' ? $str('ip') : 'local']);
             break;
+        // the 1.96 parts (concept 12.1, gap 2): the thing itself out of what is normal, not only the answer
+        case 'flash_boot':
+        case 'ld_preload':
+            // its file: the entry's key flash_boot:<id> (the answer's key, handed in by watchmanKnownRemove())
+            $id = $kind === 'ld_preload' ? 'preload' : (str_starts_with($str('key'), 'flash_boot:') ? substr($str('key'), strlen('flash_boot:')) : '');
+            if ($id !== '') {
+                unset($b['flash']['boot']['files'][$id], $b['flash']['boot']['wait'][$id]);     // still there: new again next round
+            }
+            break;
+        case 'net_gateway':
+            if (is_array($b['lan']['gw'][$str('ip')] ?? null)) {
+                unset($b['lan']['gw'][$str('ip')][$str('mac')]);       // its address stays known: this MAC another again
+            }
+            $b['lan']['wait'] = null;
+            break;
+        case 'net_dns':
+            // the servers before the answer (the entry's `old`); none known: an empty list — different from any read
+            $b['lan']['dns'] = is_array($p['old'] ?? null) ? array_values(array_map('strval', $p['old'])) : [];
+            break;
+        case 'plugin_version':
+            if (isset($b['plugins'][$str('name')]) && $str('old') !== '') {
+                $b['plugins'][$str('name')]['version'] = $str('old');
+            }
+            break;
+        case 'container_plain':
+            unset($b['containers'][$str('name')]);
+            break;
     }
 }
 

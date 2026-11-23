@@ -22470,6 +22470,53 @@ function testWatchmanRules(): void
     same('area off: all three dropped; the pull\'s «usual» untouched, the guessing address never known; the login\'s address normal',
         [3, [], [], ['192.168.1.7']], [$ores['off'], $obk, $ob['flow']['ack'], array_keys($ob['ips']) === [] ? [] : array_keys($ob['ips'])]);
     same('area off: failed logins never counted quietly afterwards', [], $ob['fail_ips']);
+    // gap 2 (concept 12.1): «Take back» puts the thing itself out of what is normal for the 1.96 parts — told again
+    $takeBack = function (string $kind, callable $compare, callable $adopt) {
+        $b = [];
+        $book = [];
+        $compare($b, $book);                            // the first look: normal
+        $book = [];
+        $compare($b, $book, true);                      // changed: an entry (the router's MAC: a round later)
+        $compare($b, $book, true);
+        $e = array_values(array_filter($book, fn ($x) => $x['kind'] === $kind))[0] ?? null;
+        if ($e === null) {
+            return 'no entry';
+        }
+        $adopt($b, $e);                                 // «I know, thanks»
+        $book = [];
+        $compare($b, $book, true);
+        $quiet = !array_filter($book, fn ($x) => $x['kind'] === $kind);
+        watchmanUnadopt($b, $kind, (array) $e['p'] + ['key' => (string) $e['key']]);     // «Take back», as watchmanKnownRemove() does
+        $book = [];
+        $compare($b, $book, true);
+        $compare($b, $book, true);                      // the kinds that wait a round
+        return [$quiet, (bool) array_filter($book, fn ($x) => $x['kind'] === $kind)];
+    };
+    $boot = function (string $id) {
+        return function (array &$b, array &$book, bool $changed = false) use ($id) {
+            $seen = ['files' => [$id => ['size' => 1, 'time' => 1, 'h' => $changed ? 'b' : 'a']], 'looked' => [explode(':', $id)[0]], 'installed' => []];
+            $b['flash']['boot'] ??= null;
+            watchmanBootCompare($b['flash']['boot'], $seen, $book, 100);
+        };
+    };
+    $bootSeen = fn (string $id) => ['flash' => ['boot' => ['files' => [$id => ['size' => 1, 'time' => 1, 'h' => 'b']]]]];
+    $gw = function (array &$b, array &$book, bool $changed = false) {
+        $b['lan'] ??= null;
+        watchnetGatewayCompare($b['lan'], ['gw' => ['ip' => '192.168.1.1', 'mac' => $changed ? '02:00:00:00:00:02' : '02:00:00:00:00:01', 'iface' => 'br0'],
+            'dns' => $changed ? ['9.9.9.9'] : ['192.168.1.1']], $book, 100);
+    };
+    $gwSeen = ['lan' => ['dns' => ['9.9.9.9']]];
+    same('take back: a start file, ld.so.preload, the router\'s MAC, the DNS — quiet after «I know», told again after «Take back»',
+        [[true, true], [true, true], [true, true], [true, true]],
+        [$takeBack('flash_boot', $boot('stop'), fn (&$b, $e) => watchmanBootAdopt($b, $e, $bootSeen('stop'))),
+         $takeBack('ld_preload', $boot('preload'), fn (&$b, $e) => watchmanBootAdopt($b, $e, $bootSeen('preload'))),
+         $takeBack('net_gateway', $gw, fn (&$b, $e) => watchnetGatewayAdopt($b, $e, $gwSeen, 100)),
+         $takeBack('net_dns', $gw, fn (&$b, $e) => watchnetGatewayAdopt($b, $e, $gwSeen, 100))]);
+    $pv = ['plugins' => ['a' => ['source' => 'github.com/x', 'version' => '2', 'seen' => 1]], 'containers' => ['web' => ['tokens' => [], 'seen' => 1]]];
+    watchmanUnadopt($pv, 'plugin_version', ['name' => 'a', 'version' => '2', 'old' => '1']);
+    watchmanUnadopt($pv, 'container_plain', ['name' => 'web']);
+    same('take back: a plugin\'s version back to the one before (noted again), a plain container out of what is normal (seen anew)', ['1', false],
+        [$pv['plugins']['a']['version'], isset($pv['containers']['web'])]);
     same('cat_off: off only with the clear yes', 'watch_rule_ask', $err(fn () => watchmanCatOff('plugin', true, false, $data, null, false)));
     watchmanCatOff('plugin', true, true, $data, $t0 + 1600, false);
     file_put_contents("$src/plugins/new.plg", "<PLUGIN name=\"new\" version=\"1\" pluginURL=\"https://evil.example/new.plg\">\n");
