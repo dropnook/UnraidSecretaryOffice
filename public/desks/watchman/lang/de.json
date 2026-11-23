@@ -1607,6 +1607,8 @@
   "setup.add_public": "Ja, auch eine öffentliche Adresse oder ein öffentliches Netz (aus dem Internet) — dann meldet er Anmeldungen von dort nicht mehr.",
   "setting.login.burst": "Fehlversuche von einer Adresse, die eine Häufung sind",
   "setting.login.window": "… innert so vielen Sekunden",
+  "setting.login.new_user": "Ein neuer Benutzer von einer bekannten Adresse: auch eine Zeile",
+  "setting.login.smb_hour": "Eine SMB-Sitzung zu ungewohnter Stunde: eine Zeile",
   "errors.watch_setting_range": "Dieser Wert liegt ausserhalb seiner Grenzen ({min} bis {max}).",
   "errors.watch_net_bad": "Das ist kein Netz und keine Adresse, die er brauchen kann (wie 192.168.1.0/24 oder 192.168.1.7; ein Benutzer wie root).",
   "setting.container.ports": "Neue Ports eines bekannten Containers",

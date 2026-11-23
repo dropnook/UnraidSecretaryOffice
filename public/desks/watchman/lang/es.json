@@ -1607,6 +1607,8 @@
   "setup.add_public": "Sí, también una dirección o red pública (desde internet) — entonces ya no avisa inicios de sesión desde allí.",
   "setting.login.burst": "Inicios fallidos desde una dirección que forman una ráfaga",
   "setting.login.window": "… en estos segundos",
+  "setting.login.new_user": "Un usuario nunca visto desde una dirección conocida: también una línea",
+  "setting.login.smb_hour": "Una sesión SMB a una hora inusual: una línea",
   "errors.watch_setting_range": "Ese valor está fuera de sus límites (de {min} a {max}).",
   "errors.watch_net_bad": "No es una red ni una dirección que pueda usar (como 192.168.1.0/24 o 192.168.1.7; un usuario como root).",
   "setting.container.ports": "Puertos nuevos de un contenedor conocido",

@@ -1607,6 +1607,8 @@
   "setup.add_public": "Yes, also a public address or net (from the internet) — then he doesn't tell logins from there any more.",
   "setting.login.burst": "Failed logins from one address that make a burst",
   "setting.login.window": "… within this many seconds",
+  "setting.login.new_user": "A user never seen from a known address: a line too",
+  "setting.login.smb_hour": "An SMB session at an unusual hour: a line",
   "errors.watch_setting_range": "That value is outside its bounds ({min} to {max}).",
   "errors.watch_net_bad": "That isn't a net or an address he can use (like 192.168.1.0/24 or 192.168.1.7; a user like root).",
   "setting.container.ports": "New ports of a known container",

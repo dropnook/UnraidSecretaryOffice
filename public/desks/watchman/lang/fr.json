@@ -1607,6 +1607,8 @@
   "setup.add_public": "Oui, aussi une adresse ou un réseau public (depuis internet) — il ne signale alors plus les connexions de là.",
   "setting.login.burst": "Échecs de connexion d'une adresse qui font une rafale",
   "setting.login.window": "… en autant de secondes",
+  "setting.login.new_user": "Un utilisateur jamais vu depuis une adresse connue : une ligne aussi",
+  "setting.login.smb_hour": "Une session SMB à une heure inhabituelle : une ligne",
   "errors.watch_setting_range": "Cette valeur est hors de ses limites (de {min} à {max}).",
   "errors.watch_net_bad": "Ce n'est ni un réseau ni une adresse qu'il peut utiliser (comme 192.168.1.0/24 ou 192.168.1.7 ; un utilisateur comme root).",
   "setting.container.ports": "Nouveaux ports d'un conteneur connu",

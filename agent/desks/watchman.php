@@ -1555,7 +1555,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             }
             $doors += watchmanTicketDoors($seen['partner']);
             $added = array_merge(
-                watchmanLogins($b, $book, $st, $events, false, $doors, $set['login']['burst'], $set['login']['window']),
+                watchmanLogins($b, $book, $st, $events, false, $doors, $set['login']['burst'], $set['login']['window'], $set['login']['new_user']),
                 watchmanContainersCompare($b['containers'], $seen['containers'], $book, $now, $office, $set['container']['plain']),
                 watchmanPluginsCompare($b['plugins'], $seen['plugins'], $book, $now, $office, $set['plugin']['versions']),
                 watchmanFlashCompare($b['flash'], $seen['flash'], $book, $now, isset($paths['go']) ? (string) $paths['go'] : null, $set['flash']['go_blank']),
@@ -2133,7 +2133,7 @@ function watchmanFailStep(array &$fails, array $ev, int $burst = WATCH_FAIL_BURS
  * @return list<string>  the kinds of new entries
  */
 function watchmanLogins(array &$b, array &$book, array &$st, array $events, bool $learn, array $doors = [], int $burst = WATCH_FAIL_BURST,
-                        int $window = WATCH_FAIL_WINDOW): array
+                        int $window = WATCH_FAIL_WINDOW, bool $newUser = false): array
 {
     $added = [];
     $st['fails'] = (array) ($st['fails'] ?? []);
@@ -2157,6 +2157,15 @@ function watchmanLogins(array &$b, array &$book, array &$st, array $events, bool
             }
         }
         if ($ev['ok']) {
+            if (!$learn && $newUser && isset($b['ips'][$ip]) && is_string($ev['user'] ?? null) && $ev['user'] !== ''
+                && !in_array($ev['user'], (array) ($b['ips'][$ip]['users'] ?? []), true)) {
+                // his setting (1.96, off by default): a user never seen from this known address — the address's line, the
+                // user learned only by «I know, thanks» (watchmanAdopt())
+                $added[] = watchmanBump($book, 'login_new_ip', "login_new_ip:$ip", $time, 1,
+                    ['ip' => $ip, 'users' => [$ev['user']], 'services' => [$ev['service']], 'new_user' => true]);
+                $b['ips'][$ip]['last'] = max((int) ($b['ips'][$ip]['last'] ?? 0), $time);
+                continue;
+            }
             if ($learn || isset($b['ips'][$ip])) {
                 $k = $b['ips'][$ip] ?? ['first' => $time, 'last' => $time, 'users' => [], 'services' => []];
                 $k['first'] = min((int) $k['first'], $time);
@@ -7689,7 +7698,7 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
                     sort($hours);
                     $bf['smb_clients'][$ip]['hours'] = $hours;
                 }
-            } elseif (!watchmanHourNear($hours, $how)) {
+            } elseif (!empty($set['login']['smb_hour']) && !watchmanHourNear($hours, $how)) {        // his setting (1.96, on by default)
                 $added[] = watchmanBump($book, 'smb_hour', "smb_hour:$ip", (int) ($s['start'] ?? $now), 1,
                     ['ip' => $ip, 'users' => [$user], 'hours' => [$how], 'machine' => $machine]);
             }

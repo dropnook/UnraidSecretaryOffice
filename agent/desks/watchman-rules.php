@@ -1206,6 +1206,8 @@ const WATCH_SETTINGS = [
         // this file loads before watchman.php: the defaults as numbers — WATCH_FAIL_BURST and WATCH_FAIL_WINDOW (a test holds them equal)
         'burst'  => ['def' => 5, 'min' => 3, 'max' => 50, 'unit' => 'n'],            // failed logins from one address …
         'window' => ['def' => 600, 'min' => 60, 'max' => 3600, 'unit' => 's'],       // … within this many seconds: a burst
+        'new_user' => ['def' => false],     // a user never seen from a known address: a line too (up to 1.95 never said)
+        'smb_hour' => ['def' => true],      // an SMB session at an hour of the week a machine never used: a line (as up to 1.95)
     ],
     'container' => [
         'ports' => ['def' => 'quiet', 'of' => ['quiet', 'tell', 'none'], 'kinds' => ['container_ports']],   // new ports of a known container
