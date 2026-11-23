@@ -22873,14 +22873,17 @@ function testWatchmanSettings(): void
     same('rule_hand: a private net of any size, an address, a user from a net', [true, true, true],
         [isset(watchmanRuleHand('login', 'net', '10.0.0.0/8', '', false, $data, $t0, false)['rule']), isset(watchmanRuleHand('login', 'ip', '192.168.5.5', '', false, $data, $t0, false)['rule']),
          isset(watchmanRuleHand('login', 'user_net', '192.168.7.0/24', 'root', false, $data, $t0, false)['rule'])]);
-    same('rule_hand: a public net wider than /24, a public one without the clear yes, nonsense, a user missing, another area — refused',
-        ['watch_net_wide', 'watch_rule_ask', 'watch_rule_ask', 'watch_net_bad', 'watch_net_bad', 'watch_net_bad', 'bad_request'],
-        [$err(fn () => watchmanRuleHand('login', 'net', '203.0.0.0/16', '', true, $data, $t0, false)), $err(fn () => watchmanRuleHand('login', 'net', '203.0.113.0/24', '', false, $data, $t0, false)),
-         $err(fn () => watchmanRuleHand('login', 'ip', '203.0.113.9', '', false, $data, $t0, false)), $err(fn () => watchmanRuleHand('login', 'net', '192.168.1.7/24', '', false, $data, $t0, false)),
+    // 1.96 (Benj): typing it and «Add» is the decision — a public address or net needs no second yes (the dialog says what it means)
+    same('rule_hand: a public net wider than /24, nonsense, a user missing, another area — refused',
+        ['watch_net_wide', 'watch_net_wide', 'watch_net_bad', 'watch_net_bad', 'watch_net_bad', 'bad_request'],
+        [$err(fn () => watchmanRuleHand('login', 'net', '203.0.0.0/16', '', true, $data, $t0, false)), $err(fn () => watchmanRuleHand('login', 'net', '203.0.0.0/16', '', false, $data, $t0, false)),
+         $err(fn () => watchmanRuleHand('login', 'net', '192.168.1.7/24', '', false, $data, $t0, false)),
          $err(fn () => watchmanRuleHand('login', 'net', 'my lan', '', false, $data, $t0, false)), $err(fn () => watchmanRuleHand('login', 'user_net', '192.168.7.0/24', '', false, $data, $t0, false)),
          $err(fn () => watchmanRuleHand('plugin', 'net', '10.0.0.0/8', '', false, $data, $t0, false))]);
-    same('rule_hand: a public /24 with the clear yes — made; what each covers', [true, [WATCH_RULE_LOGIN, WATCH_RULE_LOGIN, ['login_new_ip'], WATCH_RULE_LOGIN]],
-        [isset(watchmanRuleHand('login', 'net', '203.0.113.0/24', '', true, $data, $t0, false)['rule']), array_column(watchmanRules(watchmanRulesRaw($data))['rules'], 'kinds')]);
+    same('rule_hand: a public /24 and a public address without a second yes — made; what each covers',
+        [true, true, [WATCH_RULE_LOGIN, WATCH_RULE_LOGIN, ['login_new_ip'], WATCH_RULE_LOGIN, WATCH_RULE_LOGIN]],
+        [isset(watchmanRuleHand('login', 'net', '203.0.113.0/24', '', false, $data, $t0, false)['rule']), isset(watchmanRuleHand('login', 'ip', '203.0.113.9', '', false, $data, $t0, false)['rule']),
+         array_column(watchmanRules(watchmanRulesRaw($data))['rules'], 'kinds')]);
     hardeningRm($tmp);
 }
 
@@ -23059,8 +23062,8 @@ function testWatchmanRules6a(): void
          [$made('sched', 'crond', '/etc/cron.d/mine')['kinds'], $made('sched', 'crond', '/etc/cron.d/mine')['on']],
          [$made('plugin', 'source', 'https://github.com/alice')['kinds'], $made('plugin', 'source', 'https://github.com/alice')['on']],
          $made('plugin', 'source', 'github.com/alice')['wide'], $made('plugin', 'source', 'github.com')['wide']]);
-    same('6a hand: a whole source without the clear yes, cron.d/root (Unraid\'s own), a name with a slash, a type of another area — refused',
-        ['watch_rule_ask', 'watch_value_bad', 'watch_value_bad', 'bad_request'],
+    same('6a hand: a whole source without a second yes (1.96: the dialog says what it means) — made; cron.d/root (Unraid\'s own), a name with a slash, a type of another area — refused',
+        [null, 'watch_value_bad', 'watch_value_bad', 'bad_request'],
         [$err(fn () => watchmanRuleHand('plugin', 'source', 'github.com', '', false, $data, $now, false)), $err(fn () => watchmanRuleHandMake('sched', 'crond', 'root', '')),
          $err(fn () => watchmanRuleHandMake('container', 'ports', '../x', '')), $err(fn () => watchmanRuleHandMake('container', 'script', 'x', ''))]);
     same('6a hand: the page knows each area\'s types', WATCH_HAND, watchmanPageState($data, $now + 2100, false)['hand']);
@@ -23218,8 +23221,8 @@ function testWatchmanRules6b(): void
         [$made('pull', 'client', '192.168.1.20'), $made('pull', 'client_min', '192.168.1.20', 30), $made('pull', 'container', 'plex'), $made('data', 'gone', 'Downloads'),
          $made('data', 'written', 'domains'), $made('data', 'gone_min', 'Media', 200), $made('data', 'files_min', 'Media', 5000), $made('data', 'kept', 'Media'),
          $made('data', 'layers', 'system'), $made('data', 'disk_gone', 'disk3')]);
-    same('6b hand: an amount missing, a disk not a disk\'s name, a share with a slash — refused; the data\'s only with the clear yes',
-        ['watch_amount_bad', 'watch_value_bad', 'watch_value_bad', 'watch_rule_ask'],
+    same('6b hand: an amount missing, a disk not a disk\'s name, a share with a slash — refused; the data\'s without a second yes (1.96)',
+        ['watch_amount_bad', 'watch_value_bad', 'watch_value_bad', 'watch_gone'],
         [$err(fn () => watchmanRuleHandMake('data', 'gone_min', 'Media', '', 0)), $err(fn () => watchmanRuleHandMake('data', 'disk_gone', 'Disk 1', '')),
          $err(fn () => watchmanRuleHandMake('data', 'gone', 'a/b', '')), $err(fn () => watchmanRuleHand('data', 'gone', 'Downloads', '', false, sys_get_temp_dir() . '/none', 1, false))]);
 }
@@ -23910,7 +23913,7 @@ function testWatchmanPageBars(): void
     $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
     preg_match_all('/Office\.filterBar\(\{(.*?)\}\);/s', $js, $bars);
     same('page bars: every filter bar of his says min: WM_FILTER_MIN (1) — the office\'s own minimum unchanged', [true, true, true, true],
-        [count($bars[1]) >= 5, !array_filter($bars[1], fn ($b) => !str_contains($b, 'min: WM_FILTER_MIN')), str_contains($js, 'const WM_FILTER_MIN = 1;'),
+        [count($bars[1]) >= 4, !array_filter($bars[1], fn ($b) => !str_contains($b, 'min: WM_FILTER_MIN')), str_contains($js, 'const WM_FILTER_MIN = 1;'),
          str_contains($core, 'Office.FILTER_MIN = 10;')]);
     same('page bars: his exceptions, your answers and his history have a bar', [true, true, true],
         [str_contains($js, "listBar('rules.' + id"), str_contains($js, "listBar('known.' + id"), str_contains($js, "listBar('journal'")]);
@@ -53297,8 +53300,8 @@ function testWatchBookView(): void
 }
 
 /**
- * «What I keep an eye on» with its filter bar (2026-10-12, Benj: 14 folded groups and no way to find a container in
- * them): desk.js groupFit() / fitTally() / groupOpen() and watchSection() under node (tests/watchfilter.js — skipped
+ * What he knows, with a filter (2026-10-12, Benj: 14 folded groups and no way to find a container in them; 1.96: in each
+ * area as folds «Known: …», the tile «What I keep an eye on» gone): desk.js groupFit() / fitTally() / groupOpen() and knownFolds() under node (tests/watchfilter.js — skipped
  * where node is missing): the words hit an item's name, a chip's word, a sub line, a group's title (then the whole
  * group); a group without hits is left out, one with hits unfolded with «n of m fit» on its summary; the bar told
  * «n of m»; no hits: the empty line; «Show all» (no words) = every group back, folded as kept. Then the page's side: the
@@ -53308,12 +53311,19 @@ function testWatchBookView(): void
 function testWatchFilter(): void
 {
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/watchman/desk.js');
-    check('watch filter: the list\'s bar is an Office.filterBar keyed watchman.watch (no select: nothing of it kept)',
-        (bool) preg_match("/Office\\.filterBar\\(\\{\\s*key: 'watchman\\.watch',(?:(?!select:).){0,300}?onChange/s", $js));
-    check('watch filter: a new visit starts with the whole list (mount() empties the bar)', str_contains($js, 'watchBarGet().reset();'));
+    // 1.96 (Benj): no tile «What I keep an eye on» — each area's section has its folds «Known: …», found by the area's
+    // own filter words; the old route lands on the book; the search's places name the area
+    check('known folds: in each area\'s section, with its filter words', str_contains($js, 'const inv = knownFolds(id, bar.read().words);'));
+    check('known folds: no tile «watch», no jump button, #/watchman/watch lands on the book',
+        !str_contains($js, "id: 'watch', key: 'tile.watch'") && !str_contains($js, "T('cat.to_watch')")
+        && str_contains($js, "sw.mount(m || sub === 'open' || sub === 'watch' ? 'book' : sub);"));
+    check('known folds: the search\'s places go to the area, its anchor kept', str_contains($js, 'route: `#/${ID}/${areaOf(key)}`, anchor: `watch:${key}`'));
+    $phrases = ['en' => 'keep an eye', 'de' => 'im auge', 'it' => "tengo d'occhio", 'fr' => "garde à l'œil", 'es' => 'lo que vigilo'];
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $lang = langFile(OFFICE_WEB . "/desks/watchman/lang/$l.json");
-        check("watch filter: its label and empty line in $l", is_string($lang['watch.filter.label'] ?? null) && is_string($lang['watch.filter.none'] ?? null));
+        $text = mb_strtolower((string) json_encode($lang, JSON_UNESCAPED_UNICODE));
+        check("known folds: «Known: …» in $l, the old tile's words gone", is_string($lang['inv.title'] ?? null) && !isset($lang['tile.watch'], $lang['watch.title'], $lang['cat.to_watch'])
+            && !str_contains($text, $phrases[$l]));
     }
     $node = testsNode();
     if ($node === '') {
@@ -53328,7 +53338,7 @@ function testWatchFilter(): void
         check('watch filter: ran under node', false, $raw);
         return;
     }
-    check("watch filter: the list and its bar under node ({$r['pass']} checks)", $r['pass'] >= 35 && !$r['fail']);
+    check("watch filter: what he knows, per area, under node ({$r['pass']} checks)", $r['pass'] >= 25 && !$r['fail']);
     foreach ($r['fail'] as $f) {
         check('watch filter: ' . ($f[0] ?? '?'), false, 'got ' . json_encode($f[1] ?? null) . ', want ' . json_encode($f[2] ?? null));
     }

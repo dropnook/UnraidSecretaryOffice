@@ -64,9 +64,7 @@
     "tile.posture",
     "tile.schedule",
     "tile.wakes",
-    "tile.watch",
-    "wakes.title",
-    "watch.title"
+    "wakes.title"
   ],
   "texts": [
     "help.ack_text",
