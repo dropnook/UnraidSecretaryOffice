@@ -1651,6 +1651,9 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             ? fn (array $v): bool => ($v['btime'] === null || $now - (int) $v['btime'] <= 86400) && paritywhyNotify($v, officeNotifyLang()) : null;
         $added = array_merge($added, paritywhyCompare($book, $st, $parity, (array) ($st['logins'] ?? []), $now, $fresh,
             isset($paths['array_events']) ? (string) $paths['array_events'] : null, $tell));
+        if (!$set['array']['scheduled']) {
+            $book = watchmanParityScheduledOut($book);      // his setting (6f): a scheduled check that ended clean leaves no line
+        }
         // how secure it stands: from what he sees now (what Docker or emhttp didn't answer: as the last round saw it)
         // what your exceptions call intended (a share open to guests, a container that may run privileged) is no advice (6d)
         $st['posture'] = ['time' => $now, 'tips' => watchmanPosture($facts, $observed, (array) ($st['posture']['tips'] ?? []),
@@ -4424,6 +4427,17 @@ function watchmanNetSet(array $set, array $rules): array
     }
     return ['silent' => (int) $set['router']['silent'] * 3600, 'flaps' => (int) $set['router']['flaps'], 'outage_short' => (int) $set['router']['outage_short'] * 60,
             'outage_tell' => (int) $set['router']['outage_tell'] * 60, 'clock' => (int) $set['router']['clock'] * 60, 'random' => (bool) $set['lan']['random'], 'nets' => $nets];
+}
+
+/**
+ * «Scheduled parity checks: a line in his book» switched off (1.96 step 6f): a check his schedule (or Mover Tuning's) started
+ * that has ended clean — no errors, exit 0 — leaves his book; one running stays until it ends (its errors colour «Array and
+ * parity»), one with errors or another reason always stays
+ */
+function watchmanParityScheduledOut(array $book): array
+{
+    return array_values(array_filter($book, fn ($e) => !(($e['kind'] ?? '') === 'parity_check' && in_array($e['p']['reason'] ?? null, ['schedule', 'tuning'], true)
+        && isset($e['p']['end']) && (int) ($e['p']['errors'] ?? 0) === 0 && (int) ($e['p']['exit'] ?? 0) === 0)));
 }
 
 /**

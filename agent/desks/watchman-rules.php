@@ -65,6 +65,9 @@ const WATCH_RULE_SENDER = '/^[A-Za-z0-9:\[][A-Za-z0-9._:%\[\]-]{0,127}$/D';     
 const WATCH_RULE_IFACE  = '#^[A-Za-z0-9._@/-]{1,64}$#D';                                  // a router's port
 const WATCH_RULE_ROUTER = ['net_sender_new', 'net_router_login', 'net_router_login_failures', 'net_firewall_change', 'net_router_config', 'net_vpn_login',
                            'net_log_silent', 'net_link_down', 'net_outage', 'net_router_reboot'];       // «don't judge this sender» (6e)
+// «What holds the array?» and «Who woke my disks?» have no book entries: their exceptions name a side kind (6f) — never in
+// the rules' pass (no entry has it), read by their lights and lists (watchmanHoldKnown())
+const WATCH_RULE_SIDE   = ['hold' => 'hold', 'wakes' => 'wakes'];
 const WATCH_RULE_SERIES = '/^[^\x00-\x1f]{1,255}$/D';                                    // a snapshot series (its name, digits as #)
 const WATCH_RULE_DS     = '#^[A-Za-z0-9_.:-][^@\x00-\x1f]{0,254}$#D';                    // a ZFS dataset (pool/…, never the pool alone: watchmanRuleOn())
 // the kinds he asks about more clearly before an exception (concept 3.3: what an attacker does first, or what points to
@@ -123,7 +126,7 @@ function watchmanRuleShaped(mixed $r): ?array
         return null;
     }
     foreach ($r['kinds'] as $k) {
-        if (!is_string($k) || !in_array($k, WATCH_CATS[$r['cat']]['kinds'], true)) {
+        if (!is_string($k) || (!in_array($k, WATCH_CATS[$r['cat']]['kinds'], true) && $k !== (WATCH_RULE_SIDE[$r['cat']] ?? null))) {
             return null;
         }
     }
@@ -211,6 +214,10 @@ function watchmanRuleOn(mixed $on): ?array
         ['iface', 'sender'] => is_string($on['sender']) && preg_match(WATCH_RULE_SENDER, $on['sender']) && is_string($on['iface']) && preg_match(WATCH_RULE_IFACE, $on['iface'])
                                ? ['sender' => $on['sender'], 'iface' => $on['iface']] : null,
         ['sender']      => is_string($on['sender']) && preg_match(WATCH_RULE_SENDER, $on['sender']) ? ['sender' => $on['sender']] : null,
+        ['vm']          => is_string($on['vm']) && preg_match('/^[^\x00-\x1f]{1,200}$/D', $on['vm']) ? ['vm' => $on['vm']] : null,
+        ['script']      => is_string($on['script']) && preg_match('#^[^/\x00-\x1f]{1,100}$#D', $on['script']) ? ['script' => $on['script']] : null,
+        ['cause']       => is_string($on['cause']) && preg_match('/^(?:container|vm|smb|nfs|office|mover|cron|program):[^\x00-\x1f]{1,200}$/D', $on['cause'])
+                           ? ['cause' => $on['cause']] : null,
         ['network']     => is_string($on['network']) && preg_match(WATCH_RULE_NAME, $on['network']) ? ['network' => $on['network']] : null,
         ['series']      => is_string($on['series']) && preg_match(WATCH_RULE_SERIES, $on['series']) ? ['series' => $on['series']] : null,
         ['dataset']     => watchmanRuleDsOk($on['dataset']) ? ['dataset' => $on['dataset']] : null,
@@ -1249,6 +1256,16 @@ const WATCH_SETTINGS = [
     'lan' => [
         'random' => ['def' => false],       // devices on a made-up Wi-Fi address: learned without a line of their own
     ],
+    // 6f: array and parity, what holds the array, who woke the disks
+    'array' => [
+        'scheduled' => ['def' => true],     // scheduled parity checks: a line in his book (off: one that ended clean leaves none)
+    ],
+    'hold' => [
+        'auto' => ['def' => true],          // opening his page looks again (when the last look is older than 2 minutes)
+    ],
+    'wakes' => [
+        'warn_at' => ['def' => 0, 'min' => 0, 'max' => 100, 'unit' => 'n0'],   // yellow from this many wakes of a disk a day (0: no judgement)
+    ],
 ];
 
 /** A setting's value as the file has it, when it fits its key (type, bounds, choices) */
@@ -1368,6 +1385,10 @@ const WATCH_HAND = [
     // router), a sender not judged; a network whose new devices need no line
     'router'    => ['admin', 'vpn', 'link', 'sender'],
     'lan'       => ['network'],
+    // 6f: a VM without the guest agent is known, a User Script may run (holding the array); a cause of a wake is expected
+    // (<kind>:<name>, the second field: the kind), a disk isn't counted
+    'hold'      => ['vm', 'userscript'],
+    'wakes'     => ['cause', 'disk'],
 ];
 const WATCH_HAND_AMOUNT = ['client_min' => 'gb', 'gone_min' => 'gb', 'written_min' => 'gb', 'files_min' => 'n'];      // the types with an amount
 const WATCH_HAND_NAME = '/^[A-Za-z0-9][A-Za-z0-9 _.+()-]{0,99}$/D';        // a container's or a User Script's name
@@ -1490,6 +1511,28 @@ function watchmanRuleHandMake(string $cat, string $type, string $value, string $
                 throw new Problem('watch_value_bad');
             }
             return ['cat' => $cat, 'kinds' => ['door_new'], 'on' => ['tunnel' => $value], 'wide' => false];
+        case 'vm':
+            if (!preg_match('/^[^\x00-\x1f]{1,200}$/D', $value)) {
+                throw new Problem('watch_value_bad');
+            }
+            return ['cat' => $cat, 'kinds' => ['hold'], 'on' => ['vm' => $value], 'wide' => false];
+        case 'userscript':
+            if (!preg_match('#^[^/\x00-\x1f]{1,100}$#D', $value)) {
+                throw new Problem('watch_value_bad');
+            }
+            return ['cat' => $cat, 'kinds' => ['hold'], 'on' => ['script' => $value], 'wide' => false];
+        case 'cause':
+            $kind = strtolower(trim($user)) ?: 'container';
+            $cause = "$kind:$value";
+            if (!preg_match('/^(?:container|vm|smb|nfs|office|mover|cron|program):[^\x00-\x1f]{1,200}$/D', $cause)) {
+                throw new Problem('watch_value_bad');
+            }
+            return ['cat' => $cat, 'kinds' => ['wakes'], 'on' => ['cause' => $cause], 'wide' => false];
+        case 'disk':
+            if (!preg_match(WATCH_RULE_DISK, $value)) {
+                throw new Problem('watch_value_bad');
+            }
+            return ['cat' => $cat, 'kinds' => ['wakes'], 'on' => ['disk' => $value], 'wide' => false];
         case 'admin':
             $admin = trim($user);
             if (!preg_match(WATCH_RULE_NAME, $admin)) {

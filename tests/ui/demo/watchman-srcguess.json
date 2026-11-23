@@ -1899,6 +1899,27 @@
     "value": false,
     "def": false
    }
+  },
+  "array": {
+   "scheduled": {
+    "value": true,
+    "def": true
+   }
+  },
+  "hold": {
+   "auto": {
+    "value": true,
+    "def": true
+   }
+  },
+  "wakes": {
+   "warn_at": {
+    "value": 0,
+    "def": 0,
+    "min": 0,
+    "max": 100,
+    "unit": "n0"
+   }
   }
  },
  "hand": {
@@ -1963,6 +1984,14 @@
   ],
   "lan": [
    "network"
+  ],
+  "hold": [
+   "vm",
+   "userscript"
+  ],
+  "wakes": [
+   "cause",
+   "disk"
   ]
  },
  "hand_amount": {

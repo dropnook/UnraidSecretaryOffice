@@ -490,6 +490,7 @@ function lights() {
     [['login', 'container', 'flash', 'door', 'hold'], false, '', []]);
   const plain = O.sections({ id: 'shelf', tiles: [] });
   same('filter: without the option no bar', [plain.bar, plain.el.children.length], [null, 2]);
+  delete stored['office.shelf.tile'];       // its clicks stored a choice: the next part starts from a first visit
 }
 
 try {

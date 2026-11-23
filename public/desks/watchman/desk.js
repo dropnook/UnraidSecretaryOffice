@@ -204,6 +204,13 @@ function setupSection(id) {
     box.appendChild(lanSwitch());           // «Whole LAN» (his switch from before 1.96, kept in his state)
     s.appendChild(box);
   }
+  if (id === 'wakes' && state.wakes) {
+    const box = el('div', 'box wm-settings');
+    const row = el('div', 'row nocheck wm-item');
+    row.appendChild(wakesSwitch());         // «Watch the wakes» (his switch, kept in wakes.json)
+    box.appendChild(row);
+    s.appendChild(box);
+  }
   const set = (state.settings && state.settings[id]) || null;
   if (set && Object.keys(set).length) s.appendChild(settingsBox(id, set));
   const rules = catRules(id);
@@ -224,6 +231,7 @@ function setupSection(id) {
 /** A setting's value in words: a number with its unit, a switch on or off, a choice by its name */
 function settingWords(id, k, v, x) {
   if (typeof x === 'boolean') return T(x ? 'setup.switch_on' : 'setup.switch_off');
+  if (v.unit === 'n0') return Number(x) ? T('setup.unit.n', { n: x }) : T('setup.no_judgement');
   if (typeof x === 'string') return T(`setting.${id}.${k}.${x}`);
   return T(`setup.unit.${v.unit || 'n'}`, { n: x });
 }
@@ -317,13 +325,13 @@ const HAND_EXAMPLE = { net: '192.168.1.0/24', ip: '203.0.113.7', user_net: '192.
   script: '…', cron_file: '…/….cron', crond: '…', client: '192.168.1.20', client_min: '192.168.1.20', container: 'plex', disk_gone: 'disk1',
   disk_written: 'disk1', series: 'zfs-auto-snap_hourly-#', series_ds: 'tank/Media', dataset: 'tank/Media', hold: 'tank/Media', extra: '….txz',
   guest_read: 'Media', guest_write: 'Media', port: '8384', prog: 'syncthing', tunnel: 'wg0', admin: '192.168.1.0/24', vpn: '…', link: 'ether5',
-  sender: '192.168.1.1', network: '…' };
+  sender: '192.168.1.1', network: '…', vm: '…', userscript: '…', cause: 'plex', disk: 'disk3' };
 const HAND_WIDE = { login: 'setup.add_public', plugin: 'setup.add_wide.plugin', data: 'setup.add_wide.data', snap: 'setup.add_wide.snap', share: 'setup.add_wide.share',
   router: 'setup.add_wide.router' };
 // a second field: a user from a net, a series on a dataset
 const HAND_SECOND = { user_net: ['setup.add_user', 'root'], series_ds: ['setup.add_second.series_ds', 'zfs-auto-snap_hourly-#'],
   guest_read: ['setup.add_second.proto', 'SMB'], guest_write: ['setup.add_second.proto', 'SMB'], admin: ['setup.add_second.admin', 'admin'],
-  link: ['setup.add_second.sender', '192.168.1.1'] };
+  link: ['setup.add_second.sender', '192.168.1.1'], cause: ['setup.add_second.cause', 'container'] };
 const handAmount = (t) => (state && state.hand_amount && state.hand_amount[t]) || null;
 /**
  * «Add an exception…» by hand: what kind of exception (the area's types), its value typed, a user for «a user from a net»
@@ -442,6 +450,11 @@ const justMade = new Set();     // exceptions made on this visit: «Undo» besid
  */
 function offerName(o, e, here) {
   const on = o.on || {};
+  // what holds the array, the wakes (6f)
+  if (on.vm) return T('rule.offer.vm', { name: on.vm });
+  if (on.script) return T('rule.offer.script', { name: on.script });
+  if (on.cause) return T('rule.offer.cause', { name: on.cause.slice(on.cause.indexOf(':') + 1), kind: T(`side.kind.${on.cause.split(':')[0]}`) });
+  if (on.disk && (o.kinds || [])[0] === 'wakes') return T('rule.offer.wake_disk', { disk: on.disk });
   // the partner door and the network (6e) — before the logins' shapes: they carry an address or a net too
   if (on.pair) return T('rule.offer.pair', { name: o.what || on.pair, where: on.net || on.ip });
   if (on.admin) return T('rule.offer.admin', { admin: on.admin, where: on.net || on.ip });
@@ -2399,6 +2412,7 @@ async function holdCheck(quiet) {
 
 /** Opening his page looks again when the last look is older than HOLD_AGAIN (or there is none since the server started) */
 function holdAuto() {
+  if (((state && state.settings && state.settings.hold && state.settings.hold.auto) || {}).value === false) return;      // his setting (1.96)
   const l = holdLook();
   if (!l || Date.now() / 1000 - (Number(l.time) || 0) > HOLD_AGAIN) holdCheck(true);
 }
@@ -2502,7 +2516,8 @@ function holdRow(h) {
   const via = ['ssh', 'web', 'tmux', 'screen'].includes(h.via) ? h.via : 'ssh';
   main.appendChild(el('div', 'row-name text', kind === 'shell' ? T('hold.k.shell_' + via) : T('hold.k.' + kind, { name: String(h.name || ''), prog: String(h.prog || '') })));
   const meta = el('div', 'row-meta');
-  meta.appendChild(chip(T('hold.holds_chip'), 'warn', T('hold.holds_chip_title')));
+  const known = kind === 'userscript' && sideKnown('script', String(h.name || ''));
+  meta.appendChild(known ? chip(T('hold.known'), 'quiet', T('hold.known_title')) : chip(T('hold.holds_chip'), 'warn', T('hold.holds_chip_title')));
   if (kind !== 'loop' && h.prog) meta.appendChild(chip(String(h.prog), '', T('hold.prog_title', { pid: Number(h.pid) || 0 })));
   if (Number(h.procs) > 1) meta.appendChild(chip(T('hold.procs', { n: Number(h.procs) }), '', T('hold.procs_title')));
   if (kind === 'loop' && h.mount) meta.appendChild(chip(T('hold.loop_at', { mount: String(h.mount) }), '', T('hold.loop_at_title')));
@@ -2511,7 +2526,37 @@ function holdRow(h) {
   if (h.more) main.appendChild(el('div', 'row-detail role', T('hold.more_files', { n: Number(h.more) })));
   main.appendChild(el('div', 'row-detail role', T('hold.how.' + kind)));
   r.appendChild(main);
+  if (kind === 'userscript' && h.name && !known) r.appendChild(sideButton('hold', 'userscript', String(h.name), ''));
   return r;
+}
+
+/**
+ * Your exceptions for «What holds the array?» and «Who woke my disks?» (1.96 step 6f; agent/desks/watchman-cats.php
+ * watchmanHoldKnown()): a VM without the guest agent, a User Script that may run; a cause of a wake, a disk not counted
+ */
+function sideKnown(what, name) {
+  return ((state && state.rules) || []).some((r) => r && (r.cat === 'hold' || r.cat === 'wakes') && r.on && r.on[what] === name);
+}
+/** «Known» / «Expected» on a row: the exception by hand, as his setup makes it (listed there, lifted there) */
+function sideButton(cat, type, value, second) {
+  const b = el('button', 'btn small plain', T(`side.${type}`));
+  b.type = 'button';
+  b.title = T(`side.${type}_title`);
+  b.disabled = !Office.agent.running || !hired();
+  b.onclick = async () => {
+    if (!(await Office.freshState(ID))) return;
+    b.disabled = true;
+    const j = await Office.api.post(`${ID}.rule_hand`, { cat, type, value, user: second, sure: false });
+    if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); b.disabled = false; return; }
+    if (j.state) state = j.state;
+    if (j.rule) justMade.add(j.rule);
+    mood();
+    Office.keepInPlace(b, () => sw.render());
+    Office.toast(T('rule.added'));
+  };
+  const acts = el('div', 'wm-entry-acts');
+  acts.appendChild(b);
+  return acts;
 }
 
 /** A running VM: its guest agent, how long Unraid waits for it */
@@ -2525,8 +2570,11 @@ function vmRow(v, t) {
   if (v.state === 'paused') meta.appendChild(chip(T('hold.vm_paused'), '', T('hold.vm_paused_title')));
   meta.appendChild(chip(T('hold.wait_s', { s: t.vm }), '', T('hold.vm_wait_title', { s: t.vm })));
   main.appendChild(meta);
-  if (agent !== 'connected') main.appendChild(el('div', 'row-detail role', T(v.windows ? 'hold.vm_windows' : 'hold.vm_no_agent', { s: t.vm })));
+  const known = agent !== 'connected' && sideKnown('vm', String(v.name));
+  if (known) main.appendChild(el('div', 'row-detail role', T('hold.vm_known')));
+  else if (agent !== 'connected') main.appendChild(el('div', 'row-detail role', T(v.windows ? 'hold.vm_windows' : 'hold.vm_no_agent', { s: t.vm })));
   r.appendChild(main);
+  if (agent !== 'connected' && !known) r.appendChild(sideButton('hold', 'vm', String(v.name), ''));
   return r;
 }
 
@@ -2591,6 +2639,8 @@ const startOfToday = () => { const d = new Date(((state && state.time) || Date.n
 const wakeHead = (text) => { const h = el('div', 'wm-wake-subhead'); h.appendChild(el('span', 'wm-wake-subhead-name', text)); return h; };
 
 /** What woke it, in words: «Plex (container)», «SMB: laptop», «Scheduled task: …», «Mr. Backupsy (the office)» */
+/** A cause as an exception names it: «<kind>:<its name, desk or program>» (watchmanWakeCauseKey()) */
+const causeKey = (c) => `${c.kind}:${c.name || c.desk || c.prog || ''}`;
 function causeName(c) {
   if (!c) return T('wakes.cause.none');
   const name = c.name || '';
@@ -2654,7 +2704,7 @@ function wakesSwitch() {
       return;
     }
     if (j.state) state = j.state;
-    Office.keepInPlace(label, () => sw.render());
+    Office.keepInPlace(label, () => (page === 'setup' ? render() : sw.render()));
     Office.toast(T(on ? 'wakes.switched_on' : 'wakes.switched_off'));
   };
   return label;
@@ -2814,6 +2864,7 @@ function wakeRow(w, look) {
   } else if (first) {
     meta.appendChild(el('b', 'wm-wake-who', causeName(first)));
     meta.appendChild(sureChip(first));
+    if (w.who.every((c) => sideKnown('cause', causeKey(c)))) meta.appendChild(chip(T('wakes.expected'), 'quiet', T('wakes.expected_title')));
     if (w.who.length > 1) meta.appendChild(chip(T('wakes.more', { n: w.who.length - 1 }), '', T('wakes.more_title')));
   } else if (trailDirs(w).length) {
     // nobody caught, but something was written on it just then: that folder, as a hint
@@ -2837,6 +2888,7 @@ function wakeRow(w, look) {
         if (i > 0 || lead) head.append(el('b', '', causeName(c)), ' ', sureChip(c));
         if (c.kind !== 'program' && c.prog) head.append(i > 0 ? ' ' : '', el('span', 'role', T('wakes.prog', { name: c.prog })));
         if (head.childNodes.length) one.appendChild(head);
+        if (!sideKnown('cause', causeKey(c)) && (c.name || c.desk || c.prog)) one.appendChild(sideButton('wakes', 'cause', causeKey(c).slice(c.kind.length + 1), c.kind));
         if (c.files && c.files.length) one.appendChild(el('pre', 'code wm-wake-files', c.files.join('\n')));
         else if (c.cmd) one.appendChild(el('pre', 'code wm-wake-files', c.cmd));
         box.appendChild(one);
