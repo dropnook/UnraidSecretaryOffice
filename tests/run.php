@@ -27347,7 +27347,7 @@ function testHostShell(): void
     same('host shell: the sites on the host and their shapes (HARDENING.md «Commands»)', [
         'advisor.php' => ['constant'], 'agent.php' => ['wrapper'], 'backup.php' => ['value $script'],
         'logs-flood.php' => ['wrapper'], 'logs.php' => ['wrapper'], 'report.php' => ['literal'], 'restore-dataset.php' => ['literal'],
-        'watchman-diskwakes.php' => ['wrapper'], 'watchman.php' => ['wrapper', 'wrapper']], $sites);
+        'watchman-diskwakes.php' => ['wrapper'], 'watchman-vuln.php' => ['wrapper'], 'watchman.php' => ['wrapper', 'wrapper']], $sites);
 
     // the one script built from values: every value through escapeshellarg (the wait is an int, the command's words are each escaped)
     $backup = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');

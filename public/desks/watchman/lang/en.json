@@ -397,7 +397,7 @@
   "adopt.ld_preload": "«I know, thanks»: the file as it is now is normal.",
   "check.ld_preload": {"one": "/etc/ld.so.preload is new or changed: {names}", "other": "{n} × /etc/ld.so.preload new or changed: {names}"},
   "check.ld_preload_how": "Unraid itself uses no /etc/ld.so.preload. Whatever it names is loaded into every program that starts — a known way to hide software or read along passwords. Put there by you: note it. If not: remove the file and restart the server.",
-  "notify.ld_preload": {"one": "Night watchman: /etc/ld.so.preload — loaded into every program", "other": "Night watchman: /etc/ld.so.preload changed {n} times"},
+  "notify.ld_preload": {"one": "Night watchman: a library is now loaded into every program", "other": "Night watchman: what is loaded into every program changed {n} times"},
   "notify.share_public": {"one": "Night watchman: {share} open to guests", "other": "Night watchman: {n} shares open to guests"},
   "notify.more": "… and {n} more",
   "notify.footer": "The night watchman keeps all of it in his watch book in the office. «I know, thanks» there makes it the new normal. A switch there turns these reports off.",

@@ -397,7 +397,7 @@
   "adopt.ld_preload": "« Je sais, merci » : le fichier tel qu'il est maintenant est normal.",
   "check.ld_preload": {"one": "/etc/ld.so.preload est nouveau ou modifié : {names}", "other": "{n} × /etc/ld.so.preload nouveau ou modifié : {names}"},
   "check.ld_preload_how": "Unraid lui-même n'utilise pas /etc/ld.so.preload. Ce qu'il nomme est chargé dans chaque programme qui démarre — un moyen connu de cacher un logiciel ou de lire les mots de passe. Mis là par toi : note-le. Sinon : supprime le fichier et redémarre le serveur.",
-  "notify.ld_preload": {"one": "Veilleur de nuit : /etc/ld.so.preload — chargé dans chaque programme", "other": "Veilleur de nuit : /etc/ld.so.preload modifié {n} fois"},
+  "notify.ld_preload": {"one": "Veilleur de nuit : une bibliothèque est désormais chargée dans chaque programme", "other": "Veilleur de nuit : ce qui est chargé dans chaque programme a changé {n} fois"},
   "notify.share_public": {"one": "Veilleur de nuit : {share} ouvert aux invités", "other": "Veilleur de nuit : {n} partages ouverts aux invités"},
   "notify.more": "… et {n} de plus",
   "notify.footer": "Le veilleur de nuit garde tout dans sa main courante au secrétariat. « Je sais, merci » là-bas en fait la nouvelle normalité. Un interrupteur là-bas coupe ces signalements.",

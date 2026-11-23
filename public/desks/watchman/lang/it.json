@@ -397,7 +397,7 @@
   "adopt.ld_preload": "«Lo so, grazie»: il file così com'è ora è normale.",
   "check.ld_preload": {"one": "/etc/ld.so.preload è nuovo o modificato: {names}", "other": "{n} × /etc/ld.so.preload nuovo o modificato: {names}"},
   "check.ld_preload_how": "Unraid stesso non usa /etc/ld.so.preload. Ciò che vi è scritto viene caricato in ogni programma che parte — un modo noto per nascondere software o leggere le password. Messo lì da te: prendine atto. Se no: rimuovi il file e riavvia il server.",
-  "notify.ld_preload": {"one": "Guardiano notturno: /etc/ld.so.preload — caricato in ogni programma", "other": "Guardiano notturno: /etc/ld.so.preload modificato {n} volte"},
+  "notify.ld_preload": {"one": "Guardiano notturno: una libreria viene ora caricata in ogni programma", "other": "Guardiano notturno: ciò che viene caricato in ogni programma è cambiato {n} volte"},
   "notify.share_public": {"one": "Guardiano notturno: {share} aperta agli ospiti", "other": "Guardiano notturno: {n} condivisioni aperte agli ospiti"},
   "notify.more": "… e altri {n}",
   "notify.footer": "Il guardiano notturno tiene tutto nel suo registro di guardia nella segreteria. «Lo so, grazie» lì lo rende il nuovo normale. Un interruttore lì spegne queste segnalazioni.",

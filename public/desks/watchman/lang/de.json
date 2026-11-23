@@ -397,7 +397,7 @@
   "adopt.ld_preload": "«Weiss ich, danke»: Die Datei, wie sie jetzt ist, ist normal.",
   "check.ld_preload": {"one": "/etc/ld.so.preload ist neu oder geändert: {names}", "other": "{n} × /etc/ld.so.preload neu oder geändert: {names}"},
   "check.ld_preload_how": "Unraid selbst braucht keine /etc/ld.so.preload. Was darin steht, wird in jedes Programm geladen, das startet — ein bekannter Weg, Software zu verstecken oder Passwörter mitzulesen. Von dir hingelegt: zur Kenntnis nehmen. Wenn nicht: die Datei entfernen und den Server neu starten.",
-  "notify.ld_preload": {"one": "Nachtwächter: /etc/ld.so.preload — wird in jedes Programm geladen", "other": "Nachtwächter: /etc/ld.so.preload {n}-mal geändert"},
+  "notify.ld_preload": {"one": "Nachtwächter: Eine Bibliothek wird jetzt in jedes Programm geladen", "other": "Nachtwächter: Was in jedes Programm geladen wird, hat sich {n}-mal geändert"},
   "notify.share_public": {"one": "Nachtwächter: {share} für Gäste offen", "other": "Nachtwächter: {n} Shares für Gäste offen"},
   "notify.more": "… und {n} weitere",
   "notify.footer": "Der Nachtwächter führt alles in seinem Wachbuch im Sekretariat. «Weiss ich, danke» dort macht es zum neuen Normalfall. Ein Schalter dort schaltet diese Meldungen aus.",

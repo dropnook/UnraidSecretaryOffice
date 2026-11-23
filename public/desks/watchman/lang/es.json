@@ -397,7 +397,7 @@
   "adopt.ld_preload": "«Ya lo sé, gracias»: el archivo tal como está ahora es normal.",
   "check.ld_preload": {"one": "/etc/ld.so.preload es nuevo o cambió: {names}", "other": "{n} × /etc/ld.so.preload nuevo o cambiado: {names}"},
   "check.ld_preload_how": "Unraid mismo no usa /etc/ld.so.preload. Lo que nombra se carga en cada programa que arranca — una forma conocida de ocultar software o leer contraseñas. Puesto ahí por ti: anótalo. Si no: elimina el archivo y reinicia el servidor.",
-  "notify.ld_preload": {"one": "Sereno: /etc/ld.so.preload — se carga en cada programa", "other": "Sereno: /etc/ld.so.preload cambió {n} veces"},
+  "notify.ld_preload": {"one": "Sereno: ahora se carga una biblioteca en cada programa", "other": "Sereno: lo que se carga en cada programa cambió {n} veces"},
   "notify.share_public": {"one": "Sereno: {share} abierto a invitados", "other": "Sereno: {n} recursos compartidos abiertos a invitados"},
   "notify.more": "… y {n} más",
   "notify.footer": "El sereno lo guarda todo en su libro de guardia en la secretaría. «Ya lo sé, gracias» allí lo convierte en lo nuevo normal. Un interruptor allí apaga estos avisos.",
