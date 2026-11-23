@@ -324,7 +324,9 @@ urgent; yellow — something waits, not urgent; green — all quiet; green with 
 checked (switched off, not there, or he can't reach it now). *Only what waits for you* leaves red and yellow. Nothing
 chosen, the page shows every area: a quiet one in a line, one where something waits with its entries. A tile shows what
 waits, its advice, and folded what he knows there (*Known: 12 addresses* …); two lines jump to what is always all right
-or remembered there (his setup) and to what is done (the watch book).
+or remembered there (his setup) and to what is done (the watch book). Folded at first, *What he checks here* says for
+that area what he looks at, when he tells you (with a notification or only as an open entry), how often, and an example
+— its numbers are your settings in effect. The page help's *The areas* names each area in a line.
 
 **Setup** (his second tab), the same 12 areas: when he tells (its settings — the default is always what he did before —
 for the hardware the degrees and hours a sensor may be warm, how many memory or PCIe errors count, an SSD's wear; a
