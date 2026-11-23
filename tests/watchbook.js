@@ -221,4 +221,35 @@ same('src line: one read-only container — the line, the detail row', [none({ g
 same('src line: an entry of an older office (no sources) says nothing', W.srcFrom({ share: 'maple/Media' }), '');
 dict = null;
 
+// «How secure does it stand?»: its light by its tips only — serious incidents answered «That was serious» are their own
+// tile's (green with «!»), never red here (Benj on the test stand, 1.96); the areas' lights count only open entries
+const tip = (known, level = 'advice') => ({ id: 'x', level, known });
+const incidents = Array.from({ length: 10 }, (_, i) => ({ id: 'i' + i, kind: 'login_new_ip' }));
+const lights = (tips, inc) => { W.setState({ posture: { tips }, incidents: inc, cats: { login: { level: 'ok', why: [] } } }); return [W.postureLevel(), W.incidentsLevel(), W.catLevel('login')]; };
+same('posture light: both hints known, 10 serious incidents on his list — green; the incidents\' own tile «!»; the area green',
+  lights([tip(true), tip(true)], incidents), ['ok', 'note', 'ok']);
+same('posture light: an advice not known yet — «!», with or without incidents', [lights([tip(false), tip(true)], incidents)[0], lights([tip(false)], [])[0]], ['note', 'note']);
+same('posture light: a «good to know» tip not known never colours', lights([tip(false, 'info')], incidents)[0], 'ok');
+same('posture light: no incidents, nothing open — green; their tile grey', lights([], []).slice(0, 2), ['ok', 'none']);
+
+// «What holds the array?»: what still waits for you, in words — a User Script that may run and a VM you know never count
+const holdLookOf = (more = {}) => ({ started: true, time: 1, count: 3, times: { fits: true, disk: 90, need: 60 },
+  holds: [{ kind: 'userscript', name: 'sync' }], vms: [{ name: 'Win11', agent: 'none' }, { name: 'Lab', agent: 'disconnected' }, { name: 'HA', agent: 'connected' }], ...more });
+const rule = (k, v) => ({ cat: 'hold', on: { [k]: v } });
+W.setState({ rules: [rule('script', 'sync'), rule('vm', 'Win11'), rule('vm', 'Lab')] });
+same('hold: all three known (a User Script, two VMs without agent) — nothing waits, three known', W.holdWaiting(holdLookOf()), { names: [], known: 3, more: 0 });
+W.setState({ rules: [rule('script', 'sync')] });
+same('hold: two VMs not known — named, as the tile\'s tip says them', W.holdWaiting(holdLookOf()).names.length, 2);
+same('hold: things beyond the look\'s list count as more', W.holdWaiting(holdLookOf({ count: 6 })).more, 3);
+same('hold: the array stopped — nothing waits', W.holdWaiting(holdLookOf({ started: false })).names, []);
+dict = JSON.parse(fs.readFileSync(path.join(path.dirname(file), 'lang/en.json'), 'utf8'));
+Office.light = (o) => o;
+Office.fmt.relative = () => 'just now';
+W.setState({ rules: [rule('script', 'sync'), rule('vm', 'Win11')], hold: { look: holdLookOf() } });
+same('hold tile: one VM waits — yellow, its tip says why; what you know said beside it',
+  W.holdTile({}).tip.split('\n'), ['What holds the array?: 1 thing', '2 you know · looked just now', '1 thing would hold the array: VM Lab without the guest agent']);
+W.setState({ rules: [rule('script', 'sync'), rule('vm', 'Win11'), rule('vm', 'Lab')], hold: { look: holdLookOf() } });
+same('hold tile: everything known — green, «nothing»', [W.holdTile({}).level, W.holdTile({}).tip.split('\n')[0]], ['ok', 'What holds the array?: nothing']);
+dict = null;
+
 console.log(JSON.stringify(out));

@@ -1106,13 +1106,17 @@ function catWords(id) {
   return [catName(id), T(`cat.${id}_sub`), ...catEntries(id).filter((e) => e.open).slice(0, 50).map((e) => entryHay(e))];
 }
 
-/** «How secure does it stand?»: serious incidents red, advice not known yet green with «!» (a «good to know» tip never colours, W6) */
+/**
+ * «How secure does it stand?»: by its tips only — advice not known yet green with «!», all known green (a «good to know» tip
+ * never colours, W6). Serious incidents have their own tile (answered «That was serious»: nothing waits for an answer) — the
+ * mouse-over may still count them, the light never (Benj, 1.96 on the test stand)
+ */
 function postureLevel() {
   const p = state && state.posture;
   if (!p) return '';
   const tips = p.tips || [];
   const advice = tips.some((x) => x.level) ? tips.filter((x) => x.level === 'advice' && !x.known).length : tips.filter((x) => !x.known).length;
-  return louderCount() ? 'danger' : advice ? 'note' : 'ok';
+  return advice ? 'note' : 'ok';
 }
 /** «Serious incidents»: grey while there are none, green with «!» while he keeps some (each one makes the same louder) */
 const incidentsLevel = () => (!state ? '' : ((state.incidents || []).length ? 'note' : 'none'));
@@ -1163,7 +1167,7 @@ function postureTile(a) {
   const open = tips.length - known;
   // red only for his advice not known yet — a «good to know» tip is no alarm (W6; an older state: every open tip)
   const advice = tips.some((x) => x.level) ? tips.filter((x) => x.level === 'advice' && !x.known).length : open;
-  const louder = louderCount();      // serious incidents lately: part of how it stands
+  const louder = louderCount();      // serious incidents on his list: said beside it, never its light (their own tile)
   return lightTile({ label: T('tile.posture'), level: postureLevel(),
     value: !p ? '–' : open ? T('tile.posture_tips', { n: open }) : known ? T('tile.posture_all_known') : T('tile.posture_none'),
     sub: [known ? T('tile.posture_known', { n: known }) : '', louder ? T('tile.posture_incidents', { n: louder }) : ''].filter(Boolean).join(' · '), ...a });
@@ -2632,13 +2636,33 @@ function holdAuto() {
   if (!l || Date.now() / 1000 - (Number(l.time) || 0) > HOLD_AGAIN) holdCheck(true);
 }
 
+/**
+ * What would hold the array up and still waits for you (agent: watchmanHoldWaiting()) — in words, as its rows name them: a
+ * User Script you said may run and a VM without the guest agent you know never count; what lies beyond the look's list
+ * counts as «n more»
+ */
+function holdWaiting(l) {
+  if (!l || !l.started) return { names: [], known: 0, more: 0 };
+  const holds = (l.holds || []).filter((h) => h && typeof h.kind === 'string');
+  const vms = (l.vms || []).filter((v) => v && typeof v.name === 'string' && v.agent !== 'connected');
+  const hKnown = holds.filter((h) => h.kind === 'userscript' && sideKnown('script', String(h.name || '')));
+  const vKnown = vms.filter((v) => sideKnown('vm', String(v.name)));
+  const names = holds.filter((h) => !hKnown.includes(h)).map(holdName)
+    .concat(vms.filter((v) => !vKnown.includes(v)).map((v) => T('tile.hold_vm', { name: v.name })));
+  const known = hKnown.length + vKnown.length;
+  return { names, known, more: Math.max(0, (Number(l.count) || 0) - known - names.length) };
+}
 function holdTile(a) {
   const l = holdLook();
-  const n = l ? Number(l.count) || 0 : 0;
+  const w = holdWaiting(l);
+  const n = w.names.length + w.more;
   const short = !!(l && l.started && l.times && l.times.fits === false);
   const value = holdRunning() && !l ? T('hold.running') : !l ? '–' : !l.started ? T('tile.hold_stopped') : n ? T('tile.hold_n', { n }) : T('tile.hold_none');
+  const why = n ? T('tile.hold_why', { n, what: w.names.slice(0, 3).join(', ') + (n > 3 ? ' ' + T('tile.hold_why_more', { n: n - Math.min(3, w.names.length) }) : '') }) : '';
   return lightTile({ label: T('tile.hold'), value, level: catLevel('hold') || (n || short ? 'warn' : l ? 'ok' : ''),
-    sub: !l ? T('tile.hold_never') : [short ? T('tile.hold_short') : '', T('tile.hold_when', { when: fmt.relative(l.time) })].filter(Boolean).join(' · '), ...a });
+    sub: !l ? T('tile.hold_never') : [short ? T('tile.hold_short') : '', w.known ? T('tile.hold_known', { n: w.known }) : '',
+      T('tile.hold_when', { when: fmt.relative(l.time) })].filter(Boolean).join(' · '),
+    more: [why, short ? T('tile.hold_short_why', { disk: l.times.disk, need: l.times.need }) : ''].filter(Boolean), ...a });
 }
 
 function holdSection() {
@@ -2661,7 +2685,8 @@ function holdSection() {
   }
   const n = Number(l.count) || 0;
   const t = l.times || {};
-  s.appendChild(el('p', 'callout' + (n || t.fits === false ? ' warn' : ''), [n ? T('hold.verdict_n', { n }) : T('hold.verdict_none'),
+  const waiting = holdWaiting(l);
+  s.appendChild(el('p', 'callout' + (waiting.names.length + waiting.more || t.fits === false ? ' warn' : ''), [n ? T('hold.verdict_n', { n }) : T('hold.verdict_none'),
     T(t.fits === false ? 'hold.times_short' : 'hold.times_fits', { disk: t.disk, need: t.need, detail: holdNeed(t) })].join(' ')));
   const when = el('p', 'role', T('hold.when', { when: fmt.relative(l.time), ms: Number(l.ms) || 0 }) + (l.cut ? ' ' + T('hold.cut') : ''));
   when.title = fmt.date(l.time);
@@ -2723,13 +2748,18 @@ function holdNeed(t) {
     .filter(Boolean).join(' + ');
 }
 
+/** A thing that holds it, in words (its row's name; the tile's tip names it so too) */
+function holdName(h) {
+  const kind = ['shell', 'userscript', 'plugin', 'cron', 'loop'].includes(h.kind) ? h.kind : 'program';
+  const via = ['ssh', 'web', 'tmux', 'screen'].includes(h.via) ? h.via : 'ssh';
+  return kind === 'shell' ? T('hold.k.shell_' + via) : T('hold.k.' + kind, { name: String(h.name || ''), prog: String(h.prog || '') });
+}
 /** One thing that holds it: what it is, its files there (five at most), what to do */
 function holdRow(h) {
   const r = el('div', 'row nocheck wm-hold-row');
   const main = el('div', 'row-main');
   const kind = ['shell', 'userscript', 'plugin', 'cron', 'loop'].includes(h.kind) ? h.kind : 'program';
-  const via = ['ssh', 'web', 'tmux', 'screen'].includes(h.via) ? h.via : 'ssh';
-  main.appendChild(el('div', 'row-name text', kind === 'shell' ? T('hold.k.shell_' + via) : T('hold.k.' + kind, { name: String(h.name || ''), prog: String(h.prog || '') })));
+  main.appendChild(el('div', 'row-name text', holdName(h)));
   const meta = el('div', 'row-meta');
   const known = kind === 'userscript' && sideKnown('script', String(h.name || ''));
   meta.appendChild(known ? chip(T('hold.known'), 'quiet', T('hold.known_title')) : chip(T('hold.holds_chip'), 'warn', T('hold.holds_chip_title')));
@@ -3710,6 +3740,6 @@ Office.placesFrom(ID, (s) => {
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.watchman = { setState: (s) => { state = s; }, greetOk, bookView, entryArea, foldKind, plainWords, entryHay, foldName,
-    groupFit, fitTally, groupOpen, watchSection, srcFrom, srcNone, wakesTile, wakesView, causeName };
+    groupFit, fitTally, groupOpen, watchSection, srcFrom, srcNone, wakesTile, wakesView, causeName, postureLevel, incidentsLevel, catLevel, holdWaiting, holdTile };
 }
 })();
