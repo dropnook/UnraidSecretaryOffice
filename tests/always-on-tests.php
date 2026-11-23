@@ -2234,12 +2234,12 @@ function testAlwaysOnStoppedView(): void
         . ' $out["stopped"] = officeFanboyStopped($stopped, $run, ' . $now . ');'
         . ' $out["old"] = officeFanboyStopped($stopped, $run, ' . ($now + 600) . ');'
         . ' $out["info"] = agentInfo()["still"] ?? null; $out["array"] = (string) ((@parse_ini_file("/var/local/emhttp/var.ini") ?: [])["fsState"] ?? "");'
-        . ' $out["refused"] = [officeFanboyStoppedHandBack(["running" => true], $run)["ok"], officeFanboyStoppedHandBack(["running" => false, "no_data" => ["array" => "Started", "dir" => "/x"]], $run)["ok"]];'
+        . ' $out["refused"] = [officeFanboyStoppedHandBack(["running" => true], $run, ' . $now . ')["ok"], officeFanboyStoppedHandBack(["running" => false, "no_data" => ["array" => "Started", "dir" => "/x"]], $run, ' . $now . ')["ok"]];'
         . ' $out["before"] = file_exists("$run/fanboy/handback.json");'
-        . ' chmod("$run/fanboy", 0755); $out["open_folder"] = officeFanboyStoppedHandBack($stopped, $run)["ok"]; chmod("$run/fanboy", 0700);'
-        . ' $out["asked"] = officeFanboyStoppedHandBack($stopped, $run); clearstatcache();'
+        . ' chmod("$run/fanboy", 0755); $out["open_folder"] = officeFanboyStoppedHandBack($stopped, $run, ' . $now . ')["ok"]; chmod("$run/fanboy", 0700);'
+        . ' $out["asked"] = officeFanboyStoppedHandBack($stopped, $run, ' . $now . '); clearstatcache();'
         . ' $out["mark"] = [officeReadJson("$run/fanboy/handback.json"), fileperms("$run/fanboy/handback.json") & 0777, count(glob("$run/fanboy/.*.tmp") ?: [])];'
-        . ' $out["again"] = officeFanboyStoppedHandBack($stopped, $run)["ok"]; $out["after"] = officeFanboyStopped($stopped, $run, ' . $now . ');'
+        . ' $out["again"] = officeFanboyStoppedHandBack($stopped, $run, ' . $now . ')["ok"]; $out["after"] = officeFanboyStopped($stopped, $run, ' . $now . ');'
         . ' $out["info_after"] = agentInfo()["still"] ?? null;'
         . ' return $out; })()';
     $o = fanboyDashWeb(null, $dash + ['fanboy/control.json' => $status('stopped', [$zone(3, null)])], $now, $more);
