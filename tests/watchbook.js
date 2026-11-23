@@ -252,4 +252,34 @@ W.setState({ rules: [rule('script', 'sync'), rule('vm', 'Win11'), rule('vm', 'La
 same('hold tile: everything known — green, «nothing»', [W.holdTile({}).level, W.holdTile({}).tip.split('\n')[0]], ['ok', 'What holds the array?: nothing']);
 dict = null;
 
+// «only with a finding» (Benj on the test stand): red and yellow always; green «!» only for an advice not known yet —
+// never the serious incidents' list, a learning time, a part not read lately, grey
+W.setState({ cats: {
+  sched: { level: 'warn', why: ['open'] }, snap: { level: 'note', why: ['asleep'] }, hw: { level: 'note', why: ['hw_no_ecc'] },
+  pull: { level: 'note', why: ['relearn_flow'] }, data: { level: 'note', why: ['learning'] }, door: { level: 'note', why: ['tips'] },
+  hold: { level: 'note', why: ['hold_old'] }, login: { level: 'danger', why: ['open_tell'] }, vuln: { level: 'none', why: ['vuln_off'] } } });
+const counts = (id, level) => W.tileFinding(id, level);
+same('only with a finding: red and yellow always (an area, the book)', [counts('login', 'danger'), counts('sched', 'warn'), counts('book', 'warn')], [true, true, true]);
+same('only with a finding: green «!» for an advice not known yet — an area\'s, «How secure»\'s', [counts('door', 'note'), counts('posture', 'note')], [true, true]);
+same('only with a finding: never the serious incidents, the book\'s own «!», a learning time, a part asleep or unread, an old look',
+  [counts('incidents', 'note'), counts('book', 'note'), counts('pull', 'note'), counts('data', 'note'), counts('snap', 'note'), counts('hw', 'note'), counts('hold', 'note')],
+  [false, false, false, false, false, false, false]);
+same('only with a finding: never grey or green, never the schedule while fine', [counts('vuln', 'none'), counts('posture', 'ok'), counts('schedule', 'ok')], [false, false, false]);
+same('only with a finding: the reasons that count, in one list', W.NOTE_COUNTS, ['tips']);
+
+// the hand-made exception's note (1.96, Benj: no second yes — the note says what it means, as he types); the address
+// rule is the agent's watchmanIpPrivate(): 10/8, 172.16/12, 192.168/16, 100.64/10, fc00::/7, fe80::/10
+const note = (id, t, v) => W.handNote(id, t, v);
+same('hand note: a LAN address or net — nothing to say', [note('login', 'ip', '192.168.1.7'), note('login', 'net', '10.0.0.0/8'), note('login', 'net', '172.20.0.0/16'),
+  note('login', 'ip', '100.100.1.1'), note('login', 'net', 'fd00:1:2:3::/64'), note('login', 'ip', 'fe80::1')], [null, null, null, null, null, null]);
+same('hand note: an address on the internet — it says so; a net wider than /24 (/48) — it says to narrow it',
+  [note('login', 'ip', '203.0.113.9'), note('login', 'net', '203.0.113.0/24'), note('login', 'net', '203.0.0.0/16'), note('login', 'net', '2001:db8::/32'),
+    note('login', 'user_net', '172.32.0.0/24'), note('router', 'admin', '8.8.8.8')],
+  ['setup.add_public', 'setup.add_public', 'setup.add_net_wide', 'setup.add_net_wide', 'setup.add_public', 'setup.add_public_router']);
+same('hand note: half typed or not an address — nothing yet', [note('login', 'ip', '203.0.'), note('login', 'ip', '')], [null, null]);
+same('hand note: wide by what it is — a whole source, the data flow, snapshots, guests writing, a whole sender, a product, a CVE',
+  [note('plugin', 'source', 'github.com'), note('plugin', 'source', 'github.com/alice'), note('data', 'gone', 'Downloads'), note('snap', 'series', 'x'),
+    note('share', 'guest_write', 'Media'), note('share', 'guest_read', 'Media'), note('router', 'sender', '192.168.1.1'), note('vuln', 'product', 'php'), note('vuln', 'cve', 'CVE-2024-1')],
+  ['setup.add_wide.plugin', null, 'setup.add_wide.data', 'setup.add_wide.snap', 'setup.add_wide.share', null, 'setup.add_wide.router', 'setup.add_wide.vuln', 'setup.add_wide.cve']);
+
 console.log(JSON.stringify(out));

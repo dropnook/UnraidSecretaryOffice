@@ -76,6 +76,7 @@
 .wm-vuln-off{display:flex; flex-direction:column; gap:6px; align-items:flex-start}
 .wm-vuln-off p{margin:0}
 .wm-hand-row{display:flex; flex-direction:column; gap:4px; margin:0 0 10px}
+.wm-hand-note{margin:0 0 10px; white-space:normal; overflow-wrap:anywhere}      /* what a wide exception means: wraps, never scrolls sideways */
 .wm-known-head{align-self:flex-start}
 .wm-setup-to{padding-left:0}
 /* who woke my disks: the list's sub heads (by disk, every wake), the disk chosen, a wake's causes, files and facts */

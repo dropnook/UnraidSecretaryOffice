@@ -1513,7 +1513,7 @@ const WATCH_HAND_NAME = '/^[A-Za-z0-9][A-Za-z0-9 _.+()-]{0,99}$/D';        // a 
 
 /**
  * An exception made by hand (his setup page, WATCH_HAND): the type's value checked, the rule written; $user only for a
- * user from a net. A wide one only with the clear yes ($sure).
+ * user from a net. `wide`: what the dialog's note explains (no second yes since 1.96).
  *
  * @return array{cat: string, kinds: list<string>, on: array, wide: bool}
  */
@@ -1739,11 +1739,10 @@ function watchmanRuleHand(string $cat, string $type, string $value, string $user
                            int $amount = 0): array
 {
     $made = watchmanRuleHandMake($cat, $type, $value, $user, $amount);
-    // the data flow's let-through (a share's deletions, its writing, a computer's any amount) is what he asks about more clearly
-    $made['wide'] = $made['wide'] || (bool) array_intersect($made['kinds'], WATCH_RULE_ASK);
-    if ($made['wide'] && !$sure) {
-        throw new Problem('watch_rule_ask');
-    }
+    // 1.96 (Benj): typing the value and pressing «Add» IS the decision — no second yes. What a wide one means (a public
+    // address, a whole source, a share's deletions …) the dialog says beneath the field as he types (desk.js handNote());
+    // a public net stays at most a /24 (IPv6 /48: watchmanRuleHandMake()). $sure: an older page's, no longer needed.
+    unset($sure);
     $dir ??= watchmanDir();
     $now ??= time();
     $rule = watchmanRulesChange($dir, function (array $raw, array $d) use ($made, $now): array {

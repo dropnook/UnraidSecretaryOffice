@@ -49,11 +49,7 @@ const openGroups = Office.storeJson('watchman.groups') || {};     // groups of �
 const unfolded = new Set();     // entries unfolded on this visit
 let bookRows = [];              // the book's unfoldable rows: {open(), set(open)}
 let bookLabel = null;           // brings «Unfold all» up to date
-let watchGroups = [];           // the groups of «What I keep an eye on» drawn now: {open(), set(open)}
-// «What I keep an eye on»'s bar (core.js Office.filterBar, built once like the book's and held across the renders): its
-// words are never kept — a new visit starts with the whole list, the groups folded as kept in this browser
-let watchBar = null;
-let watchWords = [];            // the bar's words while the list is drawn (group() reads them)
+let watchWords = [];            // the area's filter words while its folds of what he knows are drawn (group() reads them)
 const watchShut = new Set();    // groups folded by hand while filter words unfold them (forgotten with the words)
 let showKnownTips = false;      // posture tips you know about: shown on request
 let wanted = null;              // an entry the search asked for (#/watchman/entry/<id>): the book shows rows down to it
@@ -344,8 +340,43 @@ const HAND_EXAMPLE = { net: '192.168.1.0/24', ip: '203.0.113.7', user_net: '192.
   guest_read: 'Media', guest_write: 'Media', port: '8384', prog: 'syncthing', tunnel: 'wg0', admin: '192.168.1.0/24', vpn: '…', link: 'ether5',
   sender: '192.168.1.1', network: '…', vm: '…', userscript: '…', cause: 'plex', disk: 'disk3', crash: 'smbd', oom: 'emby', cve: 'CVE-2024-4577',
   product: 'php' };
-const HAND_WIDE = { login: 'setup.add_public', plugin: 'setup.add_wide.plugin', data: 'setup.add_wide.data', snap: 'setup.add_wide.snap', share: 'setup.add_wide.share',
-  router: 'setup.add_wide.router', vuln: 'setup.add_wide.vuln' };
+/*
+ * What a wide exception made by hand means, said beneath its field as he types (1.96, Benj: typing it and «Add» IS the
+ * decision — no second yes): a public address or net (the agent's watchmanIpPrivate(); a public net at most /24, IPv6
+ * /48 — else the agent refuses: said here first), a whole plugin source, the data flow's let-through, snapshots that may
+ * go, guests writing, a router's whole sender or a VPN user, a whole product or a CVE. Null: nothing beyond what it says.
+ */
+function ipPublic(v) {
+  const [addr, bits] = String(v || '').trim().split('/');
+  const m = /^(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/.exec(addr);
+  if (m) {
+    const a = +m[1], b = +m[2];        // 10/8, 172.16/12, 192.168/16, 100.64/10 (the agent's list)
+    const priv = a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
+    return priv ? null : { wide: bits !== undefined && Number(bits) < 24 };
+  }
+  if (/^[0-9a-f:]+$/i.test(addr) && addr.includes(':')) {
+    const head = parseInt(addr.split(':')[0] || '0', 16);      // fc00::/7, fe80::/10
+    const priv = (head & 0xfe00) === 0xfc00 || (head & 0xffc0) === 0xfe80;
+    return priv ? null : { wide: bits !== undefined && Number(bits) < 48 };
+  }
+  return null;                    // not an address (yet): the agent says what is wrong
+}
+function handNote(id, t, v) {
+  if (['net', 'ip', 'user_net', 'admin'].includes(t)) {
+    const p = ipPublic(v);
+    if (!p) return null;
+    if (p.wide) return 'setup.add_net_wide';
+    return t === 'admin' ? 'setup.add_public_router' : 'setup.add_public';
+  }
+  if (id === 'plugin' && t === 'source') return v.trim() && !v.includes('/') ? 'setup.add_wide.plugin' : null;
+  if (id === 'data') return 'setup.add_wide.data';
+  if (id === 'snap') return 'setup.add_wide.snap';
+  if (t === 'guest_write') return 'setup.add_wide.share';
+  if (t === 'vpn' || t === 'sender') return 'setup.add_wide.router';
+  if (t === 'product') return 'setup.add_wide.vuln';
+  if (t === 'cve') return 'setup.add_wide.cve';
+  return null;
+}
 // a second field: a user from a net, a series on a dataset
 const HAND_SECOND = { user_net: ['setup.add_user', 'root'], series_ds: ['setup.add_second.series_ds', 'zfs-auto-snap_hourly-#'],
   guest_read: ['setup.add_second.proto', 'SMB'], guest_write: ['setup.add_second.proto', 'SMB'], admin: ['setup.add_second.admin', 'admin'],
@@ -353,8 +384,8 @@ const HAND_SECOND = { user_net: ['setup.add_user', 'root'], series_ds: ['setup.a
 const handAmount = (t) => (state && state.hand_amount && state.hand_amount[t]) || null;
 /**
  * «Add an exception…» by hand: what kind of exception (the area's types), its value typed, a user for «a user from a net»
- * — the messenger checks it (a public net at most a /24, a public address or net or a whole plugin source only with the
- * clear yes, said in the dialog)
+ * — the messenger checks it (a public net at most a /24); what a wide one means is said beneath the field as he types,
+ * never a second yes (handNote(); 1.96, Benj: «Add» is the decision)
  */
 function ruleHandDialog(id, b) {
   const types = handTypes(id);
@@ -400,26 +431,30 @@ function ruleHandDialog(id, b) {
       amount.setAttribute('aria-label', amountName.textContent);
     }
   };
-  type.addEventListener('change', sync);
-  const sure = el('input');
-  sure.type = 'checkbox';
-  const sureRow = el('label', 'switch');
-  sureRow.append(sure, el('span', '', HAND_WIDE[id] ? T(HAND_WIDE[id]) : ''));
-  sureRow.hidden = !HAND_WIDE[id];
+  // what it means, beneath the field as he types — never a second yes (handNote())
+  const note = el('p', 'callout wm-hand-note');
+  const said = () => {
+    const k = handNote(id, type.value, value.value);
+    note.hidden = !k;
+    note.textContent = k ? T(k) : '';
+  };
+  type.addEventListener('change', () => { sync(); said(); });
+  value.addEventListener('input', said);
   const tr = el('label', 'wm-hand-row');
   tr.append(el('span', '', T('setup.add_type_label')), type);
   const vr = el('label', 'wm-hand-row');
   vr.append(valueName, value);
-  body.append(tr, vr, amountRow, userRow, netNot, sureRow);
+  body.append(tr, vr, note, amountRow, userRow, netNot);
   sync();
+  said();
   Office.dialog({ title: T('setup.add'), body, buttons: [
     { text: T('rule.add'), kind: 'primary', act: () => {
       (async () => {
         b.disabled = true;
         const n = Number(amount.value);
         if (handAmount(type.value) && !(Number.isInteger(n) && n >= 1)) { b.disabled = false; Office.toast(T('errors.watch_amount_bad'), true); return; }
-        const j = await Office.api.post(`${ID}.rule_hand`, { cat: id, type: type.value, value: value.value.trim(), user: user.value.trim(), sure: sure.checked,
-          ...(handAmount(type.value) ? { amount: n } : {}) });
+        const j = await Office.api.post(`${ID}.rule_hand`, { cat: id, type: type.value, value: value.value.trim(), user: user.value.trim(),
+          ...(handAmount(type.value) ? { amount: n } : {}) });      // no `sure` (1.96): the note said what it means
         b.disabled = false;
         if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return; }
         if (j.state) state = j.state;
@@ -999,7 +1034,6 @@ function render() {
   if (!root) return;
   root.innerHTML = '';
   bookRows = [];
-  watchGroups = [];
   const btn = el('button', 'btn plain' + (running() ? ' running' : ''));
   btn.type = 'button';
   btn.append(el('span', 'spin'), T('round_now'));
@@ -1056,8 +1090,7 @@ function render() {
 // ------------------------------------------------------------------ the row: his areas as lights (1.96)
 /**
  * His page on core's switcher (CLAUDE.md «Tiles», Office.sections): every tile a light (core.js Office.light) — first
- * the five that cut across (the watch book, how secure it stands, serious incidents, what he keeps an eye on, his
- * schedule), then his areas (agent/desks/watchman-cats.php: state.cats — a light, its reasons, its entries), what holds
+ * the four that cut across (the watch book, how secure it stands, serious incidents, his schedule), then his areas (agent/desks/watchman-cats.php: state.cats — a light, its reasons, its entries), what holds
  * the array and who woke the disks. The filter above the row (Office.sections({filter})): an area's words (its name,
  * what it looks at, its open entries), «only with a finding». «Watch book» to start; nothing chosen shows every section
  * of the row in its order. Over the row stays the head of his last round. #/watchman/<tile> picks one; the old
@@ -1070,11 +1103,29 @@ const PAGES = () => [{ id: '', text: T('page.watch') }, { id: 'setup', text: T('
 let page = '';
 const CATS = ['login', 'container', 'plugin', 'flash', 'share', 'sched', 'pull', 'data', 'snap', 'host', 'door', 'partner', 'router', 'lan', 'array', 'vuln', 'hw'];
 const CAT_LATER = ['vuln', 'hw'];
-// an area's group in «What I keep an eye on» (the jump at the end of its section)
-const CAT_WATCH = { login: 'ips', container: 'containers', plugin: 'plugins', flash: 'flash', share: 'shares', sched: 'sched', pull: 'flow_clients',
-  data: 'flow_shares', snap: 'snaps', host: 'host', door: 'host', partner: 'partner', router: 'net', lan: 'net' };
+// what an area knows (its folds «Known: …» in its section, 1.96 — up to then one tile «What I keep an eye on» for all):
+// the groups of what is normal there, by their keys (their places stay `watch:<key>`: the search's anchors)
+const CAT_KNOWN = { login: ['ips', 'fail_ips', 'flow_smb'], container: ['containers'], plugin: ['plugins'], flash: ['flash'], share: ['shares'],
+  sched: ['sched'], pull: ['flow_clients', 'flow_containers'], data: ['flow_shares', 'flow_gone'], snap: ['snaps'], host: ['host'], door: ['doors'],
+  partner: ['partner'], router: ['net'], lan: ['net'] };
 const CAT_SEEN = ['open', 'open_tell', 'tips'];        // reasons the light says by itself; the others stand in its section
-const FINDING = ['danger', 'warn', 'note'];
+/*
+ * «only with a finding» (the row's switch): what waits for you or is worth your look now. Red and yellow always; green
+ * with «!» only for these reasons of an area's light — something new you haven't answered (an advice you don't know yet;
+ * «How secure does it stand?»'s own «!» is the same). Never a learning time (re-learned, the data flow's days), a part
+ * not read or not looked at lately, the list of serious incidents (all answered), grey. The one place (Benj, 1.96).
+ */
+const NOTE_COUNTS = ['tips'];
+/** Does a tile of his row count as a finding? (its id, its light now) */
+function tileFinding(id, level) {
+  if (level === 'danger' || level === 'warn') return true;
+  if (level !== 'note') return false;
+  if (id === 'posture') return true;                  // its «!»: advice you don't know yet
+  const c = catOf(id);                                // an area, what holds the array, the wakes: by their reasons
+  return !!(c && (c.why || []).some((w) => NOTE_COUNTS.includes(w)));
+}
+/** The mouse-over's line about the row's switch for a green «!» tile: why it counts, or that it is only a hint */
+const findingLine = (id, level) => (level === 'note' ? T(tileFinding(id, level) ? 'cat.tip_counts' : 'cat.tip_note_only') : '');
 const catOf = (id) => (state && state.cats && state.cats[id] && typeof state.cats[id] === 'object' ? state.cats[id] : null);
 const catLevel = (id) => { const c = catOf(id); return c ? String(c.level || '') : ''; };
 const catName = (id) => T('cat.' + id);
@@ -1092,8 +1143,6 @@ const sw = Office.sections({
       level: () => postureLevel() },
     { id: 'incidents', key: 'tile.incidents', place: 'tile.incidents', tile: (a) => incidentsTile(a), section: () => incidentsSection(),
       words: () => [T('tile.incidents'), T('incidents.sub')], level: () => incidentsLevel() },
-    { id: 'watch', key: 'tile.watch', place: 'tile.watch', tile: (a) => watchTile(a), section: () => watchSection(), words: () => [T('tile.watch'), T('watch.sub')],
-      level: () => '' },
     { ...(roundSchedule()), words: () => [T('tile.schedule'), T('round.sub')], level: () => crossLevel('schedule', '') },
     ...CATS.filter(catShown).map((id) => ({ id, key: `cat.${id}`, place: `tile.${id}`, tile: (a) => catTile(id, a), section: () => catSection(id),
       words: () => catWords(id), level: () => catLevel(id) })),
@@ -1104,7 +1153,7 @@ const sw = Office.sections({
   ],
   sections: { book: () => bookSection() },
   filter: { label: () => T('cat.row_filter'), only: () => ({ text: T('cat.row_only'), hint: T('cat.row_only_hint') }),
-    words: (x) => (x.words ? x.words() : [x.id]), finding: (x) => FINDING.includes(x.level ? x.level() : '') },
+    words: (x) => (x.words ? x.words() : [x.id]), finding: (x) => tileFinding(x.id, x.level ? x.level() : '') },
 });
 
 /** A tile of his row as a light (core.js Office.light): what the number tile said becomes its mouse-over text */
@@ -1122,8 +1171,9 @@ function catTile(id, a) {
 function catTip(id) {
   const c = catOf(id);
   if (!c) return [catName(id), T('cat.tip_unknown')];
+  // a «!» that is no advice (learning, a part not read …): «fine, with a hint» — never «with an advice» it hasn't
   const first = c.open ? [T('cat.tip_open', { n: c.open }), c.tell ? T('cat.tip_tell', { n: c.tell }) : ''].filter(Boolean).join(', ')
-    : Office.t('common.light.' + (Office.LIGHTS.includes(c.level) ? c.level : 'unknown'));
+    : c.level === 'note' && !tileFinding(id, 'note') ? T('cat.tip_hint') : Office.t('common.light.' + (Office.LIGHTS.includes(c.level) ? c.level : 'unknown'));
   const lines = [`${catName(id)}: ${first}`];
   const newest = catEntries(id).filter((e) => e.open).sort((x, y) => y.last - x.last)[0];
   if (newest) {
@@ -1132,7 +1182,8 @@ function catTip(id) {
   }
   (c.why || []).filter((w) => !CAT_SEEN.includes(w) && Office.has(`${ID}.cat.why.${w}`)).slice(0, 2).forEach((w) => lines.push(whyWords(id, w)));
   if (state && state.round && state.round.last) lines.push(T('cat.tip_checked', { when: fmt.relative(state.round.last) }));
-  return lines.slice(0, 4);
+  const why = findingLine(id, c.level);              // «only with a finding»: why it is there, or that it is only a hint
+  return [...lines.slice(0, 4), ...(why ? [why] : [])];
 }
 /** A reason of an area's light in words — a re-learn says since when (the data flow: how many days it still learns) */
 function whyWords(id, w) {
@@ -1198,7 +1249,8 @@ function bookTile(a) {
   const book = ((state && state.book) || []).filter((e) => e && typeof e.id === 'string');
   const open = book.filter((e) => e.open).length;
   const newest = Math.max(0, ...book.map((e) => Number(e.last) || 0));
-  return lightTile({ label: T('tile.book'), value: T('tile.book_entries', { n: book.length }), level: crossLevel('book', open ? 'warn' : state ? 'ok' : ''),
+  const lvl = crossLevel('book', open ? 'warn' : state ? 'ok' : '');
+  return lightTile({ label: T('tile.book'), value: T('tile.book_entries', { n: book.length }), level: lvl, more: [findingLine('book', lvl)].filter(Boolean),
     sub: book.length ? [T('tile.book_open', { n: open }), newest ? T('tile.book_newest', { when: fmt.relative(newest) }) : ''].filter(Boolean).join(' · ') : T('tile.book_empty'),
     ...a });
 }
@@ -1214,7 +1266,8 @@ function postureTile(a) {
   const louder = louderCount();      // serious incidents on his list: said beside it, never its light (their own tile)
   return lightTile({ label: T('tile.posture'), level: postureLevel(),
     value: !p ? '–' : open ? T('tile.posture_tips', { n: open }) : known ? T('tile.posture_all_known') : T('tile.posture_none'),
-    sub: [known ? T('tile.posture_known', { n: known }) : '', louder ? T('tile.posture_incidents', { n: louder }) : ''].filter(Boolean).join(' · '), ...a });
+    sub: [known ? T('tile.posture_known', { n: known }) : '', louder ? T('tile.posture_incidents', { n: louder }) : ''].filter(Boolean).join(' · '),
+    more: [findingLine('posture', postureLevel())].filter(Boolean), ...a });
 }
 
 /** «Serious incidents»: how many he keeps in his history (each one watched more closely while it is there) */
@@ -1222,7 +1275,8 @@ function incidentsTile(a) {
   const list = (state && state.incidents) || [];
   const louder = louderCount();
   return lightTile({ label: T('tile.incidents'), level: incidentsLevel(), sub: louder && louder !== list.length ? T('tile.posture_incidents', { n: louder }) : '',
-    value: list.length ? T('tile.incidents_n', { n: list.length }) : T('tile.incidents_none'), ...a });
+    value: list.length ? T('tile.incidents_n', { n: list.length }) : T('tile.incidents_none'),
+    more: [findingLine('incidents', incidentsLevel())].filter(Boolean), ...a });
 }
 
 /**
@@ -1276,18 +1330,6 @@ function incidentRow(x) {
 
 /** The last round got no answer from Docker: what he shows of containers is the last round that reached it (W7) */
 const dockerOff = () => !!(state && state.on_watch && state.round && state.round.docker === false);
-
-/** «Keeping an eye on»: the containers, plugins and shares he watches */
-function watchTile(a) {
-  const w = state && state.watch;
-  const c = w && w.containers;
-  const sh = w && w.shares;
-  // Docker not answering: never «8 containers» as if counted now — said instead (truth review W7)
-  return lightTile({ label: T('tile.watch'), level: !state ? '' : state.on_watch ? 'ok' : 'none',
-    value: dockerOff() ? Office.t('common.docker_off') : c ? T('count.containers', { n: Number(c.count) || 0 }) : '–',
-    sub: w ? [T('count.plugins', { n: (w.plugins || []).length }), sh ? T('count.shares', { n: Number(sh.count) || 0 }) : ''].filter(Boolean).join(' · ') : '',
-    ...a });
-}
 
 // ------------------------------------------------------------------ the last round: the row's head
 /** A day as «08.10.» (its full date as the tip) */
@@ -1771,8 +1813,8 @@ async function journalLoad(month, offset, b, append = false) {
 /*
  * One area of his (agent/desks/watchman-cats.php): what he looks at there, what he couldn't see in his last round (a
  * callout each — state.cats[id].why), its entries of the book in the book's own rows (open first is the book's order by
- * time; folded by day and kind, «I know, thanks» as there) under a bar of its own (words, «only open», the kind), and a
- * jump to its group in «What I keep an eye on». An older messenger's state has no areas: one line says so.
+ * time; folded by day and kind, «I know, thanks» as there) under a bar of its own (words, «only open», the kind), and its
+ * folds «Known: …» (what is normal there, found by the same words). An older messenger's state has no areas: one line says so.
  */
 const catBars = {};             // each area's bar, built once and held across the renders (its words never kept)
 function catBarGet(id) {
@@ -1790,14 +1832,7 @@ const CAT_CALLOUT_WARN = ['syslog_full', 'snaps_failed', 'snaps_capped', 'router
 function catSection(id) {
   const c = catOf(id);
   const s = el('section', 'section wm-cat');
-  const key = CAT_WATCH[id];
   const extras = [];
-  if (key) {
-    const to = el('button', 'btn small plain', T('cat.to_watch'));
-    to.type = 'button';
-    to.onclick = () => { sw.pick('watch', 'click'); Office.reveal(`watch:${key}`); };
-    extras.push(to);
-  }
   // the light in words beside the name (on a phone, without a mouse, the one place the tile's first line stands)
   const said = catState(id);
   s.appendChild(Office.sectionHead(catName(id), T(`cat.${id}_sub`), ...(said ? [said] : []), ...extras));
@@ -1851,6 +1886,8 @@ function catSection(id) {
   bar.done(v.rows.reduce((n, r) => n + r.members.length, 0), all.length, { onlyAvail: all.some((e) => e.open) || f.only });
   const advice = catAdvice(id);
   if (advice) s.appendChild(advice);
+  const inv = knownFolds(id, bar.read().words);       // what he knows here: the area's filter words find in it too
+  if (inv) s.appendChild(inv);
   if (rules) s.appendChild(rules);
   if (known) s.appendChild(known);
   return s;
@@ -2712,7 +2749,7 @@ function holdTile(a) {
   return lightTile({ label: T('tile.hold'), value, level: catLevel('hold') || (n || short ? 'warn' : l ? 'ok' : ''),
     sub: !l ? T('tile.hold_never') : [short ? T('tile.hold_short') : '', w.known ? T('tile.hold_known', { n: w.known }) : '',
       T('tile.hold_when', { when: fmt.relative(l.time) })].filter(Boolean).join(' · '),
-    more: [why, short ? T('tile.hold_short_why', { disk: l.times.disk, need: l.times.need }) : ''].filter(Boolean), ...a });
+    more: [why, short ? T('tile.hold_short_why', { disk: l.times.disk, need: l.times.need }) : '', findingLine('hold', catLevel('hold'))].filter(Boolean), ...a });
 }
 
 function holdSection() {
@@ -3264,13 +3301,14 @@ function group(key, title, sum, rows, more) {
   const words = watchWords.length > 0;
   const box = Office.place(`watch:${key}`, el('div', 'group' + (groupOpen(key, watchWords, openGroups, watchShut) ? '' : ' closed')));
   box.wmFit = fit;
+  box.wmKey = key;
   const head = el('div', 'group-head');
   head.tabIndex = 0;
   head.setAttribute('role', 'button');
   const mid = el('div', 'group-mid');
   const tl = el('div', 'group-title');
-  tl.appendChild(el('span', '', title));
-  mid.append(tl, el('div', 'group-meta', words && !fit.whole ? `${sum} · ${Office.t('common.filter_hits', { n: fit.n, total: fit.total })}` : sum));
+  tl.appendChild(el('span', '', T('inv.title', { what: sum })));     // «Known: 12 addresses» — what it is beneath
+  mid.append(tl, el('div', 'group-meta', words && !fit.whole ? `${title} · ${Office.t('common.filter_hits', { n: fit.n, total: fit.total })}` : title));
   head.append(el('span', 'group-arrow', '▼'), mid);
   const body = el('div', 'group-rows');
   const drawn = rows.filter((x, i) => fit.rows[i]);
@@ -3288,100 +3326,80 @@ function group(key, title, sum, rows, more) {
   head.onclick = (e) => { toggle(); if (e.detail > 0) head.blur(); };
   head.onkeydown = (e) => { if (e.target === head && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggle(); } };
   box.append(head, body);
-  if (drawn.length && fit.shown) watchGroups.push({ open: () => !box.classList.contains('closed'), set });
-  else if (!drawn.length) head.classList.add('wm-empty-group');
+  if (!drawn.length) head.classList.add('wm-empty-group');
   return box;
 }
 
 /**
- * The list's bar (core.js Office.filterBar), built once and held across the renders like the book's: the words over
- * every group's title and summary and each item in it (groupFit()); «n of m fit» over all items and «Show all» in its note
- * line. «Unfold all» stays right of the section's head.
+ * What an area knows (CAT_KNOWN): its groups of what is normal, each a fold «Known: …» in the area's section — the
+ * area's filter words (the bar over its entries) find in them too, unfolding what fits. Null: the area has none, or he
+ * hasn't taken over yet (his first round records it).
  */
-function watchBarGet() {
-  if (watchBar) return watchBar;
-  watchBar = Office.filterBar({
-    key: 'watchman.watch',
-    min: WM_FILTER_MIN,
-    label: T('watch.filter.label'),
-    onChange: (f, what) => {
-      if (what === 'words' || what === 'all') watchShut.clear();
-      if (view) sw.render();
-    },
-  });
-  return watchBar;
+function knownFolds(id, words) {
+  const keys = CAT_KNOWN[id];
+  if (!keys || !state || !state.on_watch) return null;
+  const w = state.watch;
+  watchWords = words || [];
+  const gs = keys.map((k) => knownGroup(k, w)).filter(Boolean);
+  watchWords = [];
+  const shown = gs.filter((g) => g.wmFit.shown);
+  if (!shown.length) return null;
+  const box = el('div', 'box wm-watchlist wm-known-inv');
+  shown.forEach((g) => box.appendChild(g));
+  return box;
 }
 
-function watchSection() {
-  const s = el('section', 'section');
-  const unfold = el('button', 'btn small plain');
-  unfold.type = 'button';
-  s.appendChild(Office.sectionHead(T('watch.title'), T('watch.sub'), unfold, { place: 'watch.title' }));
-  const box = el('div', 'box wm-watchlist');
-  const w = state.watch;
-  watchGroups = [];
-  if (!w) {
-    box.appendChild(el('p', 'empty', T('watch.none')));
-    unfold.hidden = true;
-    s.appendChild(box);
-    return s;
+/** One group of what he knows, by its key (null: nothing of it here — no failing addresses, no partner) */
+function knownGroup(key, w) {
+  if (!w && !['net', 'snaps', 'flow_clients', 'flow_containers', 'flow_shares', 'flow_gone', 'flow_smb'].includes(key)) return null;
+  switch (key) {
+    case 'ips':
+      return group('ips', T('watch.ips'), T('watch.ips_sum', { n: w.ips.length }),
+        w.ips.map((x) => item(x.ip, [(x.users || []).join(', '), (x.services || []).join(', '), T('watch.last_seen', { when: fmt.relative(x.last) })])));
+    case 'fail_ips':
+      return w.fail_ips.length ? group('fail_ips', T('watch.fail_ips'), T('watch.fail_ips_sum', { n: w.fail_ips.length }),
+        w.fail_ips.map((x) => item(x.ip, [T('watch.since', { when: fmt.date(x.since) }), x.quiet ? T('watch.quiet', { n: x.quiet }) : '',
+          T('watch.last_seen', { when: fmt.relative(x.last) })]))) : null;
+    case 'containers': {
+      const c = w.containers;
+      const cSum = c ? T('watch.containers_sum', { special: c.special.length, count: c.count, n: Number(c.count) || 0 }) : '';
+      return group('containers', T('watch.containers'),
+        !c ? T('watch.containers_wait') : dockerOff() ? T('watch.containers_last', { docker: Office.t('common.docker_off'), sum: cSum }) : cSum,
+        c ? c.special.map((x) => item(x.name, [], flags(x.tokens))) : [], ['Docker']);
+    }
+    case 'plugins':
+      return group('plugins', T('watch.plugins'), T('watch.plugins_sum', { n: w.plugins.length }),
+        w.plugins.map((x) => item(x.name, [x.source || T('watch.no_source'), x.version || ''])));
+    case 'flash': {
+      const f = w.flash || { extra: [], users: [], keys: [] };
+      const flash = [
+        item(T('watch.go'), [f.go ? T('watch.go_lines', { n: f.go.lines }) : T('watch.go_none')]),
+        item(T('watch.extra'), f.extra.length ? f.extra.map((x) => `${x.file} · ${fmt.size(x.size)}`) : [T('watch.extra_none')]),
+        item(T('watch.users'), [f.users.join(', ')], null, true),
+      ];
+      if (f.keys.length) f.keys.forEach((k) => flash.push(item(T('watch.keys'), [k.user, [k.type, k.comment].filter(Boolean).join(' '), k.fp], null, true)));
+      else flash.push(item(T('watch.keys'), [T('watch.keys_none')], null, true));
+      return group('flash', T('watch.flash'), T('watch.flash_sum', { extra: f.extra.length,
+        users: T('watch.flash_users', { n: f.users.length }), keys: T('watch.flash_keys', { n: f.keys.length }) }), flash);
+    }
+    case 'shares': {
+      const sh = w.shares;
+      return group('shares', T('watch.shares'),
+        !sh ? T('watch.shares_wait') : sh.open.length ? T('watch.shares_sum', { open: sh.open.length, count: sh.count }) : T('watch.shares_none'),
+        sh ? sh.open.map((x) => item(x.share, [x.smb ? `SMB: ${level(x.smb)}` : '', x.nfs ? `NFS: ${level(x.nfs)}` : ''])) : []);
+    }
+    case 'sched': return schedGroup(w.sched);
+    case 'host': return hostGroup(w.host, 'host');
+    case 'doors': return hostGroup(w.host, 'doors');
+    case 'partner': return w.partner && (w.partner.pairs.length || w.partner.strays.length) ? partnerGroup(w.partner) : null;
+    case 'net': return netGroup(state.net);
+    case 'snaps': return snapGroup(state.snaps);
+    default: {      // the data flow's groups
+      const f = state.flow;
+      if (!f) return key === 'flow_clients' || key === 'flow_shares' ? group(key, T('watch.' + key), T('watch.flow_wait'), []) : null;
+      return flowGroups(f).find((g) => g.wmKey === key) || null;
+    }
   }
-  const bar = watchBarGet();
-  s.appendChild(bar.el);
-  watchWords = bar.read().words;
-  const gs = [];
-  gs.push(group('ips', T('watch.ips'), T('watch.ips_sum', { n: w.ips.length }),
-    w.ips.map((x) => item(x.ip, [(x.users || []).join(', '), (x.services || []).join(', '), T('watch.last_seen', { when: fmt.relative(x.last) })]))));
-  if (w.fail_ips.length) {
-    gs.push(group('fail_ips', T('watch.fail_ips'), T('watch.fail_ips_sum', { n: w.fail_ips.length }),
-      w.fail_ips.map((x) => item(x.ip, [T('watch.since', { when: fmt.date(x.since) }), x.quiet ? T('watch.quiet', { n: x.quiet }) : '',
-        T('watch.last_seen', { when: fmt.relative(x.last) })]))));
-  }
-  const c = w.containers;
-  const cSum = c ? T('watch.containers_sum', { special: c.special.length, count: c.count, n: Number(c.count) || 0 }) : '';
-  gs.push(group('containers', T('watch.containers'),
-    !c ? T('watch.containers_wait') : dockerOff() ? T('watch.containers_last', { docker: Office.t('common.docker_off'), sum: cSum }) : cSum,
-    c ? c.special.map((x) => item(x.name, [], flags(x.tokens))) : [], ['Docker']));
-  gs.push(group('plugins', T('watch.plugins'), T('watch.plugins_sum', { n: w.plugins.length }),
-    w.plugins.map((x) => item(x.name, [x.source || T('watch.no_source'), x.version || '']))));
-  const f = w.flash || { extra: [], users: [], keys: [] };
-  const flash = [
-    item(T('watch.go'), [f.go ? T('watch.go_lines', { n: f.go.lines }) : T('watch.go_none')]),
-    item(T('watch.extra'), f.extra.length ? f.extra.map((x) => `${x.file} · ${fmt.size(x.size)}`) : [T('watch.extra_none')]),
-    item(T('watch.users'), [f.users.join(', ')], null, true),
-  ];
-  if (f.keys.length) f.keys.forEach((k) => flash.push(item(T('watch.keys'), [k.user, [k.type, k.comment].filter(Boolean).join(' '), k.fp], null, true)));
-  else flash.push(item(T('watch.keys'), [T('watch.keys_none')], null, true));
-  gs.push(group('flash', T('watch.flash'), T('watch.flash_sum', { extra: f.extra.length,
-    users: T('watch.flash_users', { n: f.users.length }), keys: T('watch.flash_keys', { n: f.keys.length }) }), flash));
-  const sh = w.shares;
-  gs.push(group('shares', T('watch.shares'),
-    !sh ? T('watch.shares_wait') : sh.open.length ? T('watch.shares_sum', { open: sh.open.length, count: sh.count }) : T('watch.shares_none'),
-    sh ? sh.open.map((x) => item(x.share, [x.smb ? `SMB: ${level(x.smb)}` : '', x.nfs ? `NFS: ${level(x.nfs)}` : ''])) : []));
-  gs.push(schedGroup(w.sched));
-  gs.push(hostGroup(w.host));
-  if (w.partner && (w.partner.pairs.length || w.partner.strays.length)) gs.push(partnerGroup(w.partner));
-  gs.push(netGroup(state.net));
-  gs.push(snapGroup(state.snaps));
-  gs.push(...flowGroups(state.flow));
-  const tally = fitTally(gs.map((g) => g.wmFit));
-  gs.filter((g) => g.wmFit.shown).forEach((g) => box.appendChild(g));
-  if (!tally.shown) box.appendChild(el('p', 'empty', T('watch.filter.none')));
-  watchWords = [];
-  const label = () => {
-    unfold.textContent = watchGroups.some((x) => !x.open()) ? T('unfold_all') : T('fold_all');
-    unfold.hidden = !watchGroups.length;
-  };
-  unfold.onclick = () => {
-    const open = watchGroups.some((x) => !x.open());
-    Office.keepInPlace(unfold, () => watchGroups.forEach((x) => x.set(open)));
-    label();
-  };
-  box.addEventListener('click', () => setTimeout(label, 0));
-  label();
-  s.appendChild(box);
-  bar.done(tally.n, tally.total);
-  return s;
 }
 
 /** What starts on its own: root's own crontab line by line, the .cron files, User Scripts, at, the notification agents */
@@ -3400,19 +3418,24 @@ function schedGroup(s) {
   return group('sched', T('watch.sched'), sum, rows);
 }
 
-/** The server itself: the ports programs listen on, programs from odd places he knows, the ways in that are open */
-function hostGroup(h) {
-  if (!h) return group('host', T('watch.host'), T('watch.host_wait'), []);
+/**
+ * The server itself (part 'host': the ports programs listen on, programs from odd places he knows, its accounts) or its
+ * ways in (part 'doors': what Unraid's settings open, Unraid's API keys — name and roles, never more of them)
+ */
+function hostGroup(h, part) {
+  const doors = part === 'doors';
+  if (!h) return group(doors ? 'doors' : 'host', T(doors ? 'watch.doors' : 'watch.host'), T('watch.host_wait'), []);
   const rows = [];
-  h.doors.forEach((d) => rows.push(item(doorWords(d), [T('watch.door')], null, true)));
-  // Unraid's API keys: name and roles (never more of them)
-  (h.api || []).forEach((k) => rows.push(item(k.name, [T('watch.api_key'), (k.roles || []).join(', ') || T('detail.roles_none'),
-    k.full ? T('watch.api_full') : ''])));
+  if (doors) {
+    h.doors.forEach((d) => rows.push(item(doorWords(d), [T('watch.door')], null, true)));
+    (h.api || []).forEach((k) => rows.push(item(k.name, [T('watch.api_key'), (k.roles || []).join(', ') || T('detail.roles_none'),
+      k.full ? T('watch.api_full') : ''])));
+    return group('doors', T('watch.doors'), T('watch.doors_sum', { doors: h.doors.length, keys: (h.api || []).length }), rows);
+  }
   h.listen.forEach((l) => rows.push(item(l.port === null || l.port === undefined ? `${l.prog} (${T('detail.port_dynamic')})` : `${l.port} · ${l.prog}`,
     [T('watch.port'), (l.addr || []).map((a) => (a === '*' ? T('detail.addr_all') : a)).join(', ')])));
   h.procs.forEach((x) => rows.push(item(x.exe, [x.prog, x.where || T('where.host')])));
-  return group('host', T('watch.host'), T('watch.host_sum', { ports: h.listen.length, doors: h.doors.length, keys: (h.api || []).length,
-    procs: h.procs.length, users: h.users }), rows);
+  return group('host', T('watch.host'), T('watch.host_own_sum', { ports: h.listen.length, procs: h.procs.length, users: h.users }), rows);
 }
 
 /** The partner offices' doors: per pair whether its line is there as the office wrote it; lines of no pair */
@@ -3713,18 +3736,18 @@ Office.desk({
     const m = /^entry\/([\w-]{1,64})$/.exec(sub || '');
     if (m) wanted = m[1];
     bookBarGet().reset();          // a new visit: the whole book (the area is a choice and stays)
-    watchBarGet().reset();         // … and the whole of what he keeps an eye on, folded as kept
-    watchShut.clear();
+    watchShut.clear();             // what he knows, folded as kept
     wakesBarGet().reset();         // … and every wake, of every disk
     wakeDisk = '';
     Object.values(catBars).forEach((b) => b.reset().set({ pick: '' }));      // … and every area's list whole
     if (sub === 'open') bookBarGet().set({ only: true });     // the tile «Not noted yet» up to 1.95: the book, only open
-    sw.mount(m || sub === 'open' ? 'book' : sub);    // a tile's sub-route picks it like a click (the address back to #/watchman)
+    // #/watchman/watch (the tile «What I keep an eye on» up to 1.96, its places in each area now): the book, never a dead link
+    sw.mount(m || sub === 'open' || sub === 'watch' ? 'book' : sub);    // a tile's sub-route picks it like a click (the address back to #/watchman)
     render();
     await load(false);
     holdAuto();
   },
-  unmount() { clearTimeout(timer); view = null; bookRows = []; watchGroups = []; shownWakes = []; wanted = null; },
+  unmount() { clearTimeout(timer); view = null; bookRows = []; shownWakes = []; wanted = null; },
   poll() { if (!running()) load(false); },
   started() { if (hired() && !state) load(false); },      // his picture shows the mark on every page
   greetOk: (key) => greetOk(key),
@@ -3754,7 +3777,6 @@ Office.places(ID, [
   { kind: 'section', key: 'round.title' },
   { kind: 'section', key: 'posture.title', route: `#/${ID}/posture` },
   { kind: 'section', key: 'book.title', route: `#/${ID}/book` },
-  { kind: 'section', key: 'watch.title', route: `#/${ID}/watch` },
   { kind: 'section', key: 'incidents.title', route: `#/${ID}/incidents` },
   { kind: 'section', key: 'hold.title', route: `#/${ID}/hold` },
   { kind: 'section', key: 'wakes.title', route: `#/${ID}/wakes` },
@@ -3764,7 +3786,7 @@ Office.places(ID, [
   { kind: 'help', key: 'help.setup_rules', text: 'help.setup_rules_text', route: `#/${ID}/setup`, crumb: 'page.setup' },
   // the same section by the words people search it with (disk wake-ups, spin-up), in every language — its page alone
   { kind: 'section', key: 'search.wakes', route: `#/${ID}/wakes`, anchor: 'search.wakes', text: 'help.wakes_text' },
-  ...sw.places(),             // his tiles: the book, «Not noted yet», how secure, what he keeps an eye on
+  ...sw.places(),             // his tiles: the book, how secure, serious incidents, his areas
   { kind: 'help', key: 'ack', text: 'help.ack_text' },
   { kind: 'help', key: 'round_now', text: 'help.round_text' },
   ...['posture', 'book', 'serious', 'normal', 'logins', 'containers', 'plugins', 'office', 'flash', 'shares', 'sched', 'flow', 'flow_gone', 'flow_not',
@@ -3796,14 +3818,16 @@ Office.placesFrom(ID, (s) => {
   const names = (list, k) => (list || []).map((x) => x && x[k]).filter((x) => typeof x === 'string').join(' ');
   const groups = [['ips', ''], ...((w.fail_ips || []).length ? [['fail_ips', '']] : []), ['containers', names(w.containers && w.containers.special, 'name')],
     ['plugins', names(w.plugins, 'name')], ['flash', ''], ['shares', names(w.shares && w.shares.open, 'share')], ['sched', names(w.sched && w.sched.scripts, 'name')],
-    ['host', ''], ...(w.partner && ((w.partner.pairs || []).length || (w.partner.strays || []).length) ? [['partner', '']] : []), ['net', ''], ['snaps', ''],
+    ['host', ''], ['doors', ''], ...(w.partner && ((w.partner.pairs || []).length || (w.partner.strays || []).length) ? [['partner', '']] : []), ['net', ''], ['snaps', ''],
     ...(s.flow ? ['flow_clients', 'flow_containers', 'flow_shares', 'flow_gone', 'flow_smb'] : ['flow_clients']).map((k) => [k, ''])];
-  groups.forEach(([key, words]) => out.push({ text: T('watch.' + key), sub: T('watch.title'), route: `#/${ID}/watch`, anchor: `watch:${key}`, words }));
+  // each in its area's section (1.96: no tile of its own any more)
+  const areaOf = (key) => Object.keys(CAT_KNOWN).find((c) => CAT_KNOWN[c].includes(key));
+  groups.forEach(([key, words]) => out.push({ text: T('watch.' + key), sub: catName(areaOf(key)), route: `#/${ID}/${areaOf(key)}`, anchor: `watch:${key}`, words }));
   return out;
 });
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.watchman = { setState: (s) => { state = s; }, greetOk, bookView, entryArea, foldKind, plainWords, entryHay, foldName,
-    groupFit, fitTally, groupOpen, watchSection, srcFrom, srcNone, wakesTile, wakesView, causeName, postureLevel, incidentsLevel, catLevel, holdWaiting, holdTile };
+    groupFit, fitTally, groupOpen, knownFolds, srcFrom, srcNone, wakesTile, wakesView, causeName, postureLevel, incidentsLevel, catLevel, holdWaiting, holdTile, tileFinding, NOTE_COUNTS, handNote, ipPublic };
 }
 })();

@@ -318,9 +318,10 @@ When you hire him he learns what is normal. Then he walks his round every five m
 flash and accounts, open shares, what starts by itself, who pulls data, data in the shares, snapshots and offsite, the
 server itself, ways in, the partner door, the router, the network, array and parity, known vulnerabilities, hardware,
 what holds the array, disk wakes —
-and the watch book, how securely it stands, serious incidents, what he keeps an eye on and his schedule. Each tile is a
+and the watch book, how securely it stands, serious incidents and his schedule. Each tile is a
 light: red, look now; yellow, worth a look; «!», advice; green, fine; grey, nothing to look at (switched off, not there,
-not looked at yet). The mouse says why; a click shows that area alone.
+not looked at yet). The mouse says why; a click shows that area alone, with its entries and, folded, what he knows
+there (*Known: 12 addresses*, *Known: 8 containers* …) — a word in its filter finds in both.
 
 **Setup** (his second tab): for each area its settings (the default is always what he did before — for the hardware the
 degrees and hours a sensor may be warm, how many memory or PCIe errors count, an SSD's wear; a service's crashes an hour;
