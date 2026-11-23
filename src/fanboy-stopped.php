@@ -49,9 +49,9 @@ function officeFanboyStopped(?array $agent = null, ?string $run = null, ?int $no
  * else can hear it, only while his control runs, only into a real folder of root's own (never made here, never through
  * a link): a new 0600 file, renamed into place.
  */
-function officeFanboyStoppedHandBack(?array $agent = null, ?string $run = null): array
+function officeFanboyStoppedHandBack(?array $agent = null, ?string $run = null, ?int $now = null): array
 {
-    $s = officeFanboyStopped($agent, $run);
+    $s = officeFanboyStopped($agent, $run, $now);            // $now: the tests' clock (the web side passes nothing: time())
     if ($s === null || (!$s['runs'] && !$s['handed_back'])) {
         return ['ok' => false, 'error' => ['key' => 'bad_request', 'params' => []]];
     }
