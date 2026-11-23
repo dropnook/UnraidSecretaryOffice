@@ -70053,6 +70053,44 @@ function testRunDirBudget(): void
 }
 
 /**
+ * The agent loads its desks in any order (1.96 on test4: Unraid's locale sorts watchman.php before watchman-rules.php —
+ * its collation ignores '-' and '.' —, and a plain `require` after watchman.php's require_once declared the rules'
+ * functions twice). In its own process: the desks in glob's order and reversed (every main file before its parts) — the
+ * same desks, no fatal error; no other entry point loads a desk file with a plain require.
+ */
+function testDeskLoadOrder(): void
+{
+    $load = function (string $order): array {
+        $env = ['OFFICE_DATA_DIR' => TESTS_RUN_DIR . '/load-order-data', 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => (string) getenv('PATH')]
+             + ($order === 'reverse' ? ['OFFICE_TEST_DESK_ORDER' => 'reverse'] : []);
+        $p = proc_open([PHP_BINARY, '-r', 'define("AGENT_LIBRARY_ONLY", 1); require ' . var_export(OFFICE_DIR . '/agent/agent.php', true) . ';'
+            . ' $d = array_keys(desks()); sort($d); echo "\n@@", json_encode(["desks" => $d, "files" => array_map("basename", array_values(array_filter(get_included_files(),'
+            . ' fn ($f) => str_contains($f, "/agent/desks/"))))]);'], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, $env);
+        $out = (string) stream_get_contents($pipes[1]);           // its answer (stdout); stderr only for the message
+        $err = (string) stream_get_contents($pipes[2]);
+        proc_close($p);
+        $out .= $err === '' ? '' : "\n" . $err;
+        $at = strrpos($out, "\n@@");
+        $json = $at === false ? '' : strtok(substr($out, $at + 3), "\n");
+        return ($json === false || $json === '' ? null : json_decode($json, true)) ?: ['raw' => mb_substr($out, 0, 600)];
+    };
+    $glob = $load('glob');
+    $rev = $load('reverse');
+    $files = (array) ($rev['files'] ?? []);
+    same('desk load order: reversed (every main file before its parts) — the same desks as in glob\'s order, no error', [true, true, $glob['desks'] ?? 'x'],
+        [count((array) ($glob['desks'] ?? [])) > 10, isset($rev['desks']), $rev['desks'] ?? $rev]);
+    check('desk load order: the reversed run really loaded watchman.php before watchman-rules.php',
+        ($i = array_search('watchman.php', $files, true)) !== false && ($j = array_search('watchman-rules.php', $files, true)) !== false && $i < $j, json_encode($files));
+    $plain = [];
+    foreach (array_merge(glob(OFFICE_DIR . '/agent/*.php') ?: [], glob(OFFICE_DIR . '/agent/lib/*.php') ?: [], glob(OFFICE_DIR . '/src/*.php') ?: []) as $f) {
+        if (preg_match('/\brequire\s+\$[A-Za-z_]*[Dd]esk/', (string) file_get_contents($f))) {
+            $plain[] = basename($f);
+        }
+    }
+    same('desk load order: no entry point loads a desk file with a plain require', [], $plain);
+}
+
+/**
  * Every writer into the office's RAM folder has its line in RUNDIR_FILES (agent/lib/rundir.php): what bounds it, who
  * removes it (2026-11-19, /run full). Found in the code: `RUN_DIR . '/<name>'`, `officeRunDir() . '/<name>'`, a variable
  * set from one of them (`$run = RUN_DIR …` then "$run/<name>" or $run . '/<name>'), and in the scripts a variable set to
@@ -70718,7 +70756,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testMigrateWakes', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics', 'testReportDialogOwnWords', 'testReportDialogDesk',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testBackupRunEnded', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanAtLeft', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testSkipPlaces', 'testCleanupSkipGreeting', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testLights', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],
-          'hardening' => ['testRequestTypes', 'testRunDirLeftovers', 'testRunDirCrashLoop', 'testRunDirLink', 'testRunDirBudget', 'testRunDirAudit', 'testRunDirRunCap', 'testRunDirReport', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerGeneration', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testCleanupPurgeEnds', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportWatch', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
+          'hardening' => ['testRequestTypes', 'testRunDirLeftovers', 'testRunDirCrashLoop', 'testRunDirLink', 'testRunDirBudget', 'testDeskLoadOrder', 'testRunDirAudit', 'testRunDirRunCap', 'testRunDirReport', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerGeneration', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testCleanupPurgeEnds', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportWatch', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords'],
           'fanboy' => ['testFanboyPublic', 'testFanboyMetrics', 'testCaretakerNewcomers', 'testFanboyNoWrite', 'testFanboyDetect', 'testFanboySituations', 'testFanboyIdentity', 'testFanboyReport', 'testFanboyHints', 'testFanboyPage',
                        'testFanboyWrite', 'testFanboyControl', 'testFanboyAlarms', 'testFanboyChipMissing', 'testFanboyBoards', 'testFanboySteps', 'testFanboyZones',
