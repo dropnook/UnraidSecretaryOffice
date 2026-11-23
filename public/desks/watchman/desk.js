@@ -1095,11 +1095,15 @@ function render() {
   if (page === 'setup') { renderSetup(root); return; }
   const lim = (state && state.limits) || {};
   root.appendChild(Office.pageHelp(ID, [
-    [T('help.lights'), T('help.lights_text')],
+    // «How to read this page» first (1.96 «einfacher»: one screen — the tiles, your answers, where things are, notifications)
+    [T('help.read'), T('help.read_text')],
+    [T('help.read_lights'), T('help.read_lights_text')],
+    [T('help.read_answers'), T('help.read_answers_text')],
+    [T('help.read_where'), T('help.read_where_text')],
+    [T('help.read_notify'), T('help.read_notify_text')],
     [T('help.posture'), T('help.posture_text')],
     [T('help.book'), T('help.book_text', { keep: lim.keep || 500, days: lim.days || 90 })],
     [T('help.history'), T('help.history_text')],
-    [T('ack'), T('help.ack_text')],
     [T('help.serious'), T('help.serious_text')],
     [T('help.normal'), T('help.normal_text')],
     [T('round_now'), T('help.round_text')],
@@ -1132,6 +1136,7 @@ function render() {
   if (!state) { root.appendChild(el('p', 'empty', Office.t('common.loading'))); return; }
   root.appendChild(sw.el);
   sw.render();
+  sw.el.querySelectorAll(':scope > .wm-alerts').forEach((n) => n.remove());   // a redraw keeps one of each
   const alerts = alertBox();          // what went wrong: under the row, over every section (the tiles rule: the tiles first)
   if (alerts) sw.el.insertBefore(alerts, sw.body);
 }
@@ -1838,6 +1843,7 @@ function tileSection(id) {
     if (w === 'vuln_off' && vulnOff()) { s.appendChild(vulnOffBox()); return; }      // what he would check, and the switch right there
     s.appendChild(el('p', 'callout' + (CAT_CALLOUT_WARN.includes(w) ? ' warn' : ''), whyWords(id, w)));
   });
+  tileChains(id).forEach((c) => s.appendChild(chainCallout(c)));
   if (t.off) {
     const on = el('button', 'btn small', T('rule.cat_on'));
     on.type = 'button';
@@ -2045,6 +2051,18 @@ function foldRow(x, typed) {
 }
 
 /** Entries that may belong together (a SOC's correlation): what came within how many minutes, oldest first */
+/** What may belong together, in a tile: alone, each chain with a waiting entry here; on the whole page, each chain once,
+ *  in the first tile that holds one of its waiting entries */
+function tileChains(id) {
+  const byId = new Map((state.book || []).map((e) => [e.id, e]));
+  return (state.chains || []).filter((c) => c && Array.isArray(c.ids)).filter((c) => {
+    const tiles = c.ids.map((x) => byId.get(x)).filter((e) => e && e.open).map(entryTile);
+    if (!tiles.length) return false;
+    if (sw.active() === id) return tiles.includes(id);
+    return TILES.find((t) => tiles.includes(t)) === id;
+  });
+}
+
 function chainCallout(c) {
   const box = el('div', 'callout warn wm-chain');
   const minutes = Math.max(1, Math.round((c.last - c.first) / 60));
@@ -3865,10 +3883,9 @@ Office.places(ID, [
   // the same section by the words people search it with (disk wake-ups, spin-up), in every language — its page alone
   { kind: 'section', key: 'search.wakes', route: `#/${ID}/wakes`, anchor: 'search.wakes', text: 'help.wakes_text' },
   ...sw.places(),             // his tiles: the book, how secure, serious incidents, his areas
-  { kind: 'help', key: 'ack', text: 'help.ack_text' },
   { kind: 'help', key: 'round_now', text: 'help.round_text' },
-  ...['posture', 'book', 'serious', 'normal', 'logins', 'containers', 'plugins', 'office', 'flash', 'shares', 'sched', 'flow', 'flow_gone', 'flow_not',
-    'snaps', 'host', 'host_not', 'net', 'net_not', 'attack', 'siem', 'chain', 'night', 'parity', 'hold', 'wakes', 'grafana', 'notify', 'safe', 'lights',
+  ...['read', 'read_lights', 'read_answers', 'read_where', 'read_notify', 'posture', 'book', 'serious', 'normal', 'logins', 'containers', 'plugins', 'office', 'flash', 'shares', 'sched', 'flow', 'flow_gone', 'flow_not',
+    'snaps', 'host', 'host_not', 'net', 'net_not', 'attack', 'siem', 'chain', 'night', 'parity', 'hold', 'wakes', 'grafana', 'notify', 'safe',
     'history']
     .map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
 ]);

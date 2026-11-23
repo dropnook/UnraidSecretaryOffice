@@ -26443,10 +26443,10 @@ function testWatchmanFlowGone(): void
         [$added, (function (array $a) { sort($a); return $a; })(array_keys($by)), [$se['bytes'] ?? null, $se['pct'] ?? null, $se['kept'] ?? null, $se['asleep'] ?? null, $se['from'] ?? null, $se['clients'] ?? null],
          $by['flow_gone:share:Filme']['p']['bytes'] ?? null, $by['flow_gone:disk:disk1']['p']['bytes'] ?? null,
          [array_sum($flow['gone']['disk:disk3']['h'] ?? []), array_sum($flow['gone']['disk:disk3']['o'] ?? [])]]);
-    same('gone in words', "300 GB gone from Serien in 5 min — 27 % of the share while I'm still learning what is normal. 200 GB of it still in its snapshots. "
+    same('gone in words', "300 GB gone from Serien in 5 min — 27 % of the share while he is still learning what is usual. 200 GB of it still in its snapshots. "
         . "Moving data over SMB, NFS or SSH then: 192.0.2.7 (SSH). Not looked at (asleep): cold.",
         officeNotifyText('watchman', 'entry.flow_gone', watchmanText($by['flow_gone:share:Serien'], 'en'), 'en'));
-    same('gone in words: a disk', "200 GB gone from disk1 (Filme, Serien) in 5 min — more than 100 GB in one round while I'm still learning what is normal. "
+    same('gone in words: a disk', "200 GB gone from disk1 (Filme, Serien) in 5 min — more than 100 GB in one check while he is still learning what is usual. "
         . "Moving data over SMB, NFS or SSH then: 192.0.2.7 (SSH). Measured for the whole disk (btrfs), not per share.",
         officeNotifyText('watchman', 'entry.flow_gone', watchmanText($by['flow_gone:disk:disk1'], 'en'), 'en'));
 
@@ -26784,10 +26784,10 @@ function testWatchmanFlowFiles(): void
         [[], ['flow_gone', 'flow_written'], ['flow_gone:files:disk:disk1', 'flow_written:disk:disk3'], [25000, true, 'server', 'disk1'], [60 * $gb, 'disk3', 'btrfs', ['Familienfilme']]],
         [$a0, (function (array $a) { sort($a); return $a; })($a1), (function (array $a) { sort($a); return $a; })(array_keys($open)),
          [$d1['files'] ?? null, $d1['renames'] ?? null, $d1['from'] ?? null, $d1['disk'] ?? null], [$d3['bytes'] ?? null, $d3['disk'] ?? null, $d3['fs'] ?? null, $d3['shares'] ?? null]]);
-    same('files deleted in words', "25000 files gone from disk1 (Fotos, Dokumente) in 5 min — more than 20000 files in one round while I'm still learning what is normal. "
+    same('files deleted in words', "25000 files gone from disk1 (Fotos, Dokumente) in 5 min — more than 20000 files in one check while he is still learning what is usual. "
         . "No client moved data over SMB, NFS or SSH then — it came from the server itself. On XFS a renamed file counts too. Measured for the whole disk (xfs), not per share.",
         officeNotifyText('watchman', 'entry.flow_gone', watchmanText($open['flow_gone:files:disk:disk1'], 'en'), 'en'));
-    same('a disk written in words', "60 GB written into disk3 (Familienfilme) in 5 min — more than 50 GB in one round while I'm still learning what is normal. Measured for the whole disk (btrfs), not per share.",
+    same('a disk written in words', "60 GB written into disk3 (Familienfilme) in 5 min — more than 50 GB in one check while he is still learning what is usual. Measured for the whole disk (btrfs), not per share.",
         officeNotifyText('watchman', 'entry.flow_written', watchmanText($open['flow_written:disk:disk3'], 'en'), 'en'));
     same('the notification and the team lead\'s line', ['Night watchman: 25000 files gone from disk1 (Fotos, Dokumente)', 'Nachtwächter: 60 GB geschrieben in disk3 (Familienfilme)'],
         [officeNotifyText('watchman', 'notify.flow_gone', ['n' => 1] + watchmanText($open['flow_gone:files:disk:disk1'], 'en'), 'en'),
@@ -26842,7 +26842,7 @@ function testWatchmanFlowFiles(): void
         [['flow_gone', 'flow_gone'], ['flow_gone:files:share:Fotos', 'flow_gone:share:Musik'], 21000, [200 * $gb, 30000]],
         [$z1, (function (array $a) { sort($a); return $a; })(array_keys($open)), $open['flow_gone:files:share:Fotos']['p']['files'] ?? null,
          [$open['flow_gone:share:Musik']['p']['bytes'] ?? null, $open['flow_gone:share:Musik']['p']['files'] ?? null]]);
-    same('ZFS: both in words (de)', ['21000 Dateien weg aus Fotos in 5 Min. — mehr als 20000 Dateien in einem Rundgang, während ich noch lerne, was normal ist. '
+    same('ZFS: both in words (de)', ['21000 Dateien weg aus Fotos in 5 Min. — mehr als 20000 Dateien in einer Prüfung, während er noch lernt, was üblich ist. '
         . 'Kein Client bewegte damals über SMB, NFS oder SSH Daten — es kam vom Server selbst.', '30000 Dateien wurden gelöscht.'],
         [officeNotifyText('watchman', 'entry.flow_gone', watchmanText($open['flow_gone:files:share:Fotos'], 'de'), 'de'),
          officeNotifyText('watchman', 'gone.files', ['n' => 30000], 'de')]);
@@ -26898,7 +26898,7 @@ function testWatchmanFlowFiles(): void
     [, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $bfs(62 * $gb, 160), 'where' => $where]), $book, $t0 + 1200);
     $we = array_column(array_filter($book, 'watchmanOpen'), null, 'key')['flow_written:disk:disk3'] ?? ['p' => []];
     same('btrfs where: never asked for a quiet round, for the entry from the generation its run began at — also when brought up to date',
-        [[], ['flow_written'], [['disk3', 100], ['disk3', 100]], "62 GB written into disk3 (Familienfilme) in 15 min — more than 50 GB in one round while I'm still learning what is normal. "
+        [[], ['flow_written'], [['disk3', 100], ['disk3', 100]], "62 GB written into disk3 (Familienfilme) in 15 min — more than 50 GB in one check while he is still learning what is usual. "
             . "Most of it into: Familienfotos (55 GB). Measured for the whole disk (btrfs), not per share."],
         [$quiet, $w1, $calls, officeNotifyText('watchman', 'entry.flow_written', watchmanText($we, 'en'), 'en')]);
 
@@ -27025,7 +27025,7 @@ function testWatchmanFlow(): void
         [[$h => 100 * $gb], [], [$h => 40 * $gb], [], [$h => 30 * $gb], [$h => 80 * $gb]],
         [$flow['containers']['kopia']['o'], $flow['containers']['kopia']['h'], $flow['shares']['tank/UnraidSecretaryOffice']['o'],
          $flow['shares']['tank/UnraidSecretaryOffice']['h'], $flow['shares']['tank/data']['h'], $flow['containers']['EmbyServer']['h']]);
-    same('flow entry: a share in words', '30 GB written into tank/data in 5 min — 30 % of the share while I\'m still learning what is normal. Most of it: tank/data itself, not a dataset below it, 30 GB.',
+    same('flow entry: a share in words', '30 GB written into tank/data in 5 min — 30 % of the share while he is still learning what is usual. Most of it: tank/data itself, not a dataset below it, 30 GB.',
         officeNotifyText('watchman', 'entry.flow_written', watchmanText($by['flow_written'], 'en'), 'en'));
     same('flow: per client and service, the server talking to itself left out', [['192.0.2.7|smb', '192.0.2.9|smb', '192.0.2.7|web'], 61 * $gb, 2 * 1024 ** 2],
         [array_keys($flow['clients']), $flow['totals']['sent']['smb'], $flow['totals']['sent']['web']]);
@@ -27041,7 +27041,7 @@ function testWatchmanFlow(): void
         [$added, $by['flow_written']['p']['bytes'], $by['flow_written']['p']['pct'], $by['flow_written']['p']['minutes'], $by['flow_client']['p']['bytes'],
          $by['flow_client']['p']['minutes'], $by['flow_client']['count']]);
     same('flow: Kopia outside the backup is learned like any other', [$h => 5 * $gb], $flow['containers']['kopia']['h']);
-    same('flow entry: in words (English)', '192.0.2.9 pulled 70 GB over SMB in 10 min — more than 50 GB in one round while I\'m still learning what is normal',
+    same('flow entry: in words (English)', '192.0.2.9 pulled 70 GB over SMB in 10 min — more than 50 GB in one check while he is still learning what is usual',
         officeNotifyText('watchman', 'entry.flow_client', watchmanText($by['flow_client'], 'en'), 'en'));
 
     // snapshots: one taken (written drops: what came since), one deleted (it grew: can't be told — left out)
@@ -27594,10 +27594,10 @@ function testWatchmanFlowSources(): void
     same('flow sources: Docker asked once, only for the entry', 1, $asks);
     same('flow sources: a share of one dataset — no single source', [['t' => 'none', 'b' => 30 * $gb]], $by['flow_written:maple/appdata']['p']['src']);
     same('flow sources: the entry in words, the biggest source named',
-        '8.4 GB written into maple/system in 5 min — 42 % of the share while I\'m still learning what is normal. Most of it: Container EmbyServer (its writable layer), 3.5 GB.',
+        '8.4 GB written into maple/system in 5 min — 42 % of the share while he is still learning what is usual. Most of it: Container EmbyServer (its writable layer), 3.5 GB.',
         officeNotifyText('watchman', 'entry.flow_written', watchmanText($e, 'en'), 'en'));
     same('flow sources: no single source, in words (German)',
-        '30 GB geschrieben in maple/appdata in 5 Min. — 30 % des Shares, während ich noch lerne, was normal ist. Keine einzelne Quelle sichtbar — maple/appdata ist ein einziges Dataset.',
+        '30 GB geschrieben in maple/appdata in 5 Min. — 30 % des Shares, während er noch lernt, was üblich ist. Keine einzelne Quelle sichtbar — maple/appdata ist ein einziges Dataset.',
         officeNotifyText('watchman', 'entry.flow_written', watchmanText($by['flow_written:maple/appdata'], 'de'), 'de'));
 
     // five minutes on: the container writes on, the unknown layer is deleted meanwhile
