@@ -362,7 +362,11 @@ desk('watchman', [
         // an area off (asked more clearly on the page: sure) or on
         'rule_add'    => fn (array $r) => watchmanRuleAdd(textField($r, 'id'), textField($r, 'type'), optBool($r, 'sure')),
         'rule_remove' => fn (array $r) => watchmanRuleRemove(textField($r, 'rule'), optBool($r, 'undo')),
-        'cat_set'     => fn (array $r) => watchmanCatSet(textField($r, 'cat'), boolField($r, 'on'), optBool($r, 'sure')),
+        'cat_off'     => fn (array $r) => watchmanCatOff(textField($r, 'cat'), boolField($r, 'off'), optBool($r, 'sure')),
+        // 1.96 step 5, his setup page: an area's settings (integers in their bounds; reset: the defaults), an exception by hand
+        'cat_set'     => fn (array $r) => watchmanCatSettings(textField($r, 'cat'), $r['set'] ?? null, optBool($r, 'reset')),
+        'rule_hand'   => fn (array $r) => watchmanRuleHand(textField($r, 'cat'), textField($r, 'type'), textField($r, 'value'), optText($r, 'user'),
+                                                           optBool($r, 'sure')),
         'known_remove' => fn (array $r) => watchmanKnownRemove(textField($r, 'id')),       // «Take back» a lasting answer
         // «Who woke my disks?»: his switch (on unless switched off), kept on the server
         'wakes_watch' => fn (array $r) => watchmanWakeWatchSet(boolField($r, 'on')) + ['state' => watchmanPageState()],
@@ -1496,6 +1500,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
     return watchmanLocked($dir, function () use ($dir, $hired, $now, $fresh, $events, $pos, $read, $seen, $notify, $acks, $t0, $look, $facts, $snapKnown, $snapRes,
                                                $office, $paths, $boot, $btime, $netLook, $netServer, $parity, $kopiaLook, $netContainers, $automounts): array {
         $old = watchmanLoad($dir);
+        $set = watchmanSettings(watchmanRulesRaw($dir));        // his settings (1.96 step 5: the defaults are what he did up to 1.95)
         $old['seen'] = readJson("$dir/seen.json");
         $old['flow'] = readJson("$dir/flow.json");
         $b = $old['baseline'];
@@ -1538,7 +1543,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             }
             $doors += watchmanTicketDoors($seen['partner']);
             $added = array_merge(
-                watchmanLogins($b, $book, $st, $events, false, $doors),
+                watchmanLogins($b, $book, $st, $events, false, $doors, $set['login']['burst'], $set['login']['window']),
                 watchmanContainersCompare($b['containers'], $seen['containers'], $book, $now, $office),
                 watchmanPluginsCompare($b['plugins'], $seen['plugins'], $book, $now, $office),
                 watchmanFlashCompare($b['flash'], $seen['flash'], $book, $now, isset($paths['go']) ? (string) $paths['go'] : null),
@@ -1625,7 +1630,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             // the user's exceptions and areas switched off (watchman-rules.php): after the incidents, before anything is told
             watchmanRulesApply($book, $before, $b, $observed, watchmanRules(watchmanRulesRaw($dir)), array_column($incidents, 'at', 'id'), $st, $now);
         }
-        watchmanTidy($b, $st, $now);
+        watchmanTidy($b, $st, $now, $set['login']['window']);
         $book = watchmanPrune($book, $now);
         if (!$fresh) {
             $told = watchmanNotifyDue($book, $st, $now, $notify);
@@ -1728,11 +1733,11 @@ function watchmanCountWords(array $c, string $lang): array
 }
 
 /** Keeps his memory small: old failure trackers, too many addresses, what is gone for long */
-function watchmanTidy(array &$b, array &$st, int $now): void
+function watchmanTidy(array &$b, array &$st, int $now, int $window = WATCH_FAIL_WINDOW): void
 {
     $fails = (array) ($st['fails'] ?? []);
     foreach ($fails as $ip => $tr) {
-        if (!is_array($tr) || !$tr['t'] || max($tr['t']) < $now - WATCH_FAIL_WINDOW) {
+        if (!is_array($tr) || !$tr['t'] || max($tr['t']) < $now - max($window, WATCH_FAIL_WINDOW)) {
             unset($fails[$ip]);
         }
     }
@@ -2091,7 +2096,8 @@ function watchmanFailStep(array &$fails, array $ev, int $burst = WATCH_FAIL_BURS
  * doesn't know, a burst from one that isn't known for failing.
  * @return list<string>  the kinds of new entries
  */
-function watchmanLogins(array &$b, array &$book, array &$st, array $events, bool $learn, array $doors = []): array
+function watchmanLogins(array &$b, array &$book, array &$st, array $events, bool $learn, array $doors = [], int $burst = WATCH_FAIL_BURST,
+                        int $window = WATCH_FAIL_WINDOW): array
 {
     $added = [];
     $st['fails'] = (array) ($st['fails'] ?? []);
@@ -2129,8 +2135,8 @@ function watchmanLogins(array &$b, array &$book, array &$st, array $events, bool
             continue;
         }
         $prev = is_array($st['fails'][$ip] ?? null) ? $st['fails'][$ip] : null;
-        $was = $prev && $prev['burst'] && $prev['t'] && $time - max($prev['t']) <= WATCH_FAIL_WINDOW;      // a burst going on
-        $add = watchmanFailStep($st['fails'], $ev);
+        $was = $prev && $prev['burst'] && $prev['t'] && $time - max($prev['t']) <= $window;      // a burst going on
+        $add = watchmanFailStep($st['fails'], $ev, $burst, $window);
         if (!$add) {
             continue;
         }
@@ -10182,6 +10188,8 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
     }
     usort($book, fn ($x, $y) => [$y['last'], $y['time']] <=> [$x['last'], $x['time']]);
     $onWatch = is_array($b) && $since !== null && (int) ($b['hired'] ?? -1) === $since;
+    // the user's exceptions, areas switched off, answers, settings (watchman-rules.php), what a click may offer on each open entry
+    $rules = watchmanRulesPage($dir, $d['book'], $st);
     $state = [
         'time'     => $now,
         'hired'    => $since !== null,
@@ -10224,15 +10232,14 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
         'chains'   => array_map(fn ($c) => array_diff_key($c, ['key' => 1]), watchmanChains($d['book'], $now)),
         // the last night shift (the array stopped, or from boot to the array's start): from, until, from which mirror
         'night'    => is_array($st['night'] ?? null) && isset($st['night']['until']) ? array_map(fn ($v) => is_int($v) ? $v : (string) $v, $st['night']) : null,
-        'limits'   => ['every' => WATCH_EVERY, 'burst' => WATCH_FAIL_BURST, 'window' => WATCH_FAIL_WINDOW,
+        'limits'   => ['every' => WATCH_EVERY, 'burst' => $rules['settings']['login']['burst']['value'], 'window' => $rules['settings']['login']['window']['value'],
                        'quiet' => WATCH_NOTIFY_QUIET, 'keep' => WATCH_BOOK_MAX, 'days' => WATCH_BOOK_DAYS],
     ];
-    // the user's exceptions and areas switched off (watchman-rules.php), what a click may offer on each open entry
-    $rules = watchmanRulesPage($dir, $d['book'], $st);
     foreach ($state['book'] as $i => $e) {
         $state['book'][$i]['offers'] = $rules['offers'][$e['id']] ?? [];
     }
     $state['rules'] = $rules['rules'];
+    $state['settings'] = $rules['settings'];      // his setup page: per area each setting with its value, default, bounds
     $state['known'] = $rules['known'];             // your lasting answers (4b), each with its words for its line
     $state['known_full'] = $rules['known_full'];
     $state['off'] = $rules['off'] ?: new stdClass();

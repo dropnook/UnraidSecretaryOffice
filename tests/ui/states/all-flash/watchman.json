@@ -4364,5 +4364,21 @@
  "rules": [],
  "off": {},
  "known": [],
- "known_full": false
+ "known_full": false,
+ "settings": {
+  "login": {
+   "burst": {
+    "value": 5,
+    "def": 5,
+    "min": 3,
+    "max": 50
+   },
+   "window": {
+    "value": 600,
+    "def": 600,
+    "min": 60,
+    "max": 3600
+   }
+  }
+ }
 }

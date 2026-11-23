@@ -61,6 +61,14 @@
 .wm-cat-state.wm-cat-warn{color:var(--warn)}
 .wm-cat-tips > .box{margin-top:2px}
 .wm-cat-tips > p.role{margin:6px 2px 0}
+/* his setup (1.96): a setting's row (its words, the field), the buttons under a list left-aligned, the hand dialog's rows */
+.row.wm-setting{grid-template-columns:minmax(0,1fr) auto; align-items:center}
+.wm-setting-num{width:8em}
+.wm-settings > .wm-entry-acts{justify-content:flex-start; padding:8px 12px}
+.wm-setup-acts{display:flex; gap:8px; flex-wrap:wrap}
+.wm-hand-row{display:flex; flex-direction:column; gap:4px; margin:0 0 10px}
+.wm-known-head{align-self:flex-start}
+.wm-setup-to{padding-left:0}
 /* who woke my disks: the list's sub heads (by disk, every wake), the disk chosen, a wake's causes, files and facts */
 .wm-wakes{display:flex; flex-direction:column; gap:8px}
 .wm-wake-note{margin:0 2px}

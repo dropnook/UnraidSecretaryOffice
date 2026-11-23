@@ -477,14 +477,15 @@ function watchmanRuleRemove(string $rid, bool $undo, ?string $dir = null, bool $
  * An area switched off (always with $sure: his page asked more clearly and said what you won't see) or on again.
  * Off: nothing new of it in his book, nothing told — he keeps what is normal up to date underneath. On: from now.
  */
-function watchmanCatSet(string $cat, bool $on, bool $sure, ?string $dir = null, ?int $now = null, bool $page = true): array
+function watchmanCatOff(string $cat, bool $off, bool $sure, ?string $dir = null, ?int $now = null, bool $page = true): array
 {
     if (!isset(WATCH_CATS[$cat])) {
         throw new Problem('bad_request');
     }
-    if (!$on && !$sure) {
+    if ($off && !$sure) {
         throw new Problem('watch_rule_ask');
     }
+    $on = !$off;
     $dir ??= watchmanDir();
     $now ??= time();
     watchmanRulesChange($dir, function (array $raw, array $d) use ($cat, $on, $now): array {
@@ -531,7 +532,9 @@ function watchmanRulesCopy(string $dir, string $ram = WATCH_RULES_RAM, ?string $
 {
     try {
         $r = watchmanRules(watchmanRulesRaw($dir));
+        $raw = watchmanRulesRaw($dir);
         $copy = jsonEncode(['v' => 1, 'rules' => array_map(fn ($x) => array_diff_key($x, ['note' => 1]), $r['rules']), 'off' => $r['off'] ?: new stdClass(),
+            'set' => is_array($raw['set'] ?? null) && $raw['set'] ? $raw['set'] : new stdClass(),           // his settings (step 5)
             // your answers as short fingerprints (4b): the night tells nothing you already know
             'known' => array_map(fn ($k) => array_intersect_key($k, ['id' => 1, 'kind' => 1, 'key' => 1, 'sig' => 1, 'at' => 1]), $r['known'])]);
         foreach ([$ram, $flash] as $f) {
@@ -552,7 +555,7 @@ function watchmanRulesNight(string $night, string $ram = WATCH_RULES_RAM, ?strin
         $j = $f !== null ? readJson($f) : null;
         if (is_array($j) && ($j['v'] ?? null) === 1) {
             writeAtomic("$night/" . WATCH_RULES_FILE, jsonEncode(['v' => 1, 'rules' => (array) ($j['rules'] ?? []), 'off' => $j['off'] ?? new stdClass(),
-                'known' => array_values((array) ($j['known'] ?? []))]), 0600, 0, 0);
+                'known' => array_values((array) ($j['known'] ?? [])), 'set' => $j['set'] ?? new stdClass()]), 0600, 0, 0);
             return;
         }
     }
@@ -563,7 +566,7 @@ function watchmanRulesNight(string $night, string $ram = WATCH_RULES_RAM, ?strin
  * For his page: the rules (each with its hits), the areas switched off, and per open entry what a click may offer
  * (watchmanRuleOffers(); covers counted on the book as it is now)
  *
- * @return array{rules: list<array>, off: array<string, int>, offers: array<string, list<array>>, known: list<array>, known_full: bool}
+ * @return array{rules: list<array>, off: array<string, int>, offers: array<string, list<array>>, known: list<array>, known_full: bool, settings: array}
  */
 function watchmanRulesPage(string $dir, array $book, array $st): array
 {
@@ -580,7 +583,9 @@ function watchmanRulesPage(string $dir, array $book, array $st): array
     // the page never sees a fingerprint or an internal word (`_h`)
     $known = array_map(fn ($k) => ['p' => array_filter($k['p'], fn ($x) => !str_starts_with((string) $x, '_'), ARRAY_FILTER_USE_KEY)] + array_diff_key($k, ['sig' => 1]),
         $r['known']);
-    return ['rules' => $rules, 'off' => $r['off'], 'offers' => $offers, 'known' => $known, 'known_full' => is_int(watchmanRulesRaw($dir)['known_full'] ?? null)];
+    $raw = watchmanRulesRaw($dir);
+    return ['rules' => $rules, 'off' => $r['off'], 'offers' => $offers, 'known' => $known, 'known_full' => is_int($raw['known_full'] ?? null),
+            'settings' => watchmanSettingsPage($raw)];
 }
 
 // ===================================================================== «I know, thanks» holds until taken back (1.96 step 4b)
@@ -896,4 +901,149 @@ function watchmanKnownRemove(string $kid, ?string $dir = null, bool $page = true
     }
     watchmanMirrorKeep($dir);
     return ['ok' => true, 'state' => watchmanPageState()];
+}
+
+// ===================================================================== settings per area (1.96 step 5)
+
+/*
+ * His settings, per area — in rules.json `set` only what differs from today's value (the default is what the code did
+ * up to 1.95, with fixed bounds: a threshold never becomes «never» — that is what an exception or switching the area
+ * off is for). The pilot is «Logins»: a burst of failed logins. More come with their areas' steps; a key here and its
+ * words setting.<area>.<key> ×5 is all a new one needs (testWatchmanSettings).
+ */
+const WATCH_SETTINGS = [
+    'login' => [
+        // this file loads before watchman.php: the defaults as numbers — WATCH_FAIL_BURST and WATCH_FAIL_WINDOW (a test holds them equal)
+        'burst'  => ['def' => 5, 'min' => 3, 'max' => 50],            // failed logins from one address …
+        'window' => ['def' => 600, 'min' => 60, 'max' => 3600],       // … within this many seconds: a burst
+    ],
+];
+
+/** The settings in effect: every area's every key, the file's value where it is in range, else the default */
+function watchmanSettings(array $raw): array
+{
+    $out = [];
+    foreach (WATCH_SETTINGS as $cat => $keys) {
+        foreach ($keys as $k => $d) {
+            $v = $raw['set'][$cat][$k] ?? null;
+            $out[$cat][$k] = is_int($v) && $v >= $d['min'] && $v <= $d['max'] ? $v : $d['def'];
+        }
+    }
+    return $out;
+}
+
+/**
+ * «Apply» on an area's settings (his setup page): each key it knows, an integer in its bounds — anything else refused,
+ * nothing half saved; a value equal to the default isn't kept (the file holds only differences). $reset: «Back to the
+ * defaults» — the area's entry goes.
+ */
+function watchmanCatSettings(string $cat, mixed $set, bool $reset, ?string $dir = null, bool $page = true): array
+{
+    if (!isset(WATCH_SETTINGS[$cat]) || (!$reset && (!is_array($set) || array_is_list($set) && $set !== []))) {
+        throw new Problem('bad_request');
+    }
+    $keep = [];
+    foreach ($reset ? [] : (array) $set as $k => $v) {
+        $d = WATCH_SETTINGS[$cat][(string) $k] ?? null;
+        if ($d === null || !is_int($v)) {
+            throw new Problem('bad_request');
+        }
+        if ($v < $d['min'] || $v > $d['max']) {
+            throw new Problem('watch_setting_range', ['min' => $d['min'], 'max' => $d['max']]);
+        }
+        if ($v !== $d['def']) {
+            $keep[(string) $k] = $v;
+        }
+    }
+    $dir ??= watchmanDir();
+    watchmanRulesChange($dir, function (array $raw, array $d) use ($cat, $keep, $reset): array {
+        $all = is_array($raw['set'] ?? null) && !array_is_list($raw['set']) ? $raw['set'] : [];
+        $now = $reset ? [] : $keep + array_diff_key(is_array($all[$cat] ?? null) ? $all[$cat] : [], WATCH_SETTINGS[$cat]);
+        if ($now) {
+            $all[$cat] = $now;
+        } else {
+            unset($all[$cat]);
+        }
+        $raw['set'] = $all;
+        if (!$all) {
+            unset($raw['set']);
+        }
+        return [$raw, null, null];
+    });
+    logLine(sprintf('Night watchman: settings of the area %s %s', $cat, $reset ? 'back to the defaults' : 'changed: ' . (jsonEncode($keep) ?: '{}')));
+    if (!$page) {
+        return ['ok' => true];
+    }
+    watchmanMirrorKeep($dir);
+    return ['ok' => true, 'state' => watchmanPageState()];
+}
+
+/**
+ * An exception made by hand (his setup page, the pilot «Logins»): a net (a private one of any size from /8; a public one
+ * at most a /24, only with the clear yes), an address (a public one with the clear yes), or a user from a net. It covers
+ * new addresses and SMB machines — never failures, never a new SMB user (those are their own, more clearly asked).
+ */
+function watchmanRuleHand(string $cat, string $type, string $value, string $user, bool $sure, ?string $dir = null, ?int $now = null, bool $page = true): array
+{
+    if ($cat !== 'login' || !in_array($type, ['net', 'ip', 'user_net'], true) || strlen($value) > 64) {
+        throw new Problem('bad_request');
+    }
+    $value = trim($value);
+    if ($type === 'ip') {
+        if (filter_var($value, FILTER_VALIDATE_IP) === false) {
+            throw new Problem('watch_net_bad');
+        }
+        $public = !watchmanIpPrivate($value);
+        $on = ['ip' => $value];
+    } else {
+        if (!watchmanNetValid($value)) {
+            throw new Problem('watch_net_bad');
+        }
+        [$addr, $bits] = explode('/', $value);
+        $public = !watchmanIpPrivate($addr);
+        if ($public && (int) $bits < (str_contains($addr, ':') ? 48 : 24)) {
+            throw new Problem('watch_net_wide');
+        }
+        $on = ['net' => $value];
+        if ($type === 'user_net') {
+            if (!preg_match(WATCH_RULE_USER, $user)) {
+                throw new Problem('watch_net_bad');
+            }
+            $on = ['user' => $user, 'net' => $value];
+        }
+    }
+    if ($public && !$sure) {
+        throw new Problem('watch_rule_ask');
+    }
+    $dir ??= watchmanDir();
+    $now ??= time();
+    $rule = watchmanRulesChange($dir, function (array $raw, array $d) use ($on, $type, $now): array {
+        $have = watchmanRules($raw);
+        if (count($have['rules']) >= WATCH_RULES_MAX || count(array_filter($have['rules'], fn ($r) => $r['cat'] === 'login')) >= WATCH_RULES_CAT) {
+            throw new Problem('watch_rules_full');
+        }
+        $rule = ['id' => watchmanRuleNewId($raw), 'cat' => 'login', 'kinds' => $type === 'user_net' ? ['login_new_ip'] : WATCH_RULE_LOGIN, 'on' => $on,
+                 'at' => $now, 'from' => 'hand', 'note' => ''];
+        $raw['rules'] = array_merge(is_array($raw['rules'] ?? null) && array_is_list($raw['rules']) ? $raw['rules'] : [], [$rule]);
+        return [$raw, null, $rule];
+    });
+    watchmanRuleSay('add', $rule);
+    if (!$page) {
+        return ['ok' => true, 'rule' => $rule['id']];
+    }
+    watchmanMirrorKeep($dir);
+    return ['ok' => true, 'rule' => $rule['id'], 'state' => watchmanPageState()];
+}
+
+/** For his setup page: per area of WATCH_SETTINGS each key with its value now, its default and its bounds */
+function watchmanSettingsPage(array $raw): array
+{
+    $now = watchmanSettings($raw);
+    $out = [];
+    foreach (WATCH_SETTINGS as $cat => $keys) {
+        foreach ($keys as $k => $d) {
+            $out[$cat][$k] = ['value' => $now[$cat][$k], 'def' => $d['def'], 'min' => $d['min'], 'max' => $d['max']];
+        }
+    }
+    return $out;
 }

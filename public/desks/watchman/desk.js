@@ -113,6 +113,226 @@ async function roundNow() {
 }
 
 // ------------------------------------------------------------------ «I know, thanks»
+// ------------------------------------------------------------------ his setup (1.96 step 5)
+/*
+ * The second page «Setup»: the same areas again on a switcher of its own (#/watchman/setup/<area>), no lights but how
+ * each stands — «defaults», «n changed», «off», its exceptions. An area's section: «Watch this area» (off only after
+ * a clear question naming what you won't see), its settings (each with its default in words; «Apply», «Back to the
+ * defaults»), its exceptions with «Add an exception…» (the pilot: logins — a net, an address, a user from a net) and
+ * your lasting answers. «Everything changed» first: every setting off its default, every area off, every exception —
+ * the one place to see everything he no longer says. Whoever never opens it notices nothing of it.
+ */
+const setupAreas = () => CATS.filter(catShown);
+const setupSw = Office.sections({
+  id: `${ID}/setup`,
+  key: `${ID}.setup.tile`,
+  bodyId: 'wm-setup-areas',
+  grid: 'stats wm-setup-tiles',
+  default: 'changed',
+  tiles: () => [
+    { id: 'changed', key: 'setup.changed', place: 'setup.changed', tile: (a) => changedTile(a), section: () => changedSection() },
+    ...setupAreas().map((id) => ({ id, key: `cat.${id}`, place: `setup.${id}`, tile: (a) => setupTile(id, a), section: () => setupSection(id) })),
+  ],
+  wants: (sub) => CATS.includes(sub),
+});
+function renderSetup(root) {
+  root.appendChild(Office.pageHelp(`${ID}-setup`, [
+    [T('help.setup'), T('help.setup_text')],
+    [T('help.setup_off'), T('help.setup_off_text')],
+    [T('help.setup_rules'), T('help.setup_rules_text')],
+  ]));
+  if (!state) { root.appendChild(el('p', 'empty', Office.t('common.loading'))); return; }
+  root.appendChild(setupSw.el);
+  setupSw.render();
+}
+/** What differs from the defaults in an area: its settings off their default */
+const changedOf = (id) => Object.entries((state && state.settings && state.settings[id]) || {}).filter(([, v]) => v && v.value !== v.def);
+const rulesOf = (id) => ((state && state.rules) || []).filter((r) => r && r.cat === id);
+const offAt = (id) => Number(state && state.off && state.off[id]) || 0;
+function setupTile(id, a) {
+  const n = changedOf(id).length;
+  const r = rulesOf(id).length;
+  const value = offAt(id) ? T('setup.off') : n ? T('setup.changed_n', { n }) : T('setup.default');
+  return Office.stat({ label: catName(id), value, alert: !!offAt(id), sub: r ? T('setup.rules_n', { n: r }) : '', ...a });
+}
+function changedTile(a) {
+  const n = setupAreas().reduce((x, id) => x + changedOf(id).length + rulesOf(id).length + (offAt(id) ? 1 : 0), 0);
+  return Office.stat({ label: T('setup.changed'), value: n ? T('setup.changes_n', { n }) : T('setup.none'), ...a });
+}
+/** «Everything changed»: per area what is off its default, switched off, its exceptions */
+function changedSection() {
+  const s = el('section', 'section wm-setup');
+  s.appendChild(Office.sectionHead(T('setup.changed'), T('setup.changed_sub'), { place: 'setup.changed' }));
+  const box = el('div', 'box');
+  let any = false;
+  setupAreas().forEach((id) => {
+    const lines = [];
+    if (offAt(id)) lines.push(T('setup.off_since', { when: fmt.date(offAt(id)) }));
+    changedOf(id).forEach(([k, v]) => lines.push(T('setup.changed_line', { what: T(`setting.${id}.${k}`), value: v.value, def: v.def })));
+    rulesOf(id).forEach((r) => lines.push(offerName(r)));
+    if (!lines.length) return;
+    any = true;
+    const row = el('div', 'row nocheck wm-setup-row');
+    const main = el('div', 'row-main');
+    const name = el('button', 'btn small plain wm-setup-to', catName(id));
+    name.type = 'button';
+    name.onclick = () => setupSw.pick(id, 'click');
+    main.appendChild(name);
+    lines.forEach((x) => main.appendChild(el('div', 'row-detail', x)));
+    row.appendChild(main);
+    box.appendChild(row);
+  });
+  if (!any) box.appendChild(el('p', 'empty', T('setup.nothing')));
+  s.appendChild(box);
+  return s;
+}
+/** An area's setup: watch it or not, its settings, its exceptions (by hand too), your answers */
+function setupSection(id) {
+  const s = el('section', 'section wm-setup');
+  const label = el('label', 'switch');
+  const cb = el('input');
+  cb.type = 'checkbox';
+  cb.checked = !offAt(id);
+  cb.disabled = !Office.agent.running || !hired();
+  label.append(cb, el('span', '', T('setup.watch_switch')));
+  label.title = T('setup.watch_switch_title');
+  cb.onchange = () => catOffAsk(id, !cb.checked, cb);
+  s.appendChild(Office.sectionHead(catName(id), T(`cat.${id}_sub`), label));
+  if (offAt(id)) s.appendChild(el('p', 'callout', T('setup.off_since', { when: fmt.date(offAt(id)) })));
+  const set = (state.settings && state.settings[id]) || null;
+  if (set && Object.keys(set).length) s.appendChild(settingsBox(id, set));
+  const rules = catRules(id);
+  if (rules) s.appendChild(rules);
+  if (id === 'login') {
+    const add = el('button', 'btn small', T('setup.add'));
+    add.type = 'button';
+    add.disabled = !Office.agent.running || !hired();
+    add.onclick = () => ruleHandDialog(id, add);
+    const acts = el('div', 'wm-setup-acts');
+    acts.appendChild(add);
+    s.appendChild(acts);
+  }
+  const known = catKnown(id);
+  if (known) s.appendChild(known);
+  return s;
+}
+/** An area's settings: a field each with its default in words, «Apply» and «Back to the defaults» */
+function settingsBox(id, set) {
+  const box = el('div', 'box wm-settings');
+  const fields = {};
+  Object.entries(set).forEach(([k, v]) => {
+    const row = el('div', 'row nocheck wm-setting');
+    const inp = el('input', 'search wm-setting-num');
+    inp.type = 'number';
+    inp.min = String(v.min);
+    inp.max = String(v.max);
+    inp.step = '1';
+    inp.value = String(v.value);
+    inp.setAttribute('aria-label', T(`setting.${id}.${k}`));
+    fields[k] = inp;
+    const main = el('div', 'row-main');
+    main.appendChild(el('div', 'row-name text', T(`setting.${id}.${k}`)));
+    main.appendChild(el('div', 'row-meta', T('setup.def', { value: v.def, min: v.min, max: v.max })));
+    row.append(main, inp);
+    box.appendChild(row);
+  });
+  const acts = el('div', 'wm-entry-acts');
+  const apply = el('button', 'btn small', T('setup.apply'));
+  apply.type = 'button';
+  apply.disabled = !Office.agent.running || !hired();
+  apply.onclick = () => {
+    const out = {};
+    for (const [k, inp] of Object.entries(fields)) {
+      const n = Number(inp.value);
+      if (!Number.isInteger(n)) { Office.toast(T('setup.not_number'), true); return; }
+      out[k] = n;
+    }
+    catSet(id, { set: out }, apply);
+  };
+  const back = el('button', 'btn small plain', T('setup.reset'));
+  back.type = 'button';
+  back.disabled = apply.disabled || !changedOf(id).length;
+  back.onclick = () => catSet(id, { reset: true }, back);
+  acts.append(apply, back);
+  box.appendChild(acts);
+  return box;
+}
+async function catSet(id, body, b) {
+  if (!(await Office.freshState(ID))) return;
+  b.disabled = true;
+  const j = await Office.api.post(`${ID}.cat_set`, { cat: id, ...body });
+  if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); b.disabled = false; return; }
+  if (j.state) state = j.state;
+  renderAt('.wm-setup');
+  Office.toast(T(body.reset ? 'setup.reset_done' : 'setup.saved'));
+}
+/** «Watch this area» off: one clear question naming what you won't see any more; on again at once */
+function catOffAsk(id, off, cb) {
+  const go = async () => {
+    cb.disabled = true;
+    const j = await Office.api.post(`${ID}.cat_off`, { cat: id, off, sure: off });
+    if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); cb.checked = off; cb.disabled = false; return; }
+    if (j.state) state = j.state;
+    mood();
+    renderAt('.wm-setup');
+    Office.toast(T(off ? 'setup.turned_off' : 'rule.cat_on_done'));
+  };
+  if (!off) { go(); return; }
+  const body = el('div', 'wm-rule-ask');
+  body.append(el('p', 'callout warn', T('setup.off_ask', { area: catName(id) })), el('p', '', T(`cat.${id}_sub`)), el('p', '', T('setup.off_note')));
+  Office.dialog({ title: T('setup.off_title'), body, onClose: () => { cb.checked = !offAt(id); }, buttons: [
+    { text: T('setup.off_yes', { area: catName(id) }), kind: 'danger', act: () => { go(); } },
+    { text: Office.t('common.cancel') },
+  ] });
+}
+/**
+ * «Add an exception…» by hand (the pilot: logins): a net, an address, a user from a net — typed, the messenger checks it
+ * (a public net at most a /24, a public address or net only with the clear yes, said in the dialog)
+ */
+function ruleHandDialog(id, b) {
+  const body = el('div', 'wm-rule-hand');
+  const type = el('select', 'picker');
+  ['net', 'ip', 'user_net'].forEach((x) => type.appendChild(new Option(T('setup.add_type.' + x), x)));
+  type.setAttribute('aria-label', T('setup.add_type_label'));
+  const value = el('input', 'search');
+  value.type = 'text';
+  value.placeholder = '192.168.1.0/24';
+  value.setAttribute('aria-label', T('setup.add_value'));
+  const user = el('input', 'search');
+  user.type = 'text';
+  user.placeholder = 'root';
+  user.setAttribute('aria-label', T('setup.add_user'));
+  const userRow = el('label', 'wm-hand-row');
+  userRow.append(el('span', '', T('setup.add_user')), user);
+  const sync = () => { userRow.hidden = type.value !== 'user_net'; value.placeholder = type.value === 'ip' ? '203.0.113.7' : '192.168.1.0/24'; };
+  type.addEventListener('change', sync);
+  const sure = el('input');
+  sure.type = 'checkbox';
+  const sureRow = el('label', 'switch');
+  sureRow.append(sure, el('span', '', T('setup.add_public')));
+  const tr = el('label', 'wm-hand-row');
+  tr.append(el('span', '', T('setup.add_type_label')), type);
+  const vr = el('label', 'wm-hand-row');
+  vr.append(el('span', '', T('setup.add_value')), value);
+  body.append(tr, vr, userRow, el('p', 'role', T('rule.ask_net_not')), sureRow);
+  sync();
+  Office.dialog({ title: T('setup.add'), body, buttons: [
+    { text: T('rule.add'), kind: 'primary', act: () => {
+      (async () => {
+        b.disabled = true;
+        const j = await Office.api.post(`${ID}.rule_hand`, { cat: id, type: type.value, value: value.value.trim(), user: user.value.trim(), sure: sure.checked });
+        b.disabled = false;
+        if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return; }
+        if (j.state) state = j.state;
+        if (j.rule) justMade.add(j.rule);
+        renderAt('.wm-setup');
+        Office.toast(T('rule.added'));
+      })();
+    } },
+    { text: Office.t('common.cancel') },
+  ] });
+}
+
 // ------------------------------------------------------------------ exceptions (1.96, agent/desks/watchman-rules.php)
 const OFFERS = ['key', 'ip', 'net', 'user_net', 'machine'];
 const justMade = new Set();     // exceptions made on this visit: «Undo» beside «Lift» (their entries open again)
@@ -187,7 +407,7 @@ async function ruleRemove(r, undo, b) {
 async function catOn(id, b) {
   if (!(await Office.freshState(ID))) return;
   b.disabled = true;
-  const j = await Office.api.post(`${ID}.cat_set`, { cat: id, on: true });
+  const j = await Office.api.post(`${ID}.cat_off`, { cat: id, off: false });
   if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); b.disabled = false; return; }
   if (j.state) state = j.state;
   mood();
@@ -468,8 +688,10 @@ function render() {
   btn.title = T('round_now_title');
   btn.disabled = !Office.agent.running || running() || !hired();
   btn.onclick = roundNow;
-  const { head } = Office.deskHead(Office.desks.get(ID), { bubble: Office.withGreeting(ID, bubbleText()), actions: [btn] });
+  const { head } = Office.deskHead(Office.desks.get(ID), { bubble: Office.withGreeting(ID, bubbleText()), actions: [btn],
+    pages: { list: PAGES(), current: page } });
   root.appendChild(head);
+  if (page === 'setup') { renderSetup(root); return; }
   const lim = (state && state.limits) || {};
   root.appendChild(Office.pageHelp(ID, [
     [T('help.lights'), T('help.lights_text')],
@@ -522,6 +744,9 @@ function render() {
  */
 // his areas with entries, in the order of state.cats (hold and wakes have sections of their own); vuln and hw only once
 // the messenger has them for real (their steps — `not_yet` until then)
+// his two pages (1.96 step 5): the watch and his setup — two tabs (core.js Office.pages)
+const PAGES = () => [{ id: '', text: T('page.watch') }, { id: 'setup', text: T('page.setup') }];
+let page = '';
 const CATS = ['login', 'container', 'plugin', 'flash', 'share', 'sched', 'pull', 'data', 'snap', 'host', 'door', 'partner', 'router', 'lan', 'array', 'vuln', 'hw'];
 const CAT_LATER = ['vuln', 'hw'];
 // an area's group in «What I keep an eye on» (the jump at the end of its section)
@@ -2961,6 +3186,15 @@ Office.desk({
       that entry of the whole book among the rows shown */
   async mount(root, sub) {
     view = root;
+    page = Office.pageFrom(PAGES(), sub) === 'setup' ? 'setup' : '';
+    if (page === 'setup') {
+      // #/watchman/setup/<area> picks that area like a click; else «Everything changed»
+      const picked = setupSw.mount(String(sub || '').split('/').slice(1).join('/'));
+      if (picked) Office.subroute('setup');
+      render();
+      await load(false);
+      return;
+    }
     const m = /^entry\/([\w-]{1,64})$/.exec(sub || '');
     if (m) wanted = m[1];
     bookBarGet().reset();          // a new visit: the whole book (the area is a choice and stays)
@@ -3009,6 +3243,10 @@ Office.places(ID, [
   { kind: 'section', key: 'incidents.title', route: `#/${ID}/incidents` },
   { kind: 'section', key: 'hold.title', route: `#/${ID}/hold` },
   { kind: 'section', key: 'wakes.title', route: `#/${ID}/wakes` },
+  { kind: 'section', key: 'setup.changed', route: `#/${ID}/setup/changed`, crumb: 'page.setup' },           // his setup (1.96 step 5)
+  { kind: 'help', key: 'help.setup', text: 'help.setup_text', route: `#/${ID}/setup`, crumb: 'page.setup' },
+  { kind: 'help', key: 'help.setup_off', text: 'help.setup_off_text', route: `#/${ID}/setup`, crumb: 'page.setup' },
+  { kind: 'help', key: 'help.setup_rules', text: 'help.setup_rules_text', route: `#/${ID}/setup`, crumb: 'page.setup' },
   // the same section by the words people search it with (disk wake-ups, spin-up), in every language — its page alone
   { kind: 'section', key: 'search.wakes', route: `#/${ID}/wakes`, anchor: 'search.wakes', text: 'help.wakes_text' },
   ...sw.places(),             // his tiles: the book, «Not noted yet», how secure, what he keeps an eye on
