@@ -263,11 +263,9 @@ function watchmanCats(array $s, ?array $parity = null): array
         if (($look['times']['fits'] ?? null) === false) {
             $add('hold', 'danger', 'hold_short');
         }
-        // what your exceptions call known (6f: a User Script that may run) stays in the list but doesn't colour
-        $known = watchmanHoldKnown((array) ($s['rules'] ?? []));
-        $mine = count(array_filter((array) ($look['holds'] ?? []), fn ($h) => is_array($h) && ($h['kind'] ?? null) === 'userscript'
-            && isset($known['script'][(string) ($h['name'] ?? '')])));
-        if ((int) ($look['count'] ?? 0) - $mine > 0) {
+        // only what is still waiting for you colours: what your exceptions call known (6f: a User Script that may run, a VM
+        // without the guest agent you know) stays in the list but doesn't colour (Benj on the test stand, 1.96)
+        if (watchmanHoldWaiting($look, (array) ($s['rules'] ?? [])) > 0) {
             $add('hold', 'warn', 'hold_holds');
         }
         if ($now - (int) ($look['time'] ?? 0) > WATCH_CAT_HOLD_OLD) {
@@ -352,6 +350,21 @@ function watchmanHoldKnown(array $rules): array
         }
     }
     return $out;
+}
+
+/**
+ * What would hold the array up and is still waiting for you (the light of «What holds the array?»): the look's count —
+ * things holding a file there, VMs without a connected guest agent — less those your exceptions name (a User Script that
+ * may run, a VM you know). Things beyond the look's list (`more`) are never known: they count.
+ */
+function watchmanHoldWaiting(array $look, array $rules): int
+{
+    $known = watchmanHoldKnown($rules);
+    $mine = count(array_filter((array) ($look['holds'] ?? []), fn ($h) => is_array($h) && ($h['kind'] ?? null) === 'userscript'
+        && isset($known['script'][(string) ($h['name'] ?? '')])));
+    $mine += count(array_filter((array) ($look['vms'] ?? []), fn ($v) => is_array($v) && ($v['agent'] ?? null) !== 'connected'
+        && isset($known['vm'][(string) ($v['name'] ?? '')])));
+    return max(0, (int) ($look['count'] ?? 0) - $mine);
 }
 
 /** A wake's cause as an exception names it: «<kind>:<its name, desk or program>» */
