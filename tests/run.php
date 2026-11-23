@@ -21638,6 +21638,20 @@ function testWatchmanCats(): void
 {
     same('cats: the 19 areas in the page\'s order', ['login', 'container', 'plugin', 'flash', 'share', 'sched', 'pull', 'data', 'snap', 'host', 'door',
         'partner', 'router', 'lan', 'array', 'vuln', 'hw', 'hold', 'wakes'], array_keys(WATCH_CATS));
+    // gap 4 (concept 12.1): every reason a light gives (cat.why.<code>) has its words in five languages — the page shows a
+    // reason only when it has words; the counts (open, open_tell, tips) are said by their own lines
+    preg_match_all('/\$add\([^,]+,\s*\'[a-z]+\',\s*\'([a-z_]+)\'\)/', (string) file_get_contents(OFFICE_DIR . '/agent/desks/watchman-cats.php'), $why);
+    $whyMissing = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $lang = langFile(OFFICE_WEB . "/desks/watchman/lang/$code.json");
+        foreach (array_diff(array_unique($why[1]), ['open', 'open_tell', 'tips']) as $w) {
+            if (!is_string($lang["cat.why.$w"] ?? null)) {
+                $whyMissing[] = "$code cat.why.$w";
+            }
+        }
+    }
+    same('cats: every reason a light gives has its words in five languages (hardware, known vulnerabilities too)', [true, []],
+        [count($why[1]) > 20, $whyMissing]);
     $kinds = array_merge(...array_column(WATCH_CATS, 'kinds'));
     $tips = array_merge(...array_column(WATCH_CATS, 'tips'));
     same('cats: every kind of his book in exactly one area', [[], []],
