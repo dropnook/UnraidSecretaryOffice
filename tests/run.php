@@ -23754,6 +23754,14 @@ function testWatchmanJournal(): void
     same('journal: a quiet week — his own line into its month\'s file; a recent one, a person\'s answer, an open line stay; counted',
         [3, [$book[1]['id'], $book[2]['id'], $book[3]['id']], 1, 1, '700'],
         [count($left), array_column($left, 'id'), count(file($file)), $st['journal']['moved'] ?? 0, substr(sprintf('%o', fileperms("$tmp/journal")), -3)]);
+    // the newest parity check stays in the book («Array and parity» reads its errors there), the older ones go
+    $pc = function (int $quiet) use ($now) {
+        $x = watchmanEntry('parity_check', 'parity_check:' . ($now - $quiet), $now - $quiet, ['reason' => 'schedule', 'end' => $now - $quiet + 600, 'errors' => 3]);
+        return ['noted' => $now - $quiet, 'by' => 'parity'] + $x;
+    };
+    $stp = [];
+    $pleft = watchmanJournalMove($tmp, [$pc(40 * 86400), $pc(30 * 86400)], $stp, $now);
+    same('journal: of the parity checks, the newest stays in the book (its errors colour the area), the older goes', [[$now - 30 * 86400]], [array_column($pleft, 'time')]);
     // over the bound: his own lines go first, the oldest of them, until the book fits
     $big = [];
     for ($i = 0; $i < WATCH_BOOK_MAX - 5; $i++) {
@@ -33737,9 +33745,10 @@ function testParityWhy(): void
     $sched = $sched > $up ? $sched : mktime(3, 0, 12, (int) date('n', $up) + 1, 1, (int) date('Y', $up));
     $setVar($sched, 0, 'check P', 100);
     watchmanRound($paths, $day, 1000, $sched + 200, $docker, true, $acks);
-    $e = $entries();
+    // a month on: the older lines (noted by himself, quiet a week) are in his history (1.96 step 7) — the newest stays in the book
+    $e = array_values(array_filter($entries(), fn ($x) => ($x['p']['reason'] ?? null) === 'schedule'));
     same('parity: a check on Unraid\'s schedule', ['schedule', 'Parity check on schedule (Settings → Scheduler → Parity Check)'],
-        [$e[6]['p']['reason'] ?? null, officeNotifyText('watchman', 'entry.parity_check', watchmanText($e[6], 'en'), 'en')]);
+        [$e[0]['p']['reason'] ?? null, isset($e[0]) ? officeNotifyText('watchman', 'entry.parity_check', watchmanText($e[0], 'en'), 'en') : null]);
     same('parity: the plain line\'s words on his page exist in all five', true,
         (bool) array_product(array_map(fn ($l) => officeNotifyText('watchman', 'noted.parity', ['when' => 'x'], $l) !== 'noted.parity', ['en', 'de', 'it', 'fr', 'es'])));
 
@@ -33753,7 +33762,8 @@ function testParityWhy(): void
     file_put_contents($paths['syslog'], $bootLog($up, true));
     watchmanRound($paths, $day, 1000, $up + 90, $docker, true, $acks);
     same('parity: his notify switch off — the line and the to-do, no notification', ['unclean', 'parity_crash', 3],
-        [$entries()[7]['p']['reason'] ?? null, watchmanParityFinding($day)['id'] ?? null, count($calls())]);
+        [array_values(array_filter($entries(), fn ($x) => $x['key'] === 'parity_check:' . ($up + 41)))[0]['p']['reason'] ?? null, watchmanParityFinding($day)['id'] ?? null,
+         count($calls())]);
     same('parity: the night shift has none of his parity paths (it never looks)', [],
         array_values(array_intersect(array_keys(watchmanNightPaths()), ['parity_log', 'parity_cron', 'pct_dir', 'boot_logs', 'domain_cfg', 'docker_cfg'])));
     $np = $paths;

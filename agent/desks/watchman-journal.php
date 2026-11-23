@@ -25,6 +25,7 @@ const WATCH_JOURNAL_MAX    = 8 * 1024 * 1024;    // bytes of one month's file
 const WATCH_JOURNAL_PAGE   = 100;                // lines the page gets at a time
 const WATCH_JOURNAL_FILE   = '/^(\d{4})-(\d{2})\.jsonl$/D';
 const WATCH_JOURNAL_HUMAN  = ['page', 'teamlead'];      // noted by a person: stays in the book
+const WATCH_JOURNAL_NEWEST = ['parity_check'];          // the newest line of these stays in the book: «Array and parity» reads its errors there
 
 /** A line noted by himself or by an exception — one for the history (open ones, a person's answers, serious incidents: never) */
 function watchmanJournalOwn(array $e): bool
@@ -40,15 +41,23 @@ function watchmanJournalOwn(array $e): bool
  */
 function watchmanJournalMove(string $dir, array $book, array &$st, int $now): array
 {
+    $newest = [];
+    foreach ($book as $i => $e) {
+        $k = (string) ($e['kind'] ?? '');
+        if (in_array($k, WATCH_JOURNAL_NEWEST, true) && (!isset($newest[$k]) || (int) $e['time'] >= (int) $book[$newest[$k]]['time'])) {
+            $newest[$k] = $i;
+        }
+    }
+    $stay = array_flip($newest);
     $go = [];
     foreach ($book as $i => $e) {
-        if (watchmanJournalOwn($e) && $now - max((int) ($e['last'] ?? 0), (int) ($e['noted'] ?? 0)) >= WATCH_JOURNAL_AFTER) {
+        if (!isset($stay[$i]) && watchmanJournalOwn($e) && $now - max((int) ($e['last'] ?? 0), (int) ($e['noted'] ?? 0)) >= WATCH_JOURNAL_AFTER) {
             $go[$i] = true;
         }
     }
     $left = count($book) - count($go);
     if ($left > WATCH_BOOK_MAX) {
-        $own = array_filter($book, fn ($e, $i) => !isset($go[$i]) && watchmanJournalOwn($e), ARRAY_FILTER_USE_BOTH);
+        $own = array_filter($book, fn ($e, $i) => !isset($go[$i]) && !isset($stay[$i]) && watchmanJournalOwn($e), ARRAY_FILTER_USE_BOTH);
         uasort($own, fn ($a, $b) => (int) $a['last'] <=> (int) $b['last']);
         foreach (array_keys($own) as $i) {
             if ($left <= WATCH_BOOK_MAX) {
