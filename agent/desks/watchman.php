@@ -1833,8 +1833,10 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         watchmanTidy($b, $st, $now, $set['login']['window']);
         $book = watchmanPrune($book, $now);
         if (!$fresh) {
-            $told = watchmanNotifyDue($book, $st, $now, $notify);
-            $told = array_merge($told, watchmanChainsDue($book, $st, $now, $notify));
+            // the areas switched off tell nothing — also an entry open from before they went off (concept 12.1, gap 5)
+            $offNow = watchmanRules(watchmanRulesRaw($dir))['off'];
+            $told = watchmanNotifyDue($book, $st, $now, $notify, null, $offNow);
+            $told = array_merge($told, watchmanChainsDue($book, $st, $now, $notify, null, $offNow));
         }
         if (!(is_array($st['night'] ?? null) && !isset($st['night']['until']))) {
             // what he noted himself and is quiet goes into his history (1.96 step 7) — never from the night shift's RAM book
@@ -10361,16 +10363,18 @@ function watchmanParityFinding(?string $dir = null): ?array
  * meanwhile is told together after it). Noted entries are never told.
  * @return list<array{kind: string, n: int, sent: bool}>
  */
-function watchmanNotifyDue(array &$book, array &$st, int $now, bool $send, ?string $lang = null): array
+function watchmanNotifyDue(array &$book, array &$st, int $now, bool $send, ?string $lang = null, array $off = []): array
 {
     $told = [];
+    // $off: the areas switched off (rules.json) — an entry of one is never told, also one open from before (gap 5)
     // 1.68: whether and how it goes is the Team Lead's notification centre's (lib/notifycenter.php) — his own switch
     // `notify` is only kept for an older version of the office; a book with entries muted by it stays as it is
     $on = true;
     foreach (WATCH_KINDS as $kind => [, $important]) {
         $new = [];
         foreach ($book as $i => $e) {
-            if ($e['kind'] === $kind && ($important || !empty($e['important'])) && watchmanOpen($e) && empty($e['told']) && empty($e['muted'])) {
+            if ($e['kind'] === $kind && ($important || !empty($e['important'])) && watchmanOpen($e) && empty($e['told']) && empty($e['muted'])
+                && !isset($off[(string) watchmanCatOf($kind)])) {
                 $new[] = $i;
             }
         }
@@ -10576,8 +10580,10 @@ function watchmanImportant(array $e): bool
  * hour, like a kind) — state.json chains: key → how many entries were told.
  * @return list<array{kind: string, n: int, sent: bool}>
  */
-function watchmanChainsDue(array $book, array &$st, int $now, bool $send, ?string $lang = null): array
+function watchmanChainsDue(array $book, array &$st, int $now, bool $send, ?string $lang = null, array $off = []): array
 {
+    // an area switched off takes no part in a chain told (gap 5)
+    $book = $off ? array_values(array_filter($book, fn ($e) => !isset($off[(string) watchmanCatOf((string) ($e['kind'] ?? ''))]))) : $book;
     $chains = watchmanChains($book, $now);
     $known = (array) ($st['chains'] ?? []);
     $keep = [];
@@ -10826,6 +10832,7 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
         array_unshift($lights['areas'][$cat]['why'], 'off');
         $lights['areas'][$cat]['off'] = $at;
     }
+    $lights['book'] = watchmanCatBook($lights['areas']);           // … and the watch book's light without them (gap 5)
     $state['cats'] = $lights['areas'];
     $state['cats_cross'] = ['book' => $lights['book'], 'schedule' => $lights['schedule']];
     if ($write && is_dir(DATA_DIR)) {

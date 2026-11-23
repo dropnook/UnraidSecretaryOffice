@@ -270,6 +270,9 @@ function watchmanCats(array $s, ?array $parity = null): array
     // known vulnerabilities: off (until switched on) grey; on but the lists never fetched, or older than WATCH_VULN_OLD: «!»
     $v = is_array($s['vuln'] ?? null) ? $s['vuln'] : null;
     if ($v === null || empty($v['on'])) {
+        // switched off: grey — also with a line still open from before (it says so; never red while he doesn't look: gap 5)
+        $areas['vuln']['levels'] = [];
+        $areas['vuln']['why'] = [];
         $add('vuln', 'none', 'vuln_off');
     } elseif (($v['checked_at'] ?? null) === null) {
         $add('vuln', 'note', 'vuln_never');

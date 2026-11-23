@@ -22564,6 +22564,18 @@ function testWatchmanRules(): void
     watchmanUnadopt($pv, 'container_plain', ['name' => 'web']);
     same('take back: a plugin\'s version back to the one before (noted again), a plain container out of what is normal (seen anew)', ['1', false],
         [$pv['plugins']['a']['version'], isset($pv['containers']['web'])]);
+    // gap 5 (concept 12.1): an area switched off tells nothing — also an entry open from before it went off; «Known
+    // vulnerabilities» switched off is grey even with a line still open
+    $nb = [watchmanEntry('login_new_ip', 'login_new_ip:203.0.113.8', 100, ['ip' => '203.0.113.8', 'users' => ['root'], 'services' => ['ssh']])];
+    $nst = [];
+    $nb2 = $nb;
+    $nst2 = [];
+    same('area off: an open login line not told while «Logins» is off; told with it on', [[], ['login_new_ip']],
+        [watchmanNotifyDue($nb, $nst, 100000, false, 'en', ['login' => 50]), array_column(watchmanNotifyDue($nb2, $nst2, 100000, false, 'en'), 'kind')]);
+    same('area off: … and still untold (told once it is on again)', [true, false], [empty($nb[0]['told']), empty($nb2[0]['told'])]);
+    $vl = watchmanCats(['hired' => true, 'on_watch' => 1, 'time' => 1000, 'vuln' => ['on' => false],
+        'book' => [['id' => 'w0000000001', 'kind' => 'vuln_known', 'open' => true, 'tell' => true, 'last' => 900]]])['areas']['vuln'];
+    same('vuln off with an affected line still open: grey, it says off (never red while he doesn\'t look)', ['none', ['vuln_off'], 1], [$vl['level'], $vl['why'], $vl['open']]);
     same('cat_off: off only with the clear yes', 'watch_rule_ask', $err(fn () => watchmanCatOff('plugin', true, false, $data, null, false)));
     watchmanCatOff('plugin', true, true, $data, $t0 + 1600, false);
     file_put_contents("$src/plugins/new.plg", "<PLUGIN name=\"new\" version=\"1\" pluginURL=\"https://evil.example/new.plg\">\n");
