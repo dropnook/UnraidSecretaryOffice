@@ -5147,10 +5147,8 @@
    "last": 1791530711
   },
   "vuln": {
-   "level": "none",
-   "why": [
-    "vuln_off"
-   ],
+   "level": "ok",
+   "why": [],
    "open": 0,
    "tell": 0,
    "tips": 0,
@@ -5615,15 +5613,35 @@
   }
  },
  "vuln": {
-  "on": false,
+  "on": true,
   "since": null,
-  "checked_at": null,
-  "fresh": false,
-  "checked": 0,
+  "checked_at": 1791559874,
+  "fresh": true,
+  "checked": 2,
   "affected": 0,
   "maybe": 0,
   "software": [],
-  "unknown": []
+  "unknown": [],
+  "not": [
+   {
+    "cve": "CVE-2024-4577",
+    "product": "php",
+    "where": "host",
+    "have": "8.4.14",
+    "fixed": "8.3.8",
+    "name": "PHP-CGI OS Command Injection",
+    "label": "PHP"
+   },
+   {
+    "cve": "CVE-2024-6387",
+    "product": "openssh",
+    "where": "host",
+    "have": "10.0p2",
+    "fixed": "9.8p1",
+    "name": "regreSSHion",
+    "label": "OpenSSH"
+   }
+  ]
  },
  "tiles": {
   "login": {
@@ -5770,9 +5788,7 @@
    "level": "none"
   },
   "vuln": {
-   "why": [
-    "vuln_off"
-   ],
+   "why": [],
    "open": 0,
    "tell": 0,
    "tips": 0,
@@ -5782,7 +5798,7 @@
    "parts": [
     "vuln"
    ],
-   "level": "none"
+   "level": "ok"
   },
   "array": {
    "why": [

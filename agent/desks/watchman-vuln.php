@@ -909,7 +909,8 @@ function watchmanVulnPage(array $st, ?array $judged): array
             'software' => array_values(array_filter((array) ($j['software'] ?? []), fn ($x) => is_array($x) && (($x['eol'] ?? null) === true || ($x['latest'] ?? null) !== null))),
             'unknown' => array_values(array_filter((array) ($j['unknown'] ?? []), 'is_string')),
             // checked against what runs here, not affected (1.96): the calm proof he looked — an older state has none
-            'not' => array_values(array_filter((array) ($j['not'] ?? []), fn ($x) => is_array($x) && is_string($x['cve'] ?? null) && is_string($x['product'] ?? null)))];
+            'not' => array_map(fn ($x) => $x + ['label' => WATCH_VULN_PRODUCTS[$x['product']]['label'] ?? $x['product']],
+                array_values(array_filter((array) ($j['not'] ?? []), fn ($x) => is_array($x) && is_string($x['cve'] ?? null) && is_string($x['product'] ?? null))))];
 }
 
 /** An entry's words */

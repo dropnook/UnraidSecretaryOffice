@@ -585,7 +585,7 @@ function ruleAsk(e, offers, b) {
   });
   body.appendChild(why);
   say();
-  Office.dialog({ title: T('rule.always'), body, buttons: [yes, { text: Office.t('common.cancel') }] });
+  Office.dialog({ title: T('rule.always'), body, cls: 'wm-ask-dialog', buttons: [yes, { text: Office.t('common.cancel') }] });
   if (b) b.blur();
 }
 async function ruleAdd(e, o, b) {
@@ -3570,9 +3570,38 @@ function vulnOffBox() {
   box.appendChild(b);
   return box;
 }
-/** «Known vulnerabilities»' lists beyond what waits (its own commit) */
+/**
+ * «Known vulnerabilities» beyond what waits (1.96 «einfacher»): what he compares with (CISA's list, once in its head), and
+ * — folded, with its count — «Checked: doesn't concern you»: the programs here a listed vulnerability is about, whose
+ * version is already fixed or was never affected. The calm proof that he looked (state.vuln.not, the messenger's).
+ */
 function vulnLists() {
-  return null;
+  const v = state && state.vuln;
+  if (!v || v.on === false) return null;
+  const box = el('div', 'wm-vuln-lists');
+  box.appendChild(el('p', 'role', T('vuln.kev_line')));
+  const not = (Array.isArray(v.not) ? v.not : []).filter((x) => x && typeof x.cve === 'string');
+  if (!not.length) return box;
+  const open = knownOpen.has('vuln.not');
+  const head = el('button', 'btn small plain wm-known-head', `${open ? '▾' : '▸'} ${T('vuln.not_title', { n: not.length })}`);
+  head.type = 'button';
+  head.setAttribute('aria-expanded', open ? 'true' : 'false');
+  head.onclick = () => { if (open) knownOpen.delete('vuln.not'); else knownOpen.add('vuln.not'); Office.keepInPlace(head, () => sw.render()); };
+  box.appendChild(head);
+  if (!open) return box;
+  box.appendChild(el('p', 'role', T('vuln.not_sub')));
+  const rows = el('div', 'box');
+  not.forEach((x) => {
+    const r = el('div', 'row nocheck wm-vuln-not');
+    const main = el('div', 'row-main');
+    const where = x.where && x.where !== 'host' ? T('vuln.not_in', { where: x.where }) : '';
+    main.appendChild(el('div', 'row-name text', T(x.fixed ? 'vuln.not_row' : 'vuln.not_row_never', { product: x.label || x.product, cve: x.cve, fixed: x.fixed || '', have: x.have || '', where })));
+    if (x.name) main.appendChild(el('div', 'row-meta', x.name));
+    r.appendChild(main);
+    rows.appendChild(r);
+  });
+  box.appendChild(rows);
+  return box;
 }
 /** One click switches «Known vulnerabilities» on (the public lists once a day; off again in his setup) */
 function vulnButton() {

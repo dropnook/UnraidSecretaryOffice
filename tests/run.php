@@ -21479,7 +21479,7 @@ function testWatchmanVuln(): void
         array_diff_key(watchmanVulnPage(['vuln_on' => true], ['kev' => $t0, 'fresh' => true, 'checked' => 2, 'found' => [['verdict' => 'yes']]]), ['software' => 1, 'unknown' => 1, 'not' => 1]));
     // 1.96 «einfacher»: «Checked: doesn't concern you» — what runs here, the vulnerability, fixed from; an older state has none
     same('vuln page: the list «checked, doesn\'t concern you» (only exactly-shaped lines); none in an older state',
-        [[['cve' => 'CVE-2024-4577', 'product' => 'php', 'where' => 'host', 'have' => '8.5.12', 'fixed' => '8.5.12', 'name' => 'x']], []],
+        [[['cve' => 'CVE-2024-4577', 'product' => 'php', 'where' => 'host', 'have' => '8.5.12', 'fixed' => '8.5.12', 'name' => 'x', 'label' => 'PHP']], []],
         [watchmanVulnPage(['vuln_on' => true], ['not' => [['cve' => 'CVE-2024-4577', 'product' => 'php', 'where' => 'host', 'have' => '8.5.12', 'fixed' => '8.5.12', 'name' => 'x'], 'junk', ['cve' => 7]]])['not'],
          watchmanVulnPage(['vuln_on' => true], ['kev' => $t0])['not']]);
 
