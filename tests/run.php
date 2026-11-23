@@ -21035,6 +21035,19 @@ function testWatchmanRules(): void
     same('page: the rule with its hits, the line noted by it, the offers on the open one', [1, 2, 'r00000000aa', ['user_net', 'net', 'key']],
         [count($pg['rules']), $pg['rules'][0]['hits'], array_values(array_filter($pg['book'], fn ($x) => ($x['by'] ?? null) === 'rule'))[0]['rule'] ?? null,
          array_column(array_values(array_filter($pg['book'], fn ($x) => $x['open']))[0]['offers'] ?? [], 'type')]);
+    // the night shift counts its own hits from none (its state is made anew): at the handover they add to the day's
+    $hd = watchmanNightState(['rule_hits' => ['r00000000aa' => ['n' => 2, 'last' => $t0 + 600, 'key' => 'day'], 'r00000000bb' => ['n' => 1, 'last' => $t0 + 50, 'key' => 'b']]],
+        ['rule_hits' => ['r00000000aa' => ['n' => 3, 'last' => $t0 + 5000, 'key' => 'night'], 'r00000000cc' => ['n' => 1, 'last' => $t0 + 4000, 'key' => 'c'],
+                         'r00000000dd' => ['n' => 0, 'last' => $t0], 7 => ['n' => 4], 'r00000000ee' => 'x']], $t0 + 6000);
+    same('handover: the night\'s rule hits added to the day\'s (newest time and words), a rule only the night met joins, nothing odd taken',
+        ['r00000000aa' => ['n' => 5, 'last' => $t0 + 5000, 'key' => 'night'], 'r00000000bb' => ['n' => 1, 'last' => $t0 + 50, 'key' => 'b'],
+         'r00000000cc' => ['n' => 1, 'last' => $t0 + 4000, 'key' => 'c']], $hd['rule_hits']);
+    same('handover: a night without hits leaves the day\'s as they are', ['r00000000aa' => ['n' => 2]], watchmanNightState(['rule_hits' => ['r00000000aa' => ['n' => 2]]], [], $t0)['rule_hits']);
+    watchmanMirrorWrite($data, "$tmp/mirror.json", null, $t0 + 650, 'boot-a');
+    @mkdir("$tmp/night", 0700);
+    watchmanNightBegin($paths, "$tmp/night", $t0 + 700, "$tmp/mirror.json", null, 'boot-a');
+    same('night begin: the day has hits, the night\'s state none (else they would count twice at the handover)', [true, false],
+        [isset(watchmanLoad($data)['state']['rule_hits']['r00000000aa']), isset(watchmanLoad("$tmp/night")['state']['rule_hits'])]);
     // an older office on this data folder: no rules.json read — it tells again (louder, never quieter); its lines stay noted
     rename("$data/rules.json", "$tmp/rules.json");
     $login($t0 + 700, '192.168.50.7');

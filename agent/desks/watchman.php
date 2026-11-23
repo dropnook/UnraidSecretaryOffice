@@ -1267,7 +1267,7 @@ function watchmanNightInto(array $x, array $e, int $more, ?string $p): array
     return $x;
 }
 
-/** The night's state into the day's: the syslog's place, the failures followed, when each kind was told, chains, logins, array lines, the boot seen */
+/** The night's state into the day's: the syslog's place, the failures followed, when each kind was told, chains, logins, array lines, rule hits, the boot seen */
 function watchmanNightState(array $day, array $n, int $now): array
 {
     if (is_array($n['syslog'] ?? null)) {
@@ -1286,6 +1286,16 @@ function watchmanNightState(array $day, array $n, int $now): array
     }
     $day['logins'] = watchmanRecentLogins(array_merge((array) ($day['logins'] ?? []), (array) ($n['logins'] ?? [])), [], $now);
     $day['array_seen'] = max((int) ($day['array_seen'] ?? 0), (int) ($n['array_seen'] ?? 0));
+    // what your exceptions let through in the night (the night counts from none): added to the day's counts
+    foreach (is_array($n['rule_hits'] ?? null) ? $n['rule_hits'] : [] as $rid => $h) {
+        if (!is_string($rid) || !is_array($h) || (int) ($h['n'] ?? 0) <= 0) {
+            continue;
+        }
+        $was = is_array($day['rule_hits'][$rid] ?? null) ? $day['rule_hits'][$rid] : [];
+        $newer = (int) ($h['last'] ?? 0) >= (int) ($was['last'] ?? 0);
+        $day['rule_hits'][$rid] = ['n' => (int) ($was['n'] ?? 0) + (int) $h['n'], 'last' => max((int) ($was['last'] ?? 0), (int) ($h['last'] ?? 0)),
+                                   'key' => (string) ($newer ? ($h['key'] ?? '') : ($was['key'] ?? ''))];
+    }
     if (is_string($n['boot_seen'] ?? null) && $n['boot_seen'] !== '') {
         $day['boot_seen'] = $n['boot_seen'];        // the night booked the server's start: never again by the day
     }
