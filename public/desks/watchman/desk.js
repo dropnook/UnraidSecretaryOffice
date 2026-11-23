@@ -851,6 +851,7 @@ function render() {
     [T('help.lights'), T('help.lights_text')],
     [T('help.posture'), T('help.posture_text')],
     [T('help.book'), T('help.book_text', { keep: lim.keep || 500, days: lim.days || 90 })],
+    [T('help.history'), T('help.history_text')],
     [T('ack'), T('help.ack_text')],
     [T('help.serious'), T('help.serious_text')],
     [T('help.normal'), T('help.normal_text')],
@@ -1511,7 +1512,77 @@ function bookSection() {
   };
   fill();
   s.appendChild(box);
+  const hist = journalBox();
+  if (hist) s.appendChild(hist);
   return s;
+}
+
+// ------------------------------------------------------------------ his history (1.96 step 7, agent/desks/watchman-journal.php)
+/*
+ * What he noted himself (or an exception did) leaves his book after a quiet week into his history, by month: folded under
+ * the book, loaded only when unfolded (the action `journal`), a hundred lines at a time; a month that was full says how many
+ * lines it couldn't take. Read only.
+ */
+const journal = { open: false, data: null, loading: false };
+const NOTED_BY = ['teamlead', 'baseline', 'auto', 'office', 'office_partner', 'office_drill', 'office_cron', 'schedule', 'array', 'unraid', 'plugin', 'back',
+  'router', 'parity', 'rule', 'known'];
+function journalBox() {
+  const j = state.journal || {};
+  if (!j.has && !Number(j.cut)) return null;
+  const wrap = el('div', 'wm-journal');
+  const head = el('button', 'btn small plain wm-known-head', `${journal.open ? '▾' : '▸'} ${T('journal.title')}`);
+  head.type = 'button';
+  head.title = T('journal.title_title');
+  head.setAttribute('aria-expanded', journal.open ? 'true' : 'false');
+  head.onclick = () => {
+    journal.open = !journal.open;
+    if (journal.open && !journal.data) journalLoad('', 0, head);
+    else Office.keepInPlace(head, () => sw.render());
+  };
+  wrap.appendChild(head);
+  if (!journal.open) return wrap;
+  const d = journal.data;
+  if (!d) { wrap.appendChild(el('span', 'spin')); return wrap; }
+  if (!d.months.length) { wrap.appendChild(el('p', 'empty', T('journal.none'))); return wrap; }
+  const pick = el('select', 'picker');
+  d.months.forEach((m) => pick.appendChild(new Option(T('journal.month', { month: m.month, n: m.lines }), m.month)));
+  pick.value = d.month || '';
+  pick.setAttribute('aria-label', T('journal.month_label'));
+  pick.onchange = () => journalLoad(pick.value, 0, pick);
+  wrap.appendChild(pick);
+  const cur = d.months.find((m) => m.month === d.month);
+  if (cur && cur.cut) wrap.appendChild(el('p', 'callout warn', T('journal.cut', { n: cur.cut })));
+  const rows = el('div', 'box');
+  d.entries.forEach((e) => {
+    const r = el('div', 'row nocheck wm-journal-row');
+    const main = el('div', 'row-main');
+    main.appendChild(el('div', 'row-name text', entryName(e)));
+    const by = NOTED_BY.includes(e.by) ? e.by : 'page';
+    main.appendChild(el('div', 'row-meta', `${fmt.date(e.last)} · ${T('noted.' + by, { when: fmt.date(e.noted || e.last), at: fmt.date(e.noted || e.last) })}`));
+    r.appendChild(main);
+    rows.appendChild(r);
+  });
+  if (!d.entries.length) rows.appendChild(el('p', 'empty', T('journal.none')));
+  wrap.appendChild(rows);
+  if (d.more) {
+    const more = el('button', 'btn small plain', T('journal.more'));
+    more.type = 'button';
+    more.onclick = () => journalLoad(d.month || '', d.offset + d.entries.length, more, true);
+    wrap.appendChild(more);
+  }
+  return wrap;
+}
+async function journalLoad(month, offset, b, append = false) {
+  if (journal.loading) return;
+  journal.loading = true;
+  if (b) b.disabled = true;
+  const j = await Office.api.post(`${ID}.journal`, { month, offset });
+  journal.loading = false;
+  if (b) b.disabled = false;
+  if (!j.ok || !j.journal) { Office.toast(Office.errorText(j.error, ID), true); return; }
+  const was = append && journal.data ? journal.data.entries : [];
+  journal.data = { ...j.journal, entries: was.concat(j.journal.entries || []), offset: append ? 0 : j.journal.offset };
+  Office.keepInPlace(b, () => sw.render());
 }
 
 // ------------------------------------------------------------------ an area's section (1.96)
@@ -2300,7 +2371,7 @@ function details(e) {
   if (e.group === 'flow' && p.learning) notes.push(T('detail.learning'));
   if (p.office && e.kind.startsWith('cron_file')) notes.push(T('detail.office_cron'));
   else if (p.office_file && e.kind.startsWith('cron_file')) notes.push(T('detail.office_file'));
-  if (e.open) notes.push(T('adopt.' + (e.v === 'net_ips_server_list' ? e.v : e.kind)));     // a block list: its own words (the whole list)
+  if (e.open) notes.push(T('adopt.' + (e.v === 'net_ips_server_list' || e.v === 'login_new_user' ? e.v : e.kind)));     // a block list: its own words (the whole list)
   const by = e.by === 'office' && e.kind === 'partner_paired' ? 'office_partner' : e.by === 'office' && e.kind === 'drill_throwaway' ? 'office_drill' : e.by;
   if (e.noted && by === 'plugin' && e.kind === 'at_plugin' && p.left) notes.push(T('noted.plugin_left', { when: fmt.date(p.left) }));     // agent: watchmanAtLeftNote()
   else if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office', 'office_partner', 'office_drill', 'office_cron', 'schedule', 'array', 'unraid', 'plugin', 'back', 'router', 'parity', 'rule', 'known'].includes(by) ? by : 'page'),
@@ -3469,7 +3540,8 @@ Office.places(ID, [
   { kind: 'help', key: 'ack', text: 'help.ack_text' },
   { kind: 'help', key: 'round_now', text: 'help.round_text' },
   ...['posture', 'book', 'serious', 'normal', 'logins', 'containers', 'plugins', 'office', 'flash', 'shares', 'sched', 'flow', 'flow_gone', 'flow_not',
-    'snaps', 'host', 'host_not', 'net', 'net_not', 'attack', 'siem', 'chain', 'night', 'parity', 'hold', 'wakes', 'grafana', 'notify', 'safe', 'lights']
+    'snaps', 'host', 'host_not', 'net', 'net_not', 'attack', 'siem', 'chain', 'night', 'parity', 'hold', 'wakes', 'grafana', 'notify', 'safe', 'lights',
+    'history']
     .map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
 ]);
 

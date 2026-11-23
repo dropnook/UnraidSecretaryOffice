@@ -132,6 +132,7 @@ require_once __DIR__ . '/watchman-signs.php';        // … and what he books of
 require_once __DIR__ . '/watchman-hw.php';           // the hardware (1.96): machine checks, memory and PCIe errors, throttling, the kernel's flags
 require_once __DIR__ . '/watchman-boot.php';         // what runs at the start (1.96): plugin files on the flash, stop, modprobe.d, the start line, ld.so.preload
 require_once __DIR__ . '/watchman-rules.php';        // the user's exceptions and areas switched off (1.96, data/watchman/rules.json)
+require_once __DIR__ . '/watchman-journal.php';      // his history (1.96): what he notes himself, by month (data/watchman/journal/)
 
 const WATCH_EVERY        = 300;              // a round every 5 minutes
 const WATCH_LOOK         = 20;               // the tick looks whether one is due this often (seconds)
@@ -430,6 +431,7 @@ desk('watchman', [
         'known_remove' => fn (array $r) => watchmanKnownRemove(textField($r, 'id')),       // «Take back» a lasting answer
         // «Who woke my disks?»: his switch (on unless switched off), kept on the server
         'wakes_watch' => fn (array $r) => watchmanWakeWatchSet(boolField($r, 'on')) + ['state' => watchmanPageState()],
+        'journal'     => fn (array $r) => watchmanJournalAction(optText($r, 'month'), (int) optInt($r, 'offset', 0)),    // his history, a page of it (1.96)
     ],
     'jobs'    => ['watchman-round' => fn (array $args) => watchmanRun(), 'watchman-hold' => fn (array $args) => watchmanHoldRun(),
                   'watchman-wake-name' => fn (array $args) => watchmanWakeNameRun(), 'watchman-feeds' => fn (array $args) => watchmanVulnFetchRun()],
@@ -1830,6 +1832,10 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         if (!$fresh) {
             $told = watchmanNotifyDue($book, $st, $now, $notify);
             $told = array_merge($told, watchmanChainsDue($book, $st, $now, $notify));
+        }
+        if (!(is_array($st['night'] ?? null) && !isset($st['night']['until']))) {
+            // what he noted himself and is quiet goes into his history (1.96 step 7) — never from the night shift's RAM book
+            $book = watchmanJournalMove($dir, $book, $st, $now);
         }
         $st['hired'] = $hired;
         $st['syslog'] = $pos;
@@ -10159,6 +10165,9 @@ function watchmanEntryVariant(array $e): ?string
     if (($e['kind'] ?? '') === 'at_plugin' && is_int($e['p']['left'] ?? null)) {
         return 'at_plugin_left';        // what a removed plugin left in atd's queue (watchmanAtLeftNote())
     }
+    if (($e['kind'] ?? '') === 'login_new_ip' && !empty($e['p']['new_user'])) {
+        return 'login_new_user';        // a user never seen from a known address (his setting, 1.96)
+    }
     $shape = watchmanFlowShape($e);
     // watchmanHwVariant(): memory or PCIe errors not corrected, the kernel's worst flag, a disk's thing (watchman-hw.php; null for the others)
     return watchmanHwVariant($e) ?? watchmanHotVariant($e) ?? watchmanSignVariant($e) ?? watchmanBootVariant($e) ?? watchmanVulnVariant($e) ?? watchnetEntryVariant($e) ?? ($shape === null ? null : $e['kind'] . '_' . $shape);
@@ -10632,9 +10641,11 @@ function watchmanNotifySend(string $kind, array $entries, string $lang): bool
     // the offsite copy emptied: at risk now (Object Lock holds the data only so long) — an alert, and the way back: the
     // Consultant's Object Lock guide (its read-only --point-in-time connection)
     $emptied = $kind === 'kopia_emptied';
+    // all of them a new user from a known address (1.96): their own words
+    $words = $kind === 'login_new_ip' && !array_filter($entries, fn ($e) => empty($e['p']['new_user'])) ? 'login_new_user' : $kind;
     return officeNotify(
-        officeNotifyText('watchman', "notify.$kind", $params, $lang),
-        officeNotifyText('watchman', "check.$kind", $params, $lang),
+        officeNotifyText('watchman', "notify.$words", $params, $lang),
+        officeNotifyText('watchman', "check.$words", $params, $lang),
         $emptied ? 'alert' : 'warning',
         implode("\n", $lines) . "\n\n" . ($emptied ? officeNotifyText('watchman', 'notify.kopia_back', [], $lang) . "\n\n" : '')
             . officeNotifyText('watchman', 'notify.footer', [], $lang),
@@ -10800,6 +10811,10 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
     $state['known_full'] = $rules['known_full'];
     $state['hand'] = $rules['hand'];               // his setup page: per area the exceptions made by hand (types)
     $state['hand_amount'] = $rules['hand_amount']; // … those with an amount (GB, files)
+    // his history (1.96 step 7): how many lines went there, what a full month couldn't take — the lines on demand (action journal)
+    $jr = is_array($st['journal'] ?? null) ? $st['journal'] : [];
+    $state['journal'] = ['moved' => (int) ($jr['moved'] ?? 0), 'cut' => array_sum(array_map('intval', (array) ($jr['cut'] ?? []))),
+                         'has' => watchmanJournalDir($dir, false) !== null && (bool) glob("$dir/" . WATCH_JOURNAL_DIR . '/*.jsonl')];
     $state['off'] = $rules['off'] ?: new stdClass();
     // his areas' lights (watchman-cats.php), from what this state says; the watch book's and the schedule's light beside them
     $lights = watchmanCats($state, is_array($st['parity'] ?? null) ? $st['parity'] : null);
