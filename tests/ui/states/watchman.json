@@ -5619,7 +5619,7 @@
   "fresh": true,
   "checked": 2,
   "affected": 0,
-  "maybe": 0,
+  "maybe": 2,
   "software": [],
   "unknown": [],
   "not": [
@@ -5640,6 +5640,24 @@
     "fixed": "9.8p1",
     "name": "regreSSHion",
     "label": "OpenSSH"
+   }
+  ],
+  "unsure": [
+   {
+    "cve": "CVE-2016-5195",
+    "product": "kernel",
+    "where": "host",
+    "have": "6.12.54-Unraid",
+    "name": "Linux Kernel Race Condition Vulnerability",
+    "label": "Linux kernel"
+   },
+   {
+    "cve": "CVE-2014-6278",
+    "product": "bash",
+    "where": "host",
+    "have": "5.3.003",
+    "name": "GNU Bash OS Command Injection Vulnerability",
+    "label": "Bash"
    }
   ]
  },

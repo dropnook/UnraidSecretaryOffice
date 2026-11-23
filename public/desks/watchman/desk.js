@@ -124,10 +124,13 @@ const SETTING_TILE = { 'flash.go_blank': 'plugins' };
 const HAND_TILE = { 'flash.extra': 'plugins' };
 const setupAreas = () => CATS.filter(catShown);
 /** A tile's settings: per area its keys shown here, [[area, {key: setting}], …] */
+// settings his rules file keeps but his setup no longer shows: «maybe affected» is never told (2026-11-23)
+const SETTING_GONE = new Set(['vuln.maybe']);
 function settingsFor(tid) {
   const out = [];
   Object.entries((state && state.settings) || {}).forEach(([cat, keys]) => {
-    const here = Object.fromEntries(Object.entries(keys || {}).filter(([k]) => (SETTING_TILE[`${cat}.${k}`] || tileOfCat(cat)) === tid));
+    const here = Object.fromEntries(Object.entries(keys || {})
+      .filter(([k]) => !SETTING_GONE.has(`${cat}.${k}`) && (SETTING_TILE[`${cat}.${k}`] || tileOfCat(cat)) === tid));
     if (Object.keys(here).length) out.push([cat, here]);
   });
   return out;
@@ -625,7 +628,7 @@ async function ruleRemove(r, undo, b) {
   Office.toast(T(undo ? 'rule.undone' : 'rule.lifted'));
 }
 /** What differs from the defaults in an area: its settings off their default */
-const changedOf = (id) => Object.entries((state && state.settings && state.settings[id]) || {}).filter(([, v]) => v && v.value !== v.def);
+const changedOf = (id) => Object.entries((state && state.settings && state.settings[id]) || {}).filter(([k, v]) => v && v.value !== v.def && !SETTING_GONE.has(`${id}.${k}`));
 /**
  * «Noted (n)»: your lasting answers in an area (1.96, concept 3.4) — folded until opened on this visit; each with when,
  * and «Take back» (it comes out of what is normal: still there, his next round tells it)
@@ -1094,13 +1097,14 @@ function render() {
   root.appendChild(head);
   if (page === 'setup') { renderSetup(root); return; }
   const lim = (state && state.limits) || {};
-  root.appendChild(Office.pageHelp(ID, [
+  root.appendChild(helpAreas(Office.pageHelp(ID, [
     // «How to read this page» first (1.96 «einfacher»: one screen — the tiles, your answers, where things are, notifications)
     [T('help.read'), T('help.read_text')],
     [T('help.read_lights'), T('help.read_lights_text')],
     [T('help.read_answers'), T('help.read_answers_text')],
     [T('help.read_where'), T('help.read_where_text')],
     [T('help.read_notify'), T('help.read_notify_text')],
+    [T('help.read_areas'), ''],         // filled below: each area in a line (its subtitle)
     [T('help.posture'), T('help.posture_text')],
     [T('help.book'), T('help.book_text', { keep: lim.keep || 500, days: lim.days || 90 })],
     [T('help.history'), T('help.history_text')],
@@ -1132,7 +1136,7 @@ function render() {
     [T('help.grafana'), T('help.grafana_text')],
     [T('help.notify'), T('help.notify_text')],
     [T('help.safe'), T('help.safe_text')],
-  ]));
+  ])));
   if (!state) { root.appendChild(el('p', 'empty', Office.t('common.loading'))); return; }
   root.appendChild(sw.el);
   sw.render();
@@ -1831,7 +1835,13 @@ function tileSection(id) {
   const t = tileOf(id);
   const open = tileEntries(id).filter((e) => e.open);
   if (sw.active() !== id && !open.length && !tileWaits(tileLevel(id))) return quietLine(id);
-  if (id === 'wakes') return wakesView();
+  if (id === 'wakes') {
+    const w = wakesView();
+    // the fold only with something to explain: before his first look, or with no spinning disk, the section is one line
+    const scope = sw.active() === id && state && state.wakes && !wakesNoHdd() ? scopeBox(id) : null;
+    if (scope) w.appendChild(scope);
+    return w;
+  }
   const s = el('section', 'section wm-cat');
   const said = tileState(id);
   s.appendChild(Office.sectionHead(tileName(id), T(`area.${id}_sub`), ...(said ? [said] : []), { place: `area.${id}` }));
@@ -1874,9 +1884,88 @@ function tileSection(id) {
   if (extra) s.appendChild(extra);
   const inv = knownFolds(id, open.length ? bar.read().words : []);       // what he knows here: the tile's filter words find in it too
   if (inv) s.appendChild(inv);
+  const scope = sw.active() === id ? scopeBox(id) : null;       // what he checks here: shown alone, folded at first
+  if (scope) s.appendChild(scope);
   const jumps = jumpLines(id);
   if (jumps) s.appendChild(jumps);
   return s;
+}
+
+// ------------------------------------------------------------------ «What he checks here» (1.96 «einfacher»)
+// Per tile a fold, closed at first: what he looks at, when he speaks up, how often, an example (keys scope.<tile>.<part>_<i>,
+// as many as the language file has). The numbers are the settings in effect, so the words never tell an old default.
+const SCOPE_PARTS = ['look', 'tell', 'when', 'example'];
+const scopeOpen = new Set();          // the folds opened while this page lives (the convention: choices, not stored)
+/** A setting in effect (the page state: {value, def …}; an older state: the bare value), else the default given */
+function setting(cat, key, def) {
+  const x = state && state.settings && state.settings[cat] ? state.settings[cat][key] : undefined;
+  const v = x && typeof x === 'object' ? x.value : x;
+  return typeof v === 'number' && Number.isFinite(v) ? v : def;
+}
+/** A time span in its largest whole unit: «10 min», «6 h», «45 s» */
+const scopeSpan = (sec) => (sec >= 3600 && sec % 3600 === 0 ? T('scope.unit_h', { n: sec / 3600 })
+  : sec >= 60 && sec % 60 === 0 ? T('scope.unit_m', { n: sec / 60 }) : T('scope.unit_s', { n: sec }));
+function scopeValues() {
+  const gb = (n) => fmt.size(n * 1024 ** 3);
+  return {
+    burst: setting('login', 'burst', 5), window: scopeSpan(setting('login', 'window', 600)),
+    p_burst: setting('partner', 'burst', 3), p_window: scopeSpan(setting('partner', 'window', 60)),
+    factor: setting('pull', 'factor', 4), min: gb(setting('pull', 'min', 2)), new: gb(setting('pull', 'new', 50)),
+    learn: (state && state.flow && Number(state.flow.learn)) || 7,
+    d_factor: setting('data', 'factor', 4), written_min: gb(setting('data', 'written_min', 2)), gone_min: gb(setting('data', 'gone_min', 2)),
+    files_min: fmt.number(setting('data', 'files_min', 2000)),
+    offsite: setting('snap', 'offsite', 50), silent: scopeSpan(setting('router', 'silent', 6) * 3600),
+    nvme_c: setting('hw', 'hot_nvme_c', 70), nvme_time: scopeSpan(setting('hw', 'hot_nvme_min', 120) * 60),
+    disk_c: setting('hw', 'hot_disk_c', 55), disk_time: scopeSpan(setting('hw', 'hot_disk_min', 120) * 60),
+    cpu_time: scopeSpan(setting('hw', 'hot_cpu_min', 30) * 60), ecc_day: setting('hw', 'ecc_day', 10), worn: setting('hw', 'worn', 90),
+    crashes: setting('host', 'crashes', 3),
+  };
+}
+const SCOPE_N = { 'plugins.tell_3': () => setting('sched', 'at_late', 2) };      // a line counted by a setting (its plural)
+function scopeItems(id, part, values) {
+  const out = [];
+  for (let i = 1; Office.has(`${ID}.scope.${id}.${part}_${i}`); i++) {
+    const k = `${id}.${part}_${i}`;
+    out.push(T(`scope.${k}`, SCOPE_N[k] ? { ...values, n: SCOPE_N[k]() } : values));
+  }
+  return out;
+}
+/** The fold «What he checks here» of a tile (null: no words for it) */
+function scopeBox(id) {
+  if (!Office.has(`${ID}.scope.${id}.look_1`)) return null;
+  const det = el('details', 'wm-scope');
+  det.open = scopeOpen.has(id);
+  det.ontoggle = () => { if (det.open) scopeOpen.add(id); else scopeOpen.delete(id); };
+  const sum = el('summary');
+  sum.append(el('b', '', T('scope.title')), el('span', 'wm-scope-sub', T('scope.sub')));
+  det.appendChild(sum);
+  const body = el('div', 'wm-scope-body');
+  const values = scopeValues();
+  SCOPE_PARTS.forEach((part) => {
+    const items = scopeItems(id, part, values);
+    if (!items.length) return;
+    body.appendChild(el('h4', 'wm-scope-head', T(`scope.${part}`)));
+    if (part === 'tell') body.appendChild(el('p', 'wm-note', T('scope.words')));
+    const ul = el('ul', 'wm-scope-list' + (part === 'example' ? ' wm-scope-ex' : ''));
+    items.forEach((x) => ul.appendChild(el('li', '', x)));
+    body.appendChild(ul);
+  });
+  det.appendChild(body);
+  return det;
+}
+/** The help's «The areas»: each tile in a line (its subtitle), then the watch book and the schedule */
+function helpAreas(help) {
+  const dt = [...help.querySelectorAll('dt')].find((x) => x.textContent === T('help.read_areas'));
+  const dd = dt && dt.nextElementSibling;
+  if (!dd) return help;
+  const ul = el('ul', 'wm-help-areas');
+  TILES.forEach((id) => {
+    const li = el('li');
+    li.append(el('b', '', tileName(id)), document.createTextNode(` — ${T(`area.${id}_sub`)}`));
+    ul.appendChild(li);
+  });
+  dd.append(ul, el('p', '', T('help.read_areas_more')));
+  return help;
 }
 
 /** A tile's light in words (its head; a phone has no mouse): what waits, else how it stands, when he checked */
@@ -3598,28 +3687,35 @@ function vulnLists() {
   if (!v || v.on === false) return null;
   const box = el('div', 'wm-vuln-lists');
   box.appendChild(el('p', 'role', T('vuln.kev_line')));
-  const not = (Array.isArray(v.not) ? v.not : []).filter((x) => x && typeof x.cve === 'string');
-  if (!not.length) return box;
-  const open = knownOpen.has('vuln.not');
-  const head = el('button', 'btn small plain wm-known-head', `${open ? '▾' : '▸'} ${T('vuln.not_title', { n: not.length })}`);
+  const lines = (list) => (Array.isArray(list) ? list : []).filter((x) => x && typeof x.cve === 'string');
+  const where = (x) => (x.where && x.where !== 'host' ? T('vuln.not_in', { where: x.where }) : '');
+  // checked, doesn't concern you; and (2026-11-23) can't be checked for sure — both calm, folded, never waiting
+  vulnFold(box, 'vuln.not', lines(v.not), (x) => T(x.fixed ? 'vuln.not_row' : 'vuln.not_row_never',
+    { product: x.label || x.product, cve: x.cve, fixed: x.fixed || '', have: x.have || '', where: where(x) }));
+  vulnFold(box, 'vuln.unsure', lines(v.unsure), (x) => T('vuln.unsure_row', { product: x.label || x.product, cve: x.cve, have: x.have || '', where: where(x) }));
+  return box;
+}
+/** One calm list of «Known vulnerabilities», folded: its head with the count, unfolded its sentence and a row each */
+function vulnFold(box, key, list, words) {
+  if (!list.length) return;
+  const open = knownOpen.has(key);
+  const head = el('button', 'btn small plain wm-known-head', `${open ? '▾' : '▸'} ${T(`${key}_title`, { n: list.length })}`);
   head.type = 'button';
   head.setAttribute('aria-expanded', open ? 'true' : 'false');
-  head.onclick = () => { if (open) knownOpen.delete('vuln.not'); else knownOpen.add('vuln.not'); Office.keepInPlace(head, () => sw.render()); };
+  head.onclick = () => { if (open) knownOpen.delete(key); else knownOpen.add(key); Office.keepInPlace(head, () => sw.render()); };
   box.appendChild(head);
-  if (!open) return box;
-  box.appendChild(el('p', 'role', T('vuln.not_sub')));
+  if (!open) return;
+  box.appendChild(el('p', 'role', T(`${key}_sub`)));
   const rows = el('div', 'box');
-  not.forEach((x) => {
+  list.forEach((x) => {
     const r = el('div', 'row nocheck wm-vuln-not');
     const main = el('div', 'row-main');
-    const where = x.where && x.where !== 'host' ? T('vuln.not_in', { where: x.where }) : '';
-    main.appendChild(el('div', 'row-name text', T(x.fixed ? 'vuln.not_row' : 'vuln.not_row_never', { product: x.label || x.product, cve: x.cve, fixed: x.fixed || '', have: x.have || '', where })));
+    main.appendChild(el('div', 'row-name text', words(x)));
     if (x.name) main.appendChild(el('div', 'row-meta', x.name));
     r.appendChild(main);
     rows.appendChild(r);
   });
   box.appendChild(rows);
-  return box;
 }
 /** One click switches «Known vulnerabilities» on (the public lists once a day; off again in his setup) */
 function vulnButton() {
@@ -3888,6 +3984,7 @@ Office.places(ID, [
     'snaps', 'host', 'host_not', 'net', 'net_not', 'attack', 'siem', 'chain', 'night', 'parity', 'hold', 'wakes', 'grafana', 'notify', 'safe',
     'history']
     .map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
+  { kind: 'help', key: 'help.read_areas', text: 'help.read_areas_more' },     // each area in a line (helpAreas())
 ]);
 
 // what his state holds for the search (core.js «items»): the entries of his book not noted yet (in his words, never a

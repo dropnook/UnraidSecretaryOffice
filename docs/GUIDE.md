@@ -303,7 +303,8 @@ When you hire him he learns what is normal. Then he walks his round every five m
 - What runs at the next start (a plugin file nothing installed, `stop`, modprobe.d, the start line, ld.so.preload) and the
   router or DNS suddenly different (the gateway with another MAC).
 - Only if you switch on «Known vulnerabilities»: an actively exploited vulnerability that applies to a version running here
-  (only when the versions compare cleanly; else «maybe»), an Unraid or software without security updates.
+  (only when the versions compare cleanly — what can't be compared stands calmly under «Can't be checked for sure», never
+  an entry or a notification), an Unraid or software without security updates.
 
 **How:**
 
@@ -324,7 +325,9 @@ urgent; yellow — something waits, not urgent; green — all quiet; green with 
 checked (switched off, not there, or he can't reach it now). *Only what waits for you* leaves red and yellow. Nothing
 chosen, the page shows every area: a quiet one in a line, one where something waits with its entries. A tile shows what
 waits, its advice, and folded what he knows there (*Known: 12 addresses* …); two lines jump to what is always all right
-or remembered there (his setup) and to what is done (the watch book).
+or remembered there (his setup) and to what is done (the watch book). Folded at first, *What he checks here* says for
+that area what he looks at, when he tells you (with a notification or only as an open entry), how often, and an example
+— its numbers are your settings in effect. The page help's *The areas* names each area in a line.
 
 **Setup** (his second tab), the same 12 areas: when he tells (its settings — the default is always what he did before —
 for the hardware the degrees and hours a sensor may be warm, how many memory or PCIe errors count, an SSD's wear; a
