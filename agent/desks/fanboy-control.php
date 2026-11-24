@@ -2262,11 +2262,14 @@ function fanboyControlMain(): int
                     break;
                 }
             }
-            if ($now - $lastHold >= 10) {
+            // the settings changed (zones, roles, a hand-back): taken anew at the next round (2026-11-24: one look at the
+            // mirror's file — or the store's time — every round, not every ten seconds: a saved change steers within seconds)
+            clearstatcache();
+            $new = fanboyControlStamp();
+            $changed = $new !== $stamp;
+            if ($changed || $now - $lastHold >= 10) {
                 $lastHold = $now;
-                clearstatcache();
-                $new = fanboyControlStamp();
-                if ($new !== $stamp) {          // the settings changed (zones, roles, a hand-back): taken anew
+                if ($changed) {
                     $stamp = $new;
                     $settings = fanboyBoardRaw($board);
                     $why = fanboyHoldReason($settings);

@@ -27,6 +27,11 @@ declare(strict_types=1);
 
 const FANBOY_MIRROR_MAX = 256 * 1024;       // bytes: a board's entry larger than this is not mirrored (said in the log)
 const FANBOY_MIRROR_FULL_EVERY = 60.0;      // seconds between whole comparisons (the sources read and summed), whatever their times say
+// 2026-11-24 (nostromo: a save that never reached the mirror): the lock only keeps two writers from doing the same work at
+// once — both write what the data folder says. A writer waits this long for it, then writes without it (said in the log,
+// with who holds it, at most every FANBOY_MIRROR_LOCK_SAY): a lock nobody lets go never stops the mirror for good
+const FANBOY_MIRROR_LOCK_WAIT = 2.0;
+const FANBOY_MIRROR_LOCK_SAY = 600.0;
 
 function fanboyMirrorFile(): string
 {
@@ -100,7 +105,9 @@ function fanboyMirrorRead(?string $boardKey = null, ?string $file = null): ?arra
  * and whoever comes second compares against what the first wrote.
  *
  * @return string same (as it should be) · written · too_big (not mirrored: the entry is larger than FANBOY_MIRROR_MAX;
- *                the old mirror is removed) · busy (the lock is held: the next tick) · failed (not writable)
+ *                the old mirror is removed) · failed (not writable). The lock held: waited for up to
+ *                FANBOY_MIRROR_LOCK_WAIT, then the mirror is kept without it (2026-11-24: «busy» for good was a mirror that
+ *                never followed a save again)
  */
 function fanboyMirrorKeep(bool $force = false, ?float $now = null): string
 {
@@ -118,13 +125,7 @@ function fanboyMirrorKeep(bool $force = false, ?float $now = null): string
         return 'same';
     }
     @mkdir(fanboyRunDir(), 0700, true);
-    $lock = @fopen(fanboyRunDir() . '/mirror.lock', 'c');
-    if ($lock === false || !flock($lock, LOCK_EX | LOCK_NB)) {
-        if ($lock !== false) {
-            fclose($lock);
-        }
-        return 'busy';
-    }
+    $lock = fanboyMirrorLock();
     try {
         $stamp = fanboyMirrorStamp();           // as the sources are now, under the lock
         $m = fanboyMirrorBuild();
@@ -149,9 +150,59 @@ function fanboyMirrorKeep(bool $force = false, ?float $now = null): string
         $seen = ['stamp' => $stamp, 'own' => $result === 'failed' ? null : $ownNow(), 'full' => $now, 'file' => $file];
         return $result;
     } finally {
-        flock($lock, LOCK_UN);
-        fclose($lock);
+        if ($lock !== null) {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
     }
+}
+
+/**
+ * The mirror's lock: taken (waited for up to FANBOY_MIRROR_LOCK_WAIT on the monotonic clock) — or null: held by someone
+ * else all that time, the writer goes on without it and the log says so, with the holder when /proc/locks names it
+ *
+ * @return resource|null
+ */
+function fanboyMirrorLock()
+{
+    $file = fanboyRunDir() . '/mirror.lock';
+    $lock = @fopen($file, 'c');
+    if ($lock === false) {
+        return null;
+    }
+    $until = hrtime(true) + (int) (FANBOY_MIRROR_LOCK_WAIT * 1e9);
+    while (!flock($lock, LOCK_EX | LOCK_NB)) {
+        if (hrtime(true) >= $until) {
+            $said = &$GLOBALS['fanboyMirrorLockSaid'];
+            $now = fanboyMono();
+            if (!is_float($said) || $now - $said >= FANBOY_MIRROR_LOCK_SAY) {
+                $said = $now;
+                $who = fanboyLockHolder($file);
+                logLine('Fanboy: the lock of his mirror in RAM is held' . ($who !== null ? " by $who" : '') . ' and not let go — his mirror kept without it');
+            }
+            fclose($lock);
+            return null;
+        }
+        usleep(50000);
+    }
+    return $lock;
+}
+
+/** Who holds a lock on $file: «PID n (its command)» from /proc/locks, or null (not found, no /proc) */
+function fanboyLockHolder(string $file): ?string
+{
+    $st = @stat($file);
+    $locks = @file_get_contents('/proc/locks', false, null, 0, 1 << 20);
+    if ($st === false || !is_string($locks)) {
+        return null;
+    }
+    foreach (explode("\n", $locks) as $l) {
+        if (preg_match('/^\d+:\s+FLOCK\s+\S+\s+\S+\s+(\d+)\s+[0-9a-f]+:[0-9a-f]+:(\d+)\s/', $l, $m) && (int) $m[2] === $st['ino']) {
+            $cmd = str_replace("\0", ' ', (string) @file_get_contents("/proc/{$m[1]}/cmdline", false, null, 0, 200));
+            return "PID {$m[1]}" . (trim($cmd) !== '' ? ' (' . trim($cmd) . ')' : '');
+        }
+    }
+    return null;
 }
 
 // ===================================================================== what the control wrote into the data folder itself (step S4a)
