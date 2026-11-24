@@ -672,6 +672,8 @@
   "dry.nothing_written": "Nothing was written — that only happens after «Take over».",
   "take.text": "He takes over the fans of his zones and steers them by what really gets warm. The CPU cooler, pumps and everything else stay with the BIOS.",
   "take.go": "Take over",
+  "take.unsaved": "Your changes to the zones aren't saved yet. «Take over» saves them first — or save them here.",
+  "take.unsaved_steers": "Your changes to the zones aren't saved yet — he still steers by the old ones. Save them, and he takes them within seconds.",
   "take.go_tip": "Fanboy steers the fans of his zones from now on",
   "take.confirm_title": "Let Fanboy take over?",
   "take.confirm": {

@@ -3710,6 +3710,31 @@ function changeFan(id, fields) {
 /** The fans' part of the draft as the agent takes it with zones_save */
 const zfansList = () => Object.entries(zfans || {}).map(([fan, d]) => ({ fan, ...(d.off_ok !== undefined ? { off_ok: d.off_ok } : {}),
   ...(d.cpu_off_confirm ? { cpu_off_confirm: true } : {}), ...(d.alike === true ? { alike: true } : {}) }));
+/** Zone changes on the page not saved yet (the zones, what he was told about fans) */
+const zonesPending = () => !!(zdraft || zfans);
+/** A zone of the draft the agent would refuse (the page sees it): {z, why} or null */
+const zonesHeld = () => zonesNow().map((z) => ({ z, why: zoneHold(z) })).find((x) => x.why) || null;
+/** The draft kept: the zones and what he said about fans, ONE request — steering, the control takes them within seconds */
+const zonesSave = (b) => act('zones_save', { zones: zonesNow().map(cleanZone), fans: zfansList() }, b, () => { zdraft = null; zfans = null; curves.clear(); dry = null; dryFor = ''; });
+/**
+ * 2026-11-24 (the owner on nostromo: a zone changed, then «Übernehmen» — and he steered by the old zones): zone changes not
+ * saved yet, said wherever «Übernehmen» stands — with «Save zones» right there (steering: the control takes them within
+ * seconds), or why they can't be saved yet
+ */
+function zonesUnsavedBox(steering) {
+  if (!zonesPending()) return null;
+  const box = el('div', 'callout warn fb-zones-unsaved');
+  box.appendChild(para(T(steering ? 'take.unsaved_steers' : 'take.unsaved')));
+  const held = zonesHeld();
+  const save = button(T('zones.save'), T('zones.save_tip'), (b) => zonesSave(b), 'btn');
+  if (held) {
+    save.disabled = true;
+    save.title = T('zones.save_held', { zone: held.z.name || held.z.id, why: held.why });
+    box.appendChild(para(save.title, 'fb-hint-text'));
+  }
+  box.append(save, goButton('zones', false));
+  return box;
+}
 function zonesNow() {
   if (zdraft) return zdraft;
   return (setup().zones || []).map((z) => JSON.parse(JSON.stringify(z)));
@@ -3783,7 +3808,7 @@ function zonesStep() {
   }
   if (zdraft || zfans) {
     // changed here, not kept yet: «Save» is the one button of the moment — the zones and what he said about fans, ONE request
-    const save = button(T('zones.save'), T('zones.save_tip'), (b) => act('zones_save', { zones: zonesNow().map(cleanZone), fans: zfansList() }, b, () => { zdraft = null; zfans = null; curves.clear(); dry = null; dryFor = ''; }), 'btn');
+    const save = button(T('zones.save'), T('zones.save_tip'), (b) => zonesSave(b), 'btn');
     // 2026-11-20 (the owner's save refused by a rule he couldn't see): what the agent would refuse and the page can see —
     // «Save» waits, and says for which zone and why (the row's chip says it too)
     const held = zones.map((z) => ({ z, why: zoneHold(z) })).find((x) => x.why);
@@ -4657,6 +4682,8 @@ function takeStep() {
     list.appendChild(readRow(null, fanName(f.id), underName(f.id, T('role.cpu'), T('take.own_since', { date: Office.fmt.date(f.cpu_own) })), null, back));
   });
   if (list.children.length) box.appendChild(list);
+  const unsaved = zonesUnsavedBox(on);
+  if (unsaved) box.appendChild(unsaved);
   if (on) {
     // (steering: the banner above says so; armed but not steering — the array stopped, the chip missing — said here)
     if (!steers()) box.appendChild(para(myWhy(who().why) || T('take.armed'), 'callout warn'));
@@ -4686,9 +4713,16 @@ function takeStep() {
     Office.dialog({
       title: T('take.confirm_title'),
       body: sure ? T('take.uncovered_confirm', { sources: loose.map((x) => srcLabel(x)).join(', '), fans: standing.map((f) => fanSay(f.id)).join(', ') }) : T('take.confirm', { n: (su.zones || []).length }),
-      buttons: [{ text: t('common.cancel') }, { text: T(sure ? 'take.uncovered_go' : 'take.go'), kind: '', act: async () => { await act('take_over', sure ? { uncovered_ok: true } : {}, b2, () => Office.toast(T('take.done_toast'))); return true; } }],
+      buttons: [{ text: t('common.cancel') }, { text: T(sure ? 'take.uncovered_go' : 'take.go'), kind: '', act: async () => {
+        // zone changes not saved yet: kept first — «Übernehmen» takes what the page shows (2026-11-24)
+        if (zonesPending() && !(await zonesSave(b2))) return true;
+        await act('take_over', sure ? { uncovered_ok: true } : {}, b2, () => Office.toast(T('take.done_toast')));
+        return true;
+      } }],
     });
   }, 'btn');
+  const heldNow = zonesPending() ? zonesHeld() : null;
+  if (heldNow) why.push(T('zones.save_held', { zone: heldNow.z.name || heldNow.z.id, why: heldNow.why }));
   if (why.length) offBtn(b, why[0]);
   // what he would set right now, before the button (the dry run's answer; it reads only)
   if ((su.zones || []).length && situation() !== 'other') { dryAsk(false); box.appendChild(dryPreview()); }
