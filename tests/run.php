@@ -31751,7 +31751,10 @@ function testDockerOffSaid(): void
     check('docker off: the Consultant — a container «unknown», never «missing» or «not here»; his offers refuse (ad_docker_off)',
         str_contains($src('agent/desks/advisor.php'), "+ (\$known === null ? ['unknown' => true] : [])")
         && str_contains($src('public/desks/advisor/desk.js'), "const missing = () => externals().filter(([, x]) => !x.there && !x.optional && !unknown(x));"));
-    check('docker off: the Night Watchman — never «8 containers» as if counted now', str_contains($src('public/desks/watchman/desk.js'), "value: dockerOff() ? Office.t('common.docker_off')"));
+    // (1.96 «einfacher»: the tile «Im Auge» that counted them is gone; the count stands in the Container area's «Known: n
+    // containers» — with Docker off it says so, with the count as last seen)
+    check('docker off: the Night Watchman — never «8 containers» as if counted now', str_contains($src('public/desks/watchman/desk.js'),
+        "dockerOff() ? T('watch.containers_last', { docker: Office.t('common.docker_off'), sum: cSum }) : cSum"));
     check('docker off: «Where is what» — never «0 containers», never «No VMs» with the VM service off',
         str_contains($src('public/desks/cleanup/desk.js'), "dk && dk.up === false ? Office.t('common.docker_off')")
         && substr_count($src('public/desks/cleanup/desk.js'), "vms.up === false ? T('tile.vm_off')") === 3);

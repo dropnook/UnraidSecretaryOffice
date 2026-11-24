@@ -1908,7 +1908,19 @@ function tileSection(id) {
 // Per tile a fold, closed at first: what he looks at, when he speaks up, how often, an example (keys scope.<tile>.<part>_<i>,
 // as many as the language file has). The numbers are the settings in effect, so the words never tell an old default.
 const SCOPE_PARTS = ['look', 'tell', 'when', 'example'];
-const scopeOpen = new Set();          // the folds opened while this page lives (the convention: choices, not stored)
+// the folds as the user left them while this page lives (the convention: choices, not stored) — keepFold()
+const folds = new Map();
+/** A <details> keeps what the user chose across the page's redraws; its default counts only until it is touched */
+function keepFold(det, key, open) {
+  det.open = folds.has(key) ? folds.get(key) : open;
+  let shown = det.open;
+  det.addEventListener('toggle', () => {
+    if (det.open === shown) return;          // the page setting it (toggle comes later, for the open it was built with)
+    shown = det.open;
+    folds.set(key, det.open);
+  });
+  return det;
+}
 /** A setting in effect (the page state: {value, def …}; an older state: the bare value), else the default given */
 function setting(cat, key, def) {
   const x = state && state.settings && state.settings[cat] ? state.settings[cat][key] : undefined;
@@ -1946,9 +1958,7 @@ function scopeItems(id, part, values) {
 /** The fold «What he checks here» of a tile (null: no words for it) */
 function scopeBox(id) {
   if (!Office.has(`${ID}.scope.${id}.look_1`)) return null;
-  const det = el('details', 'wm-scope');
-  det.open = scopeOpen.has(id);
-  det.ontoggle = () => { if (det.open) scopeOpen.add(id); else scopeOpen.delete(id); };
+  const det = keepFold(el('details', 'wm-scope'), `scope:${id}`, false);
   const sum = el('summary');
   sum.append(el('b', '', T('scope.title')), el('span', 'wm-scope-sub', T('scope.sub')));
   det.appendChild(sum);
@@ -2063,7 +2073,7 @@ function scopeLink(id) {
     if (!det) return;
     help.open = true;
     det.open = true;
-    scopeOpen.add(id);
+    folds.set(`scope:${id}`, true);
     det.scrollIntoView({ block: 'start', behavior: 'smooth' });      /* reveal */      // the jump this link asks for
     const sum = det.querySelector('summary');
     if (sum) sum.focus({ preventScroll: true });
