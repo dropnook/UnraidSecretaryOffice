@@ -532,10 +532,10 @@ function testAlwaysOnMirror(): void
         same('always on S3: within the minute a quiet look reads nothing; after it the whole comparison (and still the same)',
             ['same', $seen['full'], 'same', true], [fanboyMirrorKeep(false, $seen['full'] + 30), $GLOBALS['fanboyMirrorSeen']['full'], fanboyMirrorKeep(false, $seen['full'] + FANBOY_MIRROR_FULL_EVERY + 1),
              $GLOBALS['fanboyMirrorSeen']['full'] > $seen['full']]);
-        // while another holds the lock: not now, the next tick
+        // while another holds the lock (2026-11-24): waited for a moment, then kept without it — nothing changed, nothing written
         $lock = fopen(fanboyRunDir() . '/mirror.lock', 'c');
         flock($lock, LOCK_EX);
-        same('always on S3: the lock held by another writer — «busy», nothing written, the next tick', ['busy', $ino()], [fanboyMirrorKeep(true), $ino()]);
+        same('always on S3: the lock held by another writer — waited, then kept without it (the same: nothing written)', ['same', $ino()], [fanboyMirrorKeep(true), $ino()]);
         flock($lock, LOCK_UN);
         fclose($lock);
 
@@ -935,6 +935,77 @@ function testAlwaysOnControlRam(): void
             str_contains((string) file_get_contents(OFFICE_DIR . '/agent/lib/house.php'), "(NIGHT_MODE || (defined('RAM_JOB') && RAM_JOB !== '') ? OFFICE_NOTIFY_LANG_RAM : OFFICE_LANG_FILE)"));
     } finally {
         unset($GLOBALS['fanboyRamMode']);
+        alwaysOnTHireEnd($keep);
+        fanboyTEnd();
+    }
+}
+
+/**
+ * 2026-11-24 (the owner on nostromo, a release blocker): a zone changed and saved on the page while the control runs as a RAM
+ * job — the store was written, the mirror in RAM stayed as it was, and the control kept steering by the old zones. A save
+ * reaches the running control within a round or two: the save mirrors at once (also when the mirror's lock is held by
+ * someone who doesn't let go — a writer is never stopped by it for good), the control looks at its mirror every round.
+ */
+function testAlwaysOnSaveReachesControl(): void
+{
+    $t = fanboyT('ao-save');
+    $keep = alwaysOnTHire($t, true);
+    $procs = [];
+    $holder = null;
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $settings = fanboyTSettings();
+        fanboyTStore($settings);
+        fanboyMirrorKeep(true);
+        $data = "{$t['tmp']}/data";
+        @mkdir("$data/fanboy", 0700, true);
+        $zones = fn (array $ids) => array_values(array_map(fn ($z) => ['id' => $z['id'], 'name' => $z['name'], 'fans' => $z['fans'], 'unit' => $z['unit'],
+            'target' => $z['target'], 'sources' => array_map(fn ($s) => ['id' => $s['id']], $z['sources'])], array_filter($settings['zones'], fn ($z) => in_array($z['id'], $ids, true))));
+        $running = fn () => array_column(readJson(fanboyStatusFile())['zones'] ?? [], 'id');
+        $procs[] = alwaysOnTControl($t, $data);
+        $steers = fanboyTWait(fn () => $running() === ['disks', 'case'], 20);
+        check('always on save: the control runs as a RAM job with both zones', $steers, json_encode($running()) . ' ' . (string) @file_get_contents("{$t['tmp']}/proc.out"));
+
+        // 1. the page saves the zones (the case zone removed): the mirror says it at once, the control takes it within a round or two
+        $sum0 = fanboyMirrorRead(FANBOY_T_KEY)['sum'] ?? null;
+        $t0 = hrtime(true);
+        fanboyZonesSave(['zones' => $zones(['disks'])]);
+        $m = fanboyMirrorRead(FANBOY_T_KEY);
+        same('always on save: «Übernehmen» on the zones — the mirror in RAM says the new zones at once (its sum changed)',
+            [true, ['disks']], [($m['sum'] ?? null) !== $sum0, array_column($m['settings']['zones'] ?? [], 'id')]);
+        $took = fanboyTWait(fn () => $running() === ['disks'], 6);
+        $secs = round((hrtime(true) - $t0) / 1e9, 1);
+        check("always on save: … and the running control steers by them within a round or two ($secs s; at most 5)", $took && $secs <= 5.0, json_encode($running()));
+
+        // 2. the mirror's lock held by a process that never lets go (how the mirror stood still on nostromo): the save still
+        // reaches the mirror — after a short wait it is written without the lock (both writers write what the data folder says)
+        $holder = proc_open([PHP_BINARY, '-r', '$f = fopen(' . var_export(fanboyRunDir() . '/mirror.lock', true) . ', "c"); flock($f, LOCK_EX); fwrite(STDOUT, "held\n"); fflush(STDOUT); sleep(60);'],
+            [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
+        $held = trim((string) fgets($pipes[1])) === 'held';
+        $log0 = strlen((string) @file_get_contents(AGENT_LOG));
+        unset($GLOBALS['fanboyMirrorLockSaid']);            // (said at most every ten minutes: an earlier test may have said it)
+        $t1 = hrtime(true);
+        fanboyZonesSave(['zones' => $zones(['disks', 'case'])]);
+        $wait = round((hrtime(true) - $t1) / 1e9, 1);
+        same('always on save: the lock held by another process for good — the save still writes the mirror (after at most a few seconds), and says so in the log',
+            [true, ['disks', 'case'], true, true], [$held, array_column(fanboyMirrorRead(FANBOY_T_KEY)['settings']['zones'] ?? [], 'id'), $wait <= 4.0,
+             str_contains(substr((string) @file_get_contents(AGENT_LOG), $log0), 'the lock of his mirror in RAM is held')]);
+        $took = fanboyTWait(fn () => $running() === ['disks', 'case'], 6);
+        check('always on save: … and the control takes both zones again', $took, json_encode($running()));
+        // the agent's tick, while the lock stays held: a change behind its back reaches the mirror too (not «busy» forever)
+        $settings2 = fanboyTSettings();
+        $settings2['zones'] = [$settings['zones'][1]];
+        fanboyTStore($settings2);
+        same('always on save: … the tick too (a change behind its back, the lock still held): written, not «busy» for good', ['written', ['case']],
+            [fanboyMirrorKeep(false, fanboyMono() + 3600), array_column(fanboyMirrorRead(FANBOY_T_KEY)['settings']['zones'] ?? [], 'id')]);
+    } finally {
+        if (is_resource($holder)) {
+            proc_terminate($holder, 9);
+            proc_close($holder);
+        }
+        foreach ($procs as $p) {
+            alwaysOnTStop($p);
+        }
         alwaysOnTHireEnd($keep);
         fanboyTEnd();
     }
