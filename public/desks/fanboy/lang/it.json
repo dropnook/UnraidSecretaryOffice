@@ -672,6 +672,8 @@
   "dry.nothing_written": "Non è stato scritto nulla — succede solo dopo «Affida a lui».",
   "take.text": "Prende le ventole delle sue zone e le regola secondo ciò che si scalda davvero. Dissipatore della CPU, pompe e tutto il resto restano al BIOS.",
   "take.go": "Affida a lui",
+  "take.unsaved": "Le tue modifiche alle zone non sono ancora salvate. «Affida a lui» le salva prima — oppure salvale qui.",
+  "take.unsaved_steers": "Le tue modifiche alle zone non sono ancora salvate — regola ancora secondo quelle vecchie. Salvale, e le prende in pochi secondi.",
   "take.go_tip": "D'ora in poi Fanboy regola le ventole delle sue zone",
   "take.confirm_title": "Affidare le ventole a Fanboy?",
   "take.confirm": {

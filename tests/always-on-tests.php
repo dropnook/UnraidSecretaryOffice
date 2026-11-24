@@ -996,6 +996,13 @@ function testAlwaysOnSaveReachesControl(): void
         $settings2 = fanboyTSettings();
         $settings2['zones'] = [$settings['zones'][1]];
         fanboyTStore($settings2);
+        // the page (2026-11-24: Benj's zone change never reached the store — a draft, and «Übernehmen» doesn't save drafts): the
+        // «Übernehmen» step says unsaved zone changes with «Save zones» right there; «Übernehmen» saves them first
+        $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/desk.js');
+        $take = substr($js, (int) strpos($js, 'function takeStep()'), 9000);
+        same('always on save: the page — «Übernehmen» shows unsaved zone changes with their «Save», and saves them before taking over', [true, true, true],
+            [str_contains($take, 'zonesUnsavedBox(on)'), str_contains($take, "if (zonesPending() && !(await zonesSave(b2))) return true;"),
+             str_contains($js, "const zonesSave = (b) => act('zones_save'")]);
         same('always on save: … the tick too (a change behind its back, the lock still held): written, not «busy» for good', ['written', ['case']],
             [fanboyMirrorKeep(false, fanboyMono() + 3600), array_column(fanboyMirrorRead(FANBOY_T_KEY)['settings']['zones'] ?? [], 'id')]);
     } finally {

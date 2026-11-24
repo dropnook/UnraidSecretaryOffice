@@ -672,6 +672,8 @@
   "dry.nothing_written": "Rien n'a été écrit — cela n'arrive qu'après « Prendre en main ».",
   "take.text": "Il prend en main les ventilateurs de ses zones et les règle selon ce qui chauffe vraiment. Le ventirad du CPU, les pompes et tout le reste restent au BIOS.",
   "take.go": "Prendre en main",
+  "take.unsaved": "Tes modifications des zones ne sont pas encore enregistrées. « Prendre en main » les enregistre d'abord — ou enregistre-les ici.",
+  "take.unsaved_steers": "Tes modifications des zones ne sont pas encore enregistrées — il régule encore selon les anciennes. Enregistre-les, et il les prend en quelques secondes.",
   "take.go_tip": "Fanboy règle désormais les ventilateurs de ses zones",
   "take.confirm_title": "Laisser Fanboy prendre en main ?",
   "take.confirm": {

@@ -672,6 +672,8 @@
   "dry.nothing_written": "Es wurde nichts geschrieben — das geschieht erst nach «Übernehmen».",
   "take.text": "Er übernimmt die Lüfter seiner Zonen und regelt sie nach dem, was wirklich warm wird. CPU-Kühler, Pumpen und alles andere bleiben beim BIOS.",
   "take.go": "Übernehmen",
+  "take.unsaved": "Deine Änderungen an den Zonen sind noch nicht gespeichert. «Übernehmen» speichert sie zuerst — oder speichere sie hier.",
+  "take.unsaved_steers": "Deine Änderungen an den Zonen sind noch nicht gespeichert — er regelt noch nach den alten. Speichere sie, und er nimmt sie in wenigen Sekunden.",
   "take.go_tip": "Fanboy regelt ab jetzt die Lüfter seiner Zonen",
   "take.confirm_title": "Fanboy übernehmen lassen?",
   "take.confirm": {

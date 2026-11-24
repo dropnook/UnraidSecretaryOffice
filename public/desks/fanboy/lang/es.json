@@ -672,6 +672,8 @@
   "dry.nothing_written": "No se escribió nada — eso solo ocurre después de «Darle el control».",
   "take.text": "Toma los ventiladores de sus zonas y los regula según lo que de verdad se calienta. El disipador de la CPU, las bombas y todo lo demás se quedan con la BIOS.",
   "take.go": "Darle el control",
+  "take.unsaved": "Tus cambios en las zonas aún no están guardados. «Darle el control» los guarda primero — o guárdalos aquí.",
+  "take.unsaved_steers": "Tus cambios en las zonas aún no están guardados — todavía regula según las antiguas. Guárdalos, y los toma en pocos segundos.",
   "take.go_tip": "A partir de ahora Fanboy regula los ventiladores de sus zonas",
   "take.confirm_title": "¿Darle el control a Fanboy?",
   "take.confirm": {
