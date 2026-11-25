@@ -41,7 +41,7 @@ function testFanboyR5Subjects(): void
         file_put_contents("{$t['hw']}/pwm4", "60\n");
         fanboyTRounds($c, $now, $t, $spec, 5);
         file_put_contents("{$t['hw']}/pwm5_enable", "2\n");
-        fanboyTRounds($c, $now, $t, $spec, 2);
+        fanboyTRounds($c, $now, $t, $spec, 3);          // (2026-11-25: confirmed by three looks over FANBOY_FOREIGN_CONFIRM)
         $foreign = array_values(array_filter(fanboyR5Subjects($t), fn ($s) => str_contains($s, 'someone else')));
         same('fanboy r5 subjects: two foreign writes — two warnings, each subject naming its fan (Unraid\'s guard keys on the subject)',
             ['Fanboy: someone else changed Cage', 'Fanboy: someone else changed Front'], $foreign);

@@ -27,6 +27,8 @@ declare(strict_types=1);
  */
 
 const FANBOY_ROUND = 2.0;               // seconds between rounds
+const FANBOY_FOREIGN_CONFIRM = 3.0;     // seconds someone else's write must be seen before he acts (one read can be wrong;
+                                        // nct6775 keeps registers ~1.5 s): three looks over ~4 s at FANBOY_ROUND
 const FANBOY_GAP = 2.0;                 // °C below the temperature it went up at before it goes down
 const FANBOY_DOWN_STEP = 1.0;           // percent a round at most going down (30 % a minute)
 const FANBOY_DOWN_STEP_RPM = 15;        // rpm a round at most going down (rpm zones)
@@ -630,6 +632,8 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
                 'back' => $cpu ? 'auto' : (in_array($f['back'] ?? null, FANBOY_BACKS, true) ? $f['back'] : FANBOY_BACK_DEFAULT), 'auto' => null,
                 'device' => null, 'pct' => null, 'value' => null, 'changed' => null, 'kick_until' => null, 'trim' => 0.0,
                 'rpm' => null, 'zero_since' => null, 'kicks' => 0, 'gone' => false, 'foreign' => false, 'taken' => false, 'verified' => false,
+                // 2026-11-25: someone else's write seen and not yet confirmed — {since (monotonic), expect, now} (fanboyForeignRound())
+                'foreign_seen' => null,
                 // round 12: standing on purpose — since when (wall clock), a CPU cooler's cool time and «ab» (°C)
                 'standing' => false, 'stand_since' => null, 'cool_since' => null, 'stand_at' => null,
             ];
@@ -670,10 +674,10 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
     ];
 }
 
-/** A note for the status and the log, once per kind and fan (the last 20 kept) */
-function fanboyNote(array &$c, string $code, array $params = []): void
+/** A note for the status and the log, once per kind and fan (the last 20 kept); $line: the log's words instead of code and params */
+function fanboyNote(array &$c, string $code, array $params = [], ?string $line = null): void
 {
-    $c['events'][] = ['code' => $code, 'params' => $params, 'at' => time()];
+    $c['events'][] = ['code' => $code, 'params' => $params, 'at' => time()] + ($line !== null ? ['line' => $line] : []);
     $c['notes'] = array_slice(array_merge($c['notes'], [['code' => $code, 'params' => $params, 'at' => time()]]), -20);
 }
 
@@ -957,14 +961,8 @@ function fanboyRound(array &$c, float $now): void
         }
     }
     fanboyTakeAll($c);
-    // 2. someone else's write: that output back to the BIOS, said once
-    foreach (fanboyForeign($c['owner']) as $id => $x) {
-        fanboyLetGo($c, 'foreign', [$id]);
-        $c['fans'][$id]['foreign'] = true;
-        $label = fanboyFanLabel($c['fans'][$id]);
-        fanboyNote($c, 'foreign', ['fan' => $label]);
-        fanboyTell($c, "foreign:$id", 'foreign', ['fan' => $label], 'warning');
-    }
+    // 2. someone else's write (seen for FANBOY_FOREIGN_CONFIRM): that output back to the BIOS, said once
+    fanboyForeignRound($c, $now);
     // 3. what is there now: rpm, sources, the chip
     $gone = [];
     foreach ($c['fans'] as $id => $f) {
@@ -1540,10 +1538,68 @@ function fanboyCpuStand(array &$c, array $z, string $id, float $now, bool $alarm
     return $f['standing'];
 }
 
+/**
+ * Someone else's write, confirmed before he acts (2026-11-25, a W680 board whose Super-I/O ACPI and the BMC read too:
+ * twice in 33 hours ONE wrong read gave a steadily held output back with a warning). A mismatch is remembered per fan
+ * (`foreign_seen`: since, on the monotonic clock, what he expected, what was read) and acted on — let go, marked, noted,
+ * told — only once it has been seen in every look for FANBOY_FOREIGN_CONFIRM seconds. A look that reads it as his again
+ * ends it (one quiet log line: the proof of a misread); a look that can't read it is «don't know» — never a mismatch,
+ * and it ends one open (not seen in every look; a log line); a value he wrote himself meanwhile (a new `expect`) starts
+ * it anew. While one is open he writes nothing to that output (fanboyApply(), fanboyFullOne()): his own write would
+ * wipe out the other one's.
+ */
+function fanboyForeignRound(array &$c, float $now): void
+{
+    $look = fanboyForeignLook($c['owner']);
+    $say = fn (?array $s): string => is_array($s) ? ($s['value'] ?? '?') . (($s['enable'] ?? null) === null ? '' : '/' . $s['enable']) : '?';
+    foreach ($c['fans'] as $id => $f) {
+        $x = $look[$id] ?? null;
+        $seen = $f['foreign_seen'] ?? null;
+        if ($x === null || !$f['taken']) {
+            $c['fans'][$id]['foreign_seen'] = null;         // not his (any more): nothing to confirm
+            continue;
+        }
+        $label = fanboyFanLabel($f);
+        if ($x['state'] === 'unknown') {
+            if (is_array($seen)) {
+                $c['events'][] = ['code' => 'foreign_unread', 'params' => [], 'at' => time(), 'line' => "$label read as changed by someone else (expected "
+                    . $say($seen['expect']) . ', read ' . $say($seen['now']) . '), then not readable — not confirmed, nothing done'];
+                $c['fans'][$id]['foreign_seen'] = null;
+            }
+            continue;
+        }
+        if ($x['state'] === 'ours') {
+            if (is_array($seen)) {
+                $c['events'][] = ['code' => 'foreign_misread', 'params' => [], 'at' => time(), 'line' => "$label read as changed by someone else (expected "
+                    . $say($seen['expect']) . ', read ' . $say($seen['now']) . '), as written again ' . (int) round($now - $seen['since']) . ' s later — a misread, nothing done'];
+                $c['fans'][$id]['foreign_seen'] = null;
+            }
+            continue;
+        }
+        if (!is_array($seen) || $seen['expect'] !== $x['expect']) {
+            $c['fans'][$id]['foreign_seen'] = ['since' => $now, 'expect' => $x['expect'], 'now' => $x['now']];
+            continue;
+        }
+        $c['fans'][$id]['foreign_seen']['now'] = $x['now'];
+        if ($now - $seen['since'] < FANBOY_FOREIGN_CONFIRM) {
+            continue;
+        }
+        fanboyLetGo($c, 'foreign', [$id]);
+        $c['fans'][$id]['foreign'] = true;
+        $c['fans'][$id]['foreign_seen'] = null;
+        fanboyNote($c, 'foreign', ['fan' => $label], "someone else changed $label (expected " . $say($x['expect']) . ', read ' . $say($x['now'])
+            . ' for ' . (int) round($now - $seen['since']) . ' s) — given back to the BIOS');
+        fanboyTell($c, "foreign:$id", 'foreign', ['fan' => $label], 'warning');
+    }
+}
+
 /** Writes a fan's percentage when its value changed: from standing, its start value for its kick (FANBOY_KICK, or longer by its start_secs) first */
 function fanboyApply(array &$c, string $id, float $now): void
 {
     $f = $c['fans'][$id];
+    if (($f['foreign_seen'] ?? null) !== null) {
+        return;                     // someone else's write being confirmed: his own would wipe it out (fanboyForeignRound())
+    }
     $pct = $f['pct'];
     if ($f['kick_until'] !== null && $now < $f['kick_until']) {
         $pct = max($pct, $f['start']);
@@ -1609,7 +1665,7 @@ function fanboyFullZones(array &$c, float $now): array
 function fanboyFullOne(array &$c, string $id): void
 {
     $f = $c['fans'][$id];
-    if ($f['value'] !== FANBOY_FULL) {
+    if ($f['value'] !== FANBOY_FULL && ($f['foreign_seen'] ?? null) === null) {      // (being confirmed: a round later)
         if (fanboySet($id, FANBOY_FULL, $c['owner']) !== null) {
             $c['fans'][$id]['value'] = FANBOY_FULL;
             $c['fans'][$id]['changed'] = null;
@@ -2358,7 +2414,7 @@ function fanboyControlReload(array &$c, array $settings, string $key, array $own
             continue;               // not held now: taken by the next round as at a start
         }
         foreach (['device', 'address_now', 'hwmon', 'auto', 'taken', 'value', 'changed', 'pct', 'kick_until', 'kicks', 'rpm', 'rpms', 'zero_since',
-                  'standing', 'stand_since', 'cool_since', 'stand_at', 'refused', 'trim', 'drift_since', 'cpu_hist'] as $k) {
+                  'standing', 'stand_since', 'cool_since', 'stand_at', 'refused', 'trim', 'drift_since', 'cpu_hist', 'foreign_seen'] as $k) {
             if (array_key_exists($k, $f)) {
                 $new['fans'][$id][$k] = $f[$k];
             }
@@ -2416,6 +2472,10 @@ function fanboyStopAsked(): bool
 function fanboyControlLog(array &$c): void
 {
     foreach ($c['events'] as $e) {
+        if (is_string($e['line'] ?? null)) {
+            logLine("Fanboy: {$e['line']}");
+            continue;
+        }
         $p = $e['params'];
         $what = implode(', ', array_map(fn ($k, $v) => "$k " . (is_scalar($v) ? $v : json_encode($v)), array_keys($p), $p));
         logLine("Fanboy: {$e['code']}" . ($what !== '' ? " ($what)" : ''));

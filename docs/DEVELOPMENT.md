@@ -1024,8 +1024,9 @@ the last 60 history lines only for a source the file has none for. **The file
   a round, CPU/GPU 4; down 3 °C under the highest, after 30 s, 1 % a round, CPU/GPU 2) or «quickly» (`quick`: up at once,
   the kind's short way down); never under a fan's lowest steady value («off» only where allowed); alarms (a fan stands —
   his or a watched CPU cooler/pump —, a sensor silent): that zone's fans to 100 % until 2 minutes without a reason, the other zones steer on, told once per fan or
-  sensor (its name in the subject — Unraid drops a second notification of the same subject); someone else's write: that
-  output given back; the chip missing at the start (a boot): the BIOS has them — looked for every 5 s, then every minute,
+  sensor (its name in the subject — Unraid drops a second notification of the same subject); someone else's write (seen in
+  every look for `FANBOY_FOREIGN_CONFIRM`, 3 s — one read can be wrong where ACPI or a BMC shares the chip; unreadable =
+  «don't know»; a misread that goes away is a log line only): that output given back; the chip missing at the start (a boot): the BIOS has them — looked for every 5 s, then every minute,
   one notification after 15 minutes, then every 5 minutes, «Look now»; the chip gone **while he steers**: nobody steers
   (`who: nobody`, `chip_gone` — the fans stay on the values he wrote last), one alert at once with what to do, after 15
   minutes only «still missing». **Setup steps** (`fanboy-setup.php`, actions; the wizard's page is part 3): test up (which tach follows; none

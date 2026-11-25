@@ -483,7 +483,7 @@ function testFanboyR7ControlFullOn(): void
         same('fanboy r7 control: … the alarm over — it comes down again (a fixed value, mode 1 written again)', [null, 1, true], [$c['alarm'], $out[1], $out[0] < 255]);
         // someone else really writes: still told
         file_put_contents("{$t['hw']}/pwm4", "60\n");
-        fanboyTRounds($c, $now, $t, $spec, 2);
+        fanboyTRounds($c, $now, $t, $spec, 3);          // (2026-11-25: confirmed by three looks over FANBOY_FOREIGN_CONFIRM)
         same('fanboy r7 control: a real foreign write (a value changed) is still told', true, in_array('foreign', array_column($c['notes'], 'code'), true));
         fanboyLetGo($c, 'end');
         // a give-back to a fixed full: reads «full on» — as it was, not «NOT read back»
