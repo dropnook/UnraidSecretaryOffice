@@ -246,6 +246,37 @@ function watchmanVulnIn(array $have, array $r): bool
  */
 function watchmanVulnItem(array $item, string $have): array
 {
+    $v = watchmanVulnItemJudge($item, $have);
+    $h = watchmanVulnParse($have);
+    if ($v[0] !== 'no' || $h === null) {
+        return $v;
+    }
+    // 2026-11-25: a version named alone, coarser than the one here (NVD's exact CPE «bash:4.3» for Bash 4.3.011) and equal
+    // on its own parts — whether this patch level is that version, the record doesn't say: a «no» becomes maybe (never a
+    // yes). Not when the platform rules it out, nor when a range marks this version unaffected itself.
+    $platforms = array_map(fn ($p) => strtolower((string) $p), (array) ($item['platforms'] ?? []));
+    if ($platforms && !array_filter($platforms, fn ($p) => preg_match('/linux|unix|all/', $p))) {
+        return $v;
+    }
+    $exact = null;
+    foreach ((array) ($item['versions'] ?? []) as $r) {
+        $x = is_array($r) ? watchmanVulnRange($r) : null;
+        if ($x === null) {
+            continue;
+        }
+        if ($x['status'] === 'unaffected' && watchmanVulnIn($h, $x)) {
+            return $v;
+        }
+        if ($x['status'] === 'affected' && $x['exact'] && watchmanVulnCoarser($h, $x['start'])) {
+            $exact ??= watchmanVulnText1($x['start']);
+        }
+    }
+    return $exact === null ? $v : ['maybe', null, 'rough', $exact];
+}
+
+/** The strict rule of watchmanVulnItem() (see there), before a coarse version named alone is looked at */
+function watchmanVulnItemJudge(array $item, string $have): array
+{
     $h = watchmanVulnParse($have);
     if ($h === null) {
         return ['maybe', null];
@@ -348,9 +379,15 @@ function watchmanVulnRough(array $have, array $r): bool
     if (!$r['incl'] || $r['end'] === null || $r['exact'] || $r['branch'] !== null || watchmanVulnCmp($have, $r['start']) < 0) {
         return false;
     }
-    $n = count($r['end'][0]);
-    $coarser = $n < count($have[0]) || ($r['end'][1] === 0 && $have[1] > 0);
-    return $coarser && array_slice($have[0], 0, $n) === $r['end'][0] && watchmanVulnCmp($have, $r['end']) > 0;
+    return watchmanVulnCoarser($have, $r['end']);
+}
+
+/** $bound is coarser than $have (fewer numbers, or no patch level where $have has one), equal on its own parts, below it */
+function watchmanVulnCoarser(array $have, array $bound): bool
+{
+    $n = count($bound[0]);
+    $coarser = $n < count($have[0]) || ($bound[1] === 0 && $have[1] > 0);
+    return $coarser && array_slice($have[0], 0, $n) === $bound[0] && watchmanVulnCmp($have, $bound) > 0;
 }
 
 /** A parsed version as text («2.6.36», «9.8p1») */
@@ -481,7 +518,8 @@ function watchmanVulnItems(?array $record, array $cna): array
  * The record never looked at this release line (1.96, 2026-11-25): of the product's items for this server (platforms),
  * no range holds $have — whatever its status — and none names the line $cycle (a range's start, end or branch beginning
  * with it: «8.2.* < 8.2.20» names 8.2, «0 < 5.3.12» names no 7.2). Such a «not affected» rests only on what the vendor
- * left out — PHP's records list the lines it still maintains.
+ * left out — PHP's records list the lines it still maintains. Only when an affected range starts above $have: the record
+ * names newer lines only.
  */
 function watchmanVulnOutside(?array $record, array $cna, string $have, string $cycle): bool
 {
@@ -492,7 +530,7 @@ function watchmanVulnOutside(?array $record, array $cna, string $have, string $c
     }
     $line = $line[0];
     $names = fn (?array $parts): bool => $parts !== null && count($parts) >= count($line) && array_slice($parts, 0, count($line)) === $line;
-    $seen = false;
+    $newer = false;         // an affected range starting above this version: the record names newer lines (2026-11-25)
     foreach (watchmanVulnItems($record, $cna) as $item) {
         $platforms = array_map(fn ($p) => strtolower((string) $p), (array) ($item['platforms'] ?? []));
         if ($platforms && !array_filter($platforms, fn ($p) => preg_match('/linux|unix|all/', $p))) {
@@ -503,13 +541,15 @@ function watchmanVulnOutside(?array $record, array $cna, string $have, string $c
             if ($x === null) {
                 continue;
             }
-            $seen = true;
             if (watchmanVulnIn($h, $x) || $names($x['start'][0]) || $names($x['end'][0] ?? null) || $names($x['branch'])) {
                 return false;
             }
+            $newer = $newer || ($x['status'] === 'affected' && watchmanVulnCmp($x['start'], $h) > 0);
         }
     }
-    return $seen;
+    // only newer lines named: the vendor looked past this one. A version above every range (fixed before its line
+    // existed: PHP 7.2 against «0 < 5.3.12») keeps «not affected», whatever the dates say
+    return $newer;
 }
 
 // ===================================================================== what is here
@@ -791,18 +831,24 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
     $want = array_values(array_unique(array_column(is_array($kept) ? (array) ($kept['entries'] ?? []) : [], 'cve')));
     $want = array_slice($want, 0, WATCH_VULN_CVE_MAX);
     $have = [];
+    $undated = [];          // kept by an older office, reduced without its publication date (2026-11-25): asked anew first
     foreach (glob("$f/cve/CVE-*.json") ?: [] as $file) {
         $id = basename($file, '.json');
         if (!in_array($id, $want, true)) {
             @unlink($file);                  // left the list
             continue;
         }
-        $have[$id] = (int) (readJson($file)['fetched'] ?? 0);
+        $rec = readJson($file);
+        $have[$id] = (int) ($rec['fetched'] ?? 0);
+        if (is_array($rec) && !array_key_exists('published', $rec)) {
+            $undated[] = $id;
+        }
     }
     $due = array_values(array_filter($want, fn ($id) => !isset($have[$id])));
     asort($have);
+    $due = array_merge($due, array_values(array_intersect(array_keys($have), $undated)));
     foreach ($have as $id => $t) {
-        if ($t <= $now - WATCH_VULN_CVE_AGE) {
+        if ($t <= $now - WATCH_VULN_CVE_AGE && !in_array($id, $undated, true)) {
             $due[] = $id;
         }
     }
@@ -830,7 +876,9 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
             continue;
         }
         unset($tried[$id]);
-        writeAtomic("$f/cve/$id.json", jsonEncode(['v' => 1, 'fetched' => $now] + $red), 0600, 0, 0);
+        // `published` always written — null when the record names no date (the day CISA listed it counts then), so a
+        // record without one is never asked again before WATCH_VULN_CVE_AGE
+        writeAtomic("$f/cve/$id.json", jsonEncode(['v' => 1, 'fetched' => $now] + $red + ['published' => null]), 0600, 0, 0);
         $res['cve']++;
     }
     writeAtomic("$f/cve-tried.json", (string) json_encode((object) $tried), 0600, 0, 0);
@@ -851,18 +899,24 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
     $unsure = $ctx['unsure'] ?? array_column(array_filter((array) ((readJson("$dir/state.json") ?? [])['vuln_look']['unsure'] ?? []), 'is_array'), 'cve');
     $unsure = array_values(array_unique(array_filter($unsure, fn ($x) => is_string($x) && in_array($x, $want, true))));
     $nvdHave = [];
+    $nvdUndated = [];       // an older office's answer, kept without its publication date: asked anew after the new ones
     foreach (glob("$f/nvd/CVE-*.json") ?: [] as $file) {
         $id = basename($file, '.json');
         if (!in_array($id, $want, true)) {
             @unlink($file);                  // left the list
             continue;
         }
-        $nvdHave[$id] = (int) (readJson($file)['fetched'] ?? 0);
+        $rec = readJson($file);
+        $nvdHave[$id] = (int) ($rec['fetched'] ?? 0);
+        if (is_array($rec) && !array_key_exists('published', $rec)) {
+            $nvdUndated[] = $id;
+        }
     }
     $nvdDue = array_values(array_filter($unsure, fn ($id) => !isset($nvdHave[$id])));
     asort($nvdHave);
+    $nvdDue = array_merge($nvdDue, array_values(array_intersect(array_keys($nvdHave), $nvdUndated)));
     foreach ($nvdHave as $id => $t) {
-        if ($t <= $now - WATCH_VULN_CVE_AGE) {
+        if ($t <= $now - WATCH_VULN_CVE_AGE && !in_array($id, $nvdUndated, true)) {
             $nvdDue[] = $id;
         }
     }
@@ -884,7 +938,7 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
             $nvdErr = $b['err'] ?? ('HTTP ' . $b['code']);
             continue;
         }
-        writeAtomic("$f/nvd/$id.json", jsonEncode(['v' => 1, 'fetched' => $now] + $red), 0600, 0, 0);
+        writeAtomic("$f/nvd/$id.json", jsonEncode(['v' => 1, 'fetched' => $now] + $red + ['published' => null]), 0600, 0, 0);
         $res['nvd']++;
     }
     if ($nvdAsk) {

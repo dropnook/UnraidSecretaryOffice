@@ -22147,6 +22147,20 @@ function testWatchmanVulnHonest(): void
     $unaff = $rec('CVE-2014-6271', [['version' => '1.14.0', 'lessThanOrEqual' => '4.3', 'status' => 'affected', 'versionType' => 'custom'],
                                     ['version' => '4.3.11', 'status' => 'unaffected', 'versionType' => 'custom']]);
     same('vuln honest: a record that names 4.3.11 unaffected itself keeps «not affected»', ['no', null], watchmanVulnVerdict($unaff, $bc, '4.3.11'));
+    // a version named alone, coarser than the one here (NVD's exact CPEs for CVE-2014-6278): only a «no» becomes maybe
+    $exactList = fn (array $vs, array $more = []) => watchmanVulnReduce(['cveMetadata' => ['cveId' => 'CVE-2014-6278'], 'containers' => ['cna' => ['affected' => [
+        ['vendor' => 'gnu', 'product' => 'bash', 'defaultStatus' => 'unaffected', 'versions' => array_merge(array_map(fn ($v) => ['version' => $v, 'status' => 'affected',
+            'versionType' => 'custom'], $vs), $more)]]]]]);
+    $named = $exactList(['1.14.0', '2.05', '3.2.48', '4.2', '4.3']);
+    same('vuln honest: exact «4.3» and 4.3.011 — can\'t be checked for sure (4.2.53 against exact «4.2» the same); 5.3.3 not affected; 4.3 itself affected',
+        [['maybe', null, 'rough', '4.3'], ['no', null], ['maybe', null, 'rough', '4.2'], ['yes', null]],
+        [watchmanVulnVerdict($named, $bc, '4.3.011'), watchmanVulnVerdict($named, $bc, '5.3.3'), watchmanVulnVerdict($named, $bc, '4.2.53'), watchmanVulnVerdict($named, $bc, '4.3')]);
+    same('vuln honest: an exact version never turns «affected» into maybe — 4.3.011 inside «4.3.0 ≤ 4.3.30» stays affected beside exact «4.3»', 'yes',
+        watchmanVulnVerdict($exactList(['4.3'], [['version' => '4.3.0', 'lessThanOrEqual' => '4.3.30', 'status' => 'affected', 'versionType' => 'custom']]), $bc, '4.3.011')[0]);
+    same('vuln honest: an exact version as precise as the one here stays as before (4.3.12 against exact 4.3.11: not affected); one marked unaffected itself too',
+        [['no', null], ['no', null]],
+        [watchmanVulnVerdict($exactList(['4.3.11']), $bc, '4.3.12'),
+         watchmanVulnVerdict($exactList(['4.3'], [['version' => '4.3.11', 'status' => 'unaffected', 'versionType' => 'custom']]), $bc, '4.3.11')]);
     // NVD's CPE range «versionEndIncluding 4.3» — the same rule
     $nvd = watchmanVulnNvdReduce(['vulnerabilities' => [['cve' => ['id' => 'CVE-2014-6271', 'published' => '2014-09-24T18:48:04.477', 'configurations' => [['nodes' => [['operator' => 'OR',
         'negate' => false, 'cpeMatch' => [['vulnerable' => true, 'criteria' => 'cpe:2.3:a:gnu:bash:*:*:*:*:*:*:*:*', 'versionEndIncluding' => '4.3']]]]]]]]]], 'CVE-2014-6271');
@@ -22164,7 +22178,12 @@ function testWatchmanVulnHonest(): void
         ['cve' => 'CVE-2026-1001', 'product' => 'php', 'name' => 'PHP Example Vulnerability', 'added' => '2026-06-01', 'ransom' => false, 'desc' => ''],
         ['cve' => 'CVE-2014-6271', 'product' => 'bash', 'name' => 'GNU Bash Arbitrary Code Execution Vulnerability', 'added' => '2022-01-28', 'ransom' => false, 'desc' => ''],
         ['cve' => 'CVE-2026-2002', 'product' => 'sudo', 'name' => 'Sudo Example Vulnerability', 'added' => '2026-06-01', 'ransom' => false, 'desc' => ''],
-        ['cve' => 'CVE-2026-3003', 'product' => 'php', 'name' => 'PHP Unaffected Example', 'added' => '2026-06-01', 'ransom' => false, 'desc' => '']]]), 0600, 0, 0);
+        ['cve' => 'CVE-2026-3003', 'product' => 'php', 'name' => 'PHP Unaffected Example', 'added' => '2026-06-01', 'ransom' => false, 'desc' => ''],
+        ['cve' => 'CVE-2012-1823', 'product' => 'php', 'name' => 'PHP-CGI Query String Parameter Vulnerability', 'added' => '2022-03-25', 'ransom' => false, 'desc' => '']]]), 0600, 0, 0);
+    // as an older office kept it: no `published` — CISA's 2022 counts, after 7.2's end; its ranges all end below 7.2
+    writeAtomic("$f/cve/CVE-2012-1823.json", jsonEncode(['id' => 'CVE-2012-1823', 'affected' => [], 'adp' => [['vendor' => 'php', 'product' => 'php', 'defaultStatus' => 'unknown',
+        'versions' => [['version' => '0', 'status' => 'affected', 'lessThan' => '5.3.12', 'versionType' => 'custom'],
+                       ['version' => '5.4.0', 'status' => 'affected', 'lessThan' => '5.4.2', 'versionType' => 'custom']]]]]), 0600, 0, 0);
     $php = fn (string $id, array $more = []) => watchmanVulnReduce(['cveMetadata' => ['cveId' => $id, 'datePublished' => '2026-05-20T10:00:00.000Z'],
         'containers' => ['cna' => ['affected' => [['vendor' => 'PHP Group', 'product' => 'PHP', 'defaultStatus' => 'unaffected', 'versions' => array_merge([
             ['version' => '8.1.0', 'lessThan' => '8.1.40', 'status' => 'affected', 'versionType' => 'semver'],
@@ -22197,7 +22216,8 @@ function testWatchmanVulnHonest(): void
     };
     same('vuln honest: 7.2 past its end when the record came out — can\'t be checked for sure; 7.4 still maintained then and 8.4: not affected; sudo (no end-of-life data): not affected; '
         . 'a record naming 7.2.20 unaffected: not affected; Bash 4.3.011 against «≤ 4.3»: can\'t be checked for sure',
-        ['CVE-2014-6271 host unsure rough 4.3', 'CVE-2026-1001 host checked', 'CVE-2026-1001 newphp checked', 'CVE-2026-1001 oldphp unsure eol 7.2', 'CVE-2026-1001 php74 checked',
+        ['CVE-2012-1823 host checked', 'CVE-2012-1823 newphp checked', 'CVE-2012-1823 oldphp checked', 'CVE-2012-1823 php74 checked',
+         'CVE-2014-6271 host unsure rough 4.3', 'CVE-2026-1001 host checked', 'CVE-2026-1001 newphp checked', 'CVE-2026-1001 oldphp unsure eol 7.2', 'CVE-2026-1001 php74 checked',
          'CVE-2026-2002 host checked', 'CVE-2026-3003 host checked', 'CVE-2026-3003 newphp checked', 'CVE-2026-3003 oldphp checked', 'CVE-2026-3003 php74 checked'], $rows($j));
     $book = [];
     $seen = [];
@@ -22214,6 +22234,9 @@ function testWatchmanVulnHonest(): void
     // a record that names the line itself (8.1 fixed in its branch) stays clean even with the line past its end
     same('vuln honest: a range naming the line keeps «not affected» — 8.1.45 past «8.1.0 < 8.1.40»', false,
         watchmanVulnOutside($php('CVE-2026-1001'), WATCH_VULN_PRODUCTS['php']['cna'], '8.1.45', '8.1'));
+    same('vuln honest: only newer lines named counts — 7.2.20 above «0 < 5.3.12» and «5.4.0 < 5.4.2» (fixed before 7.2 existed) is no line left out; below 8.1–8.3 it is',
+        [false, true], [watchmanVulnOutside(readJson("$f/cve/CVE-2012-1823.json"), WATCH_VULN_PRODUCTS['php']['cna'], '7.2.20', '7.2'),
+                        watchmanVulnOutside($php('CVE-2026-1001'), WATCH_VULN_PRODUCTS['php']['cna'], '7.2.20', '7.2')]);
     // the NVD settles an «eol» unsure when its ranges name the version
     $kev['entries'][0]['added'] = '2026-06-01';
     writeAtomic("$f/kev.json", jsonEncode($kev), 0600, 0, 0);
@@ -22227,6 +22250,45 @@ function testWatchmanVulnHonest(): void
     $page = watchmanVulnPage(['vuln_on' => true], $j);
     same('vuln honest: the page carries each unsure row\'s reason', [['CVE-2026-1001', 'eol', '7.2', 'PHP'], ['CVE-2014-6271', 'rough', '4.3', 'Bash']],
         array_map(fn ($x) => [$x['cve'], $x['why'] ?? null, $x['bound'] ?? null, $x['label']], $page['unsure']));
+
+    // kept records an older office reduced without `published`: asked anew at the next fetch (not after a week); a record
+    // its source gives no date for is kept with `published: null` and not asked again the next day
+    $dir = "$tmp/fetch";
+    $ff = watchmanVulnDir($dir);
+    @mkdir("$ff/cve", 0700, true);
+    @mkdir("$ff/nvd", 0700, true);
+    $kevList = [['cveID' => 'CVE-2012-1823', 'vendorProject' => 'PHP', 'product' => 'PHP', 'dateAdded' => '2022-03-25'],
+                ['cveID' => 'CVE-2014-6271', 'vendorProject' => 'GNU', 'product' => 'GNU Bash', 'dateAdded' => '2022-01-28']];
+    for ($i = 0; $i < 120; $i++) {
+        $kevList[] = ['cveID' => sprintf('CVE-2023-%05d', 40000 + $i), 'vendorProject' => 'Example Corp', 'product' => "Switch $i"];
+    }
+    $answers = [WATCH_VULN_URLS['kev'] => json_encode(['count' => count($kevList), 'vulnerabilities' => $kevList]),
+        watchmanVulnCveUrl('CVE-2012-1823') => json_encode(['cveMetadata' => ['cveId' => 'CVE-2012-1823', 'datePublished' => '2012-05-11T10:00:00.000Z'],
+            'containers' => ['cna' => ['affected' => [['vendor' => 'n/a', 'product' => 'n/a', 'versions' => [['version' => 'n/a', 'status' => 'affected']]]]]]]),
+        watchmanVulnCveUrl('CVE-2014-6271') => json_encode(['cveMetadata' => ['cveId' => 'CVE-2014-6271'],      // the source names no date
+            'containers' => ['cna' => ['affected' => [['vendor' => 'n/a', 'product' => 'n/a', 'versions' => [['version' => 'n/a', 'status' => 'affected']]]]]]]),
+        WATCH_VULN_URLS['nvd'] . 'CVE-2014-6271' => json_encode(['vulnerabilities' => [['cve' => ['id' => 'CVE-2014-6271', 'published' => '2014-09-24T18:48:04.477']]]])];
+    $asked = [];
+    $get = function (string $url, ?string $since) use (&$asked, $answers): array {
+        $asked[] = $url;
+        return isset($answers[$url]) ? ['code' => 200, 'body' => $answers[$url], 'lm' => null, 'err' => null] : ['code' => 404, 'body' => '', 'lm' => null, 'err' => 'HTTP 404'];
+    };
+    $t = 1_800_000_000;
+    foreach (['CVE-2012-1823', 'CVE-2014-6271'] as $id) {           // fetched yesterday by an older office: no `published`
+        writeAtomic("$ff/cve/$id.json", jsonEncode(['v' => 1, 'fetched' => $t - 86400, 'id' => $id, 'affected' => []]), 0600, 0, 0);
+    }
+    writeAtomic("$ff/nvd/CVE-2014-6271.json", jsonEncode(['v' => 1, 'fetched' => $t - 86400, 'id' => 'CVE-2014-6271', 'affected' => []]), 0600, 0, 0);
+    $records = function () use (&$asked): array {
+        return array_values(array_filter($asked, fn ($u) => str_contains($u, 'cvelistV5') || str_contains($u, 'nvd.nist.gov')));
+    };
+    watchmanVulnFetch($dir, ['get' => $get, 'now' => $t, 'sleep' => fn () => null, 'unsure' => []]);
+    same('vuln honest: kept without a date — both records and the NVD\'s answer asked anew the next day; the dates kept, null where the source names none',
+        [3, '2012-05-11', null, true, '2014-09-24'],
+        [count($records()), readJson("$ff/cve/CVE-2012-1823.json")['published'] ?? '-', (readJson("$ff/cve/CVE-2014-6271.json") ?? [])['published'] ?? null,
+         array_key_exists('published', readJson("$ff/cve/CVE-2014-6271.json") ?? []), readJson("$ff/nvd/CVE-2014-6271.json")['published'] ?? '-']);
+    $asked = [];
+    watchmanVulnFetch($dir, ['get' => $get, 'now' => $t + 86400, 'sleep' => fn () => null, 'unsure' => []]);
+    same('vuln honest: the day after — nothing asked again (a dateless record is marked, not fetched daily)', [], $records());
     hardeningRm($tmp);
 }
 
