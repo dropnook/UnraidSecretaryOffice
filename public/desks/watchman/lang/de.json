@@ -1992,7 +1992,7 @@
   "setup.changed_sub": "Jede Einstellung, die von der Vorgabe abweicht, jeder ausgeschaltete Bereich, alles, was immer in Ordnung ist: Hier siehst du, was er alles nicht mehr meldet.",
   "setup.changes_n": {"one": "{n} Änderung", "other": "{n} Änderungen"},
   "setup.none": "keine",
-  "setup.default": "Vorgabe",
+  "setup.default": "USO-Default",
   "setup.changed_n": {"one": "{n} geändert", "other": "{n} geändert"},
   "setup.off": "aus",
   "setup.rules_n": {"one": "immer in Ordnung: {n}", "other": "immer in Ordnung: {n}"},

@@ -1992,7 +1992,7 @@
   "setup.changed_sub": "Ogni impostazione diversa dal predefinito, ogni area spenta, tutto ciò che è sempre a posto: qui vedi tutto ciò che non segnala più.",
   "setup.changes_n": {"one": "{n} modifica", "other": "{n} modifiche"},
   "setup.none": "nessuna",
-  "setup.default": "predefinito",
+  "setup.default": "predefinito USO",
   "setup.changed_n": {"one": "{n} cambiata", "other": "{n} cambiate"},
   "setup.off": "spenta",
   "setup.rules_n": {"one": "sempre a posto: {n}", "other": "sempre a posto: {n}"},

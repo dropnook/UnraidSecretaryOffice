@@ -1992,7 +1992,7 @@
   "setup.changed_sub": "Every setting off its default, every area switched off, everything that is always all right: here you see everything he no longer tells.",
   "setup.changes_n": {"one": "{n} change", "other": "{n} changes"},
   "setup.none": "none",
-  "setup.default": "defaults",
+  "setup.default": "USO defaults",
   "setup.changed_n": {"one": "{n} changed", "other": "{n} changed"},
   "setup.off": "off",
   "setup.rules_n": {"one": "always all right: {n}", "other": "always all right: {n}"},

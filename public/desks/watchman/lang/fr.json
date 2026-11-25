@@ -1992,7 +1992,7 @@
   "setup.changed_sub": "Chaque réglage différent de la valeur par défaut, chaque zone désactivée, tout ce qui est toujours en ordre : ici tu vois tout ce qu'il ne signale plus.",
   "setup.changes_n": {"one": "{n} changement", "other": "{n} changements"},
   "setup.none": "aucun",
-  "setup.default": "par défaut",
+  "setup.default": "par défaut USO",
   "setup.changed_n": {"one": "{n} changé", "other": "{n} changés"},
   "setup.off": "désactivée",
   "setup.rules_n": {"one": "toujours en ordre : {n}", "other": "toujours en ordre : {n}"},
