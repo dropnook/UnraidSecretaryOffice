@@ -96,7 +96,8 @@ const WATCH_VULN_PRODUCTS = [
     'php'      => ['label' => 'PHP', 'kev' => ['php group|php', 'php|php', 'php|fastcgi process manager (fpm)'], 'cna' => ['php group|php', 'php|php'], 'host' => 'php',
                    'env' => 'PHP_VERSION', 'eol' => 'php'],
     'openssh'  => ['label' => 'OpenSSH', 'kev' => ['openbsd|openssh'], 'cna' => ['openbsd|openssh', '|openssh'], 'pkg' => 'openssh'],
-    'openssl'  => ['label' => 'OpenSSL', 'kev' => ['openssl|openssl'], 'cna' => ['openssl|openssl'], 'pkg' => 'openssl'],
+    // `letters` (2026-11-25): its versions up to 1.1.1 carry a letter («1.0.1g») — read as a patch level for it alone
+    'openssl'  => ['label' => 'OpenSSL', 'kev' => ['openssl|openssl'], 'cna' => ['openssl|openssl'], 'pkg' => 'openssl', 'letters' => true],
     'samba'    => ['label' => 'Samba', 'kev' => ['samba|samba'], 'cna' => ['samba|samba'], 'pkg' => 'samba'],
     'sudo'     => ['label' => 'sudo', 'kev' => ['sudo|sudo', 'todd miller|sudo'], 'cna' => ['sudo|sudo', 'sudo project|sudo'], 'pkg' => 'sudo'],
     'bash'     => ['label' => 'Bash', 'kev' => ['gnu|gnu bash', 'gnu|bourne-again shell (bash)', 'gnu|bash'], 'cna' => ['gnu|bash'], 'pkg' => 'bash'],
@@ -133,12 +134,23 @@ function watchmanVulnDir(string $dir): string
 
 /**
  * A version as the comparison takes it: 1–5 numbers and an OpenSSH-style patch level («9.7p1») — [numbers, p] — or null
- * (anything else: «8.1.*» is a branch, not a version; «2.6.32-rc1», a commit, «n/a» never compare)
+ * (anything else: «8.1.*» is a branch, not a version; «2.6.32-rc1», a commit, «n/a» never compare).
+ * $letters (2026-11-25, only for a product whose name table says `letters`: OpenSSL up to 1.1.1): instead of «p…» one
+ * lowercase letter as the patch level («1.0.1g»: a = 1 … z = 26) or «z» and one more («0.9.8za» = 27 …) — [numbers, p,
+ * true], the third for the words (watchmanVulnText1())
  *
- * @return array{0: list<int>, 1: int}|null
+ * @return array{0: list<int>, 1: int, 2?: true}|null
  */
-function watchmanVulnParse(string $v): ?array
+function watchmanVulnParse(string $v, bool $letters = false): ?array
 {
+    if ($letters) {
+        if (!preg_match('/^(\d{1,9}(?:\.\d{1,9}){0,4})(z[a-z]|[a-z])?$/D', $v, $m)) {
+            return null;
+        }
+        $l = $m[2] ?? '';
+        $n = array_map('intval', explode('.', $m[1]));
+        return $l === '' ? [$n, 0] : [$n, strlen($l) === 2 ? 26 + ord($l[1]) - 96 : ord($l) - 96, true];
+    }
     if (!preg_match('/^(\d{1,9}(?:\.\d{1,9}){0,4})(?:p(\d{1,4}))?$/D', $v, $m)) {
         return null;
     }
@@ -162,7 +174,7 @@ function watchmanVulnCmp(array $a, array $b): int
  * A version as a source writes it → the plain version (or null: not clean). $from: kernel («6.12.54-Unraid»), pkg
  * (Slackware's: plain), env (step 16: «1:11.8.9+maria~ubu2404», «17.12-1.pgdg12+1», «jdk-21.0.13.1+2»), plain
  */
-function watchmanVulnClean(string $raw, string $from = 'plain'): ?string
+function watchmanVulnClean(string $raw, string $from = 'plain', bool $letters = false): ?string
 {
     $v = trim($raw);
     if ($from === 'kernel') {
@@ -171,7 +183,7 @@ function watchmanVulnClean(string $raw, string $from = 'plain'): ?string
         $v = preg_replace('/^(?:\d{1,3}:|jdk-|v)/', '', $v) ?? $v;          // an epoch, Temurin's «jdk-», a «v»
         $v = preg_split('/[+~-]/', $v)[0] ?? '';                            // a package's revision, a distribution's mark
     }
-    return watchmanVulnParse($v) !== null ? $v : null;
+    return watchmanVulnParse($v, $letters) !== null ? $v : null;
 }
 
 /**
@@ -180,7 +192,7 @@ function watchmanVulnClean(string $raw, string $from = 'plain'): ?string
  *
  * @return array{status: string, start: ?array, end: ?array, incl: bool, branch: ?list<int>, exact: bool}|null
  */
-function watchmanVulnRange(array $r): ?array
+function watchmanVulnRange(array $r, bool $letters = false): ?array
 {
     $status = $r['status'] ?? null;
     $type = $r['versionType'] ?? 'semver';
@@ -190,7 +202,7 @@ function watchmanVulnRange(array $r): ?array
     }
     // «8.1.*» and (PHP Group's records, CVE-2019-11043) «7.1.x»: the branch
     $ver = preg_replace('/^(\d{1,9}(?:\.\d{1,9}){0,3})\.x$/Di', '$1.*', $r['version']) ?? $r['version'];
-    $start = preg_match('/^(\d{1,9}(?:\.\d{1,9}){0,3})\.\*$/D', $ver, $m) ? watchmanVulnParse($m[1]) : watchmanVulnParse($ver);
+    $start = preg_match('/^(\d{1,9}(?:\.\d{1,9}){0,3})\.\*$/D', $ver, $m) ? watchmanVulnParse($m[1]) : watchmanVulnParse($ver, $letters);
     if ($start === null) {
         return null;
     }
@@ -209,7 +221,7 @@ function watchmanVulnRange(array $r): ?array
     if (preg_match('/^(\d{1,9}(?:\.\d{1,9}){0,3})\.\*$/D', $end, $m)) {
         return ['status' => $status, 'start' => $start, 'end' => null, 'incl' => true, 'branch' => array_map('intval', explode('.', $m[1])), 'exact' => false];
     }
-    $e = watchmanVulnParse($end);
+    $e = watchmanVulnParse($end, $letters);
     return $e === null ? null : ['status' => $status, 'start' => $start, 'end' => $e, 'incl' => $incl, 'branch' => null, 'exact' => false];
 }
 
@@ -244,10 +256,10 @@ function watchmanVulnIn(array $have, array $r): bool
  *
  * @return array{0: string, 1: ?string}
  */
-function watchmanVulnItem(array $item, string $have): array
+function watchmanVulnItem(array $item, string $have, bool $letters = false): array
 {
-    $v = watchmanVulnItemJudge($item, $have);
-    $h = watchmanVulnParse($have);
+    $v = watchmanVulnItemJudge($item, $have, $letters);
+    $h = watchmanVulnParse($have, $letters);
     if ($v[0] !== 'no' || $h === null) {
         return $v;
     }
@@ -260,7 +272,7 @@ function watchmanVulnItem(array $item, string $have): array
     }
     $exact = null;
     foreach ((array) ($item['versions'] ?? []) as $r) {
-        $x = is_array($r) ? watchmanVulnRange($r) : null;
+        $x = is_array($r) ? watchmanVulnRange($r, $letters) : null;
         if ($x === null) {
             continue;
         }
@@ -275,9 +287,9 @@ function watchmanVulnItem(array $item, string $have): array
 }
 
 /** The strict rule of watchmanVulnItem() (see there), before a coarse version named alone is looked at */
-function watchmanVulnItemJudge(array $item, string $have): array
+function watchmanVulnItemJudge(array $item, string $have, bool $letters = false): array
 {
-    $h = watchmanVulnParse($have);
+    $h = watchmanVulnParse($have, $letters);
     if ($h === null) {
         return ['maybe', null];
     }
@@ -288,9 +300,17 @@ function watchmanVulnItemJudge(array $item, string $have): array
     $ranges = [];
     $bad = false;
     foreach ((array) ($item['versions'] ?? []) as $r) {
-        $x = is_array($r) ? watchmanVulnRange($r) : null;
+        $x = is_array($r) ? watchmanVulnRange($r, $letters) : null;
         if ($x === null) {
-            $bad = true;
+            // 2026-11-25: NVD's range «after X, before Y» (versionStartExcluding, kept as `start_excluding` beside its
+            // lessThan): its start isn't said, its exclusive end is — at or past that end it holds this version no more
+            // (a range holding nothing, its end kept for «fixed from»); below it, as before: can't be said
+            $end = is_array($r) && isset($r['start_excluding']) && is_string($r['lessThan'] ?? null) ? watchmanVulnParse($r['lessThan'], $letters) : null;
+            if ($end !== null && watchmanVulnCmp($h, $end) >= 0) {
+                $ranges[] = ['status' => (string) ($r['status'] ?? 'affected'), 'start' => $end, 'end' => $end, 'incl' => false, 'branch' => null, 'exact' => false];
+            } else {
+                $bad = true;
+            }
         } else {
             $ranges[] = $x;
         }
@@ -299,7 +319,7 @@ function watchmanVulnItemJudge(array $item, string $have): array
     $fixed = null;
     foreach ($ranges as $x) {
         if ($x['status'] === 'unaffected' && $x['branch'] !== null && array_slice($h[0], 0, count($x['branch'])) === $x['branch']) {
-            $fixed = implode('.', $x['start'][0]) . ($x['start'][1] ? 'p' . $x['start'][1] : '');
+            $fixed = watchmanVulnText1($x['start']);
         }
     }
     $holds = array_values(array_filter($ranges, fn ($x) => watchmanVulnIn($h, $x)));
@@ -313,7 +333,7 @@ function watchmanVulnItemJudge(array $item, string $have): array
         }
         foreach ($holds as $x) {
             if ($x['status'] === 'affected' && $x['end'] !== null && $fixed === null) {
-                $fixed = implode('.', $x['end'][0]) . ($x['end'][1] ? 'p' . $x['end'][1] : '');
+                $fixed = watchmanVulnText1($x['end']);
             }
         }
         return ['yes', $fixed];
@@ -386,13 +406,17 @@ function watchmanVulnRough(array $have, array $r): bool
 function watchmanVulnCoarser(array $have, array $bound): bool
 {
     $n = count($bound[0]);
-    $coarser = $n < count($have[0]) || ($bound[1] === 0 && $have[1] > 0);
+    // OpenSSL's letter is a release of its own («1.0.1» comes before «1.0.1a»), not a finer patch level
+    $coarser = $n < count($have[0]) || ($bound[1] === 0 && $have[1] > 0 && empty($have[2]));
     return $coarser && array_slice($have[0], 0, $n) === $bound[0] && watchmanVulnCmp($have, $bound) > 0;
 }
 
 /** A parsed version as text («2.6.36», «9.8p1») */
 function watchmanVulnText1(array $v): string
 {
+    if (!empty($v[2]) && $v[1] > 0) {
+        return implode('.', $v[0]) . ($v[1] > 26 ? 'z' . chr(96 + $v[1] - 26) : chr(96 + $v[1]));      // OpenSSL's letter
+    }
     return implode('.', $v[0]) . ($v[1] ? 'p' . $v[1] : '');
 }
 
@@ -429,8 +453,12 @@ function watchmanVulnNvdReduce(array $j, string $cve): ?array
                 $key = "{$c[3]}|{$c[4]}";
                 $items[$key] ??= ['vendor' => $c[3], 'product' => $c[4], 'defaultStatus' => 'unaffected', 'versions' => []];
                 $r = null;
-                if (!empty($node['negate']) || isset($m['versionStartExcluding'])) {
+                if (!empty($node['negate'])) {
                     $r = ['version' => 'n/a', 'status' => 'affected'];
+                } elseif (isset($m['versionStartExcluding'])) {
+                    // a start excluding can't be said; an exclusive end kept beside it (watchmanVulnItemJudge(): past that end, no)
+                    $r = ['version' => 'n/a', 'status' => 'affected'] + (isset($m['versionEndExcluding'])
+                        ? ['lessThan' => (string) $m['versionEndExcluding'], 'start_excluding' => (string) $m['versionStartExcluding']] : []);
                 } elseif ($c[5] !== '*' && $c[5] !== '-') {
                     if ($c[6] !== '*' && $c[6] !== '-' && $c[6] !== '') {
                         continue;           // a pre-release («rc1»): never what runs here
@@ -461,7 +489,7 @@ function watchmanVulnNvdReduce(array $j, string $cve): ?array
  *
  * @return array{0: string, 1: ?string}
  */
-function watchmanVulnVerdict(?array $record, array $cna, string $have): array
+function watchmanVulnVerdict(?array $record, array $cna, string $have, bool $letters = false): array
 {
     $items = watchmanVulnItems($record, $cna);
     if (!$items) {
@@ -470,7 +498,7 @@ function watchmanVulnVerdict(?array $record, array $cna, string $have): array
     $clean = $unclean = [];
     $why = null;            // why an item can't say (1.96, 2026-11-25): a bound coarser than the version here
     foreach ($items as $a) {
-        $r = watchmanVulnItem($a, $have);
+        $r = watchmanVulnItem($a, $have, $letters);
         if ($r[0] === 'maybe') {
             $unclean[] = [$r[0], $r[1]];
             $why ??= isset($r[2]) ? [2 => $r[2], 3 => $r[3]] : null;
@@ -566,7 +594,8 @@ function watchmanVulnInventory(array $paths): array
     $out = [];
     $add = function (string $product, string $raw, string $from) use (&$out): void {
         if ($raw !== '' && strlen($raw) <= 64) {
-            $out[] = ['product' => $product, 'version' => $raw, 'clean' => watchmanVulnClean($raw, $from), 'where' => WATCH_VULN_HOST];
+            $out[] = ['product' => $product, 'version' => $raw, 'clean' => watchmanVulnClean($raw, $from, !empty(WATCH_VULN_PRODUCTS[$product]['letters'])),
+                      'where' => WATCH_VULN_HOST];
         }
     };
     if (isset($paths['unraid_version'])) {
@@ -1191,8 +1220,9 @@ function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []
         // looked at, while endoflife.date says that line was past its end when the vulnerability became known (the record's
         // publication, else the day CISA listed it): can't be checked for sure — the vendor no longer looked at such lines.
         // A line still maintained then, a product without end-of-life data, a range that names the version: as before.
-        $judge = function (?array $r, string $clean) use ($cna, $slug, $e, $f, &$eolCycles): array {
-            $v = watchmanVulnVerdict($r, $cna, $clean);
+        $letters = !empty(WATCH_VULN_PRODUCTS[$e['product']]['letters']);
+        $judge = function (?array $r, string $clean) use ($cna, $slug, $e, $f, &$eolCycles, $letters): array {
+            $v = watchmanVulnVerdict($r, $cna, $clean, $letters);
             if ($v[0] !== 'no' || $r === null || $slug === null) {
                 return $v;
             }
