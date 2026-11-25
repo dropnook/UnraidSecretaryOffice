@@ -5619,7 +5619,7 @@
   "fresh": true,
   "checked": 2,
   "affected": 0,
-  "maybe": 2,
+  "maybe": 3,
   "kev_total": 1484,
   "kev_here": 47,
   "kev_products": [
@@ -5663,7 +5663,10 @@
    }
   ],
   "software": [],
-  "unknown": [],
+  "unknown": [
+   "homevideos",
+   "photos"
+  ],
   "not": [
    {
     "cve": "CVE-2024-4577",
@@ -5709,11 +5712,80 @@
     "cve": "CVE-2014-6278",
     "product": "bash",
     "where": "host",
-    "have": "5.3.003",
+    "have": "4.3.011",
     "name": "GNU Bash OS Command Injection Vulnerability",
+    "label": "Bash",
+    "why": "rough",
+    "bound": "4.3"
+   },
+   {
+    "cve": "CVE-2024-4577",
+    "product": "php",
+    "where": "webapp",
+    "have": "7.2.20",
+    "name": "PHP-CGI OS Command Injection",
+    "label": "PHP",
+    "nvd": false,
+    "why": "eol",
+    "bound": "7.2"
+   }
+  ],
+  "host": [
+   {
+    "product": "unraid",
+    "version": "7.4.1",
+    "label": "Unraid"
+   },
+   {
+    "product": "kernel",
+    "version": "6.12.54-Unraid",
+    "label": "Linux kernel"
+   },
+   {
+    "product": "php",
+    "version": "8.4.14",
+    "label": "PHP"
+   },
+   {
+    "product": "openssh",
+    "version": "10.0p2",
+    "label": "OpenSSH"
+   },
+   {
+    "product": "bash",
+    "version": "4.3.011",
     "label": "Bash"
    }
-  ]
+  ],
+  "cts": [
+   {
+    "where": "webapp",
+    "product": "php",
+    "version": "7.2.20",
+    "label": "PHP"
+   },
+   {
+    "where": "webapp",
+    "product": "nginx",
+    "version": "1.27.1",
+    "label": "nginx"
+   },
+   {
+    "where": "notes-db",
+    "product": "postgresql",
+    "version": "17.12",
+    "label": "PostgreSQL"
+   }
+  ],
+  "ct_total": 5,
+  "ct_read": 2,
+  "unread": [
+   "homevideos",
+   "photos",
+   "wiki"
+  ],
+  "unread_n": 3,
+  "vms": 2
  },
  "tiles": {
   "login": {

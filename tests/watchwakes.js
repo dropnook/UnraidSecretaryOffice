@@ -376,11 +376,30 @@ async function vulnPage() {
   const downs = r.all().filter((n) => n.classList && n.classList.contains('wm-vuln-down')).map(tx);
   same('vulnerabilities: the NVD away for 3 days — one calm line in the area, the same in the help; the area stays green',
     [downs.length, downs[0], downs[0] === downs[1], tileWords(r.all().find((n) => n.dataset && n.dataset.tile === 'vuln'))[0] !== undefined],
-    [2, [T('vuln.down', { source: T('vuln.source.nvd'), n: 3, when: O.fmt.date(state.vuln.down[0].next) }), T('vuln.down_nvd', { n: 2 })].join(' '), true, true]);
-  const routers = sec.querySelectorAll('.wm-vuln-router').map(tx);
-  same('vulnerabilities: the routers by their log — one with its version and since when, one plainly «version unknown»',
-    routers, [T('vuln.router_seen', { product: 'MikroTik RouterOS', version: '7.24.5', date: O.fmt.date(state.vuln.routers[0].at) }),
-      T('vuln.router_unknown', { product: 'MikroTik RouterOS' })]);
+    [2, [T('vuln.down', { source: T('vuln.source.nvd'), n: 3, when: O.fmt.date(state.vuln.down[0].next) }), T('vuln.down_nvd', { n: 3 })].join(' '), true, true]);
+  // his limits (2026-11-25): one calm paragraph, always there while the area is on
+  same('vulnerabilities: the paragraph of his limits stands in the area', tx(sec.querySelector('.wm-vuln-limits')), T('vuln.limits'));
+  // «What he checked» (2026-11-25): folded; opened — this server, the containers (2 of 5 read, the others by reason), the
+  // routers by their log (no longer above the lists), and what he never looks at, the 2 VMs counted
+  same('vulnerabilities: no router line above the lists any more (they stand under «What he checked»)', sec.querySelectorAll('.wm-vuln-router').length, 0);
+  const lookHead = () => sectionOf(r, 'area.vuln').querySelectorAll('.wm-known-head').find((b) => tx(b).includes(T('vuln.look_title')));
+  same('vulnerabilities: «What he checked» folded, its head with the containers read', tx(lookHead()),
+    `▸ ${T('vuln.look_title')} · ${T('vuln.look_ct', { n: 5, read: 2 })}`);
+  lookHead().click();
+  await tick();
+  const look = sectionOf(r, 'area.vuln').querySelector('.wm-vuln-look');
+  const lookRows = look ? look.querySelectorAll('.row-name').map(tx) : [];
+  const lookText = look ? look.querySelectorAll('p').map(tx).concat(look.querySelectorAll('li').map(tx)) : [];
+  same('vulnerabilities: «What he checked» opened — the rows of this server, the containers, the routers by their log',
+    lookRows, ['Unraid 7.4.1', 'Linux kernel 6.12.54-Unraid', 'PHP 8.4.14', 'OpenSSH 10.0p2', 'Bash 4.3.011',
+      T('vuln.look_ct_row', { where: 'webapp', product: 'PHP', version: '7.2.20' }), T('vuln.look_ct_row', { where: 'webapp', product: 'nginx', version: '1.27.1' }),
+      T('vuln.look_ct_row', { where: 'notes-db', product: 'PostgreSQL', version: '17.12' }),
+      T('vuln.router_seen', { product: 'MikroTik RouterOS', version: '7.24.5', date: O.fmt.date(state.vuln.routers[0].at) }), T('vuln.router_unknown', { product: 'MikroTik RouterOS' })]);
+  same('vulnerabilities: the containers he couldn\'t check by reason, that he never looks inside, the VMs counted, what he never looks at',
+    [T('vuln.look_unread_none', { n: 2, names: 'homevideos, photos' }), T('vuln.look_unread_unasked', { n: 1, names: 'wiki' }), T('vuln.look_inside'),
+      T('vuln.look_not_vm_n', { n: 2 }), T('vuln.look_not_net'), T('vuln.look_plugins')].map((x) => lookText.includes(x)), [true, true, true, true, true, true]);
+  lookHead().click();
+  await tick();
   const typed = async (words) => {
     const input = barIn(sectionOf(r, 'area.vuln')).querySelector('.filter-words');
     input.value = words;
@@ -391,14 +410,23 @@ async function vulnPage() {
       tx(barIn(s2).querySelector('.filter-note') || new FakeNode('span'))];
   };
   const bash = await typed('bash');
+  const metas = sectionOf(r, 'area.vuln').querySelectorAll('.row-meta').map(tx);
   const ssh = await typed('regreSSHion');
   const cve = await typed('CVE-2016-5195');
   const none = await typed('php2shell');
-  same('vulnerabilities: the filter searches both calm lists (product, name, CVE) — the list with hits open; nothing found says so',
-    [bash[0], ssh[0], cve[0], none[0]], [1, 1, 1, 0]);
+  same('vulnerabilities: the filter searches the calm lists (product, name, CVE) and «What he checked» — Bash there and on this server; nothing found says so',
+    [bash[0], ssh[0], cve[0], none[0]], [2, 1, 1, 0]);
+  same('vulnerabilities: an unsure line says why — the list names the version only roughly', metas.some((m) => m.includes(T('vuln.unsure_why_rough', { bound: '4.3' }))), true);
   const old = await typed('CVE-2010-3904');
   same('vulnerabilities: the filter finds a line «long fixed» too (its own fold, open while it holds hits)', old[0], 1);
-  same('vulnerabilities: the filter\'s count is over all the lines (5 here)', /\b5\b/.test(none[1]), true);
+  same('vulnerabilities: the filter\'s count is over all the lines (19 here: 6 in the lists, 13 he checked)', /\b19\b/.test(none[1]), true);
+  const ct = await typed('webapp');
+  const ctMetas = sectionOf(r, 'area.vuln').querySelectorAll('.row-meta').map(tx);
+  same('vulnerabilities: a container\'s name finds its unsure line (its why: the line past its end) and its rows under «What he checked»',
+    [ct[0], ctMetas.some((m) => m.includes(T('vuln.unsure_why_eol', { line: '7.2' })))], [3, true]);
+  await typed('homevideos');
+  same('vulnerabilities: a container he couldn\'t check is found by its name too', (sectionOf(r, 'area.vuln').querySelector('.wm-vuln-look') || new FakeNode('div')).querySelectorAll('p').map(tx)
+    .includes(T('vuln.look_unread_none', { n: 1, names: 'homevideos' })), true);
   wm.unmount();
 }
 

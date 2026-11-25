@@ -1639,7 +1639,10 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
     // the routers by what their own log said (watchnet.php's net.json: never asked of the router)
     $vulnRouters = $vulnOn ? watchmanVulnRouters(readJson("$dir/net.json")) : [];
     $vuln = $vulnOn ? watchmanVulnJudge($dir, watchmanVulnInventory($paths + ['vuln_images' => $vulnImages, 'vuln_routers' => $vulnRouters]), $now,
-        $vulnImages, $vulnRouters) : null;
+        $vulnImages, $vulnRouters, is_array($containers) ? array_map('strval', array_keys($containers)) : null) : null;
+    if ($vuln !== null) {
+        $vuln['vms'] = $facts['vms'] ?? null;       // how many VMs (libvirt's own list, already asked for the posture): he never looks inside one
+    }
     $facts['vuln'] = $vuln;
     // snapshots that vanish: only rounds write snaps.json (one at a time), so it is read out here
     $snapKnown = $snaps ? readJson("$dir/snaps.json") : null;
@@ -1802,7 +1805,9 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             $st['vuln_look'] = ['time' => $now, 'kev' => $vuln['kev'], 'fresh' => $vuln['fresh'], 'checked' => $vuln['checked'], 'found' => array_map(
                 fn ($x) => ['verdict' => $x['verdict']], $vuln['found']), 'software' => $vuln['software'], 'unknown' => $vuln['unknown'],
                 'not' => $vuln['not'], 'unsure' => $vuln['unsure'], 'kev_total' => $vuln['kev_total'], 'kev_here' => $vuln['kev_here'],
-                'kev_products' => $vuln['kev_products'], 'pending' => $vuln['pending'], 'down' => $vuln['down'], 'routers' => $vuln['routers']];
+                'kev_products' => $vuln['kev_products'], 'pending' => $vuln['pending'], 'down' => $vuln['down'], 'routers' => $vuln['routers'],
+                'host' => $vuln['host'], 'cts' => $vuln['cts'], 'ct_total' => $vuln['ct_total'], 'ct_read' => $vuln['ct_read'], 'unread' => $vuln['unread'],
+                'unread_n' => $vuln['unread_n'], 'vms' => $vuln['vms']];
             if ($vulnImagesCache !== null) {
                 $st['vuln_images'] = $vulnImagesCache;
             }

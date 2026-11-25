@@ -3756,7 +3756,7 @@ function netGroup(n) {
 function vulnOffBox() {
   const box = el('div', 'callout wm-vuln-off');
   box.append(el('p', '', T('cat.why.vuln_off')), el('p', '', T('vuln.explain_lists')), el('p', '', T('vuln.explain_here')),
-    el('p', '', T('vuln.explain_says')));
+    el('p', '', T('vuln.explain_says')), el('p', '', T('vuln.limits')));      // his limits: «nothing found» is never «safe»
   const b = vulnButton();
   b.className = 'btn small wm-vuln-on';
   box.appendChild(b);
@@ -3771,8 +3771,30 @@ function vulnOffBox() {
 const vulnLines = (list) => (Array.isArray(list) ? list : []).filter((x) => x && typeof x.cve === 'string');
 /** A line's words for the area's filter: the vulnerability, the product, its name, where it runs, the version */
 const vulnHay = (x) => [x.cve, x.label || '', x.product || '', x.name || '', x.where && x.where !== 'host' ? x.where : '', x.have || ''];
-/** How many lines the calm lists hold (the area's filter counts them with what waits) */
-const vulnListCount = () => (state && state.vuln && state.vuln.on !== false ? vulnLines(state.vuln.not).length + vulnLines(state.vuln.unsure).length : 0);
+/** How many lines the calm lists hold (the area's filter counts them with what waits), «What he checked» with them */
+const vulnListCount = () => (state && state.vuln && state.vuln.on !== false
+  ? vulnLines(state.vuln.not).length + vulnLines(state.vuln.unsure).length + vulnLookItems(state.vuln).length : 0);
+/** An unsure line's reason (2026-11-25): a bound coarser than the version, a release line past its end then, or the NVD's word */
+const vulnUnsureWhy = (x) => (x.why === 'rough' && x.bound ? T('vuln.unsure_why_rough', { bound: x.bound })
+  : x.why === 'eol' && x.bound ? T('vuln.unsure_why_eol', { line: x.bound }) : T(x.nvd ? 'vuln.unsure_nvd_asked' : 'vuln.unsure_nvd_wait'));
+/**
+ * «What he checked» (2026-11-25, agent: watchmanVulnLook()): its lines — this server's programs, the containers read, those
+ * not read, the routers — each with the words the area's filter meets it by. None in an older state (host null).
+ */
+function vulnLookItems(v) {
+  if (!v || !Array.isArray(v.host)) return [];
+  const str = (x) => (typeof x === 'string' ? x : '');
+  const unknown = new Set(Array.isArray(v.unknown) ? v.unknown : []);
+  return [
+    ...v.host.filter((x) => x && typeof x.version === 'string').map((x) => ({ part: 'host', x, hay: [str(x.label), str(x.product), x.version] })),
+    ...(Array.isArray(v.cts) ? v.cts : []).filter((x) => x && typeof x.where === 'string').map((x) => ({ part: 'ct', x, hay: [x.where, str(x.label), str(x.product), str(x.version)] })),
+    ...(Array.isArray(v.unread) ? v.unread : []).filter((n) => typeof n === 'string').map((n) => ({ part: unknown.has(n) ? 'none' : 'unasked', x: n, hay: [n] })),
+    ...(Array.isArray(v.routers) ? v.routers : []).filter((x) => x && typeof x.label === 'string').map((x) => ({ part: 'router', x, hay: [x.label, str(x.version)] })),
+  ];
+}
+/** A router's line: the version its own log said, and since when — or plainly that it hasn't said one yet */
+const vulnRouterWords = (x) => (!x.version ? T('vuln.router_unknown', { product: x.label })
+  : x.at ? T('vuln.router_seen', { product: x.label, version: x.version, date: fmt.date(x.at) }) : T('vuln.router_seen_undated', { product: x.label, version: x.version }));
 
 /**
  * What he looked at and the calm lists, under what waits: the list he compares with, how many of its entries concern
@@ -3791,14 +3813,15 @@ function vulnLists(words) {
     const line = here ? T('vuln.counted', { n: here, total: fmt.number(v.kev_total), list: prods.map((x) => `${x.label} ${x.n}`).join(' · ') })
       : T('vuln.counted_none', { total: fmt.number(v.kev_total) });
     box.appendChild(el('p', 'role wm-vuln-counted', [line, v.pending ? T('vuln.pending', { n: v.pending }) : ''].filter(Boolean).join(' ')));
-    // the routers by their own log (2026-11-23, never asked of the router): the version it said and since when — or plainly
-    // that it hasn't said one yet (no line under «can't be checked for sure» for it)
-    (Array.isArray(v.routers) ? v.routers : []).filter((x) => x && typeof x.label === 'string').forEach((x) => {
-      box.appendChild(el('p', 'role wm-vuln-router', !x.version ? T('vuln.router_unknown', { product: x.label })
-        : x.at ? T('vuln.router_seen', { product: x.label, version: x.version, date: fmt.date(x.at) }) : T('vuln.router_seen_undated', { product: x.label, version: x.version })));
-    });
-    box.appendChild(el('p', 'wm-vuln-nvd-note', T('vuln.nvd_notice')));     // NVD's terms of use: this notice, as they word it
   }
+  // his limits (2026-11-25), always there, calm: he compares only with what is listed, only for what he knows and can read
+  box.appendChild(el('p', 'wm-vuln-limits', T('vuln.limits')));
+  // the routers by their own log (2026-11-23): under «What he checked» since 2026-11-25 — an older state without it keeps them here
+  if (!Array.isArray(v.host)) {
+    (Array.isArray(v.routers) ? v.routers : []).filter((x) => x && typeof x.label === 'string')
+      .forEach((x) => box.appendChild(el('p', 'role wm-vuln-router', vulnRouterWords(x))));
+  }
+  if (Number.isInteger(v.kev_total)) box.appendChild(el('p', 'wm-vuln-nvd-note', T('vuln.nvd_notice')));     // NVD's terms of use: this notice, as they word it
   const where = (x) => (x.where && x.where !== 'host' ? T('vuln.not_in', { where: x.where }) : '');
   const fit = (list) => vulnLines(list).filter((x) => !words || !words.length || Office.fits(words, vulnHay(x)));
   const checked = fit(v.not);
@@ -3811,8 +3834,85 @@ function vulnLists(words) {
   vulnFold(box, 'vuln.not', not, forced, notRow, nvdSaid);
   vulnFold(box, 'vuln.old', old, forced, notRow, nvdSaid, { floor: v.floor || '7.3.2' });
   vulnFold(box, 'vuln.unsure', unsure, forced, (x) => T('vuln.unsure_row', { product: x.label || x.product, cve: x.cve, have: x.have || '', where: where(x) }),
-    (x) => T(x.nvd ? 'vuln.unsure_nvd_asked' : 'vuln.unsure_nvd_wait'));
-  return { el: box, shown: checked.length + unsure.length };
+    vulnUnsureWhy);
+  const look = vulnLookItems(v).filter((i) => !forced || Office.fits(words, i.hay));
+  vulnLookFold(box, v, look, forced);
+  return { el: box, shown: checked.length + unsure.length + look.length };
+}
+
+/**
+ * «What he checked» (2026-11-25), folded like the calm lists: this server's programs, the containers — how many had a
+ * version he could read, those he couldn't by name, and why —, the routers, and plainly what he never looks at (VMs, the
+ * other devices, inside containers, programs not on his list, the plugins themselves). The filter's words find a container
+ * here too; with words only the lines they hit, the fold held open.
+ */
+function vulnLookFold(box, v, items, forced) {
+  if (!Array.isArray(v.host) || (forced && !items.length)) return;
+  const key = 'vuln.look';
+  const open = forced || knownOpen.has(key);
+  const total = Number.isInteger(v.ct_total) ? v.ct_total : null;
+  const ctLine = total ? T('vuln.look_ct', { n: total, read: Number(v.ct_read) || 0 }) : '';
+  const head = el('button', 'btn small plain wm-known-head', `${open ? '▾' : '▸'} ${[T('vuln.look_title'), ctLine].filter(Boolean).join(' · ')}`);
+  head.type = 'button';
+  head.setAttribute('aria-expanded', open ? 'true' : 'false');
+  head.disabled = forced;
+  head.onclick = () => { if (open) knownOpen.delete(key); else knownOpen.add(key); Office.keepInPlace(head, () => sw.render()); };
+  box.appendChild(head);
+  if (!open) return;
+  const body = el('div', 'wm-vuln-look');
+  body.appendChild(el('p', 'role', T('vuln.look_sub')));
+  const rows = (list, words) => {
+    if (!list.length) return;
+    const b = el('div', 'box');
+    list.forEach((i) => {
+      const r = el('div', 'row nocheck wm-vuln-not');
+      const main = el('div', 'row-main');
+      main.appendChild(el('div', 'row-name text', words(i.x)));
+      r.appendChild(main);
+      b.appendChild(r);
+    });
+    body.appendChild(b);
+  };
+  const part = (p) => items.filter((i) => i.part === p);
+  const names = (list) => list.map((i) => i.x).join(', ');
+  const host = part('host');
+  if (host.length) {
+    body.appendChild(el('h4', 'wm-scope-head', T('vuln.look_host')));
+    rows(host, (x) => T('vuln.look_host_row', { product: x.label || x.product, version: x.version }));
+  }
+  const cts = part('ct');
+  const none = part('none');
+  const unasked = part('unasked');
+  if (!forced || cts.length || none.length || unasked.length) {
+    body.appendChild(el('h4', 'wm-scope-head', T('vuln.look_cts')));
+    if (total === null) body.appendChild(el('p', 'role', T('vuln.look_ct_none')));
+    else if (!total) body.appendChild(el('p', 'role', T('vuln.look_ct_zero')));
+    else if (!forced) body.appendChild(el('p', 'role', ctLine));
+    rows(cts, (x) => T('vuln.look_ct_row', { where: x.where, product: x.label || x.product, version: x.version }));
+    // the unread by reason: the image names none of the names he reads, or he couldn't read the image this time; past the
+    // list's cap (the state keeps WATCH_VULN_LOOK_MAX names) only how many more
+    if (none.length) body.appendChild(el('p', 'role', T('vuln.look_unread_none', { n: none.length, names: names(none) })));
+    if (unasked.length) body.appendChild(el('p', 'role', T('vuln.look_unread_unasked', { n: unasked.length, names: names(unasked) })));
+    const more = forced ? 0 : Math.max(0, (Number(v.unread_n) || 0) - none.length - unasked.length);
+    if (more) body.appendChild(el('p', 'role', T('vuln.look_unread_more', { n: more })));
+    if (none.length || unasked.length || more) body.appendChild(el('p', 'role', T('vuln.look_inside')));
+  }
+  const routers = part('router');
+  if (routers.length || !forced) {
+    body.appendChild(el('h4', 'wm-scope-head', T('vuln.look_routers')));
+    if (routers.length) rows(routers, vulnRouterWords);
+    else body.appendChild(el('p', 'role', T('vuln.look_routers_none')));
+  }
+  if (!forced) {
+    body.appendChild(el('h4', 'wm-scope-head', T('vuln.look_not')));
+    const ul = el('ul', 'wm-scope-list');
+    const vms = Number.isInteger(v.vms) ? v.vms : null;
+    [vms === null ? T('vuln.look_not_vm') : vms === 0 ? T('vuln.look_not_vm_none') : T('vuln.look_not_vm_n', { n: vms }),
+      T('vuln.look_not_net'), T('vuln.look_not_inside'), T('vuln.look_not_other'), T('vuln.look_plugins')]
+      .forEach((x) => ul.appendChild(el('li', '', x)));
+    body.appendChild(ul);
+  }
+  box.appendChild(body);
 }
 /**
  * A source that hasn't answered for days (2026-11-23): one calm line each — which, since when, when he tries again, and

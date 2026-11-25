@@ -34,7 +34,11 @@ declare(strict_types=1);
  *   maybe      no entry, never told, never a colour (1.96 «einfacher», 2026-11-23: 39 «maybe» lines of kernel CVEs from
  *              2010–2024 on a current kernel were noise, not something waiting): the product is here, the record can't be
  *              compared (no record, another version scheme, n/a) — the page's calm list «can't be checked for sure»
- *              (vuln_look.unsure); an older office's open `vuln_maybe` lines are closed quietly (watchmanVulnCompare())
+ *              (vuln_look.unsure); an older office's open `vuln_maybe` lines are closed quietly (watchmanVulnCompare()).
+ *              Since 2026-11-25 also, each with its reason on the row: an inclusive bound coarser than the version here
+ *              («≤ 4.3», Bash 4.3.011: watchmanVulnRough()), and a «not affected» that rests only on a release line the
+ *              record never names while that line was past its end when the vulnerability became known (endoflife.date;
+ *              PHP 7.2 against a record of the 8.x lines: watchmanVulnOutside())
  *   not        no entry; counted («31 checked, not affected»), the page's list «checked: doesn't concern you»
  * One entry a vulnerability, product and place (key vuln_known:<cve>:<product>:<where>), kept up to date wherever it
  * stands. Unraid's own version without security updates (eol, superseded): the advice `unraid_eol`.
@@ -79,6 +83,7 @@ const WATCH_VULN_MAX     = ['kev' => 8 << 20, 'cve' => 2 << 20, 'unraid' => 1 <<
 const WATCH_VULN_TIMEOUT = 60;             // seconds a fetch may take
 const WATCH_VULN_DESC    = 300;            // characters of a description kept
 const WATCH_VULN_NOT_MAX = 100;            // «checked: doesn't concern you» kept for his page (state.json vuln_look.not)
+const WATCH_VULN_LOOK_MAX = 100;           // «what he checked» (2026-11-25): rows of this server, of the containers, names unread — each at most
 
 /**
  * The name table: how the lists name a product (lower case «vendor|product»: KEV's vendorProject/product, a CVE record's
@@ -282,6 +287,14 @@ function watchmanVulnItem(array $item, string $have): array
         }
         return ['yes', $fixed];
     }
+    // 1.96 (2026-11-25): an inclusive bound coarser than the version here («≤ 4.3» for Bash 4.3.011, «≤ 9.7» for 9.7p1) —
+    // equal on the bound's own parts, the record doesn't say whether this patch level still belongs to it: maybe, never
+    // «not affected» (an exclusive bound «< 4.3» stays clearly outside; a bound as precise as the version compares as before)
+    foreach ($ranges as $x) {
+        if ($x['status'] === 'affected' && watchmanVulnRough($h, $x)) {
+            return ['maybe', null, 'rough', watchmanVulnText1($x['end'])];
+        }
+    }
     $default = $item['defaultStatus'] ?? 'unknown';
     // past everything the record names, nothing open-ended: «fixed from» its highest end (null when that is a version
     // named alone — «never affected»)
@@ -325,6 +338,21 @@ function watchmanVulnItem(array $item, string $have): array
     return $past() ?? [$unsure ? 'maybe' : 'yes', $fixed];
 }
 
+/**
+ * Range $r's inclusive end is coarser than $have (fewer numbers, or no patch level where $have has one) and $have equals it
+ * on the end's own parts, past its start: «≤ 4.3» and 4.3.11 — the comparison would call it newer, the record meant the
+ * whole 4.3 maybe
+ */
+function watchmanVulnRough(array $have, array $r): bool
+{
+    if (!$r['incl'] || $r['end'] === null || $r['exact'] || $r['branch'] !== null || watchmanVulnCmp($have, $r['start']) < 0) {
+        return false;
+    }
+    $n = count($r['end'][0]);
+    $coarser = $n < count($have[0]) || ($r['end'][1] === 0 && $have[1] > 0);
+    return $coarser && array_slice($have[0], 0, $n) === $r['end'][0] && watchmanVulnCmp($have, $r['end']) > 0;
+}
+
 /** A parsed version as text («2.6.36», «9.8p1») */
 function watchmanVulnText1(array $v): string
 {
@@ -339,7 +367,7 @@ function watchmanVulnText1(array $v): string
  * excluding, every version without a bound, a negated node) is kept as a range that can't be compared — the item stays
  * «maybe». null: not NVD's answer for this CVE.
  *
- * @return array{id: string, affected: list<array>}|null
+ * @return array{id: string, affected: list<array>, published?: string}|null
  */
 function watchmanVulnNvdReduce(array $j, string $cve): ?array
 {
@@ -385,7 +413,8 @@ function watchmanVulnNvdReduce(array $j, string $cve): ?array
             }
         }
     }
-    return ['id' => $cve, 'affected' => array_slice(array_values($items), 0, 50)];
+    $pub = substr((string) ($v['published'] ?? ''), 0, 10);
+    return ['id' => $cve, 'affected' => array_slice(array_values($items), 0, 50)] + (preg_match('/^\d{4}-\d\d-\d\d$/D', $pub) ? ['published' => $pub] : []);
 }
 
 /**
@@ -396,6 +425,34 @@ function watchmanVulnNvdReduce(array $j, string $cve): ?array
  * @return array{0: string, 1: ?string}
  */
 function watchmanVulnVerdict(?array $record, array $cna, string $have): array
+{
+    $items = watchmanVulnItems($record, $cna);
+    if (!$items) {
+        return ['maybe', null];
+    }
+    $clean = $unclean = [];
+    $why = null;            // why an item can't say (1.96, 2026-11-25): a bound coarser than the version here
+    foreach ($items as $a) {
+        $r = watchmanVulnItem($a, $have);
+        if ($r[0] === 'maybe') {
+            $unclean[] = [$r[0], $r[1]];
+            $why ??= isset($r[2]) ? [2 => $r[2], 3 => $r[3]] : null;
+        } else {
+            $clean[] = [$r[0], $r[1]];
+        }
+    }
+    $say = array_unique(array_column($clean, 0));
+    if ($say === ['yes']) {
+        return ['yes', array_values(array_filter(array_column($clean, 1)))[0] ?? null];
+    }
+    if ($say === ['no']) {
+        return ['no', array_values(array_filter(array_column($clean, 1)))[0] ?? null];      // fixed from (the page's «checked» list, 1.96)
+    }
+    return ['maybe', array_values(array_filter(array_column(array_merge($clean, $unclean), 1)))[0] ?? null] + ($why ?? []);
+}
+
+/** A record's affected items of the product ($cna: the name table's spellings) — the CNA's, else the ADP's */
+function watchmanVulnItems(?array $record, array $cna): array
 {
     // a name as the lists write it: lower case, the ADP's CPE spelling («linux_kernel», «sudo_project») with spaces
     $name = fn (mixed $x): string => strtolower(trim(str_replace('_', ' ', (string) $x)));
@@ -417,26 +474,42 @@ function watchmanVulnVerdict(?array $record, array $cna, string $have): array
             break;          // the CNA's own items decide; the ADP's only when the CNA named none of the product
         }
     }
-    if (!$items) {
-        return ['maybe', null];
+    return $items;
+}
+
+/**
+ * The record never looked at this release line (1.96, 2026-11-25): of the product's items for this server (platforms),
+ * no range holds $have — whatever its status — and none names the line $cycle (a range's start, end or branch beginning
+ * with it: «8.2.* < 8.2.20» names 8.2, «0 < 5.3.12» names no 7.2). Such a «not affected» rests only on what the vendor
+ * left out — PHP's records list the lines it still maintains.
+ */
+function watchmanVulnOutside(?array $record, array $cna, string $have, string $cycle): bool
+{
+    $h = watchmanVulnParse($have);
+    $line = watchmanVulnParse($cycle);
+    if ($h === null || $line === null) {
+        return false;
     }
-    $clean = $unclean = [];
-    foreach ($items as $a) {
-        [$v, $f] = watchmanVulnItem($a, $have);
-        if ($v === 'maybe') {
-            $unclean[] = [$v, $f];
-        } else {
-            $clean[] = [$v, $f];
+    $line = $line[0];
+    $names = fn (?array $parts): bool => $parts !== null && count($parts) >= count($line) && array_slice($parts, 0, count($line)) === $line;
+    $seen = false;
+    foreach (watchmanVulnItems($record, $cna) as $item) {
+        $platforms = array_map(fn ($p) => strtolower((string) $p), (array) ($item['platforms'] ?? []));
+        if ($platforms && !array_filter($platforms, fn ($p) => preg_match('/linux|unix|all/', $p))) {
+            continue;           // not for this server: its «no» is the platform's, not a line left out
+        }
+        foreach ((array) ($item['versions'] ?? []) as $r) {
+            $x = is_array($r) ? watchmanVulnRange($r) : null;
+            if ($x === null) {
+                continue;
+            }
+            $seen = true;
+            if (watchmanVulnIn($h, $x) || $names($x['start'][0]) || $names($x['end'][0] ?? null) || $names($x['branch'])) {
+                return false;
+            }
         }
     }
-    $say = array_unique(array_column($clean, 0));
-    if ($say === ['yes']) {
-        return ['yes', array_values(array_filter(array_column($clean, 1)))[0] ?? null];
-    }
-    if ($say === ['no']) {
-        return ['no', array_values(array_filter(array_column($clean, 1)))[0] ?? null];      // fixed from (the page's «checked» list, 1.96)
-    }
-    return ['maybe', array_values(array_filter(array_column(array_merge($clean, $unclean), 1)))[0] ?? null];
+    return $seen;
 }
 
 // ===================================================================== what is here
@@ -641,7 +714,10 @@ function watchmanVulnReduce(array $rec): ?array
             $adp = array_merge($adp, $items($c['affected']));
         }
     }
-    return ['id' => $id, 'affected' => $items((array) ($rec['containers']['cna']['affected'] ?? []))] + ($adp ? ['adp' => array_slice($adp, 0, 50)] : []);
+    // when it became known (1.96, 2026-11-25: whether a release line was already past its end then — watchmanVulnJudge())
+    $pub = substr((string) ($rec['cveMetadata']['datePublished'] ?? ''), 0, 10);
+    return ['id' => $id, 'affected' => $items((array) ($rec['containers']['cna']['affected'] ?? []))] + ($adp ? ['adp' => array_slice($adp, 0, 50)] : [])
+        + (preg_match('/^\d{4}-\d\d-\d\d$/D', $pub) ? ['published' => $pub] : []);
 }
 
 /**
@@ -1012,9 +1088,14 @@ function watchmanVulnSet(mixed $on, ?string $dir = null, bool $page = true): arr
  *
  * @return array{found: list<array>, checked: int, fresh: bool, kev: ?int, pending: list<string>, not: list<array>, unsure: list<array>,
  *               kev_total: ?int, kev_known: int, kev_here: int, kev_products: array<string, int>, down: list<array>, routers: list<array>, unraid: ?array{version: string, status: string, newest: ?string},
- *               software: list<array>, unknown: list<string>}
+ *               software: list<array>, unknown: list<string>, host: list<array>, cts: list<array>, ct_total: ?int, ct_read: int,
+ *               unread: list<string>, unread_n: int}
+ *
+ * What he looked at (1.96, 2026-11-25: «Was er geprüft hat» on the page): this server's rows of the inventory (host), the
+ * containers' (cts: container, product, version), and of $cts (every container's name; null: Docker didn't answer) how
+ * many there are, how many had a version he could read, and the others by name — each list at most WATCH_VULN_LOOK_MAX.
  */
-function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = [], array $routers = []): array
+function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = [], array $routers = [], ?array $cts = null): array
 {
     $f = watchmanVulnDir($dir);
     $kev = readJson("$f/kev.json");
@@ -1030,9 +1111,11 @@ function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []
             'down' => watchmanVulnDown($status),
             // the routers by their log (2026-11-23): each with its version and since when, or none known yet
             'routers' => array_map(fn ($r) => ['label' => WATCH_VULN_PRODUCTS[$r['product']]['label'] ?? $r['product'], 'version' => $r['version'], 'at' => $r['at']], $routers)]
-        + watchmanVulnEol($dir, $inv, $images);
+        + watchmanVulnEol($dir, $inv, $images) + watchmanVulnLook($inv, $cts);
+    $out['unknown'] = array_slice($out['unknown'], 0, WATCH_VULN_LOOK_MAX);
     $tried = readJson("$f/cve-tried.json");
     $tried = is_array($tried) ? $tried : [];
+    $eolCycles = [];            // endoflife.date's lines per slug, read once
     $byProduct = [];
     foreach ($inv as $x) {
         $byProduct[$x['product']][] = $x;
@@ -1048,22 +1131,47 @@ function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []
             $out['pending'][] = (string) $e['cve'];         // its record not fetched yet (a first fetch, over 60 a day): not judged yet
             continue;
         }
+        $cna = WATCH_VULN_PRODUCTS[$e['product']]['cna'];
+        $slug = WATCH_VULN_PRODUCTS[$e['product']]['eol'] ?? null;
+        // a record's verdict, and (1.96, 2026-11-25) a «not affected» that rests only on a release line the record never
+        // looked at, while endoflife.date says that line was past its end when the vulnerability became known (the record's
+        // publication, else the day CISA listed it): can't be checked for sure — the vendor no longer looked at such lines.
+        // A line still maintained then, a product without end-of-life data, a range that names the version: as before.
+        $judge = function (?array $r, string $clean) use ($cna, $slug, $e, $f, &$eolCycles): array {
+            $v = watchmanVulnVerdict($r, $cna, $clean);
+            if ($v[0] !== 'no' || $r === null || $slug === null) {
+                return $v;
+            }
+            $eolCycles[$slug] ??= (array) (readJson("$f/eol/$slug.json")['cycles'] ?? []);
+            $line = watchmanVulnCycle($eolCycles[$slug], $clean);
+            $known = is_string($r['published'] ?? null) ? $r['published'] : (is_string($e['added'] ?? null) ? $e['added'] : null);
+            $end = is_array($line) && is_string($line['eol_from'] ?? null) ? $line['eol_from'] : null;
+            if ($end !== null && $known !== null && $end < $known && watchmanVulnOutside($r, $cna, $clean, (string) $line['name'])) {
+                return ['maybe', null, 'eol', (string) $line['name']];
+            }
+            return $v;
+        };
         foreach ($byProduct[$e['product']] as $x) {
+            $src = 'cve';
             if ($x['clean'] === null) {
                 $verdict = ['maybe', null];
             } else {
-                $verdict = watchmanVulnVerdict(is_array($rec) ? $rec : null, WATCH_VULN_PRODUCTS[$e['product']]['cna'], $x['clean']);
+                $verdict = $judge(is_array($rec) ? $rec : null, $x['clean']);
                 // Unraid's own entries: their records name no version («n/a»); a version released long after the entry
                 // was listed (and fixed) isn't the one it was about
                 if ($verdict[0] === 'maybe' && $e['product'] === 'unraid' && watchmanVulnUnraidLater($f, $x['version'], (string) ($e['added'] ?? ''))) {
                     $verdict = ['no', null];
                 }
-                // still «maybe»: NVD's CPE ranges, when it was asked (2026-11-23) — only a clean verdict counts
+                // still «maybe»: NVD's CPE ranges, when it was asked (2026-11-23) — only a clean verdict counts; its reason
+                // why it can't say either, when the record gave none
                 if ($verdict[0] === 'maybe') {
                     $nvd = readJson("$f/nvd/{$e['cve']}.json");
-                    $byNvd = is_array($nvd) ? watchmanVulnVerdict($nvd, WATCH_VULN_PRODUCTS[$e['product']]['cna'], $x['clean']) : ['maybe', null];
+                    $byNvd = is_array($nvd) ? $judge($nvd, $x['clean']) : ['maybe', null];
                     if ($byNvd[0] !== 'maybe') {
-                        $verdict = [$byNvd[0], $byNvd[1], 'nvd'];
+                        $verdict = $byNvd;
+                        $src = 'nvd';
+                    } elseif (!isset($verdict[2]) && isset($byNvd[2])) {
+                        $verdict = $byNvd;
                     }
                 }
             }
@@ -1073,7 +1181,7 @@ function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []
                 if (count($out['not']) < WATCH_VULN_NOT_MAX) {
                     $out['not'][] = ['cve' => $e['cve'], 'product' => $e['product'], 'where' => $x['where'], 'have' => $x['version'], 'fixed' => $verdict[1],
                                      'name' => mb_strcut((string) ($e['name'] ?? ''), 0, 120, 'UTF-8')]
-                        + (watchmanVulnAncient($e['product'], $verdict[1]) ? ['ancient' => true] : []) + (($verdict[2] ?? null) === 'nvd' ? ['src' => 'nvd'] : []);
+                        + (watchmanVulnAncient($e['product'], $verdict[1]) ? ['ancient' => true] : []) + ($src === 'nvd' ? ['src' => 'nvd'] : []);
                 }
                 continue;
             }
@@ -1082,12 +1190,15 @@ function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []
                 if (count($out['unsure']) < WATCH_VULN_NOT_MAX) {
                     $out['unsure'][] = ['cve' => $e['cve'], 'product' => $e['product'], 'where' => $x['where'], 'have' => $x['version'],
                                         'name' => mb_strcut((string) ($e['name'] ?? ''), 0, 120, 'UTF-8'),
-                                        'nvd' => is_file("$f/nvd/{$e['cve']}.json")];      // NVD asked already (and it couldn't say either)
+                                        'nvd' => is_file("$f/nvd/{$e['cve']}.json")]      // NVD asked already (and it couldn't say either)
+                        // why (2026-11-25): «rough» — the list names the version only to {bound}; «eol» — the line {bound}
+                        // was past its end when it became known
+                        + (in_array($verdict[2] ?? null, ['rough', 'eol'], true) ? ['why' => $verdict[2], 'bound' => (string) $verdict[3]] : []);
                 }
                 continue;
             }
             $out['found'][] = ['cve' => $e['cve'], 'product' => $e['product'], 'where' => $x['where'], 'verdict' => $verdict[0], 'have' => $x['version'],
-                               'src' => $verdict[2] ?? 'cve',
+                               'src' => $src,
                                'fixed' => $verdict[1], 'name' => (string) ($e['name'] ?? ''), 'ransom' => !empty($e['ransom']), 'added' => $e['added'] ?? null];
         }
     }
@@ -1110,6 +1221,43 @@ function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []
         }
     }
     return $out;
+}
+
+/**
+ * What he looked at (1.96, 2026-11-25): this server's inventory rows (not the routers': they are said on their own), the
+ * containers' rows, and of the containers ($cts: their names; null: Docker didn't answer) the total, those read and the
+ * others — lists capped at WATCH_VULN_LOOK_MAX, the counts whole
+ *
+ * @return array{host: list<array{product: string, version: string}>, cts: list<array{where: string, product: string, version: string}>,
+ *               ct_total: ?int, ct_read: int, unread: list<string>, unread_n: int}
+ */
+function watchmanVulnLook(array $inv, ?array $cts): array
+{
+    $host = $rows = $read = $seen = [];
+    foreach ($inv as $x) {
+        $key = "{$x['where']}|{$x['product']}|{$x['version']}";
+        if (isset($seen[$key])) {
+            continue;
+        }
+        $seen[$key] = true;
+        if ($x['where'] === WATCH_VULN_HOST) {
+            if (!isset(WATCH_VULN_PRODUCTS[$x['product']]['net']) && count($host) < WATCH_VULN_LOOK_MAX) {
+                $host[] = ['product' => $x['product'], 'version' => $x['version']];
+            }
+            continue;
+        }
+        $read[$x['where']] = true;
+        if (count($rows) < WATCH_VULN_LOOK_MAX) {
+            $rows[] = ['where' => $x['where'], 'product' => $x['product'], 'version' => $x['version']];
+        }
+    }
+    usort($rows, fn ($a, $b) => strcasecmp($a['where'], $b['where']) ?: strcmp($a['product'], $b['product']));
+    $names = $cts === null ? [] : array_values(array_unique(array_map('strval', $cts)));
+    $unread = array_values(array_filter($names, fn ($n) => !isset($read[$n])));
+    sort($unread);
+    return ['host' => $host, 'cts' => $rows, 'ct_total' => $cts === null ? null : count($names),
+            'ct_read' => $cts === null ? count($read) : count(array_intersect_key($read, array_flip($names))),
+            'unread' => array_slice($unread, 0, WATCH_VULN_LOOK_MAX), 'unread_n' => count($unread)];
 }
 
 /**
@@ -1275,6 +1423,15 @@ function watchmanVulnPage(array $st, ?array $judged): array
             // the sources that haven't answered for days (2026-11-23): a calm line each, never a colour, never told
             'down' => array_values(array_filter((array) ($j['down'] ?? []), fn ($x) => is_array($x) && in_array($x['src'] ?? null, WATCH_VULN_SOURCES, true))),
             'routers' => array_values(array_filter((array) ($j['routers'] ?? []), fn ($x) => is_array($x) && is_string($x['label'] ?? null))),
+            // what he looked at (2026-11-25): this server's programs, the containers read and not — an older state has none (null)
+            'host' => is_array($j['host'] ?? null) ? array_map(fn ($x) => $x + ['label' => WATCH_VULN_PRODUCTS[$x['product']]['label'] ?? $x['product']],
+                array_values(array_filter($j['host'], fn ($x) => is_array($x) && is_string($x['product'] ?? null) && is_string($x['version'] ?? null)))) : null,
+            'cts' => array_map(fn ($x) => $x + ['label' => WATCH_VULN_PRODUCTS[$x['product']]['label'] ?? $x['product']],
+                array_values(array_filter((array) ($j['cts'] ?? []), fn ($x) => is_array($x) && is_string($x['where'] ?? null) && is_string($x['product'] ?? null)
+                    && is_string($x['version'] ?? null)))),
+            'ct_total' => is_int($j['ct_total'] ?? null) ? $j['ct_total'] : null, 'ct_read' => (int) ($j['ct_read'] ?? 0),
+            'unread' => array_values(array_filter((array) ($j['unread'] ?? []), 'is_string')), 'unread_n' => (int) ($j['unread_n'] ?? 0),
+            'vms' => is_int($j['vms'] ?? null) ? $j['vms'] : null,
             // can't be checked for sure (1.96, 2026-11-23): the record names no version he can compare — calm, never an entry
             'unsure' => array_map(fn ($x) => $x + ['label' => WATCH_VULN_PRODUCTS[$x['product']]['label'] ?? $x['product']],
                 array_values(array_filter((array) ($j['unsure'] ?? []), fn ($x) => is_array($x) && is_string($x['cve'] ?? null) && is_string($x['product'] ?? null))))];
@@ -1466,13 +1623,7 @@ function watchmanVulnEol(string $dir, array $inv, array $images): array
         if ($x['where'] === WATCH_VULN_HOST || $x['clean'] === null) {
             continue;
         }
-        $line = null;
-        foreach ($slug === null ? [] : (array) (readJson("$f/eol/$slug.json")['cycles'] ?? []) as $c) {
-            $n = (string) ($c['name'] ?? '');
-            if ($n !== '' && ($x['clean'] === $n || str_starts_with($x['clean'], "$n.")) && ($line === null || strlen($n) > strlen((string) $line['name']))) {
-                $line = $c;
-            }
-        }
+        $line = $slug === null ? null : watchmanVulnCycle((array) (readJson("$f/eol/$slug.json")['cycles'] ?? []), $x['clean']);
         $newer = $line !== null && is_string($line['latest'] ?? null) && watchmanVulnCmp(watchmanVulnParse($x['clean']), watchmanVulnParse($line['latest'])) < 0;
         $rows[] = ['product' => $x['product'], 'where' => $x['where'], 'version' => $x['clean'], 'cycle' => $line['name'] ?? null,
                    'eol' => $line === null ? null : ($line['eol'] ?? null), 'eol_from' => $line['eol_from'] ?? null, 'latest' => $newer ? $line['latest'] : null];
@@ -1480,4 +1631,17 @@ function watchmanVulnEol(string $dir, array $inv, array $images): array
     $unknown = array_keys(array_filter($images, fn ($env) => !$env));
     sort($unknown);
     return ['software' => $rows, 'unknown' => $unknown];
+}
+
+/** The release line of $clean among endoflife.date's $cycles: the longest name that is a prefix of it («8.4» for 8.4.28), or null */
+function watchmanVulnCycle(array $cycles, string $clean): ?array
+{
+    $line = null;
+    foreach ($cycles as $c) {
+        $n = is_array($c) ? (string) ($c['name'] ?? '') : '';
+        if ($n !== '' && ($clean === $n || str_starts_with($clean, "$n.")) && ($line === null || strlen($n) > strlen((string) $line['name']))) {
+            $line = $c;
+        }
+    }
+    return $line;
 }
