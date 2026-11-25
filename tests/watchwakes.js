@@ -385,10 +385,21 @@ async function handDialog() {
     [true, 'EmbyServer', 9, [T('setup.add_wide.new')]]);
   value.value = 'Grafanna';
   value.dispatch('input');
+  const notYet = shown('p.role.wm-hand-note');       // «may appear»: it isn't there yet — no line
+  pick(type, 'container|privileged');
+  value.value = 'Grafanna';
+  value.dispatch('input');
   const typo = shown('p.role.wm-hand-note');
+  value.value = 'graf';
+  value.dispatch('input');
+  const typing = shown('p.role.wm-hand-note');      // still the start of a name he knows — no line
+  value.value = 'grafana';
+  value.dispatch('input');
+  const cased = shown('p.role.wm-hand-note');       // another case is another name: the line
   value.value = 'Grafana';
   value.dispatch('input');
-  same('hand dialog: a name he doesn\'t know — a calm line; one he knows — none', [typo, shown('p.role.wm-hand-note')], [[T('setup.add_unknown')], []]);
+  same('hand dialog: a name he doesn\'t know — a calm line (not for «may appear», not while still typing a known one); one he knows — none',
+    [notYet, typo, typing, cased, shown('p.role.wm-hand-note')], [[], [T('setup.add_unknown')], [], [T('setup.add_unknown')], []]);
   wm.unmount();
   d = await open('access');
   const [t2, proto] = d.body.querySelectorAll('select');

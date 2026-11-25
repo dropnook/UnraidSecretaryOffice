@@ -2245,13 +2245,17 @@ async function handDialog(browser) {
         if (v.placeholder !== 'EmbyServer' || v.list.length !== 9 || !v.list.includes('immich_server') || !v.note || v.unknown || v.user || v.wide) {
           fail(`${at}: «a new container of this name»: its names, the first as the example, its note (${JSON.stringify(v)})`);
         }
+        await type('Grafanna');
+        v = await look();
+        const notYet = v.unknown;          // «may appear»: it isn't there yet — no line
+        await choose('container|privileged');
         await type('Grafana');
         v = await look();
         const known = v.unknown;
         await type('Grafanna');
         v = await look();
         res.tested++;
-        if (known || !v.unknown) fail(`${at}: a known name is quiet, a typo gets its line (${known}, ${v.unknown})`);
+        if (notYet || known || !v.unknown) fail(`${at}: a known name is quiet, a typo gets its line - not for «may appear» (${notYet}, ${known}, ${v.unknown})`);
         await page.keyboard.press('Escape');
         // the protocol of a share open to guests: a choice, sent as the agent takes it
         res.tested++;

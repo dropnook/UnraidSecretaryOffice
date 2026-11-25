@@ -494,7 +494,11 @@ function ruleHandDialog(tid, b) {
     note.textContent = k ? T(k) : '';
     const list = known();
     const v = value.value.trim();
-    unknown.hidden = !(v && list.length && HAND_FULL.has(HAND_LIST[typeOf()]) && !list.includes(v));
+    // not for «a container of this name may appear» (it isn't there yet), and not while what is typed is still the
+    // start of a name he knows (the line would nag at every key)
+    const low = v.toLowerCase();
+    const typing = list.some((x) => x.length > v.length && x.toLowerCase().startsWith(low));
+    unknown.hidden = !(v && list.length && typeOf() !== 'new' && HAND_FULL.has(HAND_LIST[typeOf()]) && !list.includes(v) && !typing);
   };
   type.addEventListener('change', () => { sync(); said(); });
   pick.addEventListener('change', () => { sync(); said(); });
