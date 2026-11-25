@@ -855,7 +855,10 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   the tile always — without a rotating disk it says there is none (all flash); machine names and paths on his page
   only, never in the agent's log. **Unraid's own look after a wake** (emhttpd's smartctl/hdparm, `hdparm -C`,
   smartctl in standby mode; `sensors` unless a `drivetemp` hwmon exists: `watchmanWakeReaction()`) is never a
-  cause, only said apart (`unraid`; 1.68.0's records read the same way). Writes don't wait (page cache, the kernel's
+  cause, only said apart (`unraid`; 1.68.0's records read the same way). Who reads only what never reaches a rotating
+  disk is left out, said nowhere (`watchmanWakeBystander()`: Fanboy's control unless a drivetemp hwmon exists — a slow
+  NVMe sensor keeps it in state D —, the `nvme` tool; older records too); somebody merely waiting (`maybe`) never hides
+  shfs or the open-files fallback, it ranks last. Writes don't wait (page cache, the kernel's
   flush): a writers' list while a disk sleeps (files open for writing there, every `WATCH_WAKE_HOLD` s, budgeted; their
   write counters every look) gives «wrote to it»; a user share's file by the disk shfs holds it on; a plain program by who
   started it (`by`: Unraid, its web page, a plugin, a user script, a terminal); a capture that found nobody looks again
@@ -1077,7 +1080,9 @@ the last 60 history lines only for a source the file has none for. **The file
   in a session of its own (`setsid -f`): an agent restarting in place never touches it. It steers while
   he is hired, shown, set up and armed («take over») — whatever the array does —, and no known controller runs (FanCtrl Plus, its fork,
   Dynamix System Autofan, PWM Fan — WAZ Cooling Control steers shelf and IPMI fans: named as a hint only, `'hint_only'`, `fanboyBlocking()`); outputs looked up anew at every start through the identity;
-  zones (fans + heat sources: disks only from disks.ini — asleep is asleep, never cold —, hwmon sensors) with a goal per
+  zones (fans + heat sources: disks only from disks.ini — asleep is asleep, never cold —, hwmon sensors; read: a CPU every
+  round, every other sensor at most every `FANBOY_SLOW_EVERY` 15 s, its last value in between, at once when new, found
+  again or silent — one NVMe takes a second a read, 2026-11-25 —, disks.ini every `FANBOY_DISKS_EVERY` 10 s) with a goal per
   kind of heat source (quiet/normal/cool from one table per kind, `FANBOY_SOURCE_DEFAULTS`, or the owner's own points;
   percent or rpm by the measured table with a correction); the source asking the most leads; **the curve decides alone —
   no limit puts a zone to full** (2026-11-20); how it reacts (`FANBOY_DOWN_PROFILES`): «slowly» (stored `balanced`: up 2 %

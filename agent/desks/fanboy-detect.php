@@ -154,9 +154,10 @@ function fanboyKind(string $chip): string
 
 /**
  * One chip of /sys/class/hwmon: its name, the device behind it without the boot number, the module, its outputs,
- * tach inputs and temperatures. Null for what is no hwmon entry.
+ * tach inputs and temperatures. Null for what is no hwmon entry. $values false: the temperatures' values not read (their
+ * `c` null) — the control's look «where is each sensor now?» (2026-11-25: one NVMe takes a second to answer a read)
  */
-function fanboyChip(string $hwmon, string $entry): ?array
+function fanboyChip(string $hwmon, string $entry, bool $values = true): ?array
 {
     $dir = "$hwmon/$entry";
     $real = realpath($dir);
@@ -208,7 +209,7 @@ function fanboyChip(string $hwmon, string $entry): ?array
     foreach ($temps as $n => $t) {
         // drivetemp asks the disk for its temperature: never read here (a sleeping disk would wake) — Unraid's own
         // disks.ini says it instead
-        $raw = $kind === 'disk' ? null : fanboyInt("$attr/temp{$n}_input");
+        $raw = $kind === 'disk' || !$values ? null : fanboyInt("$attr/temp{$n}_input");
         $temps[$n]['c'] = fanboySaneTemp($raw);
     }
     ksort($outputs);
@@ -246,14 +247,14 @@ function fanboySaneTemp(?int $milli): ?float
     return $c == 0.0 || $c <= -128.0 || $c >= 125.0 ? null : $c;
 }
 
-/** The chips under the hwmon folder, in its order (hwmon0, hwmon1 … hwmon10) */
-function fanboyChips(string $hwmon): array
+/** The chips under the hwmon folder, in its order (hwmon0, hwmon1 … hwmon10); $values false: no temperature read (fanboyChip()) */
+function fanboyChips(string $hwmon, bool $values = true): array
 {
     $entries = array_values(array_filter(@scandir($hwmon) ?: [], fn ($e) => preg_match('/^hwmon\d{1,4}$/D', $e) === 1));
     natsort($entries);
     $chips = [];
     foreach ($entries as $e) {
-        if (($c = fanboyChip($hwmon, $e)) !== null) {
+        if (($c = fanboyChip($hwmon, $e, $values)) !== null) {
             $chips[] = $c;
         }
     }

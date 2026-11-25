@@ -151,7 +151,9 @@ function watchmanWakeDisks(?array $ini = null): array
         $name = (string) ($v['name'] ?? $section);
         $dev = (string) ($v['device'] ?? '');
         $type = strtolower((string) ($v['type'] ?? ''));
-        if (($v['rotational'] ?? '1') === '0' || $type === 'flash' || !preg_match('/^[a-z][a-z0-9]{1,15}$/D', $dev)
+        // an NVMe device is never a rotating one (its driver says rotational 0, Unraid writes that; never spun down): left
+        // out by its name too, should a disks.ini ever lack the key — so a woken disk here is never an NVMe (watchmanWakeBystander())
+        if (($v['rotational'] ?? '1') === '0' || $type === 'flash' || str_starts_with($dev, 'nvme') || !preg_match('/^[a-z][a-z0-9]{1,15}$/D', $dev)
             || !preg_match('/^[A-Za-z0-9_.-]{1,40}$/D', $name)) {
             continue;
         }
@@ -321,12 +323,13 @@ function watchmanWakeStatsLook(): void
     if (!$asked) {
         return;
     }
-    $c = watchmanWakeCapture(null, ['hold' => $m['hold'], 'mono' => $mono, 'window' => $m['window']]);
+    $c = watchmanWakeCapture(null, ['hold' => $m['hold'], 'mono' => $mono, 'window' => $m['window'], 'mounts' => watchmanWakeMounts($asked)]);
     foreach ($asked as $name) {
         $m['again'][$name] = $mono;
         $m['caught'][$name] = $c;
     }
-    if (!$c['wrote'] && !array_filter($c['who'], fn (array $w): bool => $w['prog'] !== 'shfs')) {
+    // nobody caught with a file (only shfs, or somebody merely waiting — `maybe`): a second look
+    if (!$c['wrote'] && !array_filter($c['who'], fn (array $w): bool => $w['prog'] !== 'shfs' && $w['files'])) {
         $m['retry'] = ['at' => $mono + WATCH_WAKE_AGAIN_LOOK, 'disks' => $asked];
     }
 }
@@ -337,12 +340,19 @@ function watchmanWakeRetry(): void
     $m = &watchmanWakeMem();
     $disks = $m['retry']['disks'];
     $m['retry'] = null;
-    $c = watchmanWakeCapture(null, ['hold' => $m['hold'], 'mono' => watchmanWakeMono(), 'window' => $m['window']]);
+    $c = watchmanWakeCapture(null, ['hold' => $m['hold'], 'mono' => watchmanWakeMono(), 'window' => $m['window'], 'mounts' => watchmanWakeMounts($disks)]);
     foreach ($disks as $name) {
         if (isset($m['caught'][$name])) {
             $m['caught'][$name] = watchmanWakeMergeCaptures($m['caught'][$name], $c);
         }
     }
+}
+
+/** The mount points of these disks (his memory's): what a capture's «waiting with a file there» means */
+function watchmanWakeMounts(array $names): array
+{
+    $m = &watchmanWakeMem();
+    return array_values(array_unique(array_filter(array_map(fn (string $n): ?string => $m['disks'][$n]['mount'] ?? null, $names), 'is_string')));
 }
 
 /** Two looks at one wake as one capture: everybody of both, the first one's time */
@@ -539,7 +549,10 @@ function watchmanWakeReal(string $path, array $real): string
 /**
  * Who waits for a disk right now: every process with a task in state D (uninterruptible — the spin-up), looked at
  * closer (procwhoWho()) — Unraid's own look at a disk that just woke (watchmanWakeReaction()) only said apart (`unraid`),
- * shfs only when nobody else; without anybody, whoever holds a file open on a mounted disk. A user share's file by the
+ * who reads only what never reaches a rotating disk (watchmanWakeBystander()) left out. shfs and, as a fallback, whoever
+ * holds a file open on a mounted disk only while nobody was caught waiting WITH a file — on the disks asked for
+ * ($ctx['mounts']; not given: anywhere under /mnt) or in a user share: somebody merely in state D (`maybe` — a slow sensor
+ * read is state D too, 2026-11-25) never hides them. A user share's file by the
  * disk shfs has it on. The writers' list ($ctx: hold, mono, window — watchmanWakeHoldLook()) gives who wrote shortly
  * before (`wrote`; a counter that moved but no offset: `open`). Stops after WATCH_WAKE_BUDGET_MS, WATCH_WAKE_TASKS tasks
  * or PROCWHO_FDS files (`cut`). Reads /proc only.
@@ -600,10 +613,25 @@ function watchmanWakeCapture(?string $proc = null, array $ctx = []): array
         $w['files'] = array_values(array_unique(array_map(fn (string $p): string => watchmanWakeReal($p, $real), $w['files'])));
         return $w;
     };
+    $mounts = isset($ctx['mounts']) ? (array) $ctx['mounts'] : null;
+    $firm = function (array $w) use ($mounts): bool {
+        foreach ($w['files'] as $p) {
+            if ($mounts === null || preg_match('#^/mnt/user0?/#', $p)) {
+                return true;
+            }
+            foreach ($mounts as $mt) {
+                if ($p === $mt || str_starts_with($p, "$mt/")) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
     $people = $through = $unraid = [];
+    $found = false;                             // somebody caught waiting with a file there
     foreach ($waiting as $pid) {
         $w = procwhoWho($proc, $pid, $fds, $ns);
-        if ($w === null) {
+        if ($w === null || watchmanWakeBystander($w)) {
             continue;
         }
         if (watchmanWakeReaction($w)) {
@@ -611,7 +639,8 @@ function watchmanWakeCapture(?string $proc = null, array $ctx = []): array
         } elseif ($w['prog'] === 'shfs') {
             $through[] = $w;                    // shfs waits on behalf of whoever used a user share: a share, not a person
         } else {
-            $people[] = $byDisk($w);
+            $people[] = $w = $byDisk($w);
+            $found = $found || $firm($w);
         }
     }
     // the writers' list: a write counter that moved shortly before and a file offset that moved (or the file closed since)
@@ -636,8 +665,8 @@ function watchmanWakeCapture(?string $proc = null, array $ctx = []): array
             $open[] = $w;                       // it wrote — somewhere else, as far as its files there show
         }
     }
-    if (!$people) {
-        // nobody caught waiting: who holds a file open on a disk (the D task may have come and gone)
+    if (!$found) {
+        // nobody caught waiting with a file: who holds a file open on a disk (the D task may have come and gone)
         foreach ($pids as $pid) {
             if ($fds >= PROCWHO_FDS || $over()) {
                 $cut = true;
@@ -652,7 +681,7 @@ function watchmanWakeCapture(?string $proc = null, array $ctx = []): array
             }
         }
     }
-    return ['t' => time(), 'ms' => (int) round((hrtime(true) - $t0) / 1e6), 'cut' => $cut, 'who' => $people ?: $through, 'open' => $open,
+    return ['t' => time(), 'ms' => (int) round((hrtime(true) - $t0) / 1e6), 'cut' => $cut, 'who' => $found ? $people : array_merge($people, $through), 'open' => $open,
             'wrote' => $wrote, 'unraid' => array_values(array_unique($unraid))];
 }
 
@@ -680,6 +709,28 @@ function watchmanWakeReaction(array $w, bool $smartThen = false): bool
         || ($by === 'unraid' && $prog === 'sdspin' && !preg_match('/\sup(?:\s|$)/', $cmd))
         || ($by === null && $smartThen && $prog === 'smartctl')
         || ($prog === 'sensors' && !watchmanWakeDrivetemp());
+}
+
+/**
+ * Who reads only what can never reach a rotating disk — never a cause, and not Unraid's look either (left out, said nowhere;
+ * 2026-11-25, nostromo: every wake of the day named Fanboy's control, `maybe`, and once `nvme get-feature`):
+ *   - Fanboy's control service (`php agent.php ramjob fanboy-control`, only that process — never a child it starts): it
+ *     holds no file under /mnt (it runs without the data folder), reads hwmon and Unraid's disks.ini (RAM) and writes the
+ *     fan outputs. It sits in state D for a reason of its own: an NVMe's hwmon temperature can take a second to answer
+ *     (a Corsair MP600 PRO: 1.04 s every read). It never reads a drivetemp hwmon (fanboyChip()); still, as for `sensors`,
+ *     with a drivetemp hwmon here it stays what it was (a `maybe`).
+ *   - the `nvme` command line tool (nvme-cli, run by Unraid and plugins): it sends admin commands to NVMe devices only,
+ *     and a woken disk here is never an NVMe (watchmanWakeDisks(): only rotating ones, never an nvme device).
+ * Entries of older agents read the same way (watchmanWakeShaped()).
+ */
+function watchmanWakeBystander(array $w): bool
+{
+    $prog = (string) ($w['prog'] ?? '');
+    $cmd = (string) ($w['cmd'] ?? '');
+    if ($prog === 'nvme' && preg_match('#^(?:/\S*/)?nvme(?:\s|$)#', $cmd)) {
+        return true;
+    }
+    return ($w['kind'] ?? '') === 'office' && preg_match('#/agent/agent\.php ramjob fanboy-control$#D', $cmd) === 1 && !watchmanWakeDrivetemp();
 }
 
 /** A `drivetemp` hwmon here (/sys/class/hwmon/hwmonN/name — RAM): only then can reading the sensors touch a rotating disk */
@@ -747,7 +798,8 @@ function watchmanWakeRecord(array $woke, int $from, int $to, array $disks, array
  * The causes of a wake, the surest first: caught waiting with a file on the woken disk (sure), had written to a file
  * on it shortly before (wrote), waiting with a file in a user share that can lie on it (likely — shfs reaches the disk
  * for it), waiting without a file under /mnt (maybe); and whoever had a file open on it or in a share on it (open).
- * Unraid's own look is never one; shfs only when nobody else is. One per process, WATCH_WAKE_WHO at most.
+ * Unraid's own look is never one, nor who reads only what never reaches a rotating disk (watchmanWakeBystander()); shfs
+ * only when nobody else is named better than `maybe`. One per process, WATCH_WAKE_WHO at most.
  *
  * @param list<array> $caught  captures
  * @param list<string> $mounts the woken disks' mount points
@@ -776,7 +828,7 @@ function watchmanWakeCauses(array $caught, array $mounts, ?array $shares = null)
     foreach ($caught as $c) {
         foreach (['who', 'wrote', 'open'] as $list) {
             foreach ((array) ($c[$list] ?? []) as $w) {
-                if (watchmanWakeReaction($w)) {
+                if (watchmanWakeReaction($w) || watchmanWakeBystander($w)) {
                     continue;
                 }
                 $mine = array_values(array_filter($w['files'], $on));
@@ -799,7 +851,8 @@ function watchmanWakeCauses(array $caught, array $mounts, ?array $shares = null)
         }
     }
     $out = array_values($out);
-    if (array_filter($out, fn (array $w): bool => $w['prog'] !== 'shfs')) {
+    // shfs (a user share was used) only while nobody else is named better than `maybe` (merely waiting: last, never instead)
+    if (array_filter($out, fn (array $w): bool => $w['prog'] !== 'shfs' && $w['sure'] !== 'maybe')) {
         $out = array_values(array_filter($out, fn (array $w): bool => $w['prog'] !== 'shfs'));
     }
     usort($out, fn (array $a, array $b): int => $rank[$a['sure']] <=> $rank[$b['sure']]);
@@ -890,6 +943,9 @@ function watchmanWakeShaped(mixed $w): ?array
     foreach ($w['who'] as $c) {
         if (is_array($c) && in_array($c['kind'] ?? null, WATCH_WAKE_KINDS, true) && is_string($c['prog'] ?? null)
             && isset(WATCH_WAKE_SURE[$c['sure'] ?? ''])) {
+            if (watchmanWakeBystander($c)) {
+                continue;                   // Fanboy's control, `nvme` (an older agent kept them): never a cause, said nowhere
+            }
             // Unraid's own look, as an older agent (1.68.0, no `by`) kept it: said apart, never the cause
             if (watchmanWakeReaction($c, !array_key_exists('by', $c) && is_int($w['smart'] ?? null))) {
                 $unraid = true;
