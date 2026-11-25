@@ -27,6 +27,19 @@ declare(strict_types=1);
  */
 
 const FANBOY_ROUND = 2.0;               // seconds between rounds
+/*
+ * How often a heat source is read (2026-11-25, the owner: «jede Runde ist nur für die CPU wichtig; alles andere reicht
+ * alle 15 Sekunden — auch NVMe und RAM brauchen viel länger zum Warmwerden»). Measured on nostromo: one NVMe (a Corsair MP600 PRO) takes 1.04 s for every hwmon read — the loop sat in it
+ * every round. A source of kind `cpu`: every round. Every other hwmon source (a zone's and the net's): at most every
+ * FANBOY_SLOW_EVERY s, its last value counts in between (fanboyReadDue()) — read at once when never read, when its path
+ * is new (found again, moved) and after a read that said nothing (no held value ever hides a silent sensor; its quiet
+ * clock starts at its last good read). Unraid's disks.ini (a file in RAM, it costs nothing) stays at every
+ * FANBOY_DISKS_EVERY s, 10 as before: that read is also where the control sees the array stop (fanboyDisksUnknown():
+ * the disks' values «unknown», a zone keeps its level) and a disk outside the array in use by its I/O counters moving
+ * (fanboyDisks(): the «in use» alarm after FANBOY_DISK_SENSOR_AFTER) — at 30 s both would come up to 20 s later.
+ */
+const FANBOY_SLOW_EVERY = 15.0;
+const FANBOY_DISKS_EVERY = 10.0;
 const FANBOY_FOREIGN_CONFIRM = 3.0;     // seconds someone else's write must be seen before he acts (one read can be wrong;
                                         // nct6775 keeps registers ~1.5 s): three looks over ~4 s at FANBOY_ROUND
 const FANBOY_GAP = 2.0;                 // °C below the temperature it went up at before it goes down
@@ -769,11 +782,40 @@ function fanboyTachs(?string $hwmon, array $tachs): array
     return array_map(fn ($n) => fanboySaneRpm(fanboyReadInt("$dir/fan{$n}_input")), $tachs);
 }
 
-/** The zones' sources now: [id => {c, asleep, label, kind}] — disks from disks.ini (every 10 s), sensors every round */
+/**
+ * Is a hwmon source's read due in this round (FANBOY_SLOW_EVERY above)? $s: its entry — kind, path and what the last read
+ * left (`read_at`, `read_path`, `c`)
+ */
+function fanboyReadDue(array $s, float $now): bool
+{
+    return ($s['kind'] ?? null) === 'cpu' || !is_float($s['read_at'] ?? null) || ($s['read_path'] ?? null) !== ($s['path'] ?? null)
+        || ($s['c'] ?? null) === null || $now - $s['read_at'] >= FANBOY_SLOW_EVERY;
+}
+
+/**
+ * A hwmon source read when due (fanboyReadDue()), else its last value kept: its entry with `c` and what the read left —
+ * `read_at`, `read_path`, `ok_at` (the last read that gave a value). No path: no value, nothing kept.
+ */
+function fanboyReadHeld(array $s, float $now): array
+{
+    if ($s['path'] === null) {
+        return ['c' => null, 'read_at' => null, 'read_path' => null] + $s;
+    }
+    if (!fanboyReadDue($s, $now)) {
+        return $s;
+    }
+    $v = fanboySaneTemp(fanboyReadInt($s['path']));
+    return ['c' => $v, 'read_at' => $now, 'read_path' => $s['path'], 'ok_at' => $v !== null ? $now : ($s['ok_at'] ?? null)] + $s;
+}
+
+/**
+ * The zones' sources now: [id => {c, asleep, label, kind}] — disks from disks.ini (every FANBOY_DISKS_EVERY s), a CPU
+ * every round, every other sensor at most every FANBOY_SLOW_EVERY s (fanboyReadHeld())
+ */
 function fanboyReadSources(array &$c, float $now): void
 {
     $p = fanboyPaths(fanboySysRoot() ?: null);
-    if ($c['disks_at'] === null || $now - $c['disks_at'] >= 10) {
+    if ($c['disks_at'] === null || $now - $c['disks_at'] >= FANBOY_DISKS_EVERY) {
         $c['disks'] = [];
         foreach (fanboyDisks($p['disks'], fanboyDiskLimits($p)) as $d) {      // round 12 fix: with Unraid's warning per disk (the net)
             $c['disks'][$d['name']] = $d;
@@ -795,8 +837,9 @@ function fanboyReadSources(array &$c, float $now): void
         }
     }
     if ($c['scan_at'] === null || $now - $c['scan_at'] >= 30 || array_filter($c['sources'], fn ($s) => $s['path'] === null && !in_array($s['kind'], FANBOY_DISK_KINDS, true))) {
-        // where each sensor is this boot (looked up anew every 30 s and while one is missing)
-        $chips = fanboyChips($p['hwmon']);
+        // where each sensor is this boot (looked up anew every 30 s and while one is missing) — names and paths only, no
+        // temperature read here (a slow sensor would cost its second once more)
+        $chips = fanboyChips($p['hwmon'], false);
         $where = [];
         $byName = [];
         foreach ($chips as $chip) {
@@ -841,18 +884,20 @@ function fanboyReadSources(array &$c, float $now): void
             $w = $where[$s['id']] ?? null;
             $loose[$s['id']] = ['kind' => $s['kind'], 'label' => $names[$s['id']] ?? $s['id'],
                 'path' => in_array($s['kind'], FANBOY_DISK_KINDS, true) ? null : ($w !== null && !$w['disk'] ? $w['path'] : null),
-                'c' => $c['loose'][$s['id']]['c'] ?? null];
+                'c' => $c['loose'][$s['id']]['c'] ?? null]
+                // when it was read last, where, and its last good read (fanboyReadHeld()): a rescan reads nothing anew by itself
+                + array_intersect_key($c['loose'][$s['id']] ?? [], ['read_at' => 1, 'read_path' => 1, 'ok_at' => 1]);
         }
         $c['loose'] = $loose;
         $c['scan_at'] = $now;
     }
-    // round 12 fix: their temperatures now — hwmon every round, Unraid's disks as disks.ini says (asleep: none)
+    // round 12 fix: their temperatures now — hwmon when due (fanboyReadHeld()), Unraid's disks as disks.ini says (asleep: none)
     foreach ($c['loose'] as $id => $l) {
         if (in_array($l['kind'], FANBOY_DISK_KINDS, true)) {
             $d = ($c['disks_unknown'] ?? null) !== null ? null : ($c['disks'][$id] ?? null);      // unknown: no value for the net either
             $c['loose'][$id]['c'] = $d === null || $d['asleep'] || $d['temp'] === null ? null : $d['temp'] + ($c['allow'] ?? 0);
         } else {
-            $c['loose'][$id]['c'] = $l['path'] === null ? null : fanboySaneTemp(fanboyReadInt($l['path']));
+            $c['loose'][$id] = fanboyReadHeld($l, $now);
         }
     }
     foreach ($c['sources'] as $id => $s) {
@@ -867,15 +912,15 @@ function fanboyReadSources(array &$c, float $now): void
             $c['sources'][$id]['there'] = $d !== null;
             $c['sources'][$id]['in_use'] = !$unknown && ($d['in_use'] ?? false) === true;       // round 13b: in use, no temperature
         } else {
-            $raw = $s['path'] === null ? null : fanboyReadInt($s['path']);
+            $c['sources'][$id] = fanboyReadHeld($s, $now);
             $c['sources'][$id]['unknown'] = false;
             $c['sources'][$id]['asleep'] = false;
-            $c['sources'][$id]['c'] = fanboySaneTemp($raw);
             $c['sources'][$id]['there'] = $s['path'] !== null;
         }
-        // since when it says nothing (an asleep disk says nothing on purpose; an unknown one can't say)
+        // since when it says nothing (an asleep disk says nothing on purpose; an unknown one can't say) — a sensor read
+        // every FANBOY_SLOW_EVERY s since its last good read: what it did in between nobody saw (never a later start)
         $quiet = $c['sources'][$id]['c'] === null && !$c['sources'][$id]['asleep'] && !$c['sources'][$id]['unknown'];
-        $c['sources'][$id]['quiet_since'] = $quiet ? ($s['quiet_since'] ?? $now) : null;
+        $c['sources'][$id]['quiet_since'] = $quiet ? ($s['quiet_since'] ?? (is_float($s['ok_at'] ?? null) ? $s['ok_at'] : $now)) : null;
     }
 }
 

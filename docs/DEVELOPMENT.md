@@ -1080,7 +1080,9 @@ the last 60 history lines only for a source the file has none for. **The file
   in a session of its own (`setsid -f`): an agent restarting in place never touches it. It steers while
   he is hired, shown, set up and armed («take over») — whatever the array does —, and no known controller runs (FanCtrl Plus, its fork,
   Dynamix System Autofan, PWM Fan — WAZ Cooling Control steers shelf and IPMI fans: named as a hint only, `'hint_only'`, `fanboyBlocking()`); outputs looked up anew at every start through the identity;
-  zones (fans + heat sources: disks only from disks.ini — asleep is asleep, never cold —, hwmon sensors) with a goal per
+  zones (fans + heat sources: disks only from disks.ini — asleep is asleep, never cold —, hwmon sensors; read: a CPU every
+  round, every other sensor at most every `FANBOY_SLOW_EVERY` 15 s, its last value in between, at once when new, found
+  again or silent — one NVMe takes a second a read, 2026-11-25 —, disks.ini every `FANBOY_DISKS_EVERY` 10 s) with a goal per
   kind of heat source (quiet/normal/cool from one table per kind, `FANBOY_SOURCE_DEFAULTS`, or the owner's own points;
   percent or rpm by the measured table with a correction); the source asking the most leads; **the curve decides alone —
   no limit puts a zone to full** (2026-11-20); how it reacts (`FANBOY_DOWN_PROFILES`): «slowly» (stored `balanced`: up 2 %

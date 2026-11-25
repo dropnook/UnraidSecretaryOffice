@@ -1262,3 +1262,86 @@ function testFanboyState(): void
         fanboyTEnd();
     }
 }
+
+// ===================================================================== how often each source is read (2026-11-25)
+
+/*
+ * The owner (2026-11-25): a CPU every round; every other hwmon source at most every FANBOY_SLOW_EVERY s, its last value
+ * in between; Unraid's disks.ini every FANBOY_DISKS_EVERY s (10, as before). Read at once when never read, when found again and after a
+ * read that said nothing; a silent sensor's quiet clock from its last good read; the 30-s look «where is each sensor?»
+ * reads no temperature.
+ */
+function testFanboyReadCadence(): void
+{
+    $t = fanboyT('cadence');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $all = fanboySources(fanboyDetect());
+        $id = fn (string $kind, string $chip, int $n = 1): string => array_values(array_filter($all, fn ($s) => $s['kind'] === $kind && ($s['chip'] ?? '') === $chip && ($s['n'] ?? 0) === $n))[0]['id'];
+        $cpu = $id('cpu', 'coretemp');
+        $settings = fanboyTSettings();
+        $settings['zones'][1]['sources'][] = ['kind' => 'cpu', 'id' => $cpu];
+        $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
+        $file = function (string $sid) use (&$c): string {
+            return (string) ($c['sources'][$sid]['path'] ?? $c['loose'][$sid]['path'] ?? '');
+        };
+        $put = fn (string $path, int $milli) => file_put_contents($path, "$milli\n");
+        $val = function (string $sid) use (&$c): ?float {
+            return $c['sources'][$sid]['c'] ?? $c['loose'][$sid]['c'] ?? null;
+        };
+        $ram = 'spd5118@pci0000:00/0000:00:1f.4/i2c-0/0-0051#1';
+        $now = 1000.0;
+        fanboyReadSources($c, $now);
+        $loose = array_values(array_filter(array_keys($c['loose']), fn ($k) => str_starts_with($k, 'nvme@')))[0] ?? null;
+        same('fanboy cadence: the first round reads everything at once — CPU, NVMe, RAM, the net\'s NVMe, the disks',
+            [28.0, 27.9, 22.8, true, 35],
+            [$val($cpu), $val(FANBOY_T_NVME), $val($ram), $loose !== null && $val($loose) !== null, $c['disks']['parity']['temp'] ?? null]);
+        $put($file($cpu), 51000);
+        $put($file(FANBOY_T_NVME), 45000);
+        $put($file($ram), 30000);
+        $put($file($loose), 46000);
+        fanboyTDisks($t, 44, null, 33);
+        $seen = [];
+        for ($now = 1002.0; $now < 1015.0; $now += FANBOY_ROUND) {
+            fanboyReadSources($c, $now);
+            $seen[] = [$val($cpu), $val(FANBOY_T_NVME), $val($ram), $val($loose)];
+        }
+        same('fanboy cadence: within 15 s the CPU every round, NVMe, RAM and the net\'s NVMe held at their last value (no read)',
+            array_fill(0, 7, [51.0, 27.9, 22.8, $seen[0][3]]), $seen);
+        same('fanboy cadence: … the held ones not read again in between (their last read the first round\'s)', [1000.0, 1000.0, 1000.0],
+            [$c['sources'][FANBOY_T_NVME]['read_at'], $c['sources'][$ram]['read_at'], $c['loose'][$loose]['read_at']]);
+        fanboyReadSources($c, 1016.0);
+        same('fanboy cadence: 15 s on — read again: NVMe, RAM, the net\'s NVMe', [45.0, 30.0, 46.0], [$val(FANBOY_T_NVME), $val($ram), $val($loose)]);
+        same('fanboy cadence: Unraid\'s disks.ini every FANBOY_DISKS_EVERY s (kept at 10: the array\'s stop and a disk in use are seen at that read)',
+            [10.0, 44], [FANBOY_DISKS_EVERY, $c['disks']['parity']['temp']]);
+        fanboyReadSources($c, 1030.0);
+        // a due read that says nothing: no held value — and its quiet clock from its last good read, read again next round
+        $nv = $file(FANBOY_T_NVME);
+        rename($nv, "$nv.away");
+        fanboyReadSources($c, 1032.0);
+        same('fanboy cadence: the NVMe\'s due read says nothing — no value held, quiet since its last good read (16 s), asked again the next round',
+            [null, 1016.0, true], [$val(FANBOY_T_NVME), $c['sources'][FANBOY_T_NVME]['quiet_since'], fanboyReadDue($c['sources'][FANBOY_T_NVME], 1034.0)]);
+        rename("$nv.away", $nv);
+        $put($nv, 47000);
+        fanboyReadSources($c, 1034.0);
+        same('fanboy cadence: … answering again: read at once, quiet over', [47.0, null], [$val(FANBOY_T_NVME), $c['sources'][FANBOY_T_NVME]['quiet_since']]);
+        // the rescan reads no temperature, and leaves the held values alone
+        same('fanboy cadence: the look «where is each sensor?» reads no temperature', [null], array_values(array_unique(array_merge(...array_map(
+            fn ($ch) => array_column($ch['temps'], 'c'), fanboyChips(fanboyPaths()['hwmon'], false))))));
+        $put($file($ram), 33000);
+        fanboyReadSources($c, 1036.0);
+        $c['scan_at'] = 1000.0;          // the 30-s look due now
+        fanboyReadSources($c, 1038.0);
+        same('fanboy cadence: … a rescan with every sensor where it was: nothing read anew (RAM still 30 °C from its read at 32 s)', [30.0, 1032.0],
+            [$val($ram), $c['sources'][$ram]['read_at']]);
+        // a sensor found at a new path (moved, found again): read at once
+        $c['sources'][$ram]['read_path'] = '/elsewhere';
+        fanboyReadSources($c, 1040.0);
+        same('fanboy cadence: a sensor at a path it wasn\'t read at — read at once', 33.0, $val($ram));
+        // a CPU sensor's kind by default: coretemp, k10temp, zenpower are «cpu» — the fast path
+        same('fanboy cadence: coretemp, k10temp, zenpower are of kind cpu (every round)', ['cpu', 'cpu', 'cpu'],
+            [fanboyKind('coretemp'), fanboyKind('k10temp'), fanboyKind('zenpower')]);
+    } finally {
+        fanboyTEnd();
+    }
+}
