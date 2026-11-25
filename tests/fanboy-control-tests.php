@@ -411,10 +411,14 @@ function testFanboyAlarms(): void
         fanboyTRounds($c, $now, $t, $spec, 80);
         same('fanboy alarms: … back: over', null, $c['alarm']);
 
-        // someone else writes an output he holds: that output given back to the BIOS, told once, never taken again here
+        // someone else writes an output he holds: seen in every look for FANBOY_FOREIGN_CONFIRM (2026-11-25), then that
+        // output given back to the BIOS, told once, never taken again here
         file_put_contents("{$t['hw']}/pwm5_enable", "2\n");
+        fanboyTRounds($c, $now, $t, $spec, 2);
+        same('fanboy alarms: someone else changed the hub\'s mode — two looks over 2 s: not yet (still his, nothing told)',
+            [true, false, 0], [$c['fans'][fanboyTId(5)]['taken'], $c['fans'][fanboyTId(5)]['foreign'], count(array_filter(fanboyTNotified($t), fn ($l) => str_contains($l, '-i warning')))]);
         fanboyTRounds($c, $now, $t, $spec, 1);
-        same('fanboy alarms: someone else changed the hub\'s mode — given back (128, fixed: its state before him), not his any more',
+        same('fanboy alarms: … the third look (4 s) — given back (128, fixed: its state before him), not his any more',
             [[128, 1], false, true], [fanboyTOut($t, 5), $c['fans'][fanboyTId(5)]['taken'], $c['fans'][fanboyTId(5)]['foreign']]);
         file_put_contents("{$t['hw']}/pwm5", "60\n");
         fanboyTRounds($c, $now, $t, $spec, 5);
@@ -432,6 +436,119 @@ function testFanboyAlarms(): void
         fanboyTRounds($c, $now, $t, $spec, 1);
         same('fanboy alarms: the chip gone — alarm «chip», nothing held, waiting for it (round 5: «chip_gone» — the fans stay where he left them)', ['chip', [], 'wait_chip', 'chip_gone'],
             [$c['alarm']['code'] ?? null, fanboyHeld(), $c['phase'], fanboyStatus($c)['why']]);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+// ===================================================================== someone else's write: confirmed before he acts
+
+/** The log lines of the control's events so far (what fanboyControlLog() would write), and the events emptied */
+function fanboyTLines(array &$c): array
+{
+    $out = array_values(array_map(fn ($e) => (string) ($e['line'] ?? $e['code']), $c['events']));
+    $c['events'] = [];
+    return $out;
+}
+
+/**
+ * 2026-11-25 (a W680 board, nct6798 shared with ACPI and the BMC: twice in 33 hours «someone else changed Fan 2» with
+ * nobody writing): one look that reads an output otherwise proves nothing. Acted on only when seen in every look for
+ * FANBOY_FOREIGN_CONFIRM; a look reading it as his again ends it (one quiet log line); one that can't be read is «don't
+ * know»; his own write meanwhile starts it anew; a settings reload keeps it, a new control starts without.
+ */
+function testFanboyForeignConfirm(): void
+{
+    $t = fanboyT('foreign');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $settings = fanboyTSettings();
+        fanboyTStore($settings);
+        $spec = fanboyTSpec();
+        fanboyTSettle($t, $spec);
+        fanboyBeat();
+        $me = fanboyMe('control');
+        $c = fanboyControlNew($settings, FANBOY_T_KEY, $me);
+        same('fanboy foreign: a new control — nothing being confirmed', [null], array_values(array_unique(array_column($c['fans'], 'foreign_seen'))));
+        $now = 3000.0;
+        fanboyTRounds($c, $now, $t, $spec, 8);
+        $cage = fanboyTId(4);
+        $front = fanboyTId(5);
+        $warnings = fn () => count(array_filter(fanboyTNotified($t), fn ($l) => str_contains($l, '-i warning')));
+        $held = function (string $id) use (&$c): array {
+            return [$c['fans'][$id]['taken'], $c['fans'][$id]['foreign']];
+        };
+        $mine = fanboyTOut($t, 4);
+        fanboyTLines($c);
+
+        // one wrong read (the chip shared with the firmware): seen once, then as written again — nothing done, one line
+        file_put_contents("{$t['hw']}/pwm4", "255\n");
+        fanboyTRounds($c, $now, $t, $spec, 1);
+        same('fanboy foreign: one look reads the cage otherwise — remembered, still his, nothing written over it', [[true, false], 255, 1],
+            [$held($cage), $c['fans'][$cage]['foreign_seen']['now']['value'] ?? null, $c['fans'][$cage]['foreign_seen']['now']['enable'] ?? null]);
+        file_put_contents("{$t['hw']}/pwm4", "{$mine[0]}\n");
+        fanboyTRounds($c, $now, $t, $spec, 3);
+        $lines = fanboyTLines($c);
+        same('fanboy foreign: … as written again the next look — not let go, no note, no notification, nothing open',
+            [[true, false], $mine, 0, [], null],
+            [$held($cage), fanboyTOut($t, 4), $warnings(), array_values(array_filter(array_column($c['notes'], 'code'), fn ($k) => $k === 'foreign')), $c['fans'][$cage]['foreign_seen']]);
+        same('fanboy foreign: … one quiet log line, saying what was expected and read', ["Cage read as changed by someone else (expected {$mine[0]}/{$mine[1]}, read 255/{$mine[1]}), as written again 2 s later — a misread, nothing done"], $lines);
+
+        // an output that can't be read: «don't know» — never someone else's write, however long
+        file_put_contents("{$t['hw']}/pwm4", "?\n");
+        fanboyTRounds($c, $now, $t, $spec, 4);
+        file_put_contents("{$t['hw']}/pwm4", "{$mine[0]}\n");
+        file_put_contents("{$t['hw']}/pwm4_enable", "\n");
+        fanboyTRounds($c, $now, $t, $spec, 4);
+        file_put_contents("{$t['hw']}/pwm4_enable", "{$mine[1]}\n");
+        fanboyTRounds($c, $now, $t, $spec, 2);
+        same('fanboy foreign: its value, then its mode unreadable for 8 s each — still his, nothing told, nothing said', [[true, false], 0, [], null],
+            [$held($cage), $warnings(), fanboyTLines($c), $c['fans'][$cage]['foreign_seen']]);
+        same('fanboy foreign: … fanboyForeign() never names an output it can\'t read', [], fanboyForeign($me));
+        // … and one that can't be read ends a mismatch open (not seen in every look)
+        file_put_contents("{$t['hw']}/pwm4_enable", "2\n");
+        fanboyTRounds($c, $now, $t, $spec, 1);
+        file_put_contents("{$t['hw']}/pwm4_enable", "x\n");
+        fanboyTRounds($c, $now, $t, $spec, 1);
+        file_put_contents("{$t['hw']}/pwm4_enable", "{$mine[1]}\n");
+        fanboyTRounds($c, $now, $t, $spec, 2);
+        $lines = fanboyTLines($c);
+        same('fanboy foreign: a mismatch, then unreadable — not confirmed: still his, nothing told, one line', [[true, false], 0, 1, true],
+            [$held($cage), $warnings(), count($lines), str_contains($lines[0] ?? '', 'then not readable — not confirmed, nothing done')]);
+
+        // someone else really writes (the hub's mode): not before FANBOY_FOREIGN_CONFIRM — a settings reload in between keeps it
+        file_put_contents("{$t['hw']}/pwm5_enable", "2\n");
+        fanboyTRounds($c, $now, $t, $spec, 1);
+        $since = $c['fans'][$front]['foreign_seen']['since'] ?? null;
+        fanboyControlReload($c, $settings, FANBOY_T_KEY, $me);
+        same('fanboy foreign: the hub\'s mode changed — seen once; a settings reload keeps what is being confirmed', [[true, false], $since],
+            [$held($front), $c['fans'][$front]['foreign_seen']['since'] ?? 'gone']);
+        fanboyTRounds($c, $now, $t, $spec, 1);
+        same('fanboy foreign: … 2 s: not yet — still his, nothing told, nothing written over it', [[true, false], 0, 2],
+            [$held($front), $warnings(), fanboyTOut($t, 5)[1]]);
+        fanboyTRounds($c, $now, $t, $spec, 1);
+        $lines = fanboyTLines($c);
+        same('fanboy foreign: … the third look (4 s): given back, marked, noted, told (a warning)', [[false, true], [128, 1], 1, 'foreign'],
+            [$held($front), fanboyTOut($t, 5), $warnings(), end($c['notes'])['code'] ?? null]);
+        check('fanboy foreign: … the log line says what was expected and read, and for how long (' . implode(' | ', $lines) . ')',
+            (bool) preg_grep('#^someone else changed Front \(expected \d+/1, read \d+/2 for 4 s\) — given back to the BIOS$#D', $lines));
+
+        // his own write meanwhile (a new value read back): the look starts anew from it — never counted from before
+        file_put_contents("{$t['hw']}/pwm4_enable", "2\n");
+        fanboyTRounds($c, $now, $t, $spec, 1);
+        $first = $c['fans'][$cage]['foreign_seen']['since'] ?? null;
+        fanboySet($cage, 150, $me);
+        file_put_contents("{$t['hw']}/pwm4_enable", "2\n");
+        fanboyTRounds($c, $now, $t, $spec, 2);
+        same('fanboy foreign: the cage\'s mode changed, then he wrote it himself and it changed again — counted anew from his write: 2 s, not yet',
+            [[true, false], true, 1], [$held($cage), ($c['fans'][$cage]['foreign_seen']['since'] ?? 0) > $first, $warnings()]);
+        fanboyTRounds($c, $now, $t, $spec, 1);
+        same('fanboy foreign: … 4 s after his write: given back, told', [[false, true], 2], [$held($cage), $warnings()]);
+
+        // a new control: nothing carried
+        $c2 = fanboyControlNew($settings, FANBOY_T_KEY, $me);
+        same('fanboy foreign: a new control starts with nothing being confirmed', [null], array_values(array_unique(array_column($c2['fans'], 'foreign_seen'))));
+        fanboyLetGo($c, 'end');
     } finally {
         fanboyTEnd();
     }

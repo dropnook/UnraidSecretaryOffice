@@ -572,23 +572,50 @@ function fanboyKillHung(array $owner): void
 
 /**
  * Someone else's write: the outputs this holder has whose value or mode isn't what it wrote last (and read back) —
- * [id => {expect, now}]. An output gone is not someone else's write (the chip went: fanboyOutputNow() null).
+ * [id => {expect, now}]. An output gone is not someone else's write (the chip went), nor one that can't be read now.
  */
 function fanboyForeign(array $owner): array
+{
+    $out = [];
+    foreach (fanboyForeignLook($owner) as $id => $x) {
+        if ($x['state'] === 'foreign') {
+            $out[$id] = ['expect' => $x['expect'], 'now' => $x['now']];
+        }
+    }
+    return $out;
+}
+
+/**
+ * Each output this holder has (with a value written and read back), looked at once: [id => {state, expect, now}] —
+ * state 'ours' (reads as written), 'foreign' (reads otherwise) or 'unknown' (its value, or its mode where the chip has
+ * a mode file, couldn't be read: «don't know», never someone else's write). An output gone isn't listed.
+ *
+ * 2026-11-25 (a W680 board, nct6798: twice in 33 hours «someone else changed Fan 2» though nobody wrote — the Super-I/O
+ * is shared with ACPI and the BMC there, and one read can come back wrong): ONE look proves nothing; the control acts
+ * only on a mismatch seen for FANBOY_FOREIGN_CONFIRM (fanboyForeignRound()).
+ */
+function fanboyForeignLook(array $owner): array
 {
     $out = [];
     foreach (fanboyJournal()['outputs'] as $id => $o) {
         if (!is_array($o['owner']) || !fanboySameOwner($o['owner'], $owner) || !is_array($o['expect'])) {
             continue;
         }
-        $now = fanboyOutputNow($o['device'], $o['output']);
+        $files = fanboyOutputFiles($o['device'], $o['output']);
+        if ($files === null) {
+            continue;
+        }
+        $now = ['value' => fanboyReadInt($files[0]), 'enable' => $files[1] === null ? null : fanboyReadInt($files[1])];
+        if ($now['value'] === null || ($files[1] !== null && $now['enable'] === null)) {
+            $out[$id] = ['state' => 'unknown', 'expect' => $o['expect'], 'now' => $now];
+            continue;
+        }
         // round 7: what was written still holds when it reads back as that fixed value — a full 255 reading «full on»
         // (enable 0, the it87 way) is ours, not someone else's
         $wrote = $o['expect']['value'] ?? null;
-        $same = $now !== null && $now['enable'] === $o['expect']['enable'] && $now['value'] === $wrote;
-        if ($now !== null && !$same && !(is_int($wrote) && ($o['expect']['enable'] ?? null) !== null && $o['expect']['enable'] <= 1 && fanboyObeys($wrote, $now))) {
-            $out[$id] = ['expect' => $o['expect'], 'now' => $now];
-        }
+        $same = $now['enable'] === ($o['expect']['enable'] ?? null) && $now['value'] === $wrote;
+        $obeys = is_int($wrote) && ($o['expect']['enable'] ?? null) !== null && $o['expect']['enable'] <= 1 && fanboyObeys($wrote, $now);
+        $out[$id] = ['state' => $same || $obeys ? 'ours' : 'foreign', 'expect' => $o['expect'], 'now' => $now];
     }
     return $out;
 }
