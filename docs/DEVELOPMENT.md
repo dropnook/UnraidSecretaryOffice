@@ -855,7 +855,10 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   the tile always — without a rotating disk it says there is none (all flash); machine names and paths on his page
   only, never in the agent's log. **Unraid's own look after a wake** (emhttpd's smartctl/hdparm, `hdparm -C`,
   smartctl in standby mode; `sensors` unless a `drivetemp` hwmon exists: `watchmanWakeReaction()`) is never a
-  cause, only said apart (`unraid`; 1.68.0's records read the same way). Writes don't wait (page cache, the kernel's
+  cause, only said apart (`unraid`; 1.68.0's records read the same way). Who reads only what never reaches a rotating
+  disk is left out, said nowhere (`watchmanWakeBystander()`: Fanboy's control unless a drivetemp hwmon exists — a slow
+  NVMe sensor keeps it in state D —, the `nvme` tool; older records too); somebody merely waiting (`maybe`) never hides
+  shfs or the open-files fallback, it ranks last. Writes don't wait (page cache, the kernel's
   flush): a writers' list while a disk sleeps (files open for writing there, every `WATCH_WAKE_HOLD` s, budgeted; their
   write counters every look) gives «wrote to it»; a user share's file by the disk shfs holds it on; a plain program by who
   started it (`by`: Unraid, its web page, a plugin, a user script, a terminal); a capture that found nobody looks again

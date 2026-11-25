@@ -47799,6 +47799,76 @@ function testWatchmanWakeTrail(): void
             [[true, [], [], true], [false, ['sensors'], false]], [$plain, $dt]);
         $GLOBALS['watchmanWakeSys'] = $sys;
 
+        // 2026-11-25 (nostromo): Fanboy's control waits in state D on a slow NVMe sensor (1 s a read) and was named at every
+        // wake, `maybe` — and hid shfs and the open files. It and the `nvme` tool read nothing a rotating disk answers:
+        // left out without a drivetemp hwmon (with one, as for sensors, he stays a `maybe`); a `maybe` never hides the rest
+        $bp = "$tmp/proc-by";
+        $mkp = function (int $pid, string $comm, string $state, string $cmd, array $fds = []) use ($bp): void {
+            foreach (['fd', 'fdinfo', 'ns'] as $d) {
+                @mkdir("$bp/$pid/$d", 0700, true);
+            }
+            file_put_contents("$bp/$pid/stat", "$pid ($comm) $state 1 0 0 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 0 0\n");
+            file_put_contents("$bp/$pid/cmdline", str_replace(' ', "\0", $cmd) . "\0");
+            file_put_contents("$bp/$pid/cgroup", "0::/\n");
+            @symlink('mnt:[4026531840]', "$bp/$pid/ns/mnt");
+            foreach ($fds as $i => $target) {
+                symlink($target, "$bp/$pid/fd/" . ($i + 3));
+            }
+        };
+        $mkp(1, 'init', 'S', '/sbin/init');
+        $mkp(30, 'php', 'D', '/usr/bin/php /usr/local/emhttp/plugins/unraid-secretary-office/agent/agent.php ramjob fanboy-control', ['/dev/null']);
+        $mkp(31, 'nvme', 'D', 'nvme get-feature /dev/nvme2n1 -f2');
+        $mkp(32, 'shfs', 'D', '/usr/libexec/unraid/shfs /mnt/user -disks 31', ['/mnt/disk2/Docs/a.odt']);
+        $bases = ['Docs' => ['disk2']];
+        $look = function (?array $mounts = null) use ($bp, $bases): array {
+            $c = watchmanWakeCapture($bp, $mounts === null ? [] : ['mounts' => $mounts]);
+            return [array_column($c['who'], 'prog'), array_column($c['open'], 'pid'),
+                    array_map(fn (array $w): string => $w['prog'] . ':' . $w['sure'], watchmanWakeCauses([$c], ['/mnt/disk2'], $bases))];
+        };
+        $GLOBALS['watchmanWakeSys'] = "$tmp/sys-plain";
+        $fb = ['kind' => 'office', 'prog' => 'php', 'desk' => '', 'pid' => 30, 'files' => [],
+               'cmd' => '/usr/bin/php /usr/local/emhttp/plugins/unraid-secretary-office/agent/agent.php ramjob fanboy-control'];
+        same('watchman wakes: Fanboy\'s control and `nvme` are bystanders, the control\'s children and other office jobs are not',
+            [true, true, false, false, false],
+            [watchmanWakeBystander($fb), watchmanWakeBystander(['kind' => 'program', 'prog' => 'nvme', 'cmd' => '/usr/sbin/nvme smart-log /dev/nvme0']),
+             watchmanWakeBystander(['kind' => 'office', 'prog' => 'ipmitool', 'cmd' => 'ipmitool sdr']),
+             watchmanWakeBystander(['kind' => 'office', 'prog' => 'php', 'cmd' => '/usr/bin/php /usr/local/emhttp/plugins/unraid-secretary-office/agent/agent.php job fanboy-step']),
+             watchmanWakeBystander(['kind' => 'program', 'prog' => 'smartctl', 'cmd' => 'smartctl -A /dev/nvme0'])]);
+        $plain = [$look()];
+        $GLOBALS['watchmanWakeSys'] = "$tmp/sys-dt";
+        $dt = [$look()];
+        same('watchman wakes: Fanboy + nvme + shfs waiting — without drivetemp only shfs is left (the share); with drivetemp Fanboy stays, last, and no longer hides shfs',
+            [[['shfs'], [], ['shfs:sure']]], $plain);
+        same('watchman wakes: … with drivetemp: Fanboy a `maybe` beside shfs, ranked last; `nvme` never', [[['php', 'shfs'], [], ['shfs:sure', 'php:maybe']]], $dt);
+        // a file open on the woken disk: the fallback runs although Fanboy (drivetemp: a `maybe`) waits
+        $mkp(33, 'cat', 'S', 'cat /mnt/disk2/Media/x.mkv', ['/mnt/disk2/Media/x.mkv']);
+        $dt[] = $look();
+        $GLOBALS['watchmanWakeSys'] = "$tmp/sys-plain";
+        $plain[] = $look();
+        same('watchman wakes: a `maybe` and a file open on the woken disk — the open file found, named before the `maybe`; without drivetemp only it',
+            [[['php', 'shfs'], [33], ['cat:open', 'php:maybe']], [['shfs'], [33], ['cat:open']]], [$dt[1], $plain[1]]);
+        // a real cause waiting with a file on the woken disk: it leads; shfs and the open files as before (not needed)
+        $mkp(34, 'rsync', 'D', 'rsync -a /mnt/disk2/Fotos /mnt/remotes/nas', ['/mnt/disk2/Fotos/a.jpg']);
+        $GLOBALS['watchmanWakeSys'] = "$tmp/sys-dt";
+        same('watchman wakes: a `sure` cause beside Fanboy — it leads, shfs and the open files not looked for; on another disk than asked for it doesn\'t count as found',
+            [[['php', 'rsync'], [], ['rsync:sure', 'php:maybe']], [['php', 'rsync', 'shfs'], [33]]],
+            [$look(['/mnt/disk2']), array_slice($look(['/mnt/disk5']), 0, 2)]);
+        $GLOBALS['watchmanWakeSys'] = "$tmp/sys-plain";
+        same('watchman wakes: … without drivetemp only rsync', ['rsync:sure'], $look(['/mnt/disk2'])[2]);
+        // entries an older agent kept (today's on nostromo): read without Fanboy and `nvme`, a real cause beside them stays
+        $old = ['id' => 'f1', 'time' => 1795000000, 'disks' => ['disk1', 'disk2'], 'how' => 'caught', 'who' => [
+            ['kind' => 'office', 'prog' => 'php', 'cmd' => '/usr/bin/php /usr/local/emhttp/plugins/unraid-secretary-office/agent/agent.php ramjob fanboy-control', 'sure' => 'maybe', 'files' => []],
+            ['kind' => 'program', 'prog' => 'nvme', 'cmd' => 'nvme get-feature /dev/nvme2n1 -f2', 'sure' => 'maybe', 'files' => []]]];
+        $old2 = ['who' => array_merge([['kind' => 'container', 'prog' => 'rsync', 'id' => 'abc', 'cmd' => 'rsync', 'sure' => 'sure', 'files' => ['/mnt/disk2/a']]], $old['who'])] + $old;
+        $r = [watchmanWakeShaped($old)['who'], watchmanWakeShaped($old)['unraid'], array_column(watchmanWakeShaped($old2)['who'], 'prog')];
+        $GLOBALS['watchmanWakeSys'] = "$tmp/sys-dt";
+        $r[] = array_column(watchmanWakeShaped($old2)['who'], 'prog');
+        same('watchman wakes: an older entry naming Fanboy and `nvme` — nobody named (not «Unraid looked» either), a real cause beside them stays; with drivetemp Fanboy stays',
+            [[], false, ['rsync'], ['rsync', 'php']], $r);
+        same('watchman wakes: an NVMe in disks.ini is never a disk that wakes — not even without its `rotational`', [],
+            watchmanWakeDisks(['fast' => ['name' => 'fast', 'device' => 'nvme1n1', 'type' => 'Cache', 'spundown' => '1']]));
+        $GLOBALS['watchmanWakeSys'] = $sys;
+
         // the bounded reader: ended at its byte limit, said so
         if (is_executable('/usr/bin/yes') || is_executable('/bin/yes')) {
             [$code, $out, $cut] = watchmanWakeRunCapped([is_executable('/usr/bin/yes') ? '/usr/bin/yes' : '/bin/yes'], 5, 100000);
