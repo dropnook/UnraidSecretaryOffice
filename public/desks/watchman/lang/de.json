@@ -1554,7 +1554,7 @@
   "wakes.cut": "nur zum Teil geschaut",
   "wakes.cut_title": "Der Server war beschäftigt: Ich habe früher aufgehört zu schauen, um ihn nicht zu belasten — es kann jemand fehlen.",
   "wakes.prog": "Programm {name}",
-  "wakes.cron_due": "Da planmäßig dran: {list}",
+  "wakes.cron_due": "Da planmässig dran: {list}",
   "wakes.office_job": "Arbeit von {name}",
   "wakes.started": "Da gestartete Container: {list}",
   "wakes.how.caught": "Die Zeit ist, als er jemanden auf die Disk warten sah.",
