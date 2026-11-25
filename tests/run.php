@@ -23841,6 +23841,165 @@ function testWatchmanRules6a(): void
 }
 
 /**
+ * 1.96, «Add an exception…» by hand: five more types (a container privileged, on the server's network or processes, new
+ * by its name; an SMB machine at any hour; floods on a port) — each through watchmanRuleHandMake(), covering its entry and
+ * not the neighbour's; the names he already knows, suggested as you type (watchmanHandNames(): only his own files and
+ * this state, sorted, capped, in their type's shape); the dialog's words and lists.
+ */
+function testWatchmanHandMore(): void
+{
+    $now = strtotime('2026-11-20 10:00:00');
+    $err = fn (callable $f) => (function () use ($f) { try { $f(); return null; } catch (Problem $p) { return $p->key; } })();
+    $e = fn (string $kind, string $key, array $p) => watchmanEntry($kind, $key, $now, $p);
+    $made = fn (string $cat, string $type, string $v) => (fn ($m) => [$m['cat'], $m['kinds'], $m['on'], $m['wide']])(watchmanRuleHandMake($cat, $type, $v, ''));
+    same('hand: a container privileged, on the server\'s network or processes, new by its name (all three wide); an SMB machine at any hour; floods on a port',
+        [['container', ['container_privileged'], ['key' => 'container_privileged:plex'], true], ['container', ['container_host'], ['key' => 'container_host:plex'], true],
+         ['container', ['container_new'], ['key' => 'container_new:plex'], true], ['login', ['smb_hour'], ['machine' => 'LAPTOP-KUECHE'], false],
+         ['host', ['host_flood'], ['thing' => 'port:443'], false]],
+        [$made('container', 'privileged', 'plex'), $made('container', 'host', 'plex'), $made('container', 'new', ' plex '), $made('login', 'machine', 'LAPTOP-KUECHE'),
+         $made('host', 'flood', '443')]);
+    same('hand: refused — a container name with a slash, an address as a machine\'s name, a port 0 or over 65535, a port with letters, a type of another area',
+        ['watch_value_bad', 'watch_value_bad', 'watch_value_bad', 'watch_value_bad', 'watch_value_bad', 'bad_request'],
+        [$err(fn () => watchmanRuleHandMake('container', 'new', 'a/b', '')), $err(fn () => watchmanRuleHandMake('login', 'machine', '192.168.1.5', '')),
+         $err(fn () => watchmanRuleHandMake('host', 'flood', '0', '')), $err(fn () => watchmanRuleHandMake('host', 'flood', '65536', '')),
+         $err(fn () => watchmanRuleHandMake('host', 'flood', '44x', '')), $err(fn () => watchmanRuleHandMake('container', 'flood', '443', ''))]);
+    // each made rule in exactly a rule's shape, covering its entry — never the neighbour's
+    $rule = fn (string $cat, string $type, string $v) => watchmanRuleShaped(['id' => 'r0123456789', 'at' => $now] + watchmanRuleHandMake($cat, $type, $v, ''));
+    $pr = $rule('container', 'privileged', 'plex');
+    $ho = $rule('container', 'host', 'plex');
+    $nw = $rule('container', 'new', 'plex');
+    $mc = $rule('login', 'machine', 'LAPTOP');
+    $fl = $rule('host', 'flood', '443');
+    $flood = fn (?int $port) => $e('host_flood', 'host_flood:' . ($port === null ? 'conntrack' : "port:$port") . ':2026-11-20', ['port' => $port]);
+    same('hand: the rules pass the rules\' shaping; each covers its entry, not another container\'s, not the other kind, not another machine, not another port nor the full table',
+        [true, true, false, false, true, false, true, false, true, false, false, true, false, false],
+        [$pr !== null && $ho !== null && $nw !== null && $mc !== null && $fl !== null,
+         watchmanRuleCovers($pr, $e('container_privileged', 'container_privileged:plex', ['name' => 'plex', 'tokens' => ['--privileged']])),
+         watchmanRuleCovers($pr, $e('container_privileged', 'container_privileged:sonarr', ['name' => 'sonarr', 'tokens' => ['--privileged']])),
+         watchmanRuleCovers($pr, $e('container_host', 'container_host:plex', ['name' => 'plex', 'tokens' => ['--network=host']])),
+         watchmanRuleCovers($ho, $e('container_host', 'container_host:plex', ['name' => 'plex', 'tokens' => ['--pid=host']])),
+         watchmanRuleCovers($ho, $e('container_rights', 'container_rights:plex', ['name' => 'plex', 'tokens' => ['--cap-add=NET_ADMIN']])),
+         watchmanRuleCovers($nw, $e('container_new', 'container_new:plex', ['name' => 'plex', 'tokens' => ['--privileged']])),
+         watchmanRuleCovers($nw, $e('container_new', 'container_new:plex2', ['name' => 'plex2', 'tokens' => ['--privileged']])),
+         watchmanRuleCovers($mc, $e('smb_hour', 'smb_hour:192.168.1.5', ['ip' => '192.168.1.5', 'machine' => 'LAPTOP'])),
+         watchmanRuleCovers($mc, $e('smb_hour', 'smb_hour:192.168.1.6', ['ip' => '192.168.1.6', 'machine' => 'DESKTOP'])),
+         watchmanRuleCovers($mc, $e('smb_client', 'smb_client:192.168.1.5', ['ip' => '192.168.1.5', 'machine' => 'LAPTOP'])),
+         watchmanRuleCovers($fl, $flood(443)), watchmanRuleCovers($fl, $flood(80)), watchmanRuleCovers($fl, $flood(null))]);
+    same('hand: by hand the same rule as a click offers at the entry (an SMB machine, a flooded port)',
+        [true, true],
+        [in_array(['machine' => 'LAPTOP'], array_column(watchmanRuleOffers($e('smb_hour', 'smb_hour:192.168.1.5', ['ip' => '192.168.1.5', 'machine' => 'LAPTOP', 'users' => ['benj']]), []), 'on'), true),
+         in_array(['thing' => 'port:443'], array_column(watchmanRuleOffers($flood(443), []), 'on'), true)]);
+    same('hand: «X may run privileged» made by hand calls X intended in his posture tip, as a click\'s rule does',
+        ['privileged' => ['plex' => true]], watchmanPostureIntended([$pr, $ho, $nw]));
+
+    // a new container by its name in real rounds: let through with whatever rights, never learned, rights it gains later too
+    $tmp = hardeningTmp('watch-hand');
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['plugins', 'extra', 'ssh/root'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini",
+              'share_cfg' => "$src/share.cfg", 'etc_passwd' => "$src/passwd"];
+    foreach (['syslog' => '', 'go' => "#!/bin/bash\n", 'passwd' => "root:x:0:0::/root:/bin/bash\n", 'shadow' => 'root:$6$aa$bb:20000:0:99999:7:::' . "\n",
+              'sec' => "[Media]\nexport=\"e\"\nsecurity=\"private\"\n[flash]\nexport=\"e\"\nsecurity=\"private\"\n", 'sec_nfs' => '', 'share_cfg' => "shareSMBEnabled=\"yes\"\n"] as $k => $v) {
+        file_put_contents($paths[$k], $v);
+    }
+    $cs = ['plex' => ['image' => 'plex', 'tokens' => []]];
+    $docker = function () use (&$cs) { return $cs; };
+    $round = fn (int $t) => watchmanRound($paths, $data, 1000, $t, $docker, false, "$tmp/acks.json");
+    $round($now);
+    $round($now + 300);
+    watchmanRuleHand('container', 'new', 'vpn', '', false, $data, $now + 400, false);
+    $cs['vpn'] = ['image' => 'vpn', 'tokens' => ['--cap-add=NET_ADMIN', '--privileged']];
+    $cs['dri'] = ['image' => 'dri', 'tokens' => ['--device=/dev/dri']];
+    $round($now + 600);
+    $round($now + 900);
+    $book = fn () => watchmanLoad($data)['book'];
+    $news = fn (string $name) => array_values(array_filter($book(), fn ($x) => ($x['key'] ?? '') === "container_new:$name"));
+    $hits = fn () => (int) (array_values(watchmanLoad($data)['state']['rule_hits'] ?? [])[0]['n'] ?? 0);
+    same('hand round: a new privileged vpn — one line noted by the rule, again a round later no new hit; never learned; the new dri beside it open',
+        [1, false, 'rule', 1, false, true],
+        [count($news('vpn')), watchmanOpen($news('vpn')[0]), $news('vpn')[0]['by'] ?? null, $hits(), isset(watchmanLoad($data)['baseline']['containers']['vpn']),
+         watchmanOpen($news('dri')[0] ?? ['kind' => 'container_new'])]);
+    $cs['vpn']['tokens'][] = '--network=host';
+    $round($now + 1200);
+    same('hand round: vpn gains --network=host — still its one line, let through (a hit), no entry of another kind',
+        [1, false, 2, []], [count($news('vpn')), watchmanOpen($news('vpn')[0]), $hits(),
+         array_values(array_filter($book(), fn ($x) => in_array($x['kind'], ['container_host', 'container_privileged'], true)))]);
+
+    // the names he knows: from his own files and this state only, sorted, capped, in their type's shape, never the flash
+    $st = watchmanPageState($data, $now + 1300, false);
+    same('names: the page state brings them — containers he knows, the shares Unraid exports (not the flash), the products',
+        [['dri', 'plex', 'vpn'], ['Media'], true],
+        [array_values(array_intersect($st['hand_names']['container'] ?? [], ['dri', 'plex', 'vpn'])), $st['hand_names']['share'] ?? null,
+         in_array('php', $st['hand_names']['product'] ?? [], true)]);
+    $many = [];
+    for ($i = 0; $i < 150; $i++) {
+        $many["c$i"] = ['tokens' => [], 'seen' => 1];
+    }
+    $b = ['containers' => $many + ['bad/name' => ['tokens' => []]], 'shares' => ['Media' => [], 'flash' => [], 'b' => [], 'A' => []],
+          'sched' => ['scripts' => ['backup' => ['h' => 'x']], 'files' => ['dynamix/a.cron' => ['h' => 'x'], 'gone/b.cron' => ['h' => 'y', 'gone' => 5]]],
+          'flash' => ['extra' => ['htop.txz' => []]], 'snaps' => ['series' => ['zfs-auto-snap_hourly-#' => 1]],
+          'host' => ['doors' => [['what' => 'wg', 'name' => 'wg0', 'on' => true], ['what' => 'ssh', 'name' => 'ssh']]],
+          'net' => ['senders' => ['192.168.1.1' => []], 'admins' => ['admin' => []], 'vpn' => ['phone' => []]],
+          'flow' => ['smb_clients' => ['192.168.1.5' => ['name' => 'LAPTOP'], '192.168.1.6' => ['name' => '192.168.1.6']]], 'plugins' => ['ca' => ['source' => 'github.com/someone']]];
+    $seen = ['sched' => ['crontab' => ['cron_d' => ['root' => [], 'mine' => []]]], 'host' => ['listen' => ['tcp:8384' => ['prog' => 'syncthing'], 'tcp:1' => ['prog' => '?']]]];
+    $flow = ['shares' => ['tank/Fotos' => []], 'disk_w' => ['disk4' => []], 'can' => ['fs' => ['disk1' => 'btrfs', 'disk2' => 'zfs']], 'gone' => ['disk:disk4' => ['disk' => 'disk4']]];
+    $state = ['book' => [['kind' => 'net_new_device', 'p' => ['network' => 'Gäste']], ['kind' => 'host_flood', 'p' => ['port' => 443]], ['kind' => 'host_flood', 'p' => ['port' => null]],
+                         ['kind' => 'snap_gone', 'p' => ['datasets' => ['tank/Media', 'tank'], 'series' => ['autosnap_#']]], ['kind' => 'host_crash', 'p' => ['prog' => 'smbd']],
+                         ['kind' => 'net_link_down', 'p' => ['iface' => 'ether5', 'sender' => '192.168.1.1']]],
+              'hold' => ['look' => ['vms' => [['name' => 'Windows 11']], 'holds' => [['kind' => 'userscript', 'name' => 'fotos sichern']], 'containers' => [['name' => 'plex']]]],
+              'wakes' => ['hdds' => ['disk3'], 'wakes' => [['disks' => ['parity'], 'who' => [['kind' => 'container', 'name' => 'plex'], ['kind' => 'program', 'name' => '', 'desk' => '', 'prog' => 'rsync']]]]]];
+    $n = watchmanHandNames($b, $seen, $flow, $state);
+    same('names: capped at 100, sorted naturally, only names a rule takes (no slash), the flash and the gone left out',
+        [100, 'c0', 'c1', 'c2', false, ['A', 'b', 'Fotos', 'Media'], ['dynamix/a.cron'], ['mine'], ['htop.txz'], ['wg0'], ['192.168.1.1'], ['ether5'], ['admin'], ['phone']],
+        [count($n['container']), $n['container'][0], $n['container'][1], $n['container'][2], in_array('bad/name', $n['container'], true), $n['share'], $n['cron_file'], $n['crond'],
+         $n['extra'], $n['tunnel'], $n['sender'], $n['iface'], $n['admin'], $n['vpn']]);
+    same('names: disks (XFS/btrfs ones the flow measures; the rotating ones for the wakes), datasets never a whole pool, series, programs without «?», machines without an address, flooded ports, causes',
+        [['disk1', 'disk4'], ['disk3', 'parity'], ['tank/Fotos', 'tank/Media'], ['autosnap_#', 'zfs-auto-snap_hourly-#'], ['smbd', 'syncthing'], ['LAPTOP'], ['443'],
+         ['container:plex', 'program:rsync'], ['Gäste'], ['Windows 11'], ['backup', 'fotos sichern'], ['github.com/someone']],
+        [$n['disk'], $n['wake_disk'], $n['dataset'], $n['series'], $n['prog'], $n['machine'], $n['flood'], $n['cause'], $n['network'], $n['vm'], $n['script'], $n['source']]);
+    same('names: nothing known — only the products (a list of names, no empty lists)', [['product'], true],
+        (fn ($x) => [array_keys($x), array_is_list($x['product'])])(watchmanHandNames(null, null, null, [])));
+    $size = strlen(jsonEncode($n));
+    check("names: the lists stay small (here $size bytes for 100 containers and the rest)", $size < 6000, (string) $size);
+    hardeningRm($tmp);
+
+    // the words and the page
+    $keys = ['setup.add_unknown', 'rule.key.container_host', 'rule.key.container_new'];
+    foreach (['privileged', 'host', 'new', 'machine', 'flood'] as $k) {
+        $keys[] = "setup.add_type.$k";
+        $keys[] = "setup.add_value.$k";
+    }
+    foreach (['privileged', 'host', 'new'] as $k) {
+        $keys[] = "setup.add_wide.$k";
+    }
+    $missing = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $lang = langFile(OFFICE_WEB . "/desks/watchman/lang/$code.json");
+        foreach ($keys as $k) {
+            if (!is_string($lang[$k] ?? null)) {
+                $missing[] = "$code $k";
+            }
+        }
+        foreach (array_merge(...array_values(WATCH_HAND)) as $t) {
+            if (!in_array($t, ['net', 'ip', 'user_net'], true) && !is_string($lang["setup.add_type.$t"] ?? null)) {
+                $missing[] = "$code setup.add_type.$t";
+            }
+        }
+    }
+    same('words: every hand type, the new notes and the line for a name he doesn\'t know — in five languages', [], $missing);
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/watchman/desk.js');
+    preg_match('/const HAND_EXAMPLE = \{(.*?)\};/s', $js, $m);
+    check('page: no example is «…» any more, the five new types have one; the protocol and a cause\'s kind are choices; the names as a datalist',
+        isset($m[1]) && !str_contains($m[1], '…') && !array_filter(['privileged', 'host', 'new', 'machine', 'flood'], fn ($t) => !preg_match("/\\b$t: '/", $m[1]))
+        && str_contains($js, "guest_read: ['setup.add_second.proto', null, ['smb', 'nfs']]") && str_contains($js, "cause: ['setup.add_second.cause', null, ['container',")
+        && str_contains($js, "el('datalist')"));
+}
+
+/**
  * 1.96 step 6b — the data flow: settings (defaults = the constants he judged by), exceptions on a share or disk (let through
  * in the rules' pass), thresholds where the flow is judged (an amount, a snapshot's hold, new Docker layers) with their hits,
  * and «always tell» (half a share, 200 000 files in an hour) that no exception silences. The existing flow tests run unchanged.
@@ -72240,6 +72399,7 @@ function testSkipPlaces(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackPlan', 'testJackNoPython', 'testJackRun', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
+                      'testWatchmanHandMore',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testWatchWakesPage', 'testWatchmanWakes', 'testWatchmanWakeTrail', 'testMetrics', 'testWatchmanCats', 'testWatchmanTiles', 'testWatchmanScope', 'testWatchmanGreet', 'testWatchmanRules', 'testWatchmanKnown', 'testWatchmanSettings', 'testWatchmanRules6a', 'testWatchmanRules6b', 'testWatchmanRules6c', 'testWatchmanRules6d', 'testWatchmanRules6e', 'testWatchmanRules6f', 'testWatchmanRules6g', 'testWatchmanFrom195', 'testWatchmanRelearn', 'testWatchmanStandRender', 'testWatchmanPageBars', 'testWatchmanRulesNew', 'testWatchmanJournal', 'testWatchmanBookMore', 'testWatchmanVuln', 'testWatchmanVulnRanges', 'testWatchmanVulnPhp', 'testWatchmanVulnNvd', 'testWatchmanVulnBackoff', 'testWatchmanVulnRouters', 'testWatchmanVulnSoftware', 'testWatchmanVulnHonest', 'testWatchmanVulnLetters', 'testWatchmanVulnLook', 'testWatchmanHot', 'testLogsigns', 'testWatchmanSigns', 'testWatchmanHw', 'testWatchmanCpuFaults', 'testWatchmanWear', 'testWatchmanHwBookMore', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanStartFiles', 'testWatchmanGateway', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testMigrateWakes', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics', 'testReportDialogOwnWords', 'testReportDialogDesk',

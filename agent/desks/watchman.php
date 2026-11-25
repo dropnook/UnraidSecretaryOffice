@@ -10781,6 +10781,8 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
     $onWatch = is_array($b) && $since !== null && (int) ($b['hired'] ?? -1) === $since;
     // the user's exceptions, areas switched off, answers, settings (watchman-rules.php), what a click may offer on each open entry
     $rules = watchmanRulesPage($dir, $d['book'], $st);
+    $seenNow = $onWatch ? readJson("$dir/seen.json") : null;           // the last round's look, the data flow: read once here
+    $flowNow = $onWatch ? readJson("$dir/flow.json") : null;
     $state = [
         'time'     => $now,
         'hired'    => $since !== null,
@@ -10805,8 +10807,8 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
         'on_watch' => $onWatch ? (int) $b['time'] : null,
         'open'     => watchmanOpenCounts($d['book']),
         'book'     => $book,
-        'watch'    => $onWatch ? watchmanSummary($b, readJson("$dir/seen.json")) : null,
-        'flow'     => $onWatch ? watchmanFlowSummary(is_array($b['flow'] ?? null) ? $b['flow'] : null, readJson("$dir/flow.json"), $now,
+        'watch'    => $onWatch ? watchmanSummary($b, $seenNow) : null,
+        'flow'     => $onWatch ? watchmanFlowSummary(is_array($b['flow'] ?? null) ? $b['flow'] : null, $flowNow, $now,
                                                      watchmanSettings(watchmanRulesRaw($dir))) : null,
         'snaps'    => $onWatch ? watchmanSnapSummary($st['snaps'] ?? null, is_array($b['snaps'] ?? null) ? $b['snaps'] : null) : null,
         // the network (agent/lib/watchnet.php): Unraid's syslog server, the senders, counts — never another client's address
@@ -10840,6 +10842,8 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
     $state['known_full'] = $rules['known_full'];
     $state['hand'] = $rules['hand'];               // his setup page: per area the exceptions made by hand (types)
     $state['hand_amount'] = $rules['hand_amount']; // … those with an amount (GB, files)
+    // … the names he knows, suggested as you type there (only what he already has: watchmanHandNames())
+    $state['hand_names'] = ($names = watchmanHandNames($onWatch ? $b : null, $seenNow, $flowNow, $state)) ? $names : new stdClass();
     // his history (1.96 step 7): how many lines went there, what a full month couldn't take — the lines on demand (action journal)
     $jr = is_array($st['journal'] ?? null) ? $st['journal'] : [];
     $state['journal'] = ['moved' => (int) ($jr['moved'] ?? 0), 'cut' => array_sum(array_map('intval', (array) ($jr['cut'] ?? []))),

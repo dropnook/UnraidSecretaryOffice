@@ -329,12 +329,38 @@ function tileOffAsk(id, off, cb) {
 }
 /** The exceptions an area takes by hand (the messenger's list, WATCH_HAND) */
 const handTypes = (id) => ((state && state.hand && state.hand[id]) || []).filter((x) => typeof x === 'string');
-const HAND_EXAMPLE = { net: '192.168.1.0/24', ip: '203.0.113.7', user_net: '192.168.1.0/24', ports: 'plex', rights: 'plex', source: 'github.com/…',
-  script: '…', cron_file: '…/….cron', crond: '…', client: '192.168.1.20', client_min: '192.168.1.20', container: 'plex', disk_gone: 'disk1',
-  disk_written: 'disk1', series: 'zfs-auto-snap_hourly-#', series_ds: 'tank/Media', dataset: 'tank/Media', hold: 'tank/Media', extra: '….txz',
-  guest_read: 'Media', guest_write: 'Media', port: '8384', prog: 'syncthing', tunnel: 'wg0', admin: '192.168.1.0/24', vpn: '…', link: 'ether5',
-  sender: '192.168.1.1', network: '…', vm: '…', userscript: '…', cause: 'plex', disk: 'disk3', crash: 'smbd', oom: 'emby', cve: 'CVE-2024-4577',
+// an example where he knows no names to suggest (invented, never a name from a real server)
+const HAND_EXAMPLE = { net: '192.168.1.0/24', ip: '203.0.113.7', user_net: '192.168.1.0/24', machine: 'LAPTOP', ports: 'plex', rights: 'plex',
+  privileged: 'plex', host: 'plex', new: 'plex', source: 'github.com/someone', script: 'backup', cron_file: 'myplugin/daily.cron', crond: 'myjob',
+  client: '192.168.1.20', client_min: '192.168.1.20', container: 'plex', gone: 'Media', written: 'Media', gone_min: 'Media', written_min: 'Media',
+  files_min: 'Media', kept: 'Media', layers: 'Media', disk_gone: 'disk1', disk_written: 'disk1', series: 'zfs-auto-snap_hourly-#',
+  series_ds: 'tank/Media', dataset: 'tank/Media', hold: 'tank/Media', extra: 'tool.txz', guest_read: 'Media', guest_write: 'Media', port: '8384',
+  prog: 'syncthing', flood: '443', tunnel: 'wg0', admin: '192.168.1.0/24', vpn: 'phone', link: 'ether5', sender: '192.168.1.1', network: 'LAN',
+  vm: 'Windows 11', userscript: 'backup', cause: 'plex', disk: 'disk3', crash: 'smbd', oom: 'emby', cve: 'CVE-2024-4577',
   product: 'php' };
+/*
+ * The names he knows, suggested as you type (state.hand_names, watchmanHandNames(): only what he already has): the list a
+ * type's value takes. HAND_FULL: the lists that hold every such name he knows — a name typed outside one gets a calm line
+ * beneath the field (a typo makes no silent, useless exception); «Add» still takes it.
+ */
+const HAND_LIST = { machine: 'machine', ports: 'container', rights: 'container', privileged: 'container', host: 'container', new: 'container',
+  container: 'container', source: 'source', script: 'script', userscript: 'script', cron_file: 'cron_file', crond: 'crond', gone: 'share', written: 'share',
+  gone_min: 'share', written_min: 'share', files_min: 'share', kept: 'share', layers: 'share', guest_read: 'share', guest_write: 'share',
+  disk_gone: 'disk', disk_written: 'disk', series: 'series', series_ds: 'dataset', dataset: 'dataset', hold: 'dataset', extra: 'extra', prog: 'prog',
+  crash: 'prog', oom: 'prog', flood: 'flood', tunnel: 'tunnel', vpn: 'vpn', link: 'iface', sender: 'sender', network: 'network', vm: 'vm',
+  disk: 'wake_disk', product: 'product' };
+const HAND_FULL = new Set(['machine', 'container', 'script', 'cron_file', 'crond', 'share', 'disk', 'series', 'extra', 'tunnel', 'vpn', 'sender',
+  'vm', 'wake_disk', 'product']);
+/** The names of a list (sorted, names only), [] when he knows none — a wake's cause: those of the kind chosen (and its containers, VMs) */
+function handNames(list, kind) {
+  const all = (state && state.hand_names) || {};
+  const of = (id) => (Array.isArray(all[id]) ? all[id].filter((x) => typeof x === 'string') : []);
+  if (list !== 'cause') return of(list);
+  const pre = `${kind}:`;
+  const named = of('cause').filter((x) => x.startsWith(pre)).map((x) => x.slice(pre.length));
+  const more = kind === 'container' ? of('container') : kind === 'vm' ? of('vm') : [];
+  return [...new Set([...named, ...more])].sort((a, b) => a.localeCompare(b));
+}
 /*
  * What a wide exception made by hand means, said beneath its field as he types (1.96, Benj: typing it and «Add» IS the
  * decision — no second yes): a public address or net (the agent's watchmanIpPrivate(); a public net at most /24, IPv6
@@ -368,14 +394,17 @@ function handNote(id, t, v) {
   if (id === 'snap') return 'setup.add_wide.snap';
   if (t === 'guest_write') return 'setup.add_wide.share';
   if (t === 'vpn' || t === 'sender') return 'setup.add_wide.router';
+  if (t === 'privileged' || t === 'host' || t === 'new') return `setup.add_wide.${t}`;      // a container's wide rights
   if (t === 'product') return 'setup.add_wide.vuln';
   if (t === 'cve') return 'setup.add_wide.cve';
   return null;
 }
-// a second field: a user from a net, a series on a dataset
-const HAND_SECOND = { user_net: ['setup.add_user', 'root'], series_ds: ['setup.add_second.series_ds', 'zfs-auto-snap_hourly-#'],
-  guest_read: ['setup.add_second.proto', 'SMB'], guest_write: ['setup.add_second.proto', 'SMB'], admin: ['setup.add_second.admin', 'admin'],
-  link: ['setup.add_second.sender', '192.168.1.1'], cause: ['setup.add_second.cause', 'container'] };
+// a second field: a user from a net, a series on a dataset, an admin, a router — typed ([label, example, its list]); the
+// protocol of a share open to guests and the kind of a wake's cause — a choice ([label, null, the values the agent takes])
+const HAND_SECOND = { user_net: ['setup.add_user', 'root'], series_ds: ['setup.add_second.series_ds', 'zfs-auto-snap_hourly-#', 'series'],
+  guest_read: ['setup.add_second.proto', null, ['smb', 'nfs']], guest_write: ['setup.add_second.proto', null, ['smb', 'nfs']],
+  admin: ['setup.add_second.admin', 'admin', 'admin'], link: ['setup.add_second.sender', '192.168.1.1', 'sender'],
+  cause: ['setup.add_second.cause', null, ['container', 'vm', 'smb', 'nfs', 'office', 'mover', 'cron', 'program']] };
 const handAmount = (t) => (state && state.hand_amount && state.hand_amount[t]) || null;
 /**
  * «Add an exception…» by hand: what kind of exception (the area's types), its value typed, a user for «a user from a net»
@@ -390,15 +419,26 @@ function ruleHandDialog(tid, b) {
   const catOfType = () => String(type.value).split('|')[0];
   const typeOf = () => String(type.value).split('|')[1] || '';
   type.setAttribute('aria-label', T('setup.add_type_label'));
+  // the names he knows as suggestions while typing (a <datalist>: free typing stays), one list per field
+  const names = el('datalist');
+  names.id = 'wm-hand-names';
+  const names2 = el('datalist');
+  names2.id = 'wm-hand-names2';
+  const fill = (dl, list) => { dl.replaceChildren(...list.map((n) => new Option(n))); };
   const value = el('input', 'search');
   value.type = 'text';
+  value.setAttribute('list', names.id);
+  value.autocomplete = 'off';
   const user = el('input', 'search');
   user.type = 'text';
   user.placeholder = 'root';
   user.setAttribute('aria-label', T('setup.add_user'));
+  user.setAttribute('list', names2.id);
+  user.autocomplete = 'off';
+  const pick = el('select', 'picker');          // a second field that is a choice (SMB or NFS, the kind of a cause)
   const userRow = el('label', 'wm-hand-row');
   const userName = el('span', '', T('setup.add_user'));
-  userRow.append(userName, user);
+  userRow.append(userName, user, pick);
   const valueName = el('span', '');
   const amount = el('input', 'search wm-setting-num');
   amount.type = 'number';
@@ -409,16 +449,33 @@ function ruleHandDialog(tid, b) {
   amountRow.append(amountName, amount);
   const login = ['net', 'ip', 'user_net'];
   const netNot = el('p', 'role', T('rule.ask_net_not'));
+  const second = () => HAND_SECOND[typeOf()] || null;
+  const choice = () => Array.isArray((second() || [])[2]);
+  const known = () => (HAND_LIST[typeOf()] ? handNames(HAND_LIST[typeOf()], pick.value) : typeOf() === 'cause' ? handNames('cause', pick.value) : []);
   const sync = () => {
     const t = typeOf();
-    userRow.hidden = !HAND_SECOND[t];
-    if (HAND_SECOND[t]) {
-      userName.textContent = T(HAND_SECOND[t][0]);
-      user.placeholder = HAND_SECOND[t][1];
-      user.setAttribute('aria-label', userName.textContent);
+    const s2 = second();
+    userRow.hidden = !s2;
+    user.hidden = !s2 || choice();
+    pick.hidden = !s2 || !choice();
+    if (s2) {
+      userName.textContent = T(s2[0]);
+      if (choice()) {
+        const was = pick.value;
+        pick.replaceChildren(...s2[2].map((v) => new Option(T(`side.kind.${v}`), v)));
+        if (s2[2].includes(was)) pick.value = was;
+        pick.setAttribute('aria-label', userName.textContent);
+      } else {
+        const list2 = typeof s2[2] === 'string' ? handNames(s2[2]) : [];
+        fill(names2, list2);
+        user.placeholder = list2[0] || s2[1];
+        user.setAttribute('aria-label', userName.textContent);
+      }
     }
     netNot.hidden = !login.includes(t);
-    value.placeholder = HAND_EXAMPLE[t] || '';
+    const list = known();
+    fill(names, list);
+    value.placeholder = list[0] || HAND_EXAMPLE[t] || '';
     valueName.textContent = login.includes(t) ? T('setup.add_value') : T('setup.add_value.' + t);
     value.setAttribute('aria-label', valueName.textContent);
     const unit = handAmount(t);
@@ -428,20 +485,25 @@ function ruleHandDialog(tid, b) {
       amount.setAttribute('aria-label', amountName.textContent);
     }
   };
-  // what it means, beneath the field as he types — never a second yes (handNote())
+  // what it means, beneath the field as he types — never a second yes (handNote()); a name he doesn't know (HAND_FULL)
   const note = el('p', 'callout wm-hand-note');
+  const unknown = el('p', 'role wm-hand-note', T('setup.add_unknown'));
   const said = () => {
     const k = handNote(catOfType(), typeOf(), value.value);
     note.hidden = !k;
     note.textContent = k ? T(k) : '';
+    const list = known();
+    const v = value.value.trim();
+    unknown.hidden = !(v && list.length && HAND_FULL.has(HAND_LIST[typeOf()]) && !list.includes(v));
   };
   type.addEventListener('change', () => { sync(); said(); });
+  pick.addEventListener('change', () => { sync(); said(); });
   value.addEventListener('input', said);
   const tr = el('label', 'wm-hand-row');
   tr.append(el('span', '', T('setup.add_type_label')), type);
   const vr = el('label', 'wm-hand-row');
   vr.append(valueName, value);
-  body.append(tr, vr, note, amountRow, userRow, netNot);
+  body.append(tr, vr, unknown, note, amountRow, userRow, netNot, names, names2);
   sync();
   said();
   Office.dialog({ title: T('setup.add'), body, buttons: [
@@ -450,7 +512,9 @@ function ruleHandDialog(tid, b) {
         b.disabled = true;
         const n = Number(amount.value);
         if (handAmount(typeOf()) && !(Number.isInteger(n) && n >= 1)) { b.disabled = false; Office.toast(T('errors.watch_amount_bad'), true); return; }
-        const j = await Office.api.post(`${ID}.rule_hand`, { cat: catOfType(), type: typeOf(), value: value.value.trim(), user: user.value.trim(),
+        // the second field as the agent takes it: typed, or the choice's value (smb/nfs, a cause's kind)
+        const two = !second() ? '' : choice() ? pick.value : user.value.trim();
+        const j = await Office.api.post(`${ID}.rule_hand`, { cat: catOfType(), type: typeOf(), value: value.value.trim(), user: two,
           ...(handAmount(typeOf()) ? { amount: n } : {}) });      // no `sure` (1.96): the note said what it means
         b.disabled = false;
         if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return; }
@@ -469,7 +533,7 @@ const OFFERS = ['key', 'ip', 'net', 'user_net', 'machine', 'source', 'file', 'cm
   'prog', 'tunnel', 'pair_ip', 'pair_net', 'admin_ip', 'admin_net', 'vpn', 'link', 'sender', 'network', 'thing', 'max_c'];
 // kinds whose key is «<kind>:<the thing's name>»: an exception for exactly it reads «The ports of plex may change» (6a)
 const KEY_NAMED = ['container_ports', 'container_rights', 'script_changed', 'cron_file', 'flow_client', 'flow_container', 'flash_extra', 'listen_new',
-  'container_privileged', 'net_blocked_from_server'];
+  'container_privileged', 'container_host', 'container_new', 'net_blocked_from_server'];
 /** A named key's thing in words: a client of the data flow «192.168.1.5 (SMB)» (its key: ip|service), else the name */
 function keyThing(kind, name) {
   if (kind === 'listen_new') return name.replace(/^tcp:/, '');
@@ -4263,6 +4327,6 @@ Office.placesFrom(ID, (s) => {
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.watchman = { setState: (s) => { state = s; }, greetOk, bookView, entryArea, foldKind, plainWords, entryHay, foldName,
-    groupFit, fitTally, groupOpen, knownFolds, srcFrom, srcNone, wakesTile, wakesView, causeName, catLevel, holdWaiting, holdTile, tileWaits, tileLevel, entryTile, TILES, TILE_PARTS, TILE_ROUTE, tileSection, handNote, ipPublic };
+    groupFit, fitTally, groupOpen, knownFolds, srcFrom, srcNone, wakesTile, wakesView, causeName, catLevel, holdWaiting, holdTile, tileWaits, tileLevel, entryTile, TILES, TILE_PARTS, TILE_ROUTE, tileSection, handNote, handNames, ipPublic };
 }
 })();

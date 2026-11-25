@@ -2193,6 +2193,124 @@ async function journalFilter(browser) {
   res.ms = Date.now() - t0;
   return res;
 }
+/**
+ * The Night Watchman's «Add something that is always all right…» (desk.js ruleHandDialog()): the five newer container,
+ * login and host types there; the names he knows suggested (a datalist; the placeholder its first name; free typing
+ * stays, a name outside a full list gets a calm line); a wide one's note; SMB or NFS and a wake's kind as a choice, sent as
+ * the agent takes them. Both themes, 1440 and 375 px: no sideways scrolling.
+ */
+async function handDialog(browser) {
+  const res = { route: 'watchman/setup', theme: 'hand dialog', width: 0, tested: 0, skipped: 0, capped: 0, hidden: 0, sections: 0, fails: [], ms: 0 };
+  const t0 = Date.now();
+  const fail = (what) => res.fails.push(what);
+  const h = await startHarness({});
+  try {
+    for (const theme of ['dark', 'light']) {
+      for (const width of [1440, 375]) {
+        const at = `${theme} ${width}`;
+        const ctx = await browser.newContext({ viewport: { width, height: 900 }, locale: 'en-US' });
+        await ctx.addInitScript((t) => { try { localStorage.setItem('office.theme', t); } catch (e) { /* none */ } }, theme);
+        const page = await ctx.newPage();
+        const errors = [];
+        page.on('pageerror', (e) => errors.push(`page error: ${String(e.message).slice(0, 160)}`));
+        const open = async (tile) => {
+          await page.goto(`${h.url}#/watchman/setup/${tile}`, { waitUntil: 'load' });
+          const add = '#sso section.wm-setup .wm-setup-acts button:has-text("Add something")';
+          if (!(await page.waitForSelector(add, { timeout: 15000 }).catch(() => null))) return false;
+          await page.waitForTimeout(600);           // the desk draws itself once more when its state arrives
+          await page.click(add);
+          return page.waitForSelector('#sso .wm-rule-hand select', { timeout: 5000 }).then(() => true, () => false);
+        };
+        const look = () => page.evaluate(() => {
+          const d = document.querySelector('#sso .wm-rule-hand');
+          const [type, pick] = d.querySelectorAll('select');
+          const [value, user] = d.querySelectorAll('input.search:not([type=number])');
+          const list = (id) => [...document.querySelectorAll(`#${id} option`)].map((o) => o.value);
+          const box = document.getElementById('sso-dialog').getBoundingClientRect();
+          return { types: [...type.options].map((o) => o.value), placeholder: value.placeholder, list: list(value.getAttribute('list')),
+            list2: list(user.getAttribute('list')), note: [...d.querySelectorAll('.callout.wm-hand-note')].filter((x) => !x.hidden).map((x) => x.textContent).join(),
+            unknown: !d.querySelector('p.role.wm-hand-note').hidden, pick: pick.hidden ? null : [...pick.options].map((o) => [o.value, o.textContent]),
+            user: !user.hidden && !user.closest('label').hidden, wide: document.documentElement.scrollWidth > innerWidth + 1 || box.right > innerWidth + 1 || box.left < -1 };
+        });
+        const choose = async (v) => { await page.selectOption('#sso .wm-rule-hand select >> nth=0', v); await page.waitForTimeout(80); };
+        const type = async (v) => { await page.fill('#sso .wm-rule-hand input.search >> nth=0', v); await page.waitForTimeout(80); };
+        res.tested++;
+        if (!(await open('container'))) { fail(`${at}: no dialog on «Containers»`); await ctx.close(); continue; }
+        let v = await look();
+        res.tested++;
+        if (!['container|privileged', 'container|host', 'container|new'].every((x) => v.types.includes(x))) fail(`${at}: the container types (${v.types.join()})`);
+        await choose('container|new');
+        v = await look();
+        res.tested++;
+        if (v.placeholder !== 'EmbyServer' || v.list.length !== 9 || !v.list.includes('immich_server') || !v.note || v.unknown || v.user || v.wide) {
+          fail(`${at}: «a new container of this name»: its names, the first as the example, its note (${JSON.stringify(v)})`);
+        }
+        await type('Grafana');
+        v = await look();
+        const known = v.unknown;
+        await type('Grafanna');
+        v = await look();
+        res.tested++;
+        if (known || !v.unknown) fail(`${at}: a known name is quiet, a typo gets its line (${known}, ${v.unknown})`);
+        await page.keyboard.press('Escape');
+        // the protocol of a share open to guests: a choice, sent as the agent takes it
+        res.tested++;
+        if (!(await open('access'))) { fail(`${at}: no dialog on «Access»`); await ctx.close(); continue; }
+        await choose('share|guest_write');
+        v = await look();
+        res.tested++;
+        if (JSON.stringify(v.pick) !== JSON.stringify([['smb', 'SMB'], ['nfs', 'NFS']]) || v.user || !v.list.includes('media') || v.list.includes('flash') || v.wide) {
+          fail(`${at}: guests writing — SMB or NFS a choice, the shares suggested, never the flash (${JSON.stringify(v)})`);
+        }
+        await page.selectOption('#sso .wm-rule-hand select >> nth=1', 'nfs');
+        await type('media');
+        const n = h.posts.length;
+        await page.click('#sso-dialog-foot button.primary, #sso-dialog-foot button >> nth=0');
+        await page.waitForTimeout(400);
+        const sent = h.posts.slice(n).find((x) => x.action === 'watchman.rule_hand');
+        res.tested++;
+        if (!sent || sent.data.type !== 'guest_write' || sent.data.value !== 'media' || sent.data.user !== 'nfs') fail(`${at}: «Add» sends the share and nfs (${JSON.stringify(sent && sent.data)})`);
+        await page.keyboard.press('Escape');
+        // a wake's cause: the kind a choice, the names of that kind
+        res.tested++;
+        if (!(await open('wakes'))) { fail(`${at}: no dialog on «Who woke my disks?»`); await ctx.close(); continue; }
+        await choose('wakes|cause');
+        await page.selectOption('#sso .wm-rule-hand select >> nth=1', 'program');
+        await page.waitForTimeout(80);
+        v = await look();
+        const prog = v.list;
+        await page.selectOption('#sso .wm-rule-hand select >> nth=1', 'container');
+        await page.waitForTimeout(80);
+        v = await look();
+        res.tested++;
+        if (prog.join() !== 'soffice.bin' || !v.list.includes('fotosync') || !v.list.includes('Grafana') || (v.pick || []).length !== 8 || v.wide) {
+          fail(`${at}: a cause — its kinds a choice, the names of the kind chosen (${prog.join()} / ${JSON.stringify(v)})`);
+        }
+        await page.keyboard.press('Escape');
+        // where he knows no names: an invented example, never «…»
+        await page.goto(`${h.url}#/watchman/setup/net`, { waitUntil: 'load' });
+        res.tested++;
+        if (!(await open('net'))) fail(`${at}: no dialog on «Network»`);
+        else {
+          await choose('router|link');
+          v = await look();
+          res.tested++;
+          if (v.placeholder !== 'ether5' || !v.user || !v.list2.includes('192.168.1.1') || v.wide) fail(`${at}: a router's port — its ports, the routers as the second field's names (${JSON.stringify(v)})`);
+          const ex = await page.evaluate(() => [...document.querySelectorAll('#sso .wm-rule-hand input')].map((i) => i.placeholder).filter((x) => x.includes('…')));
+          res.tested++;
+          if (ex.length) fail(`${at}: an example is «…» (${ex.join()})`);
+        }
+        for (const e of [...new Set(errors)]) fail(`${at}: ${e}`);
+        await ctx.close();
+      }
+    }
+  } catch (e) {
+    fail(String(e.message || e).split('\n')[0].slice(0, 200));
+  }
+  await h.close();
+  res.ms = Date.now() - t0;
+  return res;
+}
 const walks = opt.states ? [] : WALK.filter((d) => !opt.only || routes.includes(d));
 results.push(...await Promise.all(walks.map((d) => routeWalk(browser, harness, d))));
 if (!opt.states && (!opt.only || routes.includes('cleanup/where'))) results.push(await cleanupMap(browser));
@@ -2207,6 +2325,7 @@ if (!opt.states && (!opt.only || routes.includes('fanboy'))) results.push(await 
 if (!opt.states && (!opt.only || routes.includes('restore'))) results.push(await staleJob(browser));
 if (!opt.states && (!opt.only || routes.includes('restore'))) results.push(await keptFilter(browser));
 if (!opt.states && (!opt.only || routes.includes('restore'))) results.push(await journalFilter(browser));
+if (!opt.states && (!opt.only || routes.includes('watchman') || routes.includes('watchman/setup'))) results.push(await handDialog(browser));
 await browser.close();
 await harness.close();
 

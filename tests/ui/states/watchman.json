@@ -5524,11 +5524,15 @@
   "login": [
    "net",
    "ip",
-   "user_net"
+   "user_net",
+   "machine"
   ],
   "container": [
    "ports",
-   "rights"
+   "rights",
+   "privileged",
+   "host",
+   "new"
   ],
   "plugin": [
    "source"
@@ -5569,7 +5573,10 @@
   ],
   "host": [
    "port",
-   "prog"
+   "prog",
+   "crash",
+   "oom",
+   "flood"
   ],
   "door": [
    "tunnel"
@@ -5590,6 +5597,10 @@
   "wakes": [
    "cause",
    "disk"
+  ],
+  "vuln": [
+   "cve",
+   "product"
   ]
  },
  "hand_amount": {
@@ -5974,5 +5985,133 @@
    ],
    "level": "ok"
   }
+ },
+ "hand_names": {
+  "container": [
+   "EmbyServer",
+   "Grafana",
+   "immich_postgres",
+   "immich_redis",
+   "immich_server",
+   "kopia",
+   "mariadb-nextcloud",
+   "Nextcloud",
+   "prometheus"
+  ],
+  "share": [
+   "appdata",
+   "domains",
+   "isos",
+   "media",
+   "nextcloud",
+   "photos",
+   "syslog",
+   "system",
+   "UnraidSecretaryOffice"
+  ],
+  "disk": [
+   "disk1",
+   "disk3",
+   "disk4"
+  ],
+  "wake_disk": [
+   "disk1",
+   "disk2",
+   "disk3",
+   "parity"
+  ],
+  "script": [
+   "backup",
+   "fotos_sichern"
+  ],
+  "vm": [
+   "Heimautomation",
+   "Spielwiese"
+  ],
+  "tunnel": [
+   "wg0"
+  ],
+  "network": [
+   "Gäste",
+   "LAN"
+  ],
+  "sender": [
+   "10.0.3.10",
+   "192.168.1.1"
+  ],
+  "iface": [
+   "ether5"
+  ],
+  "admin": [
+   "admin"
+  ],
+  "vpn": [
+   "phone"
+  ],
+  "series": [
+   "t"
+  ],
+  "dataset": [
+   "big/media",
+   "big/photos",
+   "cache/appdata",
+   "cache/domains"
+  ],
+  "prog": [
+   "dnsmasq",
+   "nginx",
+   "smbd",
+   "sshd",
+   "wsdd2"
+  ],
+  "product": [
+   "bash",
+   "go",
+   "inetutils",
+   "java",
+   "kernel",
+   "mariadb",
+   "nginx",
+   "nodejs",
+   "openssh",
+   "openssl",
+   "php",
+   "polkit",
+   "postgresql",
+   "python",
+   "redis",
+   "routeros",
+   "samba",
+   "sudo",
+   "unifi",
+   "unraid"
+  ],
+  "cron_file": [
+   "dynamix/monitor.cron",
+   "dynamix/mover.cron",
+   "dynamix/unraid-check.cron"
+  ],
+  "crond": [
+   "myjob"
+  ],
+  "extra": [
+   "tool.txz"
+  ],
+  "source": [
+   "github.com/someone",
+   "raw.githubusercontent.com/unraid"
+  ],
+  "machine": [
+   "LAPTOP-KUECHE"
+  ],
+  "flood": [
+   "443"
+  ],
+  "cause": [
+   "container:fotosync",
+   "container:photoprism",
+   "program:soffice.bin",
+   "smb:laptop-kueche"
+  ]
  }
 }
