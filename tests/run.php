@@ -21560,8 +21560,9 @@ function testWatchmanVulnRouters(): void
         [['routeros', '7.24.5', '10.77.3.10'], ['routeros', '', '10.77.3.11'], ['unifi', '10.6.106', '192.0.2.1']],
         array_map(fn ($r) => [$r['product'], $r['version'], $r['sender']], $routers));
     // an image's labels: only one named «unifi» gives its OCI version; linuxserver's «-ls78» cut off by the env's cleaning
-    $out = "sha256:aaa OCI_VERSION=9.0.114-ls78\nsha256:bbb PHP_VERSION=8.4.14 OCI_VERSION=2.1.0\nsha256:ccc UNIFI_VERSION=8.6.9\n";
-    $imgs = watchmanVulnImagesParse($out, ['lscr.io/linuxserver/unifi-network-application:latest', 'nextcloud:30', 'jacobalberty/unifi:v8']);
+    $ls = 'lscr.io/linuxserver/unifi-network-application:latest';
+    $imgs = watchmanVulnImagesParse(['nextcloud:30' => 'sha256:bbb PHP_VERSION=8.4.14 OCI_VERSION=2.1.0', 'jacobalberty/unifi:v8' => 'sha256:ccc UNIFI_VERSION=8.6.9'],
+        [$ls => 'sha256:aaa OCI_VERSION=9.0.114-ls78', 'nextcloud:30' => 'sha256:bbb OCI_VERSION=2.1.0'], [$ls, 'nextcloud:30', 'jacobalberty/unifi:v8']);
     same('vuln routers: the OCI version label only of an image named «unifi»; UNIFI_VERSION from the environment',
         [['OCI_VERSION' => '9.0.114-ls78'], ['PHP_VERSION' => '8.4.14'], ['UNIFI_VERSION' => '8.6.9']], array_values($imgs));
     $inv = watchmanVulnInventory(['kernel' => '6.18.64-Unraid', 'php' => '8.4.14', 'vuln_routers' => $routers,
@@ -21916,20 +21917,30 @@ function testWatchmanVuln(): void
  * change; the official images' spellings (MariaDB's epoch and suffix, PostgreSQL's package revision, Temurin's «jdk-»);
  * endoflife.date's fixed slugs fetched with the lists; each container's release line, past its end (the advice
  * software_eol) or behind its newest release; an image naming none of them: «version unknown»; a container's PHP judged
- * like the host's (entry.vuln_known_ct_fixed); a whole round.
+ * like the host's (entry.vuln_known_ct_fixed); a whole round. Docker 29 (2026-11-25): an image without labels fails the
+ * label's template — the environment is asked without it, the label only of «unifi» images; an image docker didn't answer
+ * (an error line, exit ≠ 0, a line missing) is unknown alone, never blinds the others, never shifts their versions.
  */
 function testWatchmanVulnSoftware(): void
 {
     $tmp = hardeningTmp('watch-vuln-sw');
     $fmt = watchmanVulnImagesFormat();
-    check('vuln images: the format names exactly the fixed names, nothing else of the environment; of the labels only the OCI version',
+    check('vuln images: the format names exactly the fixed names, nothing else of the environment; never the labels (Docker 29 fails an image without)',
         str_contains($fmt, '{{if eq $k "PHP_VERSION" "NGINX_VERSION" "MARIADB_VERSION" "PG_VERSION" "REDIS_VERSION" "NODE_VERSION" "PYTHON_VERSION" "GOLANG_VERSION" "JAVA_VERSION" "UNIFI_VERSION"}}')
-        && str_starts_with($fmt, '{{.Id}}') && substr_count($fmt, '.Config.Labels') === 1
-        && str_ends_with($fmt, '{{with .Config.Labels}}{{with index . "org.opencontainers.image.version"}} OCI_VERSION={{.}}{{end}}{{end}}'));
-    $out = "sha256:aaa PHP_VERSION=8.1.31 PASSWORD=hunter2 MARIADB_VERSION=1:11.8.9+maria~ubu2404\nsha256:bbb\nsha256:ccc PG_VERSION=17.12-1.pgdg12+1 JAVA_VERSION=jdk-21.0.13.1+2 PHP_VERSION=8.4.x;rm\n";
-    same('vuln images: one line an image, in order — only the fixed names in a version\'s shape (a password, a value with ; never kept)',
-        ['php:8.1' => ['PHP_VERSION' => '8.1.31', 'MARIADB_VERSION' => '1:11.8.9+maria~ubu2404'], 'linuxserver/plex' => [], 'postgres:17' => ['PG_VERSION' => '17.12-1.pgdg12+1', 'JAVA_VERSION' => 'jdk-21.0.13.1+2']],
-        watchmanVulnImagesParse($out, ['php:8.1', 'linuxserver/plex', 'postgres:17']));
+        && str_starts_with($fmt, '{{.Id}}') && !str_contains($fmt, 'Labels'));
+    same('vuln images: of the labels only the OCI version, in a query of its own', '{{.Id}}{{with .Config.Labels}}{{with index . "org.opencontainers.image.version"}} OCI_VERSION={{.}}{{end}}{{end}}',
+        watchmanVulnImagesLabelFormat());
+    $env = ['php:8.1' => 'sha256:aaa PHP_VERSION=8.1.31 PASSWORD=hunter2 MARIADB_VERSION=1:11.8.9+maria~ubu2404', 'linuxserver/plex' => 'sha256:bbb',
+            'postgres:17' => 'sha256:ccc PG_VERSION=17.12-1.pgdg12+1 JAVA_VERSION=jdk-21.0.13.1+2 PHP_VERSION=8.4.x;rm OCI_VERSION=17'];
+    same('vuln images: by image — only the fixed names in a version\'s shape (a password, a value with ;, OCI_VERSION in the environment never kept); no answer: unknown',
+        ['php:8.1' => ['PHP_VERSION' => '8.1.31', 'MARIADB_VERSION' => '1:11.8.9+maria~ubu2404'], 'linuxserver/plex' => [], 'postgres:17' => ['PG_VERSION' => '17.12-1.pgdg12+1', 'JAVA_VERSION' => 'jdk-21.0.13.1+2'],
+         'redis:8' => []],
+        watchmanVulnImagesParse($env, [], ['php:8.1', 'linuxserver/plex', 'postgres:17', 'redis:8']));
+    same('vuln images: the label line gives only OCI_VERSION, only to an image named «unifi» with the same id',
+        [['UNIFI_VERSION' => '8.6.9', 'OCI_VERSION' => '9.0.1'], [], []],
+        array_values(watchmanVulnImagesParse(['jacobalberty/unifi:v8' => 'sha256:u1 UNIFI_VERSION=8.6.9', 'my/unifi:2' => 'sha256:u2'],
+            ['jacobalberty/unifi:v8' => 'sha256:u1 OCI_VERSION=9.0.1 PHP_VERSION=8.1.1 PASSWORD=x', 'my/unifi:2' => 'sha256:other OCI_VERSION=1.0', 'php:8.1' => 'sha256:aaa OCI_VERSION=8'],
+            ['jacobalberty/unifi:v8', 'my/unifi:2', 'php:8.1'])));
     same('vuln images: the official spellings, cleaned', ['11.8.9', '17.12', '21.0.13.1', '22.23.5', '8.4.28', null],
         [watchmanVulnClean('1:11.8.9+maria~ubu2404', 'env'), watchmanVulnClean('17.12-1.pgdg12+1', 'env'), watchmanVulnClean('jdk-21.0.13.1+2', 'env'),
          watchmanVulnClean('22.23.5', 'env'), watchmanVulnClean('8.4.28', 'env'), watchmanVulnClean('latest', 'env')]);
@@ -21937,11 +21948,11 @@ function testWatchmanVulnSoftware(): void
     // asked at most hourly, or when the images change; Docker silent: nothing
     $t0 = strtotime('2026-11-22 12:00:00');
     $calls = 0;
-    $inspect = function (array $refs) use (&$calls): string {
+    $inspect = function (array $refs, string $format) use (&$calls): array {
         $calls++;
         $map = ['php:8.1' => 'sha256:aaa PHP_VERSION=8.1.31 PASSWORD=hunter2', 'php:8.4' => 'sha256:ddd PHP_VERSION=8.3.4', 'linuxserver/plex' => 'sha256:bbb',
                 'postgres:17' => 'sha256:ccc PG_VERSION=17.12-1.pgdg12+1'];
-        return implode("\n", array_map(fn ($r) => $map[$r] ?? 'sha256:zzz', $refs)) . "\n";
+        return [0, implode("\n", array_map(fn ($r) => $map[$r] ?? 'sha256:zzz', $refs)) . "\n"];
     };
     $cts = ['nextcloud' => ['image' => 'php:8.1'], 'web' => ['image' => 'php:8.4'], 'plex' => ['image' => 'linuxserver/plex'], 'db' => ['image' => 'postgres:17']];
     [$by, $cache] = watchmanVulnImages($cts, null, $t0, $inspect);
@@ -21953,6 +21964,70 @@ function testWatchmanVulnSoftware(): void
         [['nextcloud' => ['PHP_VERSION' => '8.1.31'], 'web' => ['PHP_VERSION' => '8.3.4'], 'plex' => [], 'db' => ['PG_VERSION' => '17.12-1.pgdg12+1']], 3, [[], null]],
         [$by, $calls, watchmanVulnImages(null, null, $t0, $inspect)]);
     check('vuln images: no other value of an environment kept', !str_contains(json_encode([$cache, $cache5]), 'hunter2') && !str_contains(json_encode($by), 'PASSWORD'));
+
+    // Docker 29 (2026-11-25): an image without labels has no «Labels» key — the label's template fails for it; docker
+    // prints the lines it could, an error for the others, exits ≠ 0. One image never blinds the others, never shifts them.
+    $box = ['php:7.2.20-fpm-alpine' => ['sha256:p72', ['PHP_VERSION=7.2.20', 'PHPIZE_DEPS=autoconf', 'MYSQL_PASSWORD=hunter2'], null],
+            'valkey/valkey:8-bookworm' => ['sha256:vk8', ['VALKEY_VERSION=8.1.4'], null],
+            'lscr.io/linuxserver/unifi-network-application:latest' => ['sha256:ls9', ['PATH=/usr/bin'], ['org.opencontainers.image.version' => '9.0.114-ls78', 'maintainer' => 'secret']],
+            'my/unifi-nolabel:1' => ['sha256:un1', ['UNIFI_VERSION=8.6.9'], null],
+            'postgres:17' => ['sha256:pg7', ['PG_VERSION=17.12-1.pgdg12+1', 'POSTGRES_PASSWORD=hunter2'], ['org.opencontainers.image.version' => '17']]];
+    $asked = [];
+    $docker29 = function (array $refs, string $format) use ($box, &$asked): array {
+        $asked[] = [count($refs), str_contains($format, 'Labels')];
+        $out = '';
+        $exit = 0;
+        foreach ($refs as $r) {
+            if (!isset($box[$r])) {
+                $out .= "Error: No such image: $r\n";              // as if stderr came along: never a line of an image
+                $exit = 1;
+            } elseif (str_contains($format, '.Config.Labels') && $box[$r][2] === null) {
+                $out .= "template parsing error: template: :1:8: executing \"\" at <.Config.Labels>: map has no entry for key \"Labels\"\n";
+                $exit = 1;
+            } else {
+                $line = $box[$r][0];
+                foreach (str_contains($format, '.Config.Labels') ? [] : $box[$r][1] as $e) {
+                    $k = explode('=', $e, 2)[0];
+                    $line .= in_array($k, WATCH_VULN_ENV, true) ? " $e" : '';
+                }
+                $v = $box[$r][2]['org.opencontainers.image.version'] ?? null;
+                $out .= $line . (str_contains($format, '.Config.Labels') && $v !== null ? " OCI_VERSION=$v" : '') . "\n";
+            }
+        }
+        return [$exit, $out];
+    };
+    $cts29 = ['php' => ['image' => 'php:7.2.20-fpm-alpine'], 'cache' => ['image' => 'valkey/valkey:8-bookworm'],
+              'unifi' => ['image' => 'lscr.io/linuxserver/unifi-network-application:latest'], 'unifi2' => ['image' => 'my/unifi-nolabel:1'],
+              'db' => ['image' => 'postgres:17']];
+    [$by29, $cache29] = watchmanVulnImages($cts29, null, $t0, $docker29);
+    same('vuln images, Docker 29: images without labels among others — every environment read, the unifi label still read, one call each',
+        [['php' => ['PHP_VERSION' => '7.2.20'], 'cache' => [], 'unifi' => ['OCI_VERSION' => '9.0.114-ls78'], 'unifi2' => ['UNIFI_VERSION' => '8.6.9'],
+          'db' => ['PG_VERSION' => '17.12-1.pgdg12+1']], [[5, false], [2, true], [1, true], [1, true]]],
+        [$by29, $asked]);
+    check('vuln images, Docker 29: nothing but the allowed names kept (no password, no other label)',
+        !preg_match('/hunter2|PASSWORD|PHPIZE|secret|maintainer|PATH/', (string) json_encode([$by29, $cache29])));
+    $asked = [];
+    [$byGone] = watchmanVulnImages($cts29 + ['old' => ['image' => 'gone/meanwhile:1']], null, $t0, $docker29);
+    same('vuln images: one image gone meanwhile (an error line, exit ≠ 0) — the others asked one by one, each its own version; the gone one unknown',
+        [['php' => ['PHP_VERSION' => '7.2.20'], 'cache' => [], 'unifi' => ['OCI_VERSION' => '9.0.114-ls78'], 'unifi2' => ['UNIFI_VERSION' => '8.6.9'],
+          'db' => ['PG_VERSION' => '17.12-1.pgdg12+1'], 'old' => []], [[6, false]]],
+        [$byGone, array_slice($asked, 0, 1)]);
+    // a line missing though docker said 0: never paired by position (the versions would slide to the next image)
+    $short = function (array $refs, string $format): array {
+        $map = ['a/one:1' => 'sha256:111 PHP_VERSION=8.1.1', 'b/two:1' => 'sha256:222 PHP_VERSION=8.2.2', 'c/three:1' => 'sha256:333 PHP_VERSION=8.3.3'];
+        $lines = array_map(fn ($r) => $map[$r], $refs);
+        return [0, implode("\n", count($refs) > 1 ? array_values(array_diff($lines, [$map['a/one:1']])) : $lines) . "\n"];
+    };
+    same('vuln images: a missing line never shifts the versions to another image',
+        ['a/one:1' => ['PHP_VERSION' => '8.1.1'], 'b/two:1' => ['PHP_VERSION' => '8.2.2'], 'c/three:1' => ['PHP_VERSION' => '8.3.3']],
+        watchmanVulnImagesParse(watchmanVulnImagesAsk(['a/one:1', 'b/two:1', 'c/three:1'], watchmanVulnImagesFormat(), $short), [], ['a/one:1', 'b/two:1', 'c/three:1']));
+    $n = 0;
+    $silent = function () use (&$n): array {
+        $n++;
+        return [1, "Cannot connect to the Docker daemon\n"];
+    };
+    same('vuln images: Docker silent — no line, every image unknown, not a call for each', [['a' => [], 'b' => []], 1],
+        [watchmanVulnImages(['a' => ['image' => 'x:1'], 'b' => ['image' => 'y:1']], null, $t0, $silent)[0], $n]);
 
     // the lists: endoflife.date's fixed slugs with the others; the containers' lines
     $dir = "$tmp/data";

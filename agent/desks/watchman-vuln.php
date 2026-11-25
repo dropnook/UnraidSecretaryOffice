@@ -74,6 +74,7 @@ const WATCH_VULN_ENV = ['PHP_VERSION', 'NGINX_VERSION', 'MARIADB_VERSION', 'PG_V
 const WATCH_VULN_OCI_IMAGE = '/unifi/i';
 const WATCH_VULN_IMAGES_EVERY = 3600;      // the images' versions looked at anew at most this often (or when the images change)
 const WATCH_VULN_IMAGES_MAX   = 100;       // images asked at most
+const WATCH_VULN_IMAGES_ASK   = 30;        // seconds one query of them may take, its asks one image at a time included
 const WATCH_VULN_MAX     = ['kev' => 8 << 20, 'cve' => 2 << 20, 'unraid' => 1 << 20, 'eol' => 1 << 20, 'nvd' => 4 << 20];     // bytes of an answer at most
 const WATCH_VULN_TIMEOUT = 60;             // seconds a fetch may take
 const WATCH_VULN_DESC    = 300;            // characters of a description kept
@@ -1306,44 +1307,107 @@ function watchmanVulnVariant(array $e): ?string
 
 /**
  * docker's format for the images' versions: the image's id, then only the WATCH_VULN_ENV names with their values — docker
- * itself leaves every other variable out, so no other value of an environment ever reaches the office
+ * itself leaves every other variable out, so no other value of an environment ever reaches the office. It never touches
+ * .Config.Labels (2026-11-25, Docker 29: an image without labels has no such key there, and the template fails for it):
+ * the one label has a query of its own (watchmanVulnImagesLabelFormat())
  */
 function watchmanVulnImagesFormat(): string
 {
     $names = implode(' ', array_map(fn ($n) => '"' . $n . '"', WATCH_VULN_ENV));
-    return '{{.Id}}{{range .Config.Env}}{{$k := index (split . "=") 0}}{{if eq $k ' . $names . '}} {{.}}{{end}}{{end}}'
-        . '{{with .Config.Labels}}{{with index . "org.opencontainers.image.version"}} OCI_VERSION={{.}}{{end}}{{end}}';
+    return '{{.Id}}{{range .Config.Env}}{{$k := index (split . "=") 0}}{{if eq $k ' . $names . '}} {{.}}{{end}}{{end}}';
 }
 
 /**
- * docker's answer (one line an image, in the order asked: «sha256:… PHP_VERSION=8.4.28 …») → image => [name => value];
- * only the WATCH_VULN_ENV names, only values in a version's shape — anything else on a line is dropped, never kept
+ * docker's format for the one label (the OCI version), asked only of the images whose name matches WATCH_VULN_OCI_IMAGE:
+ * the image's id and, if set, «OCI_VERSION=…» — never another label. An image without labels fails it on Docker 29 (no
+ * «Labels» key): that image alone has no OCI version (watchmanVulnImagesAsk())
+ */
+function watchmanVulnImagesLabelFormat(): string
+{
+    return '{{.Id}}{{with .Config.Labels}}{{with index . "org.opencontainers.image.version"}} OCI_VERSION={{.}}{{end}}{{end}}';
+}
+
+/**
+ * Asks docker one format for $refs → ref => its line («sha256:… …»). One call for all; docker answers in the order asked,
+ * but leaves out the line of an image it can't answer (gone meanwhile, a template that fails on it) and then exits ≠ 0 —
+ * so its lines are paired with the refs by position only when every ref has its line and the exit is 0. Else, when it
+ * answered some, each ref is asked on its own (one ref, one call: its line is its own, whatever the exit), until
+ * WATCH_VULN_IMAGES_ASK seconds have passed; a ref without a line is missing here — «unknown» this round, never another's
+ * version. No line at all (Docker silent): nothing, not a call for each.
+ * $docker(refs, format, timeout): [exit, stdout] — run() or the tests' stand-in.
  *
+ * @param list<string> $refs
+ * @return array<string, string>
+ */
+function watchmanVulnImagesAsk(array $refs, string $format, callable $docker): array
+{
+    $lines = fn ($out) => array_values(array_filter(explode("\n", (string) $out), fn ($l) => str_starts_with($l, 'sha256:')));
+    if (!$refs) {
+        return [];
+    }
+    $deadline = hrtime(true) + WATCH_VULN_IMAGES_ASK * 1e9;
+    [$exit, $out] = $docker($refs, $format, WATCH_VULN_IMAGES_ASK);
+    $got = $lines($out);
+    if (count($refs) === 1 || ($exit === 0 && count($got) === count($refs))) {
+        return count($got) === count($refs) ? array_combine($refs, $got) : [];
+    }
+    $res = [];
+    foreach ($got ? $refs : [] as $ref) {
+        $left = (int) floor(($deadline - hrtime(true)) / 1e9);
+        if ($left < 1) {
+            break;
+        }
+        $one = $lines($docker([$ref], $format, $left)[1] ?? '');
+        if (count($one) === 1) {
+            $res[$ref] = $one[0];
+        }
+    }
+    return $res;
+}
+
+/**
+ * docker's answers (ref => line: $env by watchmanVulnImagesFormat(), $labels by watchmanVulnImagesLabelFormat()) → image
+ * => [name => value] for each of $images; only the WATCH_VULN_ENV names from $env, only OCI_VERSION from $labels and only
+ * for an image named like WATCH_VULN_OCI_IMAGE whose label line names the same image id; only values in a version's
+ * shape — anything else on a line is dropped, never kept. An image without an answer: [] («version unknown»).
+ *
+ * @param array<string, string> $env
+ * @param array<string, string> $labels
  * @param list<string> $images
  * @return array<string, array<string, string>>
  */
-function watchmanVulnImagesParse(string $out, array $images): array
+function watchmanVulnImagesParse(array $env, array $labels, array $images): array
 {
-    $lines = array_values(array_filter(explode("\n", $out), fn ($l) => str_starts_with($l, 'sha256:')));
-    $res = [];
-    foreach ($images as $i => $img) {
-        $env = [];
-        foreach (array_slice(explode(' ', (string) ($lines[$i] ?? '')), 1) as $tok) {
+    $tokens = function (string $line, array $allowed): array {
+        $kept = [];
+        foreach (array_slice(explode(' ', $line), 1) as $tok) {
             [$k, $v] = array_pad(explode('=', $tok, 2), 2, '');
-            $oci = $k === 'OCI_VERSION' && preg_match(WATCH_VULN_OCI_IMAGE, (string) $img);
-            if ((in_array($k, WATCH_VULN_ENV, true) || $oci) && preg_match('/^[0-9A-Za-z.:+~_-]{1,64}$/D', $v)) {
-                $env[$k] = $v;
+            if (in_array($k, $allowed, true) && preg_match('/^[0-9A-Za-z.:+~_-]{1,64}$/D', $v)) {
+                $kept[$k] = $v;
             }
         }
-        $res[$img] = $env;
+        return $kept;
+    };
+    $id = fn (string $l) => explode(' ', $l, 2)[0];
+    $res = [];
+    foreach ($images as $img) {
+        $line = (string) ($env[$img] ?? '');
+        $kept = $tokens($line, WATCH_VULN_ENV);
+        $label = (string) ($labels[$img] ?? '');
+        if ($label !== '' && preg_match(WATCH_VULN_OCI_IMAGE, $img) && ($line === '' || $id($line) === $id($label))) {
+            $kept += $tokens($label, ['OCI_VERSION']);
+        }
+        $res[$img] = $kept;
     }
     return $res;
 }
 
 /**
  * The containers' versions ($containers: the round's look, name => {image}): asked of docker at most once an hour, or when
- * the images changed — one `docker image inspect` for all, WATCH_VULN_IMAGES_MAX at most; $cache: the last answer
- * (state.json vuln_images). $inspect: the tests' stand-in for docker.
+ * the images changed — one `docker image inspect` for all (the environment), one more for the images named «unifi» (the
+ * label), WATCH_VULN_IMAGES_MAX at most; an image docker didn't answer is «version unknown» until the next ask
+ * (watchmanVulnImagesAsk()). $cache: the last answer (state.json vuln_images). $inspect: the tests' stand-in for docker
+ * (refs, format, timeout) → [exit, stdout].
  *
  * @return array{0: array<string, array<string, string>>, 1: ?array}  container => [name => value], the cache to keep
  */
@@ -1367,11 +1431,12 @@ function watchmanVulnImages(?array $containers, ?array $cache, int $now, ?callab
     if (!$fresh) {
         $byImage = [];
         if ($refs) {
-            $out = $inspect !== null ? $inspect($refs) : (function () use ($refs): string {
-                [$exit, $text] = run(array_merge(['docker', 'image', 'inspect', '--format', watchmanVulnImagesFormat()], $refs), 30);
-                return $exit === 0 ? $text : '';
-            })();
-            $byImage = watchmanVulnImagesParse((string) $out, $refs);
+            $docker = $inspect ?? fn (array $r, string $format, int $timeout): array
+                => run(array_merge(['docker', 'image', 'inspect', '--format', $format], $r), $timeout);
+            $env = watchmanVulnImagesAsk($refs, watchmanVulnImagesFormat(), $docker);
+            $oci = array_values(array_filter($refs, fn ($r) => preg_match(WATCH_VULN_OCI_IMAGE, $r) === 1));
+            $labels = watchmanVulnImagesAsk($oci, watchmanVulnImagesLabelFormat(), $docker);
+            $byImage = watchmanVulnImagesParse($env, $labels, $refs);
         }
         ksort($byImage);
         $cache = ['time' => $now, 'images' => $byImage];
