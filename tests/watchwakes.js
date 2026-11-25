@@ -355,6 +355,56 @@ async function rules() {
   wm.unmount();
 }
 
+// ------------------------------------------------------------------ «Add something that is always all right…» (1.96)
+/*
+ * The dialog by hand: the newer container types listed; the names he knows suggested (a datalist, the placeholder its
+ * first name); a wide one's note; a typo in a full list gets its calm line; SMB or NFS a choice, sent as the agent takes it.
+ */
+async function handDialog() {
+  state = JSON.parse(JSON.stringify(base));
+  const open = async (sub) => {
+    const r = new FakeNode('div');
+    desk.replaceChildren(r);
+    await wm.mount(r, `setup/${sub}`);
+    await tick();
+    await tick();
+    const btn = r.all().find((n) => n.tagName === 'BUTTON' && tx(n) === T('setup.add'));
+    if (btn) btn.click();
+    return dialogs[dialogs.length - 1];
+  };
+  const pick = (sel, v) => { sel.value = v; sel.dispatch('change'); };
+  let d = await open('container');
+  const [type] = d.body.querySelectorAll('select');
+  const [value] = d.body.querySelectorAll('input');
+  pick(type, 'container|new');
+  const names = d.body.querySelectorAll('datalist').find((x) => x.id === value.getAttribute('list'));
+  const shown = (c) => d.body.querySelectorAll(c).filter((x) => !x.hidden).map(tx);
+  same('hand dialog: the container types; «a new container of this name» — its names suggested, the first as the example, its note',
+    [['container|privileged', 'container|host', 'container|new'].every((x) => type.options.some((o) => o.val === x)), value.placeholder, names && names.children.length,
+      shown('p.callout.wm-hand-note')],
+    [true, 'EmbyServer', 9, [T('setup.add_wide.new')]]);
+  value.value = 'Grafanna';
+  value.dispatch('input');
+  const typo = shown('p.role.wm-hand-note');
+  value.value = 'Grafana';
+  value.dispatch('input');
+  same('hand dialog: a name he doesn\'t know — a calm line; one he knows — none', [typo, shown('p.role.wm-hand-note')], [[T('setup.add_unknown')], []]);
+  wm.unmount();
+  d = await open('access');
+  const [t2, proto] = d.body.querySelectorAll('select');
+  pick(t2, 'share|guest_write');
+  pick(proto, 'nfs');
+  const [v2] = d.body.querySelectorAll('input');
+  v2.value = 'media';
+  const n = posts.length;
+  d.buttons[0].act();
+  await tick();
+  const sent = posts.slice(n).find((x) => x[0] === 'watchman.rule_hand');
+  same('hand dialog: guests writing — SMB or NFS a choice, its value sent as the second field', [proto.options.map((o) => [o.val, o.text]), sent && sent[1]],
+    [[['smb', 'SMB'], ['nfs', 'NFS']], { cat: 'share', type: 'guest_write', value: 'media', user: 'nfs' }]);
+  wm.unmount();
+}
+
 // ------------------------------------------------------------------ «Known vulnerabilities»: what he looked at, one filter over all
 /*
  * 2026-11-23 (nostromo: «php2shell» → «0 of 39»): the area says how many of the list's entries concern programs here, by
@@ -468,5 +518,5 @@ async function stand() {
   wm.unmount();
 }
 
-(process.argv[5] === 'stand' ? stand() : run().then(rules).then(vulnPage)).then(() => { console.log(JSON.stringify(out)); process.exit(0); },
+(process.argv[5] === 'stand' ? stand() : run().then(rules).then(handDialog).then(vulnPage)).then(() => { console.log(JSON.stringify(out)); process.exit(0); },
   (e) => { out.fail.push(['ran', String(e && e.stack || e).slice(0, 600), 'no error']); console.log(JSON.stringify(out)); process.exit(0); });

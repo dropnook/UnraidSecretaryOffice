@@ -1539,14 +1539,17 @@ function watchmanCatSettings(string $cat, mixed $set, bool $reset, ?string $dir 
 /**
  * The exceptions made by hand in his setup, per area: type => what is typed. Logins: a net (a private one of any size from
  * /8; a public one at most a /24, only with the clear yes), an address (a public one with the clear yes), a user from a
- * net — covering new addresses and SMB machines, never failures, never a new SMB user. Containers: «the ports of X may
- * change», «X may change devices and capabilities». Plugins: «new plugins from <host>/<owner>» (a whole host only with the
+ * net — covering new addresses and SMB machines, never failures, never a new SMB user; an SMB machine by the name Samba
+ * knows it at any hour (smb_hour only). Containers: «the ports of X may change», «X may change devices and capabilities»,
+ * «X may run privileged» (also «intended» in his posture tip, watchmanPostureIntended()), «X may use the server's network or
+ * processes» (--network/--pid/--ipc=host), «a new container named X» (container_new: whatever rights it has — it never
+ * becomes known, so it stays let through, rights it gains later too). Plugins: «new plugins from <host>/<owner>» (a whole host only with the
  * clear yes). What starts by itself: «the User Script X may change», «the .cron file <plugin>/<file> may change» (only
  * while its plugin is installed: cron_file), «lines from /etc/cron.d/<file> are mine».
  */
 const WATCH_HAND = [
-    'login'     => ['net', 'ip', 'user_net'],
-    'container' => ['ports', 'rights'],
+    'login'     => ['net', 'ip', 'user_net', 'machine'],
+    'container' => ['ports', 'rights', 'privileged', 'host', 'new'],
     'plugin'    => ['source'],
     'sched'     => ['script', 'cron_file', 'crond'],
     // the data flow (6b): a computer may pull any amount, or from an amount an hour; a container always; a share's deletions or
@@ -1557,10 +1560,11 @@ const WATCH_HAND = [
     // altogether, on a dataset a hold may be released — never a whole pool
     'snap'      => ['series', 'series_ds', 'dataset', 'hold'],
     // 6d: a file in /boot/extra may change; a share open to guests (reading, or also writing — the second field: SMB or NFS);
-    // a port, a program on any port; new peers of a WireGuard tunnel
+    // a port, a program on any port; new peers of a WireGuard tunnel; floods of connection attempts on a port (the full
+    // connection table only by a click at its entry: it has no name to type)
     'flash'     => ['extra'],
     'share'     => ['guest_read', 'guest_write'],
-    'host'      => ['port', 'prog', 'crash', 'oom'],
+    'host'      => ['port', 'prog', 'crash', 'oom', 'flood'],
     'door'      => ['tunnel'],
     // 6e: an admin from a net (the second field: the admin), a VPN user from anywhere, a router's port (the second field: the
     // router), a sender not judged; a network whose new devices need no line
@@ -1576,6 +1580,109 @@ const WATCH_HAND = [
 ];
 const WATCH_HAND_AMOUNT = ['client_min' => 'gb', 'gone_min' => 'gb', 'written_min' => 'gb', 'files_min' => 'n'];      // the types with an amount
 const WATCH_HAND_NAME = '/^[A-Za-z0-9][A-Za-z0-9 _.+()-]{0,99}$/D';        // a container's or a User Script's name
+const WATCH_HAND_NAMES_MAX = 100;         // names a list of suggestions holds (watchmanHandNames())
+
+/**
+ * The names the dialog «Add an exception…» suggests as he types (1.96): only what he already has — his baseline ($b), the
+ * last round's look (seen.json), the data flow's file (flow.json), and this page state's own parts (the book, what holds
+ * the array, the wakes) — never a new command, never a disk woken, nothing from outside. Per list its names in exactly the
+ * shape its type takes (what wouldn't be accepted is left out), sorted, at most WATCH_HAND_NAMES_MAX; a list without names
+ * is left out. Free typing stays: a name he doesn't know yet is still taken. desk.js HAND_LIST says which type takes which.
+ *
+ * @return array<string, list<string>>
+ */
+function watchmanHandNames(?array $b, ?array $seen, ?array $flow, array $state): array
+{
+    $b = is_array($b) ? $b : [];
+    $seen = is_array($seen) ? $seen : [];
+    $flow = is_array($flow) ? $flow : [];
+    $keys = fn (mixed $x): array => is_array($x) ? array_map('strval', array_keys($x)) : [];
+    $col = fn (mixed $x, string $k): array => is_array($x) ? array_values(array_filter(array_map(fn ($r) => is_array($r) ? ($r[$k] ?? null) : null, $x), 'is_string')) : [];
+    $book = array_values(array_filter((array) ($state['book'] ?? []), 'is_array'));
+    // what the book's entries of these kinds name under $k (a string, or a list of them)
+    $inBook = function (array $kinds, string $k) use ($book): array {
+        $out = [];
+        foreach ($book as $e) {
+            if (in_array($e['kind'] ?? null, $kinds, true)) {
+                $v = $e['p'][$k] ?? null;
+                foreach (is_array($v) ? $v : [$v] as $x) {
+                    if (is_string($x) || is_int($x)) {
+                        $out[] = (string) $x;
+                    }
+                }
+            }
+        }
+        return $out;
+    };
+    $hold = is_array($state['hold']['look'] ?? null) ? $state['hold']['look'] : [];
+    $wakes = array_values(array_filter((array) ($state['wakes']['wakes'] ?? []), 'is_array'));
+    $who = [];
+    foreach ($wakes as $w) {
+        foreach ((array) ($w['who'] ?? []) as $c) {
+            if (is_array($c)) {
+                $who[] = $c;
+            }
+        }
+    }
+    $whoOf = fn (string $kind): array => array_values(array_filter(array_map(fn ($c) => ($c['kind'] ?? null) === $kind && is_string($c['name'] ?? null) ? $c['name'] : null, $who), 'is_string'));
+    $doors = fn (mixed $d): array => is_array($d) ? array_values(array_filter(array_map(fn ($x) => is_array($x) && ($x['what'] ?? null) === 'wg' && is_string($x['name'] ?? null) ? $x['name'] : null, $d), 'is_string')) : [];
+    $listen = array_merge(array_values((array) ($b['host']['listen'] ?? [])), array_values((array) ($seen['host']['listen'] ?? [])));
+    $net = is_array($b['net'] ?? null) ? $b['net'] : [];
+    $fs = array_keys(array_filter((array) ($flow['can']['fs'] ?? []), fn ($x) => in_array($x, ['xfs', 'btrfs'], true)));
+    // the plugins' .cron files there now — never the office's own (he notes those himself)
+    $files = array_filter(array_keys(array_filter((array) ($b['sched']['files'] ?? []), fn ($f) => is_array($f) && empty($f['gone']))),
+        fn ($f) => !str_starts_with((string) $f, OFFICE_PLUGIN . '/'));
+    $lists = [
+        'container' => [WATCH_HAND_NAME, array_merge($keys($b['containers'] ?? null), $keys($seen['containers'] ?? null), $keys($flow['containers'] ?? null),
+                        $col($hold['containers'] ?? null, 'name'), $whoOf('container'))],
+        // the shares Unraid exports (sec.ini, seen by every round) and the data flow's (its ZFS shares by their name) — never the flash
+        'share'     => [WATCH_RULE_SHARE, array_diff(array_merge($keys($b['shares'] ?? null), $keys($seen['shares'] ?? null),
+                        array_map(fn ($k) => (string) preg_replace('#^[^/]*/#', '', $k), $keys($flow['shares'] ?? null)), $col($flow['gone'] ?? null, 'share')), ['flash'])],
+        // XFS and btrfs disks and pools the data flow measures whole; the rotating disks the wakes watch
+        'disk'      => [WATCH_RULE_DISK, array_merge(array_map('strval', $fs), $keys($flow['disk_w'] ?? null), $col($flow['gone'] ?? null, 'disk'))],
+        'wake_disk' => [WATCH_RULE_DISK, array_merge(array_values(array_filter((array) ($state['wakes']['hdds'] ?? []), 'is_string')),
+                        ...array_map(fn ($w) => array_values(array_filter((array) ($w['disks'] ?? []), 'is_string')), $wakes))],
+        'script'    => [WATCH_HAND_NAME, array_merge($keys($b['sched']['scripts'] ?? null), $keys($seen['sched']['scripts'] ?? null),
+                        array_values(array_filter(array_map(fn ($h) => is_array($h) && ($h['kind'] ?? null) === 'userscript' && is_string($h['name'] ?? null) ? $h['name'] : null,
+                            (array) ($hold['holds'] ?? [])), 'is_string')))],
+        'vm'        => ['/^[^\x00-\x1f]{1,200}$/D', array_merge($col($hold['vms'] ?? null, 'name'), $whoOf('vm'))],
+        'tunnel'    => [WATCH_RULE_TUNNEL, array_merge($doors($b['host']['doors'] ?? null), $doors($seen['host']['doors'] ?? null))],
+        'network'   => [WATCH_RULE_NAME, $inBook(['net_new_device'], 'network')],
+        'sender'    => [WATCH_RULE_SENDER, array_merge($keys($net['senders'] ?? null), $inBook(WATCH_RULE_ROUTER, 'sender'))],
+        'iface'     => [WATCH_RULE_IFACE, $inBook(['net_link_down'], 'iface')],
+        'admin'     => [WATCH_RULE_NAME, array_merge($keys($net['admins'] ?? null), $inBook(['net_router_login'], 'admin'))],
+        'vpn'       => [WATCH_RULE_NAME, array_diff(array_merge($keys($net['vpn'] ?? null), $inBook(['net_vpn_login'], 'user')), ['?'])],
+        'series'    => [WATCH_RULE_SERIES, array_merge($keys($b['snaps']['series'] ?? null), $inBook(['snap_gone'], 'series'))],
+        // the data flow's ZFS shares are datasets (pool/share); those his snapshot entries name
+        'dataset'   => [WATCH_RULE_DS, array_merge($keys($flow['shares'] ?? null), $inBook(['snap_gone', 'snap_hold_released'], 'datasets'))],
+        'prog'      => [WATCH_RULE_PROG, array_diff(array_merge($col($listen, 'prog'), $inBook(['listen_new', 'host_crash', 'host_oom'], 'prog')), ['?'])],
+        'product'   => ['/^[a-z0-9]{1,40}$/D', defined('WATCH_VULN_PRODUCTS') ? array_keys(WATCH_VULN_PRODUCTS) : []],
+        'cron_file' => ['#^[A-Za-z0-9._+-]{1,100}/[A-Za-z0-9._+-]{1,100}$#D', array_map('strval', $files)],
+        'crond'     => [WATCH_RULE_CROND, array_diff($keys($seen['sched']['crontab']['cron_d'] ?? null), ['root'])],
+        'extra'     => ['/^[A-Za-z0-9][A-Za-z0-9._+-]{0,119}$/D', $keys($b['flash']['extra'] ?? null)],
+        'source'    => [WATCH_RULE_SOURCE, $col($b['plugins'] ?? null, 'source')],
+        'machine'   => ['/^[^\x00-\x1f\x7f]{1,64}$/Du', array_merge($col($b['flow']['smb_clients'] ?? null, 'name'), $inBook(['smb_user', 'smb_client', 'smb_hour'], 'machine'))],
+        'flood'     => ['/^[1-9][0-9]{0,4}$/D', $inBook(['host_flood'], 'port')],
+        // a wake's cause as an exception names it (<kind>:<name>); the dialog shows the names of the kind chosen
+        'cause'     => ['/^(?:container|vm|smb|nfs|office|mover|cron|program):[^\x00-\x1f]{1,200}$/D', array_map('watchmanWakeCauseKey', $who)],
+    ];
+    $out = [];
+    foreach ($lists as $id => [$re, $names]) {
+        $ok = [];
+        foreach ($names as $n) {
+            $n = trim((string) $n);
+            if ($n !== '' && preg_match($re, $n) && ($id !== 'dataset' || watchmanRuleDsOk($n)) && ($id !== 'machine' || filter_var($n, FILTER_VALIDATE_IP) === false)) {
+                $ok[$n] = true;
+            }
+        }
+        if ($ok) {
+            $ok = array_map('strval', array_keys($ok));
+            sort($ok, SORT_NATURAL | SORT_FLAG_CASE);
+            $out[$id] = array_slice($ok, 0, WATCH_HAND_NAMES_MAX);
+        }
+    }
+    return $out;
+}
 
 /**
  * An exception made by hand (his setup page, WATCH_HAND): the type's value checked, the rule written; $user only for a
@@ -1628,6 +1735,22 @@ function watchmanRuleHandMake(string $cat, string $type, string $value, string $
             return $name('container_ports');
         case 'rights':
             return $name('container_rights');
+        case 'privileged':
+        case 'host':
+        case 'new':
+            // wide: what the dialog's note says (handNote()) — a new one of that name let through whatever rights it has
+            return ['wide' => true] + $name(['privileged' => 'container_privileged', 'host' => 'container_host', 'new' => 'container_new'][$type]);
+        case 'machine':
+            // the name Samba knows it by (smbstatus' remote machine; an address there is no name: the entry then has none)
+            if (!preg_match('/^[^\x00-\x1f\x7f]{1,64}$/Du', $value) || filter_var($value, FILTER_VALIDATE_IP) !== false) {
+                throw new Problem('watch_value_bad');
+            }
+            return ['cat' => $cat, 'kinds' => ['smb_hour'], 'on' => ['machine' => $value], 'wide' => false];
+        case 'flood':
+            if (!preg_match('/^[1-9][0-9]{0,4}$/D', $value) || (int) $value > 65535) {
+                throw new Problem('watch_value_bad');
+            }
+            return ['cat' => $cat, 'kinds' => ['host_flood'], 'on' => ['thing' => "port:$value"], 'wide' => false];
         case 'script':
             return $name('script_changed');
         case 'source':

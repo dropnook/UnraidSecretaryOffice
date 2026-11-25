@@ -266,4 +266,13 @@ same('hand note: wide by what it is — a whole source, the data flow, snapshots
     note('share', 'guest_write', 'Media'), note('share', 'guest_read', 'Media'), note('router', 'sender', '192.168.1.1'), note('vuln', 'product', 'php'), note('vuln', 'cve', 'CVE-2024-1')],
   ['setup.add_wide.plugin', null, 'setup.add_wide.data', 'setup.add_wide.snap', 'setup.add_wide.share', null, 'setup.add_wide.router', 'setup.add_wide.vuln', 'setup.add_wide.cve']);
 
+same('hand note: a container privileged, on the server\'s network or processes, new by its name — their own notes; an SMB machine, a flooded port — none',
+  [note('container', 'privileged', 'plex'), note('container', 'host', 'plex'), note('container', 'new', 'plex'), note('login', 'machine', 'LAPTOP'), note('host', 'flood', '443')],
+  ['setup.add_wide.privileged', 'setup.add_wide.host', 'setup.add_wide.new', null, null]);
+// the names he knows (state.hand_names): a list as it came, a wake's cause by the kind chosen (with its containers or VMs)
+W.setState({ hand_names: { container: ['plex', 'sonarr'], vm: ['Win11'], cause: ['container:fotosync', 'program:rsync', 'vm:Lab'], share: 'not a list' } });
+same('hand names: a list, a cause of a kind (a container\'s: its causes and the containers), none, a broken list — nothing',
+  [W.handNames('container'), W.handNames('cause', 'container'), W.handNames('cause', 'program'), W.handNames('cause', 'vm'), W.handNames('cause', 'smb'), W.handNames('share'), W.handNames('tunnel')],
+  [['plex', 'sonarr'], ['fotosync', 'plex', 'sonarr'], ['rsync'], ['Lab', 'Win11'], [], [], []]);
+
 console.log(JSON.stringify(out));

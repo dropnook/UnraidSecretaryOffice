@@ -903,7 +903,8 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   &$judge)` (the six judge sites), snapshots in `watchmanSnapRuled()`, a network's new devices and the router's settings in
   watchnet.php (`watchnetSet()`/`watchnetHits()`), hold and wakes by side kinds (`WATCH_RULE_SIDE`, their lights only). Offers
   (`watchmanRuleOffers()`) are computed by the messenger and looked up anew on `rule_add` — the page never sends a net or a
-  name; the narrow ones only, broader ones by hand (`WATCH_HAND`), more clearly asked for `WATCH_RULE_ASK` and
+  name; the narrow ones only, broader ones by hand (`WATCH_HAND`; the dialog suggests the names he already has — page
+  state `hand_names`, `watchmanHandNames()`: no new read), more clearly asked for `WATCH_RULE_ASK` and
   `watchmanRuleAskThis()`. Hits in state.json `rule_hits` (the night's added at the handover). The night shift reads a copy
   (`RUN_DIR/watchman-rules.json`, the flash's after a reboot). An older office doesn't read rules.json: it tells again
   (louder, never quieter); entries noted by a rule stay noted. **His history** (agent/desks/watchman-journal.php): lines
