@@ -21603,8 +21603,8 @@ function testWatchmanVulnRouters(): void
     $ls = 'lscr.io/linuxserver/unifi-network-application:latest';
     $imgs = watchmanVulnImagesParse(['nextcloud:30' => 'sha256:bbb PHP_VERSION=8.4.14 OCI_VERSION=2.1.0', 'jacobalberty/unifi:v8' => 'sha256:ccc UNIFI_VERSION=8.6.9'],
         [$ls => 'sha256:aaa OCI_VERSION=9.0.114-ls78', 'nextcloud:30' => 'sha256:bbb OCI_VERSION=2.1.0'], [$ls, 'nextcloud:30', 'jacobalberty/unifi:v8']);
-    same('vuln routers: the OCI version label only of an image named «unifi»; UNIFI_VERSION from the environment',
-        [['OCI_VERSION' => '9.0.114-ls78'], ['PHP_VERSION' => '8.4.14'], ['UNIFI_VERSION' => '8.6.9']], array_values($imgs));
+    same('vuln routers: the OCI version label only of an image named «unifi» (kept as the product\'s, 2026-11-26); UNIFI_VERSION from the environment',
+        [['OCI:unifi' => '9.0.114-ls78'], ['PHP_VERSION' => '8.4.14'], ['UNIFI_VERSION' => '8.6.9']], array_values($imgs));
     $inv = watchmanVulnInventory(['kernel' => '6.18.64-Unraid', 'php' => '8.4.14', 'vuln_routers' => $routers,
         'vuln_images' => ['unifi' => $imgs['lscr.io/linuxserver/unifi-network-application:latest'], 'cloud' => $imgs['nextcloud:30']]]);
     same('vuln routers: in the inventory — RouterOS 7.24.5 and UniFi 10.6.106 by their logs, the container\'s UniFi 9.0.114; none without a version',
@@ -21967,7 +21967,8 @@ function testWatchmanVulnSoftware(): void
     $tmp = hardeningTmp('watch-vuln-sw');
     $fmt = watchmanVulnImagesFormat();
     check('vuln images: the format names exactly the fixed names, nothing else of the environment; never the labels (Docker 29 fails an image without)',
-        str_contains($fmt, '{{if eq $k "PHP_VERSION" "NGINX_VERSION" "MARIADB_VERSION" "PG_VERSION" "REDIS_VERSION" "NODE_VERSION" "PYTHON_VERSION" "GOLANG_VERSION" "JAVA_VERSION" "UNIFI_VERSION"}}')
+        str_contains($fmt, '{{if eq $k "PHP_VERSION" "NGINX_VERSION" "MARIADB_VERSION" "PG_VERSION" "REDIS_VERSION" "NODE_VERSION" "PYTHON_VERSION" "GOLANG_VERSION" "JAVA_VERSION" "UNIFI_VERSION"'
+            . ' "NEXTCLOUD_VERSION" "MONGO_VERSION" "HTTPD_VERSION" "TOMCAT_VERSION" "JENKINS_VERSION" "ZBX_VERSION" "ROUNDCUBEMAIL_VERSION" "VALKEY_VERSION" "N8N_VERSION"}}')
         && str_starts_with($fmt, '{{.Id}}') && !str_contains($fmt, 'Labels'));
     same('vuln images: of the labels only the OCI version, in a query of its own', '{{.Id}}{{with .Config.Labels}}{{with index . "org.opencontainers.image.version"}} OCI_VERSION={{.}}{{end}}{{end}}',
         watchmanVulnImagesLabelFormat());
@@ -21978,7 +21979,7 @@ function testWatchmanVulnSoftware(): void
          'redis:8' => []],
         watchmanVulnImagesParse($env, [], ['php:8.1', 'linuxserver/plex', 'postgres:17', 'redis:8']));
     same('vuln images: the label line gives only OCI_VERSION, only to an image named «unifi» with the same id',
-        [['UNIFI_VERSION' => '8.6.9', 'OCI_VERSION' => '9.0.1'], [], []],
+        [['UNIFI_VERSION' => '8.6.9', 'OCI:unifi' => '9.0.1'], [], []],
         array_values(watchmanVulnImagesParse(['jacobalberty/unifi:v8' => 'sha256:u1 UNIFI_VERSION=8.6.9', 'my/unifi:2' => 'sha256:u2'],
             ['jacobalberty/unifi:v8' => 'sha256:u1 OCI_VERSION=9.0.1 PHP_VERSION=8.1.1 PASSWORD=x', 'my/unifi:2' => 'sha256:other OCI_VERSION=1.0', 'php:8.1' => 'sha256:aaa OCI_VERSION=8'],
             ['jacobalberty/unifi:v8', 'my/unifi:2', 'php:8.1'])));
@@ -22001,8 +22002,9 @@ function testWatchmanVulnSoftware(): void
     [, $cache3] = watchmanVulnImages($cts + ['new' => ['image' => 'php:8.1']], $cache2, $t0 + 900, $inspect);
     [, $cache4] = watchmanVulnImages($cts + ['other' => ['image' => 'redis:8']], $cache3, $t0 + 1000, $inspect);
     [, $cache5] = watchmanVulnImages($cts + ['other' => ['image' => 'redis:8']], $cache4, $t0 + 1000 + 3600, $inspect);
+    // (2026-11-26: each ask is two calls — the environment, and the label of linuxserver/plex, Plex's own place for its version)
     same('vuln images: per container; asked once, again only for other images or after an hour; Docker silent — nothing',
-        [['nextcloud' => ['PHP_VERSION' => '8.1.31'], 'web' => ['PHP_VERSION' => '8.3.4'], 'plex' => [], 'db' => ['PG_VERSION' => '17.12-1.pgdg12+1']], 3, [[], null]],
+        [['nextcloud' => ['PHP_VERSION' => '8.1.31'], 'web' => ['PHP_VERSION' => '8.3.4'], 'plex' => [], 'db' => ['PG_VERSION' => '17.12-1.pgdg12+1']], 6, [[], null]],
         [$by, $calls, watchmanVulnImages(null, null, $t0, $inspect)]);
     check('vuln images: no other value of an environment kept', !str_contains(json_encode([$cache, $cache5]), 'hunter2') && !str_contains(json_encode($by), 'PASSWORD'));
 
@@ -22042,7 +22044,7 @@ function testWatchmanVulnSoftware(): void
               'db' => ['image' => 'postgres:17']];
     [$by29, $cache29] = watchmanVulnImages($cts29, null, $t0, $docker29);
     same('vuln images, Docker 29: images without labels among others — every environment read, the unifi label still read, one call each',
-        [['php' => ['PHP_VERSION' => '7.2.20'], 'cache' => [], 'unifi' => ['OCI_VERSION' => '9.0.114-ls78'], 'unifi2' => ['UNIFI_VERSION' => '8.6.9'],
+        [['php' => ['PHP_VERSION' => '7.2.20'], 'cache' => ['VALKEY_VERSION' => '8.1.4'], 'unifi' => ['OCI:unifi' => '9.0.114-ls78'], 'unifi2' => ['UNIFI_VERSION' => '8.6.9'],
           'db' => ['PG_VERSION' => '17.12-1.pgdg12+1']], [[5, false], [2, true], [1, true], [1, true]]],
         [$by29, $asked]);
     check('vuln images, Docker 29: nothing but the allowed names kept (no password, no other label)',
@@ -22050,7 +22052,7 @@ function testWatchmanVulnSoftware(): void
     $asked = [];
     [$byGone] = watchmanVulnImages($cts29 + ['old' => ['image' => 'gone/meanwhile:1']], null, $t0, $docker29);
     same('vuln images: one image gone meanwhile (an error line, exit ≠ 0) — the others asked one by one, each its own version; the gone one unknown',
-        [['php' => ['PHP_VERSION' => '7.2.20'], 'cache' => [], 'unifi' => ['OCI_VERSION' => '9.0.114-ls78'], 'unifi2' => ['UNIFI_VERSION' => '8.6.9'],
+        [['php' => ['PHP_VERSION' => '7.2.20'], 'cache' => ['VALKEY_VERSION' => '8.1.4'], 'unifi' => ['OCI:unifi' => '9.0.114-ls78'], 'unifi2' => ['UNIFI_VERSION' => '8.6.9'],
           'db' => ['PG_VERSION' => '17.12-1.pgdg12+1'], 'old' => []], [[6, false]]],
         [$byGone, array_slice($asked, 0, 1)]);
     // a line missing though docker said 0: never paired by position (the versions would slide to the next image)
@@ -22095,9 +22097,10 @@ function testWatchmanVulnSoftware(): void
     watchmanVulnFetch($dir, ['get' => $get, 'now' => $t0]);
     $slugs = array_values(array_map(fn ($u) => substr($u, strlen(WATCH_VULN_URLS['eol'])), array_filter($asked, fn ($u) => str_starts_with($u, WATCH_VULN_URLS['eol']))));
     sort($slugs);
-    same('vuln fetch: endoflife.date — the fixed slugs, whether here or not; one missing noted', [['go', 'mariadb', 'nginx', 'nodejs', 'php', 'postgresql', 'python', 'redis'],
+    same('vuln fetch: endoflife.date — the fixed slugs, whether here or not; one missing noted', [['apache-http-server', 'elasticsearch', 'go', 'kibana', 'mariadb',
+        'mongodb', 'nextcloud', 'nginx', 'nodejs', 'php', 'phpmyadmin', 'postgresql', 'python', 'redis', 'roundcube', 'tomcat', 'valkey', 'zabbix'],
         [['name' => '8.4', 'eol' => false, 'eol_from' => '2028-12-31', 'latest' => '8.4.28'], ['name' => '8.3', 'eol' => false, 'eol_from' => '2028-12-31', 'latest' => '8.3.30'],
-         ['name' => '8.1', 'eol' => true, 'eol_from' => '2025-12-31', 'latest' => '8.1.34']], '6 failed'],
+         ['name' => '8.1', 'eol' => true, 'eol_from' => '2025-12-31', 'latest' => '8.1.34']], '16 failed'],
         [$slugs, readJson(watchmanVulnDir($dir) . '/eol/php.json')['cycles'] ?? null, readJson(watchmanVulnDir($dir) . '/status.json')['eol']['err'] ?? null]);
 
     $inv = watchmanVulnInventory(['kernel' => '6.12.54-Unraid', 'php' => '8.4.28', 'vuln_images' => $by]);
@@ -22436,6 +22439,201 @@ function testWatchmanVulnLook(): void
          $page['unknown']]);
     same('vuln look: an older state — no block (host null), nothing else', [null, [], null, 0, [], null],
         array_values(array_intersect_key(watchmanVulnPage(['vuln_on' => true], ['kev' => 1, 'cts' => ['junk', ['where' => 1]]]), array_flip(['host', 'cts', 'ct_total', 'ct_read', 'unread', 'vms']))));
+    hardeningRm($tmp);
+}
+
+/**
+ * The home server's software (2026-11-26): a product's version from its own ENV, or from the OCI version label of the
+ * images its pattern names (per product, each label in its product's shape — linuxserver's «-ls61», Jellyfin's «ubu2604»,
+ * Plex's build hash; a channel or a commit not read at all); one row a product and container, the ENV first; an older
+ * office's cache asked anew once. Synology DSM in virtual-dsm by the build its storage's dsm.ver names — read only when
+ * every disk behind the folder is awake, never through a link, last value kept while it sleeps; judged by build numbers
+ * (CVE-2024-10441), a lower bound: never «affected» by it, below a fix «can't be checked for sure» (reason «lower»).
+ */
+function testWatchmanVulnHome(): void
+{
+    same('vuln home: the labels in their product\'s shape — linuxserver, Jellyfin\'s distribution mark, Plex\'s hash, a «v»; a channel, a commit, nightly: not read',
+        ['12.4', '12.4', '1.43.5.11079', '1.43.5.11079', '3.4.2', '10.6.109', '35.0.3', null, null, null, null, null],
+        [watchmanVulnLabelClean('jellyfin', '12.4'), watchmanVulnLabelClean('jellyfin', '12.4ubu2604-ls61'), watchmanVulnLabelClean('plex', '1.43.5.11079-b3b13e506'),
+         watchmanVulnLabelClean('plex', '1.43.5.11079-b3b13e506-ls334'), watchmanVulnLabelClean('immich', 'v3.4.2'), watchmanVulnLabelClean('unifi', '10.6.109-ls153'),
+         watchmanVulnLabelClean('nextcloud', '35.0.3-ls4'), watchmanVulnLabelClean('vaultwarden', '1.37.5-dbd7829e'), watchmanVulnLabelClean('plex', 'beta'),
+         watchmanVulnLabelClean('n8n', 'nightly'), watchmanVulnLabelClean('mongodb', '22.04'), watchmanVulnLabelClean('jellyfin', '12.4ubu2604-ls61;rm')]);
+    same('vuln home: whose label an image carries — by its name, with or without a registry, a tag or a digest; never a lookalike',
+        [['jellyfin'], ['jellyfin'], ['immich'], ['plex'], ['plex'], ['phpmyadmin'], ['phpmyadmin'], [], ['elasticsearch'], ['elasticsearch'], [], [], [], ['unifi'], ['homeassistant']],
+        array_map('watchmanVulnOciProducts', ['lscr.io/linuxserver/jellyfin', 'jellyfin/jellyfin:latest', 'ghcr.io/immich-app/immich-server:v3', 'plexinc/pms-docker',
+            'lscr.io/linuxserver/plex@sha256:0123', 'phpmyadmin:5.2', 'lscr.io/linuxserver/phpmyadmin:latest', 'bitnami/phpmyadmin:5', 'elasticsearch:8.19.7',
+            'docker.elastic.co/elasticsearch/elasticsearch:8.19.7', 'mongo:7', 'ghcr.io/vdsm/virtual-dsm:latest', 'grafana/grafana', 'lscr.io/linuxserver/unifi-network-application:10.6.109-ls153',
+            'ghcr.io/home-assistant/home-assistant:stable']));
+
+    // what real containers show (a server's docker inspect, 2026-11-26)
+    $imgs = ['php:8.5.12-apache', 'grafana/grafana', 'jc21/nginx-proxy-manager', 'lscr.io/linuxserver/jellyfin', 'ghcr.io/immich-app/immich-server:v3', 'nextcloud-ocr:34',
+             'mongo:7', 'zabbix/zabbix-server-mysql:7.0', 'zabbix/zabbix-web-nginx-mysql:7.0', 'vaultwarden/server:testing', 'roundcube/roundcubemail:1.7', 'emby/embyserver:latest'];
+    $env = ['php:8.5.12-apache' => 'sha256:a1 PHP_VERSION=8.5.12', 'grafana/grafana' => 'sha256:a2', 'jc21/nginx-proxy-manager' => 'sha256:a3',
+            'lscr.io/linuxserver/jellyfin' => 'sha256:a4', 'ghcr.io/immich-app/immich-server:v3' => 'sha256:a5 NODE_VERSION=24.11.1',
+            'nextcloud-ocr:34' => 'sha256:a6 PHP_VERSION=8.4.15 NEXTCLOUD_VERSION=34.0.6', 'mongo:7' => 'sha256:a7 MONGO_VERSION=7.0.45',
+            'zabbix/zabbix-server-mysql:7.0' => 'sha256:a8 ZBX_VERSION=7.0.32', 'zabbix/zabbix-web-nginx-mysql:7.0' => 'sha256:a9 ZBX_VERSION=7.0.32',
+            'vaultwarden/server:testing' => 'sha256:b1', 'roundcube/roundcubemail:1.7' => 'sha256:b2 PHP_VERSION=8.4.15 ROUNDCUBEMAIL_VERSION=1.7.7', 'emby/embyserver:latest' => 'sha256:b3'];
+    $labels = ['lscr.io/linuxserver/jellyfin' => 'sha256:a4 OCI_VERSION=12.4ubu2604-ls61', 'ghcr.io/immich-app/immich-server:v3' => 'sha256:a5 OCI_VERSION=v3.4.2',
+               'mongo:7' => 'sha256:a7 OCI_VERSION=22.04', 'vaultwarden/server:testing' => 'sha256:b1 OCI_VERSION=1.37.5-dbd7829e',
+               'roundcube/roundcubemail:1.7' => 'sha256:b2 OCI_VERSION=1.7.7'];
+    $by = watchmanVulnImagesParse($env, $labels, $imgs);
+    same('vuln home: by image — Jellyfin and Immich by their label, Nextcloud and MongoDB by their ENV (mongo\'s label is Ubuntu\'s: never), ZBX_VERSION only of the web image, Vaultwarden\'s commit label not read',
+        [['PHP_VERSION' => '8.5.12'], [], [], ['OCI:jellyfin' => '12.4ubu2604-ls61'], ['NODE_VERSION' => '24.11.1', 'OCI:immich' => 'v3.4.2'],
+         ['PHP_VERSION' => '8.4.15', 'NEXTCLOUD_VERSION' => '34.0.6'], ['MONGO_VERSION' => '7.0.45'], [], ['ZBX_VERSION' => '7.0.32'], [],
+         ['PHP_VERSION' => '8.4.15', 'ROUNDCUBEMAIL_VERSION' => '1.7.7', 'OCI:roundcube' => '1.7.7'], []],
+        array_values($by));
+    $cts = ['web' => 'php:8.5.12-apache', 'grafana' => 'grafana/grafana', 'npm' => 'jc21/nginx-proxy-manager', 'jellyfin' => 'lscr.io/linuxserver/jellyfin',
+            'immich' => 'ghcr.io/immich-app/immich-server:v3', 'nextcloud' => 'nextcloud-ocr:34', 'mongo' => 'mongo:7', 'zbx' => 'zabbix/zabbix-server-mysql:7.0',
+            'zbxweb' => 'zabbix/zabbix-web-nginx-mysql:7.0', 'vw' => 'vaultwarden/server:testing', 'mail' => 'roundcube/roundcubemail:1.7', 'emby' => 'emby/embyserver:latest'];
+    $inv = watchmanVulnInventory(['php' => '8.4.28', 'kernel' => '6.12.54-Unraid', 'vuln_images' => array_map(fn ($i) => $by[$i], $cts)
+        + ['old' => ['OCI_VERSION' => '9.0.114-ls78']]]);
+    $rows = array_values(array_map(fn ($x) => [$x['where'], $x['product'], $x['version'], $x['clean']], array_filter($inv, fn ($x) => $x['where'] !== 'host')));
+    same('vuln home: the inventory — one row a product and container (Roundcube by its ENV, not twice), an older office\'s «OCI_VERSION» still UniFi',
+        [['web', 'php', '8.5.12', '8.5.12'], ['jellyfin', 'jellyfin', '12.4ubu2604-ls61', '12.4'], ['immich', 'nodejs', '24.11.1', '24.11.1'], ['immich', 'immich', 'v3.4.2', '3.4.2'],
+         ['nextcloud', 'php', '8.4.15', '8.4.15'], ['nextcloud', 'nextcloud', '34.0.6', '34.0.6'], ['mongo', 'mongodb', '7.0.45', '7.0.45'], ['zbxweb', 'zabbix', '7.0.32', '7.0.32'],
+         ['mail', 'php', '8.4.15', '8.4.15'], ['mail', 'roundcube', '1.7.7', '1.7.7'], ['old', 'unifi', '9.0.114-ls78', '9.0.114']], $rows);
+    $look = watchmanVulnLook($inv, array_keys($cts));
+    same('vuln home: of the 12 containers 8 read; Grafana, the proxy manager, Zabbix\'s server, Vaultwarden\'s testing tag and Emby stay honestly unread',
+        [12, 7, ['emby', 'grafana', 'npm', 'vw', 'zbx']], [$look['ct_total'], $look['ct_read'], $look['unread']]);
+
+    // the labels asked only of the images a product names; an older office's cache (no `v`) asked anew once
+    $asked = [];
+    $docker = function (array $refs, string $format) use ($env, $labels, &$asked): array {
+        $isLabel = str_contains($format, 'Labels');
+        $asked[] = [$isLabel, $refs];
+        return [0, implode("\n", array_map(fn ($r) => $isLabel ? ($labels[$r] ?? explode(' ', $env[$r])[0]) : $env[$r], $refs)) . "\n"];
+    };
+    $t0 = strtotime('2026-11-26 12:00:00');
+    $ctsImg = array_map(fn ($i) => ['image' => $i], $cts);
+    $oldCache = ['time' => $t0 - 60, 'images' => array_fill_keys((function () use ($cts) { $r = array_values(array_unique($cts)); sort($r); return $r; })(), [])];
+    [$byCt, $cache] = watchmanVulnImages($ctsImg, $oldCache, $t0, $docker);
+    same('vuln home: an older office\'s cache asked anew; the label asked only of Immich, Jellyfin, Roundcube, Vaultwarden; kept with `v` 2',
+        [[false, true], [['ghcr.io/immich-app/immich-server:v3', 'lscr.io/linuxserver/jellyfin', 'roundcube/roundcubemail:1.7', 'vaultwarden/server:testing']], 2, ['OCI:jellyfin' => '12.4ubu2604-ls61']],
+        [array_column($asked, 0), array_slice(array_column($asked, 1), 1), $cache['v'] ?? null, $byCt['jellyfin']]);
+    $asked = [];
+    watchmanVulnImages($ctsImg, $cache, $t0 + 600, $docker);
+    same('vuln home: within the hour not asked again', [], $asked);
+
+    // Synology DSM: CVE-2024-10441 as its record writes it
+    $dsm = watchmanVulnReduce(['cveMetadata' => ['cveId' => 'CVE-2024-10441', 'datePublished' => '2025-03-19T03:13:07.000Z'], 'containers' => ['cna' => ['affected' => [
+        ['vendor' => 'Synology', 'product' => 'DiskStation Manager (DSM)', 'defaultStatus' => 'affected', 'versions' => [
+            ['version' => '7.2.2', 'lessThan' => '7.2.2-72806-1', 'status' => 'affected', 'versionType' => 'semver'],
+            ['version' => '7.2.1', 'lessThan' => '7.2.1-69057-6', 'status' => 'affected', 'versionType' => 'semver'],
+            ['version' => '7.2', 'lessThan' => '7.2-64570-4', 'status' => 'affected', 'versionType' => 'semver'],
+            ['version' => '7.1', 'lessThan' => '7.1.1-42962-7', 'status' => 'affected', 'versionType' => 'semver'],
+            ['version' => '0', 'lessThan' => '7.0', 'status' => 'unknown', 'versionType' => 'semver']]],
+        ['vendor' => 'Synology', 'product' => 'BeeStation OS (BSM)', 'defaultStatus' => 'affected', 'versions' => [
+            ['version' => '1.1', 'lessThan' => '1.1-65374', 'status' => 'affected', 'versionType' => 'semver']]]]]]]);
+    $sc = WATCH_VULN_PRODUCTS['synology']['cna'];
+    same('vuln home, DSM: by build — 7.4.1 (90080) past every fix: not affected, fixed from 7.2.2-72806-1; 72806 and 42218 below a fix: can\'t be said (it may have updated itself); a build not readable: maybe',
+        [['no', '7.2.2-72806-1'], ['maybe', null, 'lower', '72806'], ['maybe', null, 'lower', '42218'], ['maybe', null], ['maybe', null], ['no', '7.2.2-72806-1']],
+        [watchmanVulnBuildVerdict($dsm, $sc, '90080'), watchmanVulnBuildVerdict($dsm, $sc, '72806'), watchmanVulnBuildVerdict($dsm, $sc, '42218'),
+         watchmanVulnBuildVerdict($dsm, $sc, '7.4.1'), watchmanVulnBuildVerdict(null, $sc, '90080'), watchmanVulnBuildVerdict($dsm, $sc, '72807')]);
+    $open = $dsm;
+    $open['affected'][0]['versions'][] = ['version' => '7.3', 'status' => 'affected'];
+    $later = $dsm;
+    $later['affected'][0]['versions'][] = ['version' => '0', 'lessThan' => '8.0', 'status' => 'unknown'];
+    same('vuln home, DSM: an affected range without an end, an end past the builds\' lines that names no build — can\'t be said',
+        [['maybe', null], ['maybe', null]], [watchmanVulnBuildVerdict($open, $sc, '90080'), watchmanVulnBuildVerdict($later, $sc, '90080')]);
+    $nvd = watchmanVulnNvdReduce(['vulnerabilities' => [['cve' => ['id' => 'CVE-2024-10441', 'configurations' => [['nodes' => [['operator' => 'OR', 'negate' => false, 'cpeMatch' => [
+        ['vulnerable' => true, 'criteria' => 'cpe:2.3:o:synology:diskstation_manager:*:*:*:*:*:*:*:*', 'versionStartIncluding' => '7.2', 'versionEndExcluding' => '7.2-64570-4'],
+        ['vulnerable' => true, 'criteria' => 'cpe:2.3:o:synology:diskstation_manager:*:*:*:*:*:*:*:*', 'versionStartIncluding' => '7.2.1-69057', 'versionEndExcluding' => '7.2.1-69057-6'],
+        ['vulnerable' => true, 'criteria' => 'cpe:2.3:o:synology:diskstation_manager:*:*:*:*:*:*:*:*', 'versionStartIncluding' => '7.2.2', 'versionEndExcluding' => '7.2.2-72806-1']]]]]]]]]], 'CVE-2024-10441');
+    same('vuln home, DSM: NVD\'s CPE ranges judged the same way', [['no', '7.2.2-72806-1'], ['maybe', null, 'lower', '69057']],
+        [watchmanVulnBuildVerdict($nvd, $sc, '90080'), watchmanVulnBuildVerdict($nvd, $sc, '69057')]);
+    same('vuln home: KEV\'s names', ['synology', 'plex', 'mongodb', 'n8n', 'roundcube', 'roundcube', 'zabbix', 'jenkins', 'httpd', 'tomcat'],
+        array_map(fn ($x) => watchmanVulnKevProduct(...$x), [['Synology', 'DiskStation Manager (DSM)'], ['Plex', 'Media Server'], ['MongoDB', 'MongoDB and MongoDB Server'],
+            ['n8n', 'n8n'], ['Roundcube', 'Roundcube Webmail'], ['Roundcube', 'Webmail'], ['Zabbix', 'Frontend'], ['Jenkins', 'Jenkins'], ['Apache', 'HTTP Server'], ['Apache', 'Tomcat']]));
+    check('vuln home: every product\'s ENV is one docker is asked for; every slug, pattern and form a real one', !array_filter(WATCH_VULN_PRODUCTS,
+        fn ($p) => (isset($p['env']) && !in_array($p['env'], WATCH_VULN_ENV, true)) || (isset($p['eol']) && !preg_match('/^[a-z0-9-]{1,40}$/D', $p['eol']))
+            || (isset($p['oci']) && @preg_match($p['oci'], '') === false) || (isset($p['oci_form']) && @preg_match($p['oci_form'], '') === false)
+            || (isset($p['image']) && @preg_match($p['image'], '') === false)));
+
+    // judged: DSM 90080 not affected, 72806 calm; Plex's «yes» calm too (it may install another at its start); never an entry
+    $tmp = hardeningTmp('vuln-home');
+    $dir = "$tmp/data";
+    @mkdir(watchmanVulnDir($dir) . '/cve', 0700, true);
+    $plexRec = watchmanVulnReduce(['cveMetadata' => ['cveId' => 'CVE-2026-96652'], 'containers' => ['cna' => ['affected' => [['vendor' => 'Plex', 'product' => 'Media Server',
+        'defaultStatus' => 'unknown', 'versions' => [['version' => '0', 'lessThan' => '1.43.3.10861', 'status' => 'affected', 'versionType' => 'custom'],
+            ['version' => '1.43.3.10861', 'status' => 'unaffected', 'versionType' => 'custom']]]]]]]);
+    writeAtomic(watchmanVulnDir($dir) . '/kev.json', jsonEncode(['v' => 1, 'fetched' => $t0, 'count' => 1500, 'entries' => [
+        ['cve' => 'CVE-2024-10441', 'product' => 'synology', 'name' => 'Synology DiskStation Manager (DSM) Code Injection Vulnerability', 'added' => '2026-11-18'],
+        ['cve' => 'CVE-2026-96652', 'product' => 'plex', 'name' => 'Plex Media Server Vulnerability', 'added' => '2026-11-01']]]), 0600, 0, 0);
+    writeAtomic(watchmanVulnDir($dir) . '/status.json', jsonEncode(['kev' => ['try' => $t0, 'ok' => $t0]]), 0600, 0, 0);
+    writeAtomic(watchmanVulnDir($dir) . '/cve/CVE-2024-10441.json', jsonEncode(['v' => 1, 'fetched' => $t0] + $dsm), 0600, 0, 0);
+    writeAtomic(watchmanVulnDir($dir) . '/cve/CVE-2026-96652.json', jsonEncode(['v' => 1, 'fetched' => $t0] + $plexRec), 0600, 0, 0);
+    $images = ['dsm' => ['FILE:synology' => '90080'], 'dsm-old' => ['FILE:synology' => '72806'], 'plex' => ['OCI:plex' => '1.42.2.10156-f737b826c-ls280'],
+               'plex-new' => ['OCI:plex' => '1.43.5.11079-b3b13e506']];
+    $j = watchmanVulnJudge($dir, watchmanVulnInventory(['php' => '8.4.28', 'kernel' => '6.12.54-Unraid', 'vuln_images' => $images]), $t0 + 60, $images);
+    same('vuln home: judged — DSM 90080 and the new Plex not affected; DSM 72806 and the older Plex calm, reason «lower», never found',
+        [[['CVE-2024-10441', 'dsm', '7.2.2-72806-1'], ['CVE-2026-96652', 'plex-new', null]], [['CVE-2024-10441', 'dsm-old', 'lower', '72806'],
+         ['CVE-2026-96652', 'plex', 'lower', '1.42.2.10156-f737b826c-ls280']], []],
+        [array_map(fn ($x) => [$x['cve'], $x['where'], $x['fixed']], $j['not']), array_map(fn ($x) => [$x['cve'], $x['where'], $x['why'] ?? null, $x['bound'] ?? null], $j['unsure']), $j['found']]);
+    // NVD is not asked for a row unsure only by its lower bound
+    writeAtomic("$dir/state.json", jsonEncode(['vuln_look' => ['unsure' => $j['unsure'] + [9 => ['cve' => 'CVE-2024-10441', 'why' => 'rough']]]]), 0600, 0, 0);
+    $nvdAsked = [];
+    $kevBig = ['vulnerabilities' => array_merge([['cveID' => 'CVE-2024-10441', 'vendorProject' => 'Synology', 'product' => 'DiskStation Manager (DSM)'],
+        ['cveID' => 'CVE-2026-96652', 'vendorProject' => 'Plex', 'product' => 'Media Server']],
+        array_map(fn ($i) => ['cveID' => sprintf('CVE-2023-%05d', 50000 + $i), 'vendorProject' => 'Example', 'product' => "X$i"], range(1, 120)))];
+    watchmanVulnFetch($dir, ['now' => $t0 + 86400, 'sleep' => fn () => null, 'get' => function (string $url) use (&$nvdAsked, $kevBig): array {
+        if (str_contains($url, 'nvd.nist.gov')) {
+            $nvdAsked[] = substr($url, strrpos($url, '=') + 1);
+        }
+        return $url === WATCH_VULN_URLS['kev'] ? ['code' => 200, 'body' => json_encode($kevBig), 'lm' => null, 'err' => null] : ['code' => 404, 'body' => '', 'lm' => null, 'err' => 'HTTP 404'];
+    }]);
+    same('vuln home: NVD asked only for the unsure row that isn\'t a lower bound', ['CVE-2024-10441'], $nvdAsked);
+
+    // reading dsm.ver: only with every disk behind the folder awake, never through a link, at most 64 bytes, exactly its shape
+    $mnt = "$tmp/mnt";
+    foreach (['user/vdsm', 'user/excl', 'cache/excl', 'cache/vdsm', 'disk1/vdsm', 'user/linked', 'elsewhere', 'remotes/nas'] as $d2) {
+        @mkdir("$mnt/$d2", 0700, true);
+    }
+    file_put_contents("$mnt/user/vdsm/dsm.ver", "DSM_VirtualDSM_90080\n");
+    file_put_contents("$mnt/cache/excl/dsm.ver", "DSM_VirtualDSM_72806\n");
+    @rmdir("$mnt/user/excl");
+    symlink('../cache/excl', "$mnt/user/excl");
+    symlink("$mnt/elsewhere", "$mnt/user/linked/sub");
+    file_put_contents("$mnt/elsewhere/dsm.ver", "DSM_VirtualDSM_90080\n");
+    @mkdir("$mnt/user/odd", 0700, true);
+    file_put_contents("$mnt/user/odd/dsm.ver", "DSM_VirtualDSM\n");
+    @mkdir("$mnt/user/big", 0700, true);
+    file_put_contents("$mnt/user/big/dsm.ver", str_repeat('x', 100));
+    @mkdir("$mnt/user/lnk", 0700, true);
+    symlink("$mnt/elsewhere/dsm.ver", "$mnt/user/lnk/dsm.ver");
+    $shares = ['vdsm' => ['name' => 'vdsm', 'useCache' => 'yes', 'cachePool' => 'cache'], 'excl' => ['name' => 'excl', 'useCache' => 'only', 'cachePool' => 'cache', 'exclusive' => 'yes'],
+               'linked' => ['name' => 'linked', 'useCache' => 'only', 'cachePool' => 'cache'], 'odd' => ['name' => 'odd', 'useCache' => 'only', 'cachePool' => 'cache'],
+               'big' => ['name' => 'big', 'useCache' => 'only', 'cachePool' => 'cache'], 'lnk' => ['name' => 'lnk', 'useCache' => 'only', 'cachePool' => 'cache']];
+    $awake = ['cache' => ['name' => 'cache', 'type' => 'Cache', 'fsType' => 'btrfs', 'spundown' => '0', 'rotational' => '0'],
+              'disk1' => ['name' => 'disk1', 'type' => 'Data', 'fsType' => 'xfs', 'spundown' => '0', 'rotational' => '1']];
+    $asleep = $awake;
+    $asleep['disk1']['spundown'] = '1';
+    $read = fn (string $src, array $disks = []) => watchmanVulnFileRead($src, 'dsm.ver', $shares, $disks ?: $awake, $mnt);
+    same('vuln home, dsm.ver: a share on the pool and the array awake — read; its array disk asleep — not now; an exclusive share on its pool; a pool path itself',
+        ['90080', false, '72806', null],
+        [$read('/mnt/user/vdsm'), $read('/mnt/user/vdsm', $asleep), $read('/mnt/user/excl'), $read('/mnt/cache/vdsm')]);
+    same('vuln home, dsm.ver: a share emhttp doesn\'t list, a place without disks, a disk he doesn\'t know, «..» — not read; a link below /mnt, a linked file, too big, another shape — nothing',
+        [false, false, false, false, null, null, null, null, false],
+        [$read('/mnt/user/unknown'), $read('/mnt/remotes/nas'), $read('/mnt/disk9/vdsm'), $read('/mnt/user/vdsm/../excl'), $read('/mnt/user/linked/sub'), $read('/mnt/user/lnk'),
+         $read('/mnt/user/big'), $read('/mnt/user/odd'), watchmanVulnFileRead('/mnt/user/vdsm', '../x', $shares, $awake, $mnt)]);
+    same('vuln home: the mount only of virtual-dsm\'s image, only at /storage', [['synology' => '/mnt/user/vdsm'], [], []],
+        [watchmanVulnMounts('vdsm/virtual-dsm:latest', [['Type' => 'bind', 'Source' => '/mnt/user/vdsm/', 'Destination' => '/storage'], ['Type' => 'bind', 'Source' => '/mnt/user/x', 'Destination' => '/other']]),
+         watchmanVulnMounts('ghcr.io/vdsm/virtual-dsm', [['Type' => 'volume', 'Source' => '/var/lib/docker/volumes/x/_data', 'Destination' => '/storage']]),
+         watchmanVulnMounts('lscr.io/linuxserver/plex', [['Type' => 'bind', 'Source' => '/mnt/user/vdsm', 'Destination' => '/storage']])]);
+    // once an hour; asleep: the last value stays; never read and asleep: «couldn't read this time»
+    $paths = ['mnt' => $mnt, 'shares_ini' => "$tmp/shares.ini", 'disks_ini' => "$tmp/disks.ini"];
+    $ini = fn (array $a) => implode('', array_map(fn ($k, $v) => "[$k]\n" . implode('', array_map(fn ($kk, $vv) => "$kk=\"$vv\"\n", array_keys($v), $v)), array_keys($a), $a));
+    file_put_contents($paths['shares_ini'], $ini($shares));
+    file_put_contents($paths['disks_ini'], $ini($awake));
+    $c = ['dsm' => ['image' => 'ghcr.io/vdsm/virtual-dsm', 'vuln_mounts' => ['synology' => '/mnt/user/vdsm']], 'web' => ['image' => 'php:8.4']];
+    [$f1, $l1, $fc1] = watchmanVulnFiles($c, $paths, null, $t0);
+    file_put_contents("$mnt/user/vdsm/dsm.ver", "DSM_VirtualDSM_90081\n");
+    [$f2] = watchmanVulnFiles($c, $paths, $fc1, $t0 + 600);
+    file_put_contents($paths['disks_ini'], $ini($asleep));
+    [$f3, $l3] = watchmanVulnFiles($c, $paths, $fc1, $t0 + 7200);
+    [$f4, $l4, $fc4] = watchmanVulnFiles($c, $paths, null, $t0 + 7200);
+    same('vuln home: dsm.ver read, not again within the hour; asleep later — the last value kept; never read and asleep — «couldn\'t read this time»; Docker silent: nothing',
+        [['dsm' => ['FILE:synology' => '90080']], [], ['dsm' => ['FILE:synology' => '90080']], ['dsm' => ['FILE:synology' => '90080']], [], [], ['dsm'], ['files' => []], [[], [], null]],
+        [$f1, $l1, $f2, $f3, $l3, $f4, $l4, $fc4, watchmanVulnFiles(null, $paths, null, $t0)]);
     hardeningRm($tmp);
 }
 
@@ -25025,7 +25223,8 @@ function testWatchmanPageBars(): void
     $en = langFile(OFFICE_WEB . '/desks/watchman/lang/en.json');
     $hosts = array_map(fn ($u) => preg_replace('/^www\./', '', (string) parse_url($u, PHP_URL_HOST)), WATCH_VULN_URLS);
     same('vuln off: its words name every list he fetches', [], array_values(array_filter($hosts, fn ($h) => !str_contains($en['vuln.explain_lists'] ?? '', $h))));
-    $labels = array_column(array_filter(WATCH_VULN_PRODUCTS, fn ($p) => isset($p['env'])), 'label');
+    // (2026-11-26: by its environment, its label or a file it names)
+    $labels = array_column(array_filter(WATCH_VULN_PRODUCTS, fn ($p) => isset($p['env']) || isset($p['oci']) || isset($p['file'])), 'label');
     same('vuln off: … every software an image may declare', [], array_values(array_filter($labels, fn ($l) => !str_contains($en['vuln.explain_here'] ?? '', $l))));
 }
 
@@ -28792,8 +28991,8 @@ function testWatchmanFlowGuess(): void
     check('flow guess: the entry\'s line carries it (the notification\'s too)', str_ends_with(officeNotifyText('watchman', 'entry.flow_written', watchmanText($e, 'fr'), 'fr'),
         "Aucune source distincte visible. Probablement : EmbyServer, Win11 (une supposition)."),
         officeNotifyText('watchman', 'entry.flow_written', watchmanText($e, 'fr'), 'fr'));
-    same('flow guess: the round\'s look keeps the containers\' binds (and ports) out of seen.json, like their pids', true,
-        str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/watchman.php'), "'compose' => true, 'binds' => true, 'ports' => true]"));
+    same('flow guess: the round\'s look keeps the containers\' binds (and ports, and the known vulnerabilities\' mounts) out of seen.json, like their pids', true,
+        str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/watchman.php'), "'compose' => true, 'binds' => true, 'ports' => true, 'vuln_mounts' => true]"));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -72441,7 +72640,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testLogsFlood',
                       'testWatchmanHandMore',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testWatchWakesPage', 'testWatchmanWakes', 'testWatchmanWakeTrail', 'testMetrics', 'testWatchmanCats', 'testWatchmanTiles', 'testWatchmanScope', 'testWatchmanGreet', 'testWatchmanRules', 'testWatchmanKnown', 'testWatchmanSettings', 'testWatchmanRules6a', 'testWatchmanRules6b', 'testWatchmanRules6c', 'testWatchmanRules6d', 'testWatchmanRules6e', 'testWatchmanRules6f', 'testWatchmanRules6g', 'testWatchmanFrom195', 'testWatchmanRelearn', 'testWatchmanStandRender', 'testWatchmanPageBars', 'testWatchmanRulesNew', 'testWatchmanJournal', 'testWatchmanBookMore', 'testWatchmanVuln', 'testWatchmanVulnRanges', 'testWatchmanVulnPhp', 'testWatchmanVulnNvd', 'testWatchmanVulnBackoff', 'testWatchmanVulnRouters', 'testWatchmanVulnSoftware', 'testWatchmanVulnHonest', 'testWatchmanVulnLetters', 'testWatchmanVulnLook', 'testWatchmanHot', 'testLogsigns', 'testWatchmanSigns', 'testWatchmanHw', 'testWatchmanCpuFaults', 'testWatchmanWear', 'testWatchmanHwBookMore', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanStartFiles', 'testWatchmanGateway', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testWatchWakesPage', 'testWatchmanWakes', 'testWatchmanWakeTrail', 'testMetrics', 'testWatchmanCats', 'testWatchmanTiles', 'testWatchmanScope', 'testWatchmanGreet', 'testWatchmanRules', 'testWatchmanKnown', 'testWatchmanSettings', 'testWatchmanRules6a', 'testWatchmanRules6b', 'testWatchmanRules6c', 'testWatchmanRules6d', 'testWatchmanRules6e', 'testWatchmanRules6f', 'testWatchmanRules6g', 'testWatchmanFrom195', 'testWatchmanRelearn', 'testWatchmanStandRender', 'testWatchmanPageBars', 'testWatchmanRulesNew', 'testWatchmanJournal', 'testWatchmanBookMore', 'testWatchmanVuln', 'testWatchmanVulnRanges', 'testWatchmanVulnPhp', 'testWatchmanVulnNvd', 'testWatchmanVulnBackoff', 'testWatchmanVulnRouters', 'testWatchmanVulnSoftware', 'testWatchmanVulnHonest', 'testWatchmanVulnLetters', 'testWatchmanVulnLook', 'testWatchmanVulnHome', 'testWatchmanHot', 'testLogsigns', 'testWatchmanSigns', 'testWatchmanHw', 'testWatchmanCpuFaults', 'testWatchmanWear', 'testWatchmanHwBookMore', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanStartFiles', 'testWatchmanGateway', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testMigrateWakes', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics', 'testReportDialogOwnWords', 'testReportDialogDesk',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testBackupRunEnded', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanAtLeft', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testSkipPlaces', 'testCleanupSkipGreeting', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testLights', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],

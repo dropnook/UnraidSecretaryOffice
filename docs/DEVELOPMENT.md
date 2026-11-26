@@ -924,7 +924,11 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   software_eol; off until switched on; «maybe» is never an entry since 2026-11-23 — the page's list `vuln.unsure`, a CVE
   record's ADP ranges read when its CNA named none; then NVD's CPE ranges (CVE API 2.0, no key, only the unsure CVEs, 40 a
   day, one every 6.5 s: watchmanVulnNvdReduce(); one timeout is noted and the next id asked, two in a row or a 429/403/5xx
-  end the day's part, none starts past WATCH_VULN_NVD_TIME); «long fixed» below WATCH_VULN_FLOOR — the kernel line of the .plg's min
+  end the day's part, none starts past WATCH_VULN_NVD_TIME; 2026-11-26 the home server's software in the name table: a
+  product's version from its image's ENV (`env`, `image` to restrict it) or, for the images its `oci` names, the OCI version
+  label in its `oci_form` — cache `vuln_images` v 2; Synology DSM in virtual-dsm by its storage's dsm.ver (`file`,
+  watchmanVulnFiles(): every disk behind it awake, no link, state.json `vuln_files`), judged by build numbers; `self`: a
+  lower bound, never «affected» — unsure, reason `lower`); «long fixed» below WATCH_VULN_FLOOR — the kernel line of the .plg's min
   Unraid; an older office's open vuln_maybe lines close quietly). Their entries live in **book-more.json** (`WATCH_KINDS_MORE`, every kind
   newer than 1.95 — an older office never reads it, so never drops them; `watchmanLoad()`/`watchmanSave()` treat both as one
   book). The hardware has no ATT&CK technique and never joins a chain. Settings (`WATCH_SETTINGS` hw, host, lan.dns,

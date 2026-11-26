@@ -29,7 +29,13 @@ declare(strict_types=1);
  *
  * Each round (the day's; the night shift has no data folder and no network) compares them with what is here — the
  * inventory, all local: Unraid's version (/etc/unraid-version), the kernel's (uname), the PHP the office runs on
- * (Unraid's own), Slackware's packages (/var/log/packages: openssh, openssl, samba, sudo, bash, polkit, nginx …).
+ * (Unraid's own), Slackware's packages (/var/log/packages: openssh, openssl, samba, sudo, bash, polkit, nginx …), and in
+ * containers what the image declares itself: a fixed list of ENV names (WATCH_VULN_ENV) or, per product and only for the
+ * images its pattern names, the OCI version label in the product's shape (2026-11-26: the home server's software —
+ * Nextcloud, Immich, Plex, Jellyfin, Home Assistant, Vaultwarden, databases, web servers …; each source checked in the
+ * image's own build) — and Synology DSM in virtual-dsm by the build its storage's dsm.ver names (watchmanVulnFiles():
+ * read only while every disk behind the folder is awake, never through a link). A version that is only where the program
+ * started (`self`: Plex may install another at its start, DSM updates itself inside) is never «affected» by it.
  * Three verdicts, never more (watchmanVulnVerdict()):
  *   affected   (`vuln_known`, told) only when the versions compare cleanly and this one lies in an affected range —
  *              «in your branch 6.12 fixed from 6.12.48, here runs 6.12.24»
@@ -74,12 +80,19 @@ const WATCH_VULN_URLS    = [
     'eol'    => 'https://endoflife.date/api/v1/products/',      // step 16: <slug> of a fixed list (WATCH_VULN_PRODUCTS' eol)
 ];
 // step 16: the only names read from a container image's environment — the official images set them (their Dockerfiles);
-// never any other value of an image's or a container's environment (passwords live there)
+// never any other value of an image's or a container's environment (passwords live there). 2026-11-26: the home server's
+// software, each checked in its image's Dockerfile (docker-library, nextcloud/docker, jenkinsci/docker, zabbix-docker,
+// roundcubemail-docker, valkey-container, n8n's own; MONGO_VERSION is the full version — the mongo image's OCI label is
+// Ubuntu's «22.04», never read there)
 const WATCH_VULN_ENV = ['PHP_VERSION', 'NGINX_VERSION', 'MARIADB_VERSION', 'PG_VERSION', 'REDIS_VERSION', 'NODE_VERSION', 'PYTHON_VERSION',
-                        'GOLANG_VERSION', 'JAVA_VERSION', 'UNIFI_VERSION'];
-// the one label read (2026-11-23), and only of an image whose name says «unifi» (linuxserver's UniFi Network Application
-// names its version only there: «9.0.114-ls78»): kept as OCI_VERSION, judged as the UniFi Network Application
-const WATCH_VULN_OCI_IMAGE = '/unifi/i';
+                        'GOLANG_VERSION', 'JAVA_VERSION', 'UNIFI_VERSION', 'NEXTCLOUD_VERSION', 'MONGO_VERSION', 'HTTPD_VERSION', 'TOMCAT_VERSION',
+                        'JENKINS_VERSION', 'ZBX_VERSION', 'ROUNDCUBEMAIL_VERSION', 'VALKEY_VERSION', 'N8N_VERSION'];
+// the one label read (2026-11-23: only of an image named «unifi»; 2026-11-26: per product) — `oci` in the name table: the
+// images whose name matches it carry the product's own version in org.opencontainers.image.version (set by the app's own
+// build, never inherited from a base image: checked per image); `oci_form` what such a label looks like, its first group
+// the version — anything else in it (a channel «beta», «nightly», «dev», a commit «1.37.5-dbd7829e») is not read at all.
+// The default: «1.2.3», «v1.2.3», linuxserver.io's «1.2.3-ls45» (its build number, set by its Jenkinsfile)
+const WATCH_VULN_OCI_FORM = '/^v?(\d{1,9}(?:\.\d{1,9}){0,4})(?:-ls\d{1,6})?$/D';
 const WATCH_VULN_IMAGES_EVERY = 3600;      // the images' versions looked at anew at most this often (or when the images change)
 const WATCH_VULN_IMAGES_MAX   = 100;       // images asked at most
 const WATCH_VULN_IMAGES_ASK   = 30;        // seconds one query of them may take, its asks one image at a time included
@@ -88,6 +101,10 @@ const WATCH_VULN_TIMEOUT = 60;             // seconds a fetch may take
 const WATCH_VULN_DESC    = 300;            // characters of a description kept
 const WATCH_VULN_NOT_MAX = 100;            // «checked: doesn't concern you» kept for his page (state.json vuln_look.not)
 const WATCH_VULN_LOOK_MAX = 100;           // «what he checked» (2026-11-25): rows of this server, of the containers, names unread — each at most
+
+// an image name in the name table's patterns (2026-11-26): a registry in front or not, then the name, then a tag, a digest or nothing
+const WATCH_VULN_REG = '(?:(?:docker\.io|index\.docker\.io|lscr\.io|ghcr\.io)/)?';
+const WATCH_VULN_TAG = '(?::|@|$)';
 
 /**
  * The name table: how the lists name a product (lower case «vendor|product»: KEV's vendorProject/product, a CVE record's
@@ -123,7 +140,84 @@ const WATCH_VULN_PRODUCTS = [
     'routeros' => ['label' => 'MikroTik RouterOS', 'kev' => ['mikrotik|routeros'], 'cna' => ['mikrotik|routeros'], 'net' => 'MikroTik'],
     'unifi'    => ['label' => 'UniFi Network', 'kev' => ['ubiquiti|unifi network application', 'ubiquiti|unifi network', 'ubiquiti|unifi'],
                    'cna' => ['ubiquiti|unifi network application', 'ubiquiti inc.|unifi network application', 'ubiquiti inc|unifi network application',
-                             'ui|unifi network application', 'ubiquiti|unifi network'], 'env' => 'UNIFI_VERSION', 'net' => 'Ubiquiti'],
+                             'ui|unifi network application', 'ubiquiti|unifi network'], 'env' => 'UNIFI_VERSION', 'net' => 'Ubiquiti', 'oci' => '/unifi/i'],
+
+    // 2026-11-26: the home server's software. `oci`: the image names its label is read for (a registry in front or not —
+    // docker.io, lscr.io, ghcr.io —, then the name, then a tag, a digest or nothing); `image` (with `env`): its ENV only
+    // from such images; `self`: the version read is the one the container started from, it may install another itself
+    // (a «yes» is said as «can't be checked for sure», reason «lower»: never affected by guess). Each source checked in
+    // the image's Dockerfile or release workflow and in the published image's config (2026-11-26).
+    // In CISA's catalogue (2026-11-25), its spellings:
+    //   Plex: label of plexinc/pms-docker («1.43.5.11079-b3b13e506», its channel tags beta/public say only that) and
+    //   linuxserver/plex («…-ls334»); linuxserver's container installs another Plex at its start when its VERSION says so
+    'plex'     => ['label' => 'Plex Media Server', 'kev' => ['plex|media server'], 'cna' => ['plex|media server', 'plex|plex media server'],
+                   'oci' => '#^' . WATCH_VULN_REG . '(?:plexinc/pms-docker|linuxserver/plex)' . WATCH_VULN_TAG . '#i',
+                   'oci_form' => '/^(\d{1,9}(?:\.\d{1,9}){3})-[0-9a-f]{6,12}(?:-ls\d{1,6})?$/D', 'self' => true],
+    //   MongoDB: MONGO_VERSION of the official image (never its label: Ubuntu's)
+    'mongodb'  => ['label' => 'MongoDB', 'kev' => ['mongodb|mongodb and mongodb server', 'mongodb|mongodb server'],
+                   'cna' => ['mongodb inc.|mongodb server', 'mongodb|mongodb server', 'mongodb|mongodb'], 'env' => 'MONGO_VERSION', 'eol' => 'mongodb'],
+    'httpd'    => ['label' => 'Apache HTTP Server', 'kev' => ['apache|http server'],
+                   'cna' => ['apache software foundation|apache http server', 'apache|http server', 'apache|apache http server'], 'env' => 'HTTPD_VERSION',
+                   'eol' => 'apache-http-server'],
+    'tomcat'   => ['label' => 'Apache Tomcat', 'kev' => ['apache|tomcat'], 'cna' => ['apache software foundation|apache tomcat', 'apache|apache tomcat', 'apache|tomcat'],
+                   'env' => 'TOMCAT_VERSION', 'eol' => 'tomcat'],
+    //   Elasticsearch, Kibana: the label Elastic's own build sets (Docker Hub's library images are the same)
+    'elasticsearch' => ['label' => 'Elasticsearch', 'kev' => ['elastic|elasticsearch'], 'cna' => ['elastic|elasticsearch'], 'eol' => 'elasticsearch',
+                   'oci' => '#^(?:' . WATCH_VULN_REG . '(?:library/)?elasticsearch|docker\.elastic\.co/elasticsearch/elasticsearch)' . WATCH_VULN_TAG . '#i'],
+    'kibana'   => ['label' => 'Kibana', 'kev' => ['elastic|kibana'], 'cna' => ['elastic|kibana'], 'eol' => 'kibana',
+                   'oci' => '#^(?:' . WATCH_VULN_REG . '(?:library/)?kibana|docker\.elastic\.co/kibana/kibana)' . WATCH_VULN_TAG . '#i'],
+    //   Jenkins: JENKINS_VERSION (no end-of-life list: endoflife.date's line «2» is the weekly one, an LTS would be told of it)
+    'jenkins'  => ['label' => 'Jenkins', 'kev' => ['jenkins|jenkins'], 'cna' => ['jenkins project|jenkins', 'jenkins|jenkins'], 'env' => 'JENKINS_VERSION'],
+    //   n8n: its label (N8N_VERSION in older images; the nightly tag's label «nightly» isn't a version)
+    'n8n'      => ['label' => 'n8n', 'kev' => ['n8n|n8n'], 'cna' => ['n8n-io|n8n', 'n8n|n8n'], 'env' => 'N8N_VERSION',
+                   'oci' => '#^(?:' . WATCH_VULN_REG . '|docker\.n8n\.io/)n8nio/n8n' . WATCH_VULN_TAG . '#i'],
+    //   Roundcube: its label (ROUNDCUBEMAIL_VERSION in older images); its start brings the volume to the image's version
+    'roundcube' => ['label' => 'Roundcube', 'kev' => ['roundcube|roundcube webmail', 'roundcube|webmail'],
+                   'cna' => ['roundcube|webmail', 'roundcube|roundcubemail', 'roundcube|roundcube webmail'], 'env' => 'ROUNDCUBEMAIL_VERSION', 'eol' => 'roundcube',
+                   'oci' => '#^' . WATCH_VULN_REG . 'roundcube/roundcubemail' . WATCH_VULN_TAG . '#i'],
+    //   Zabbix's frontend: ZBX_VERSION, only of its web images (its server and agent images set it too — not the frontend)
+    'zabbix'   => ['label' => 'Zabbix frontend', 'kev' => ['zabbix|frontend'], 'cna' => ['zabbix|frontend', 'zabbix|zabbix'], 'env' => 'ZBX_VERSION', 'eol' => 'zabbix',
+                   'image' => '#^' . WATCH_VULN_REG . 'zabbix/zabbix-web-[a-z0-9-]{1,40}' . WATCH_VULN_TAG . '#i'],
+    //   phpMyAdmin: the label of the official image (its Dockerfile's) and linuxserver's
+    'phpmyadmin' => ['label' => 'phpMyAdmin', 'kev' => ['phpmyadmin|phpmyadmin'], 'cna' => ['phpmyadmin|phpmyadmin'], 'eol' => 'phpmyadmin',
+                   'oci' => '#^' . WATCH_VULN_REG . '(?:library/phpmyadmin|phpmyadmin|phpmyadmin/phpmyadmin|linuxserver/phpmyadmin)' . WATCH_VULN_TAG . '#i'],
+    //   Synology DSM inside virtual-dsm (Part C of 2026-11-26): the build its storage's dsm.ver names (watchmanVulnFiles()) —
+    //   the one DSM was installed from; DSM updates itself inside, the file stays: a lower bound. Judged by its build
+    //   number (watchmanVulnBuildVerdict()): at or past every fixing build not affected, else can't be said
+    'synology' => ['label' => 'Synology DSM', 'kev' => ['synology|diskstation manager (dsm)', 'synology|diskstation manager'],
+                   'cna' => ['synology|diskstation manager (dsm)', 'synology|diskstation manager'], 'build' => true, 'self' => true,
+                   'file' => ['image' => '#^' . WATCH_VULN_REG . 'vdsm/virtual-dsm' . WATCH_VULN_TAG . '#i', 'mount' => '/storage', 'name' => 'dsm.ver']],
+    // Not (yet) in CISA's catalogue (2026-11-25) — in the table so that they are read and a future entry is found; `cna` the
+    // spellings their CVE records use, `kev` CISA's likely ones: NOT yet confirmed by an entry
+    'jellyfin' => ['label' => 'Jellyfin', 'kev' => ['jellyfin|jellyfin', 'jellyfin|jellyfin media server'], 'cna' => ['jellyfin|jellyfin'],
+                   'oci' => '#^' . WATCH_VULN_REG . '(?:jellyfin/jellyfin|linuxserver/jellyfin)' . WATCH_VULN_TAG . '#i',
+                   // the official «12.4»; linuxserver's «12.4ubu2604-ls61» (the Debian/Ubuntu package's version without its «+»)
+                   'oci_form' => '/^v?(\d{1,9}(?:\.\d{1,9}){0,4})(?:ubu\d{4})?(?:-ls\d{1,6})?$/D'],
+    //   Emby: only linuxserver's image names its version (the official one carries none)
+    'emby'     => ['label' => 'Emby Server', 'kev' => ['emby|emby server', 'emby|emby media server', 'media browser|emby server'],
+                   'cna' => ['embysupport|security', 'embysupport|emby.security', 'media browser|emby server'],
+                   'oci' => '#^' . WATCH_VULN_REG . 'linuxserver/emby' . WATCH_VULN_TAG . '#i'],
+    //   Immich: the server image's label («v3.4.2»; IMMICH_VERSION is the compose file's tag, not the image's)
+    'immich'   => ['label' => 'Immich', 'kev' => ['immich|immich', 'immich-app|immich'], 'cna' => ['immich-app|immich'],
+                   'oci' => '#^' . WATCH_VULN_REG . 'immich-app/immich-server' . WATCH_VULN_TAG . '#i'],
+    'homeassistant' => ['label' => 'Home Assistant', 'kev' => ['home assistant|home assistant', 'home assistant|home assistant core', 'home-assistant|core'],
+                   'cna' => ['home-assistant|core'],
+                   'oci' => '#^' . WATCH_VULN_REG . '(?:home-assistant/home-assistant|homeassistant/home-assistant|linuxserver/homeassistant)' . WATCH_VULN_TAG . '#i'],
+    'adguardhome' => ['label' => 'AdGuard Home', 'kev' => ['adguard|adguard home', 'adguard|adguardhome'],
+                   'cna' => ['adguardteam|adguardhome', 'adguardhome|adguardhome', 'adguard|adguard home'],
+                   'oci' => '#^' . WATCH_VULN_REG . 'adguard/adguardhome' . WATCH_VULN_TAG . '#i'],
+    //   Nextcloud: NEXTCLOUD_VERSION of the official image (and of images built on it), linuxserver's label; both bring the
+    //   installation to the image's version at the start. Its GitHub records' «nextcloud|security-advisories» names the
+    //   server and every app alike (app versions): never read — the newer records' «Nextcloud|Server» and NVD's
+    'nextcloud' => ['label' => 'Nextcloud', 'kev' => ['nextcloud|nextcloud server', 'nextcloud|server', 'nextcloud|nextcloud'],
+                   'cna' => ['nextcloud|server', 'nextcloud|nextcloud server'], 'env' => 'NEXTCLOUD_VERSION', 'eol' => 'nextcloud',
+                   'oci' => '#^' . WATCH_VULN_REG . 'linuxserver/nextcloud' . WATCH_VULN_TAG . '#i'],
+    'vaultwarden' => ['label' => 'Vaultwarden', 'kev' => ['vaultwarden|vaultwarden', 'dani-garcia|vaultwarden'], 'cna' => ['dani-garcia|vaultwarden', 'vaultwarden|vaultwarden'],
+                   'oci' => '#^' . WATCH_VULN_REG . 'vaultwarden/server' . WATCH_VULN_TAG . '#i'],
+    'paperless' => ['label' => 'Paperless-ngx', 'kev' => ['paperless-ngx|paperless-ngx'], 'cna' => ['paperless-ngx|paperless-ngx'],
+                   'oci' => '#^' . WATCH_VULN_REG . 'paperless-ngx/paperless-ngx' . WATCH_VULN_TAG . '#i'],
+    'valkey'   => ['label' => 'Valkey', 'kev' => ['valkey|valkey'], 'cna' => ['valkey-io|valkey', 'valkey|valkey', 'lfprojects|valkey'], 'env' => 'VALKEY_VERSION',
+                   'eol' => 'valkey'],
 ];
 // the places an entry names: the server itself, or (step 16) a container
 const WATCH_VULN_HOST = 'host';
@@ -520,6 +614,53 @@ function watchmanVulnVerdict(?array $record, array $cna, string $have, bool $let
     return ['maybe', array_values(array_filter(array_column(array_merge($clean, $unclean), 1)))[0] ?? null] + ($why ?? []);
 }
 
+/**
+ * Synology's way (2026-11-26, the name table's `build`): the version here is a build number («90080», from virtual-dsm's
+ * dsm.ver — the build DSM was installed from, a lower bound: it updates itself inside), the record's ranges end at
+ * «7.2.2-72806-1» (version, build, update; CVE-2024-10441). The build here at or past the highest fixing build of every
+ * affected range: not affected, «fixed from» that one. Below it, or a range that can't be placed (no end, an end without a
+ * build above the builds named): can't be said — below a fix with the reason «lower», never «affected» by guess. An end
+ * without a build («0 < 7.0», status unknown) at or below the line of the builds named lies before them.
+ *
+ * @return array{0: string, 1: ?string, 2?: string, 3?: string}
+ */
+function watchmanVulnBuildVerdict(?array $record, array $cna, string $have): array
+{
+    if (!preg_match('/^\d{4,6}$/D', $have)) {
+        return ['maybe', null];
+    }
+    $top = $topText = $topLine = null;
+    $topIncl = false;
+    $plain = [];
+    foreach (watchmanVulnItems($record, $cna) as $item) {
+        foreach ((array) ($item['versions'] ?? []) as $r) {
+            if (!is_array($r) || ($r['status'] ?? '') === 'unaffected') {
+                continue;
+            }
+            $end = $r['lessThan'] ?? $r['lessThanOrEqual'] ?? null;
+            $incl = !isset($r['lessThan']) && isset($r['lessThanOrEqual']);
+            if (is_string($end) && preg_match('/^(\d{1,2}(?:\.\d{1,3}){0,3})-(\d{4,6})(?:-(\d{1,3}))?$/D', $end, $m)) {
+                $b = [(int) $m[2], (int) ($m[3] ?? 0)];
+                $c = $top === null ? 1 : ($b[0] <=> $top[0] ?: $b[1] <=> $top[1]);
+                if ($c > 0 || ($c === 0 && $incl)) {
+                    [$top, $topText, $topIncl] = [$b, $end, $incl];
+                }
+                $line = watchmanVulnParse($m[1]);
+                $topLine = $topLine === null || ($line !== null && watchmanVulnCmp($line, $topLine) > 0) ? $line : $topLine;
+            } elseif (is_string($end) && ($p = watchmanVulnParse($end)) !== null) {
+                $plain[] = $p;
+            } else {
+                return ['maybe', null];         // no end, or one that isn't a version: every build from its start
+            }
+        }
+    }
+    if ($top === null || $topLine === null || array_filter($plain, fn ($p) => watchmanVulnCmp($p, $topLine) > 0)) {
+        return ['maybe', null];
+    }
+    $c = (int) $have <=> $top[0] ?: 0 <=> $top[1];
+    return $c > 0 || ($c === 0 && !$topIncl) ? ['no', $topText] : ['maybe', null, 'lower', $have];
+}
+
 /** A record's affected items of the product ($cna: the name table's spellings) — the CNA's, else the ADP's */
 function watchmanVulnItems(?array $record, array $cna): array
 {
@@ -620,17 +761,36 @@ function watchmanVulnInventory(array $paths): array
         }
     }
     // step 16: the containers' software, by their images' own ENV ($paths['vuln_images']: container => [name => value],
-    // watchmanVulnImages() — never another value of an environment)
-    $envProduct = ['OCI_VERSION' => 'unifi'];      // only an image named «unifi» keeps it (watchmanVulnImagesParse())
+    // watchmanVulnImages() — never another value of an environment); 2026-11-26: a product's label («OCI:<product>»,
+    // cleaned by its `oci_form`) and a file it names (`FILE:<product>`, watchmanVulnFiles()) — one row a product and
+    // container, its ENV first. «OCI_VERSION» alone: an older office's answer (only an image named «unifi» kept it),
+    // until it is asked anew
+    $envProduct = ['OCI_VERSION' => 'unifi'];
     foreach (WATCH_VULN_PRODUCTS as $id => $p) {
         if (isset($p['env'])) {
             $envProduct[$p['env']] = $id;
         }
     }
     foreach (is_array($paths['vuln_images'] ?? null) ? $paths['vuln_images'] : [] as $ct => $env) {
-        foreach (is_array($env) ? $env : [] as $name => $value) {
-            if (isset($envProduct[$name]) && is_string($value) && strlen($value) <= 64) {
-                $out[] = ['product' => $envProduct[$name], 'version' => $value, 'clean' => watchmanVulnClean($value, 'env'), 'where' => (string) $ct];
+        $env = is_array($env) ? array_filter($env, fn ($v) => is_string($v) && strlen($v) <= 64) : [];
+        $seenCt = [];
+        foreach (['env', 'OCI:', 'FILE:'] as $kind) {
+            foreach ($env as $name => $value) {
+                $name = (string) $name;
+                $id = $kind === 'env' ? ($envProduct[$name] ?? null) : (str_starts_with($name, $kind) ? substr($name, strlen($kind)) : null);
+                if ($id === null || isset($seenCt[$id]) || !isset(WATCH_VULN_PRODUCTS[$id])) {
+                    continue;
+                }
+                $clean = match ($kind) {
+                    'env'   => watchmanVulnClean($value, 'env'),
+                    'OCI:'  => watchmanVulnLabelClean($id, $value),
+                    default => isset(WATCH_VULN_PRODUCTS[$id]['file']) && preg_match('/^\d{4,6}$/D', $value) ? $value : null,
+                };
+                if ($kind !== 'env' && $clean === null) {
+                    continue;           // a label or a file not in its product's shape: not read
+                }
+                $seenCt[$id] = true;
+                $out[] = ['product' => $id, 'version' => $value, 'clean' => $clean, 'where' => (string) $ct];
             }
         }
     }
@@ -930,7 +1090,9 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
     if (!is_dir("$f/nvd")) {
         @mkdir("$f/nvd", 0700, true);
     }
-    $unsure = $ctx['unsure'] ?? array_column(array_filter((array) ((readJson("$dir/state.json") ?? [])['vuln_look']['unsure'] ?? []), 'is_array'), 'cve');
+    // (2026-11-26: not those unsure only because the version here is a lower bound — NVD can't change that)
+    $unsure = $ctx['unsure'] ?? array_column(array_filter((array) ((readJson("$dir/state.json") ?? [])['vuln_look']['unsure'] ?? []),
+        fn ($x) => is_array($x) && ($x['why'] ?? null) !== 'lower'), 'cve');
     $unsure = array_values(array_unique(array_filter($unsure, fn ($x) => is_string($x) && in_array($x, $want, true))));
     $nvdHave = [];
     $nvdUndated = [];       // an older office's answer, kept without its publication date: asked anew after the new ones
@@ -1259,8 +1421,9 @@ function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []
         // publication, else the day CISA listed it): can't be checked for sure — the vendor no longer looked at such lines.
         // A line still maintained then, a product without end-of-life data, a range that names the version: as before.
         $letters = !empty(WATCH_VULN_PRODUCTS[$e['product']]['letters']);
-        $judge = function (?array $r, string $clean) use ($cna, $slug, $e, $f, &$eolCycles, $letters): array {
-            $v = watchmanVulnVerdict($r, $cna, $clean, $letters);
+        $build = !empty(WATCH_VULN_PRODUCTS[$e['product']]['build']);
+        $judge = function (?array $r, string $clean) use ($cna, $slug, $e, $f, &$eolCycles, $letters, $build): array {
+            $v = $build ? watchmanVulnBuildVerdict($r, $cna, $clean) : watchmanVulnVerdict($r, $cna, $clean, $letters);
             if ($v[0] !== 'no' || $r === null || $slug === null) {
                 return $v;
             }
@@ -1296,6 +1459,11 @@ function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []
                         $verdict = $byNvd;
                     }
                 }
+                // 2026-11-26: a version that is only where the container started from (`self`: Plex that installs another at
+                // its start, DSM that updates itself inside) is never «affected» by it — can't be checked for sure, reason «lower»
+                if ($verdict[0] === 'yes' && !empty(WATCH_VULN_PRODUCTS[$e['product']]['self'])) {
+                    $verdict = ['maybe', $verdict[1], 'lower', $x['version']];
+                }
             }
             if ($verdict[0] === 'no') {
                 $out['checked']++;
@@ -1314,8 +1482,9 @@ function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []
                                         'name' => mb_strcut((string) ($e['name'] ?? ''), 0, 120, 'UTF-8'),
                                         'nvd' => is_file("$f/nvd/{$e['cve']}.json")]      // NVD asked already (and it couldn't say either)
                         // why (2026-11-25): «rough» — the list names the version only to {bound}; «eol» — the line {bound}
-                        // was past its end when it became known
-                        + (in_array($verdict[2] ?? null, ['rough', 'eol'], true) ? ['why' => $verdict[2], 'bound' => (string) $verdict[3]] : []);
+                        // was past its end when it became known; (2026-11-26) «lower» — {bound} is where it started, it may
+                        // have updated itself since
+                        + (in_array($verdict[2] ?? null, ['rough', 'eol', 'lower'], true) ? ['why' => $verdict[2], 'bound' => (string) $verdict[3]] : []);
                 }
                 continue;
             }
@@ -1597,7 +1766,7 @@ function watchmanVulnImagesFormat(): string
 }
 
 /**
- * docker's format for the one label (the OCI version), asked only of the images whose name matches WATCH_VULN_OCI_IMAGE:
+ * docker's format for the one label (the OCI version), asked only of the images whose name matches a product's `oci`:
  * the image's id and, if set, «OCI_VERSION=…» — never another label. An image without labels fails it on Docker 29 (no
  * «Labels» key): that image alone has no OCI version (watchmanVulnImagesAsk())
  */
@@ -1646,9 +1815,10 @@ function watchmanVulnImagesAsk(array $refs, string $format, callable $docker): a
 
 /**
  * docker's answers (ref => line: $env by watchmanVulnImagesFormat(), $labels by watchmanVulnImagesLabelFormat()) → image
- * => [name => value] for each of $images; only the WATCH_VULN_ENV names from $env, only OCI_VERSION from $labels and only
- * for an image named like WATCH_VULN_OCI_IMAGE whose label line names the same image id; only values in a version's
- * shape — anything else on a line is dropped, never kept. An image without an answer: [] («version unknown»).
+ * => [name => value] for each of $images; only the WATCH_VULN_ENV names from $env (a product's `image` restricts its ENV to
+ * those images), only OCI_VERSION from $labels whose line names the same image id, kept as «OCI:<product>» (2026-11-26)
+ * for each product whose `oci` names this image and whose `oci_form` the label has; only values in a version's shape —
+ * anything else on a line is dropped, never kept. An image without an answer: [] («version unknown»).
  *
  * @param array<string, string> $env
  * @param array<string, string> $labels
@@ -1672,19 +1842,43 @@ function watchmanVulnImagesParse(array $env, array $labels, array $images): arra
     foreach ($images as $img) {
         $line = (string) ($env[$img] ?? '');
         $kept = $tokens($line, WATCH_VULN_ENV);
+        foreach (WATCH_VULN_PRODUCTS as $p) {
+            if (isset($p['env'], $p['image']) && !preg_match($p['image'], $img)) {
+                unset($kept[$p['env']]);        // Zabbix's ZBX_VERSION of its server image is no frontend
+            }
+        }
         $label = (string) ($labels[$img] ?? '');
-        if ($label !== '' && preg_match(WATCH_VULN_OCI_IMAGE, $img) && ($line === '' || $id($line) === $id($label))) {
-            $kept += $tokens($label, ['OCI_VERSION']);
+        $oci = $label !== '' && ($line === '' || $id($line) === $id($label)) ? ($tokens($label, ['OCI_VERSION'])['OCI_VERSION'] ?? null) : null;
+        foreach ($oci !== null ? watchmanVulnOciProducts($img) : [] as $product) {
+            if (watchmanVulnLabelClean($product, $oci) !== null) {
+                $kept["OCI:$product"] = $oci;
+            }
         }
         $res[$img] = $kept;
     }
     return $res;
 }
 
+/** The products whose OCI version label an image carries (2026-11-26: the name table's `oci`, by the image's name) */
+function watchmanVulnOciProducts(string $img): array
+{
+    return array_keys(array_filter(WATCH_VULN_PRODUCTS, fn ($p) => isset($p['oci']) && preg_match($p['oci'], $img) === 1));
+}
+
+/** A product's OCI version label → its plain version by the product's `oci_form` («12.4ubu2604-ls61» → 12.4), or null: not read */
+function watchmanVulnLabelClean(string $product, string $label): ?string
+{
+    $p = WATCH_VULN_PRODUCTS[$product] ?? null;
+    if (!isset($p['oci']) || !preg_match($p['oci_form'] ?? WATCH_VULN_OCI_FORM, trim($label), $m)) {
+        return null;
+    }
+    return watchmanVulnParse($m[1]) !== null ? $m[1] : null;
+}
+
 /**
  * The containers' versions ($containers: the round's look, name => {image}): asked of docker at most once an hour, or when
- * the images changed — one `docker image inspect` for all (the environment), one more for the images named «unifi» (the
- * label), WATCH_VULN_IMAGES_MAX at most; an image docker didn't answer is «version unknown» until the next ask
+ * the images changed — one `docker image inspect` for all (the environment), one more for the images a product's `oci`
+ * names (the label), WATCH_VULN_IMAGES_MAX at most; an image docker didn't answer is «version unknown» until the next ask
  * (watchmanVulnImagesAsk()). $cache: the last answer (state.json vuln_images). $inspect: the tests' stand-in for docker
  * (refs, format, timeout) → [exit, stdout].
  *
@@ -1705,20 +1899,21 @@ function watchmanVulnImages(?array $containers, ?array $cache, int $now, ?callab
     $refs = array_slice(array_values(array_unique($images)), 0, WATCH_VULN_IMAGES_MAX);
     sort($refs);
     $byImage = is_array($cache['images'] ?? null) ? $cache['images'] : null;
-    $fresh = $byImage !== null && is_int($cache['time'] ?? null) && $now - $cache['time'] < WATCH_VULN_IMAGES_EVERY && $now >= $cache['time']
-        && array_keys($byImage) === $refs;
+    // `v` 2 (2026-11-26): the labels per product («OCI:<product>») — an older office's answer is asked anew once
+    $fresh = $byImage !== null && ($cache['v'] ?? 1) === 2 && is_int($cache['time'] ?? null) && $now - $cache['time'] < WATCH_VULN_IMAGES_EVERY
+        && $now >= $cache['time'] && array_keys($byImage) === $refs;
     if (!$fresh) {
         $byImage = [];
         if ($refs) {
             $docker = $inspect ?? fn (array $r, string $format, int $timeout): array
                 => run(array_merge(['docker', 'image', 'inspect', '--format', $format], $r), $timeout);
             $env = watchmanVulnImagesAsk($refs, watchmanVulnImagesFormat(), $docker);
-            $oci = array_values(array_filter($refs, fn ($r) => preg_match(WATCH_VULN_OCI_IMAGE, $r) === 1));
+            $oci = array_values(array_filter($refs, fn ($r) => watchmanVulnOciProducts($r) !== []));
             $labels = watchmanVulnImagesAsk($oci, watchmanVulnImagesLabelFormat(), $docker);
             $byImage = watchmanVulnImagesParse($env, $labels, $refs);
         }
         ksort($byImage);
-        $cache = ['time' => $now, 'images' => $byImage];
+        $cache = ['v' => 2, 'time' => $now, 'images' => $byImage];
     }
     $byContainer = [];
     foreach ($images as $name => $img) {
@@ -1766,4 +1961,134 @@ function watchmanVulnCycle(array $cycles, string $clean): ?array
         }
     }
     return $line;
+}
+
+// ===================================================================== 2026-11-26: a version a file names (Synology DSM)
+
+/**
+ * The host folders a container maps for a product's `file` (watchmanContainers(), from docker inspect's Mounts): product
+ * => the bind's source, only for an image the product's `file.image` names and only the mount at exactly `file.mount`
+ * («/storage» of virtual-dsm). Nothing else of the mounts.
+ *
+ * @return array<string, string>
+ */
+function watchmanVulnMounts(string $image, array $mounts): array
+{
+    $out = [];
+    foreach (WATCH_VULN_PRODUCTS as $id => $p) {
+        if (!isset($p['file']) || !preg_match($p['file']['image'], $image)) {
+            continue;
+        }
+        foreach ($mounts as $m) {
+            if (is_array($m) && ($m['Type'] ?? 'bind') === 'bind' && ($m['Destination'] ?? null) === $p['file']['mount'] && is_string($m['Source'] ?? null)
+                && strlen($m['Source']) <= 300) {
+                $out[$id] = rtrim($m['Source'], '/');
+            }
+        }
+    }
+    return $out;
+}
+
+/**
+ * The versions files name (the name table's `file`: virtual-dsm's dsm.ver in its /storage — «DSM_VirtualDSM_90080», the
+ * build DSM was installed from): container => ["FILE:<product>" => build], read at most once an hour per container and
+ * folder (or when the folder changed), never waking a disk (watchmanVulnFileRead()). Not readable right now (a disk of its
+ * share asleep): the last value read stays; none yet — the container is in the third list («couldn't read this time»).
+ * $cache: state.json vuln_files. $containers: the round's look with `vuln_mounts` (null: Docker didn't answer).
+ *
+ * @return array{0: array<string, array<string, string>>, 1: list<string>, 2: ?array}  found, not readable now, the cache to keep
+ */
+function watchmanVulnFiles(?array $containers, array $paths, ?array $cache, int $now): array
+{
+    if ($containers === null) {
+        return [[], [], $cache];
+    }
+    $old = is_array($cache['files'] ?? null) ? $cache['files'] : [];
+    $found = $later = $keep = [];
+    $shares = $disks = null;
+    foreach ($containers as $ct => $c) {
+        foreach (is_array($c['vuln_mounts'] ?? null) ? $c['vuln_mounts'] : [] as $id => $src) {
+            $spec = WATCH_VULN_PRODUCTS[$id]['file'] ?? null;
+            if (!is_array($spec) || !is_string($src)) {
+                continue;
+            }
+            $key = "$ct|$id";
+            $prev = is_array($old[$key] ?? null) && ($old[$key]['src'] ?? null) === $src && is_int($old[$key]['time'] ?? null) ? $old[$key] : null;
+            $entry = $prev;
+            if ($prev === null || $now < $prev['time'] || $now - $prev['time'] >= WATCH_VULN_IMAGES_EVERY) {
+                $shares ??= readCfg((string) ($paths['shares_ini'] ?? '/var/local/emhttp/shares.ini'), true);
+                $disks ??= readCfg((string) ($paths['disks_ini'] ?? '/var/local/emhttp/disks.ini'), true);
+                $r = watchmanVulnFileRead($src, (string) $spec['name'], $shares, $disks, (string) ($paths['mnt'] ?? '/mnt'));
+                if ($r !== false) {
+                    $entry = ['src' => $src, 'v' => $r, 'time' => $now];
+                }
+            }
+            if ($entry === null) {
+                $later[] = (string) $ct;            // never read yet, not readable now
+                continue;
+            }
+            $keep[$key] = $entry;
+            if (is_string($entry['v'] ?? null)) {
+                $found[(string) $ct]["FILE:$id"] = $entry['v'];
+            }
+        }
+    }
+    ksort($keep);
+    return [$found, $later, ['files' => $keep]];
+}
+
+/**
+ * One file a product names, read only when that is safe right now → the build it names, null (read: not in its shape,
+ * missing), or false (not read now). $src: the host folder as docker says it (/mnt/<disk, pool or user>/<share>/…; nothing
+ * else — no «..», no control characters). Safe: emhttp lists its share, every disk or pool behind it (watchnetBases(): a
+ * path through /mnt/user may touch every disk of its share) is in disks.ini and awake (watchnetSleeping(), the office's
+ * rule: spun down and rotating); an exclusive share read on its pool (officeUnraidPath()); no link anywhere below /mnt
+ * (realpath, the file itself by lstat: a regular file of at most 64 bytes); at most 64 bytes read. Its content after trim
+ * exactly «DSM_<model>_<build>». $mnt: the tests' stand-in for /mnt.
+ */
+function watchmanVulnFileRead(string $src, string $name, array $shares, array $disks, string $mnt = '/mnt'): string|null|false
+{
+    if (strlen($src) > 300 || !preg_match('#^/mnt/[^/\x00-\x1F]+/[^/\x00-\x1F]+(?:/[^\x00-\x1F]*)?$#D', $src) || preg_match('#(?:^|/)\.\.?(?:/|$)#', $src)
+        || !preg_match('/^[A-Za-z0-9._-]{1,64}$/D', $name)) {
+        return false;
+    }
+    $b = watchnetBases($src, $shares, $disks);
+    $known = [];
+    foreach ($disks as $section => $d) {
+        $known[(string) ($d['name'] ?? $section)] = true;
+    }
+    if (!$b['known'] || !$b['bases'] || array_diff($b['bases'], array_keys($known))) {
+        return false;           // a share emhttp doesn't list, a place without disks (/mnt/remotes …), a disk he doesn't know
+    }
+    $sleeping = watchnetSleeping($disks);
+    foreach ($b['bases'] as $base) {
+        if (baseAsleep($base, $sleeping)) {
+            return false;       // never woken: read when it is awake again
+        }
+    }
+    $mnt = rtrim($mnt, '/');
+    $dir = officeUnraidPath($mnt . substr($src, 4), $mnt);
+    $root = realpath($mnt);
+    $real = realpath($dir);
+    if ($root === false) {
+        return false;
+    }
+    if ($real === false || $real !== $root . substr($dir, strlen($mnt))) {
+        return null;            // the folder isn't there, or a link below /mnt: never followed
+    }
+    $file = "$dir/$name";
+    clearstatcache(true, $file);
+    $st = @lstat($file);
+    if ($st === false) {
+        return null;            // no such file: nothing to read
+    }
+    if (($st['mode'] & 0170000) !== 0100000 || $st['size'] > 64) {
+        return null;
+    }
+    $h = @fopen($file, 'rb');
+    $text = $h ? (string) fread($h, 64) : '';
+    if ($h) {
+        fclose($h);
+    }
+    return preg_match('/^DSM_[A-Za-z0-9]+_(\d{4,6})$/D', trim($text), $m) ? $m[1] : null;
 }

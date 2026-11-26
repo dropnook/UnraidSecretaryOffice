@@ -5630,7 +5630,7 @@
   "fresh": true,
   "checked": 2,
   "affected": 0,
-  "maybe": 3,
+  "maybe": 4,
   "kev_total": 1484,
   "kev_here": 47,
   "kev_products": [
@@ -5739,6 +5739,17 @@
     "nvd": false,
     "why": "eol",
     "bound": "7.2"
+   },
+   {
+    "cve": "CVE-2024-10441",
+    "product": "synology",
+    "where": "nas",
+    "have": "72806",
+    "name": "Synology DiskStation Manager (DSM) Code Injection Vulnerability",
+    "label": "Synology DSM",
+    "nvd": false,
+    "why": "lower",
+    "bound": "72806"
    }
   ],
   "host": [
@@ -5786,10 +5797,16 @@
     "product": "postgresql",
     "version": "17.12",
     "label": "PostgreSQL"
+   },
+   {
+    "where": "nas",
+    "product": "synology",
+    "version": "72806",
+    "label": "Synology DSM"
    }
   ],
-  "ct_total": 5,
-  "ct_read": 2,
+  "ct_total": 6,
+  "ct_read": 3,
   "unread": [
    "homevideos",
    "photos",

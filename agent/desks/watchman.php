@@ -1609,8 +1609,9 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             $containers = watchmanContainerStarts($containers, $paths);      // a privileged one: runs, starts by itself, or neither
         }
         $containers = array_map(fn ($c) => array_diff_key((array) $c, ['pid' => true, 'started' => true, 'addrs' => true, 'macs' => true, 'ds' => true, 'restart' => true,
-                                              'compose' => true, 'binds' => true, 'ports' => true]),
-            $containers);     // the data flow's and the network's only (restart, compose: watchmanContainerStarts()'s; binds: the guess's)
+                                              'compose' => true, 'binds' => true, 'ports' => true, 'vuln_mounts' => true]),
+            $containers);     // the data flow's and the network's only (restart, compose: watchmanContainerStarts()'s; binds: the guess's;
+                              // vuln_mounts: the folder a product's file lies in, watchmanVulnFiles())
     }
     $seen = [
         'containers' => $containers,
@@ -1636,6 +1637,18 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
     [$vulnImages, $vulnImagesCache] = $vulnOn ? watchmanVulnImages(is_array($containers) ? $containers : null,
         is_array($snap['state']['vuln_images'] ?? null) ? $snap['state']['vuln_images'] : null, $now,
         isset($paths['vuln_inspect']) && is_callable($paths['vuln_inspect']) ? $paths['vuln_inspect'] : null) : [[], null];
+    // 2026-11-26: a version a file names (Synology DSM in virtual-dsm: its storage's dsm.ver) — never waking a disk; one not
+    // readable now and never read is «couldn't read this time» (not in the images' answer)
+    [$vulnFiles, $vulnLater, $vulnFilesCache] = $vulnOn ? watchmanVulnFiles(is_array($netContainers) ? $netContainers : null, $paths,
+        is_array($snap['state']['vuln_files'] ?? null) ? $snap['state']['vuln_files'] : null, $now) : [[], [], null];
+    foreach ($vulnFiles as $ct => $kv) {
+        $vulnImages[$ct] = ($vulnImages[$ct] ?? []) + $kv;
+    }
+    foreach ($vulnLater as $ct) {
+        if (($vulnImages[$ct] ?? null) === []) {
+            unset($vulnImages[$ct]);
+        }
+    }
     // the routers by what their own log said (watchnet.php's net.json: never asked of the router)
     $vulnRouters = $vulnOn ? watchmanVulnRouters(readJson("$dir/net.json")) : [];
     $vuln = $vulnOn ? watchmanVulnJudge($dir, watchmanVulnInventory($paths + ['vuln_images' => $vulnImages, 'vuln_routers' => $vulnRouters]), $now,
@@ -1665,7 +1678,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
     return watchmanLocked($dir, function () use ($dir, $hired, $now, $fresh, $events, $pos, $read, $seen, $notify, $acks, $t0, $look, $facts, $snapKnown, $snapRes,
                                                $office, $paths, $boot, $btime, $netLook, $netServer, $parity, $kopiaLook, $netContainers, $automounts,
                                                $hotLook, $hotSet, $signHost, $signDisks, $hwLook,
-                                               $vuln, $vulnImagesCache, $relearnEvents): array {
+                                               $vuln, $vulnImagesCache, $vulnFilesCache, $relearnEvents): array {
         $old = watchmanLoad($dir);
         $set = watchmanSettings(watchmanRulesRaw($dir));        // his settings (1.96 step 5: the defaults are what he did up to 1.95)
         $old['seen'] = readJson("$dir/seen.json");
@@ -1810,6 +1823,9 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
                 'unread_n' => $vuln['unread_n'], 'vms' => $vuln['vms']];
             if ($vulnImagesCache !== null) {
                 $st['vuln_images'] = $vulnImagesCache;
+            }
+            if ($vulnFilesCache !== null) {
+                $st['vuln_files'] = $vulnFilesCache;
             }
         } else {
             watchmanVulnMaybeClose($book, $now);     // switched off: an older office's open «maybe» lines go quietly all the same
@@ -2505,7 +2521,8 @@ function watchmanContainers(): ?array
                     + ($ds !== null ? ['ds' => $ds] : [])
                     + (is_string($restart) && preg_match('/^[a-z-]{1,20}$/D', $restart) ? ['restart' => $restart] : [])
                     + (is_string($project) && $project !== '' && strlen($project) <= 200 ? ['compose' => $project] : [])
-                    + ($binds ? ['binds' => $binds] : []);
+                    + ($binds ? ['binds' => $binds] : [])
+                    + (($vm = watchmanVulnMounts((string) json_decode($f[1]), is_array($mounts) ? $mounts : [])) ? ['vuln_mounts' => $vm] : []);
     }
     ksort($out);
     return $out;

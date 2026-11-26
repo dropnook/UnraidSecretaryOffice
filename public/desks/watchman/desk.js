@@ -3842,9 +3842,11 @@ const vulnHay = (x) => [x.cve, x.label || '', x.product || '', x.name || '', x.w
 /** How many lines the calm lists hold (the area's filter counts them with what waits), «What he checked» with them */
 const vulnListCount = () => (state && state.vuln && state.vuln.on !== false
   ? vulnLines(state.vuln.not).length + vulnLines(state.vuln.unsure).length + vulnLookItems(state.vuln).length : 0);
-/** An unsure line's reason (2026-11-25): a bound coarser than the version, a release line past its end then, or the NVD's word */
+/** An unsure line's reason (2026-11-25): a bound coarser than the version, a release line past its end then, (2026-11-26) a
+ * version that is only where it started (it may have updated itself), or the NVD's word */
 const vulnUnsureWhy = (x) => (x.why === 'rough' && x.bound ? T('vuln.unsure_why_rough', { bound: x.bound })
-  : x.why === 'eol' && x.bound ? T('vuln.unsure_why_eol', { line: x.bound }) : T(x.nvd ? 'vuln.unsure_nvd_asked' : 'vuln.unsure_nvd_wait'));
+  : x.why === 'eol' && x.bound ? T('vuln.unsure_why_eol', { line: x.bound })
+  : x.why === 'lower' && x.bound ? T('vuln.unsure_why_lower', { have: x.bound }) : T(x.nvd ? 'vuln.unsure_nvd_asked' : 'vuln.unsure_nvd_wait'));
 /**
  * «What he checked» (2026-11-25, agent: watchmanVulnLook()): its lines — this server's programs, the containers read, those
  * not read, the routers — each with the words the area's filter meets it by. None in an older state (host null).

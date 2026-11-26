@@ -304,7 +304,12 @@ When you hire him he learns what is normal. Then he walks his round every five m
   router or DNS suddenly different (the gateway with another MAC).
 - Only if you switch on «Known vulnerabilities»: an actively exploited vulnerability that applies to a version running here
   (only when the versions compare cleanly — what can't be compared stands calmly under «Can't be checked for sure», never
-  an entry or a notification), an Unraid or software without security updates.
+  an entry or a notification), an Unraid or software without security updates. Here means Unraid, its kernel, PHP and
+  packages, and in containers what the image declares itself (its environment or its version label — the usual home
+  server software: databases, web servers, Nextcloud, Immich, Plex, Jellyfin, Home Assistant, Vaultwarden …), and
+  Synology DSM in virtual-dsm by the build its storage folder names (read only while its disks are awake). A version
+  that is only where the program started (Plex installing another at its start, DSM updating itself) is never called
+  affected.
 
 **How:**
 
