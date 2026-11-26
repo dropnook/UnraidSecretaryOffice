@@ -91,6 +91,8 @@
 .wm-vuln-nvd-note{margin:2px 0 8px; font-size:.85em; color:var(--ink2)}
 /* «What he checked»: its short lists (one router, one container) as tall as their rows — never the box's 80 px */
 .wm-vuln-look .box{min-height:0}
+/* the projects' own advisories (2026-11-26): the link to one under its row, an id never wider than a phone */
+.wm-vuln-link{font-size:.85em; overflow-wrap:anywhere}
 /* «By disk»: a disk unfolds its wakes right beneath its row */
 .wm-wake-disk-fold{padding:0 0 6px 18px; border-bottom:1px solid var(--line)}
 .wm-wake-disk-more{margin:6px 12px}

@@ -437,15 +437,18 @@ async function vulnPage() {
   const downs = r.all().filter((n) => n.classList && n.classList.contains('wm-vuln-down')).map(tx);
   same('vulnerabilities: the NVD away for 3 days — one calm line in the area, the same in the help; the area stays green',
     [downs.length, downs[0], downs[0] === downs[1], tileWords(r.all().find((n) => n.dataset && n.dataset.tile === 'vuln'))[0] !== undefined],
-    [2, [T('vuln.down', { source: T('vuln.source.nvd'), n: 3, when: O.fmt.date(state.vuln.down[0].next) }), T('vuln.down_nvd', { n: 3 })].join(' '), true, true]);
+    // (the fixture's vuln.unsure holds four rows — the kernel, Bash, the old PHP and DSM's build; the projects' advisories'
+    // unsure row is no NVD matter and isn't counted here)
+    [2, [T('vuln.down', { source: T('vuln.source.nvd'), n: 3, when: O.fmt.date(state.vuln.down[0].next) }), T('vuln.down_nvd', { n: 4 })].join(' '), true, true]);
   // his limits (2026-11-25): one calm paragraph, always there while the area is on
   same('vulnerabilities: the paragraph of his limits stands in the area', tx(sec.querySelector('.wm-vuln-limits')), T('vuln.limits'));
-  // «What he checked» (2026-11-25): folded; opened — this server, the containers (2 of 5 read, the others by reason), the
+  // «What he checked» (2026-11-25): folded; opened — this server, the containers (the fixture's ct_read 4 of ct_total 7:
+  // webapp, notes-db, nas, media; the others by reason), the
   // routers by their log (no longer above the lists), and what he never looks at, the 2 VMs counted
   same('vulnerabilities: no router line above the lists any more (they stand under «What he checked»)', sec.querySelectorAll('.wm-vuln-router').length, 0);
   const lookHead = () => sectionOf(r, 'area.vuln').querySelectorAll('.wm-known-head').find((b) => tx(b).includes(T('vuln.look_title')));
   same('vulnerabilities: «What he checked» folded, its head with the containers read', tx(lookHead()),
-    `▸ ${T('vuln.look_title')} · ${T('vuln.look_ct', { n: 5, read: 2 })}`);
+    `▸ ${T('vuln.look_title')} · ${T('vuln.look_ct', { n: 7, read: 4 })}`);
   lookHead().click();
   await tick();
   const look = sectionOf(r, 'area.vuln').querySelector('.wm-vuln-look');
@@ -455,6 +458,9 @@ async function vulnPage() {
     lookRows, ['Unraid 7.4.1', 'Linux kernel 6.12.54-Unraid', 'PHP 8.4.14', 'OpenSSH 10.0p2', 'Bash 4.3.011',
       T('vuln.look_ct_row', { where: 'webapp', product: 'PHP', version: '7.2.20' }), T('vuln.look_ct_row', { where: 'webapp', product: 'nginx', version: '1.27.1' }),
       T('vuln.look_ct_row', { where: 'notes-db', product: 'PostgreSQL', version: '17.12' }),
+      // 2026-11-26: DSM's value is a build; a linuxserver label shown as judged («12.4», not «12.4ubu2604-ls61»)
+      T('vuln.look_ct_row', { where: 'nas', product: 'Synology DSM', version: T('vuln.build', { build: '72806' }) }),
+      T('vuln.look_ct_row', { where: 'media', product: 'Jellyfin', version: '12.4' }),
       T('vuln.router_seen', { product: 'MikroTik RouterOS', version: '7.24.5', date: O.fmt.date(state.vuln.routers[0].at) }), T('vuln.router_unknown', { product: 'MikroTik RouterOS' })]);
   same('vulnerabilities: the containers he couldn\'t check by reason, that he never looks inside, the VMs counted, what he never looks at',
     [T('vuln.look_unread_none', { n: 2, names: 'homevideos, photos' }), T('vuln.look_unread_unasked', { n: 1, names: 'wiki' }), T('vuln.look_inside'),
@@ -480,7 +486,28 @@ async function vulnPage() {
   same('vulnerabilities: an unsure line says why — the list names the version only roughly', metas.some((m) => m.includes(T('vuln.unsure_why_rough', { bound: '4.3' }))), true);
   const old = await typed('CVE-2010-3904');
   same('vulnerabilities: the filter finds a line «long fixed» too (its own fold, open while it holds hits)', old[0], 1);
-  same('vulnerabilities: the filter\'s count is over all the lines (19 here: 6 in the lists, 13 he checked)', /\b19\b/.test(none[1]), true);
+  // the fixture: not 3 + unsure 4 + the projects' advisories 3 (2 affected, 1 unsure) = 10 in the lists; host 5 + containers
+  // 5 + unread 3 + routers 2 = 15 he checked
+  same('vulnerabilities: the filter\'s count is over all the lines (25 here: 10 in the lists, 15 he checked)', /\b25\b/.test(none[1]), true);
+  // the projects' own advisories (2026-11-26): their fold critical first, each row its severity, summary and the advisory's
+  // link built from its id; the unsure one under «Can't be checked for sure» with the advisory's own words
+  const gh = await typed('Jellyfin');
+  const ghSec = sectionOf(r, 'area.vuln');
+  const ghHead = ghSec.querySelectorAll('.wm-known-head').map(tx).find((x) => x.includes(T('vuln.ghsa_title', { n: 2 })));
+  const ghRows = ghSec.querySelectorAll('.wm-vuln-not').map((x) => tx(x.querySelector('.row-name')));
+  const links = ghSec.querySelectorAll('.wm-vuln-link').map((a) => a.href);
+  same('vulnerabilities: the projects\' advisories — their fold, critical first, the link to each; the unsure one with its words; «What he checked» finds the container',
+    [!!ghHead, ghRows.slice(0, 3), links, ghSec.querySelectorAll('.row-meta').map(tx).some((m) => m.includes(T('vuln.sev_critical')) && m.includes('Path traversal')),
+      ghSec.querySelectorAll('.row-meta').map(tx).some((m) => m.includes(T('vuln.unsure_why_ghsa', { range: '> main@4ffa26c9' }))), gh[0]],
+    [true, [T('vuln.ghsa_row', { id: 'GHSA-x4m2-9qrc-7hvp', product: 'Jellyfin', where: T('vuln.not_in', { where: 'media' }), have: '12.4', fixed: '12.5' }),
+      T('vuln.ghsa_row', { id: 'CVE-2026-90011', product: 'Jellyfin', where: T('vuln.not_in', { where: 'media' }), have: '12.4', fixed: '12.4.2' }),
+      T('vuln.unsure_row', { product: 'Jellyfin', cve: 'GHSA-r9vw-3mqx-hc5f', have: '12.4', where: T('vuln.not_in', { where: 'media' }) })],
+    ['https://github.com/advisories/GHSA-x4m2-9qrc-7hvp', 'https://github.com/advisories/GHSA-p7c3-w2jf-q8mx'], true, true, 4]);
+  const ghLine = ghSec.querySelectorAll('.wm-vuln-counted').map(tx);
+  same('vulnerabilities: what he read of the projects\' advisories, one calm line', ghLine.includes(T('vuln.ghsa_line', { list: 'Jellyfin 7' })), true);
+  await typed('nas');
+  same('vulnerabilities: DSM\'s unsure row says its build as a build', sectionOf(r, 'area.vuln').querySelectorAll('.wm-vuln-not').map((x) => tx(x.querySelector('.row-name')))
+    .includes(T('vuln.unsure_row', { product: 'Synology DSM', cve: 'CVE-2024-10441', have: T('vuln.build', { build: '72806' }), where: T('vuln.not_in', { where: 'nas' }) })), true);
   const ct = await typed('webapp');
   const ctMetas = sectionOf(r, 'area.vuln').querySelectorAll('.row-meta').map(tx);
   same('vulnerabilities: a container\'s name finds its unsure line (its why: the line past its end) and its rows under «What he checked»',

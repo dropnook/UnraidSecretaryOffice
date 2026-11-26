@@ -4189,6 +4189,29 @@
     "known": true,
     "cat": "host",
     "tile": "server"
+   },
+   {
+    "id": "software_vuln",
+    "level": "advice",
+    "p": {
+     "names": "Jellyfin 12.4 (media)",
+     "n": 1,
+     "items": [
+      {
+       "product": "Jellyfin",
+       "where": "media",
+       "have": "12.4",
+       "n": 2,
+       "fixed": "12.5"
+      }
+     ]
+    },
+    "link": {
+     "to": "docker",
+     "path": "/Docker"
+    },
+    "cat": "vuln",
+    "tile": "vuln"
    }
   ],
   "open": 0
@@ -5749,7 +5772,8 @@
     "label": "Synology DSM",
     "nvd": false,
     "why": "lower",
-    "bound": "72806"
+    "bound": "72806",
+    "build": true
    }
   ],
   "host": [
@@ -5802,18 +5826,81 @@
     "where": "nas",
     "product": "synology",
     "version": "72806",
-    "label": "Synology DSM"
+    "label": "Synology DSM",
+    "build": true
+   },
+   {
+    "where": "media",
+    "product": "jellyfin",
+    "version": "12.4ubu2604-ls61",
+    "clean": "12.4",
+    "label": "Jellyfin",
+    "shown": "12.4"
    }
   ],
-  "ct_total": 6,
-  "ct_read": 3,
+  "ct_total": 7,
+  "ct_read": 4,
   "unread": [
    "homevideos",
    "photos",
    "wiki"
   ],
   "unread_n": 3,
-  "vms": 2
+  "vms": 2,
+  "ghsa": [
+   {
+    "id": "GHSA-x4m2-9qrc-7hvp",
+    "cve": null,
+    "product": "jellyfin",
+    "where": "media",
+    "have": "12.4",
+    "sev": "critical",
+    "verdict": "yes",
+    "fixed": "12.5",
+    "name": "Path traversal in the subtitle upload",
+    "pub": "2026-11-02",
+    "label": "Jellyfin"
+   },
+   {
+    "id": "GHSA-p7c3-w2jf-q8mx",
+    "cve": "CVE-2026-90011",
+    "product": "jellyfin",
+    "where": "media",
+    "have": "12.4",
+    "sev": "high",
+    "verdict": "yes",
+    "fixed": "12.4.2",
+    "name": "Stored cross-site scripting in collection names",
+    "pub": "2026-10-14",
+    "label": "Jellyfin"
+   },
+   {
+    "id": "GHSA-r9vw-3mqx-hc5f",
+    "cve": null,
+    "product": "jellyfin",
+    "where": "media",
+    "have": "12.4",
+    "sev": "high",
+    "verdict": "maybe",
+    "fixed": null,
+    "name": "Session fixation",
+    "pub": "2026-09-01",
+    "why": "ghsa",
+    "bound": "> main@4ffa26c9",
+    "label": "Jellyfin"
+   }
+  ],
+  "ghsa_here": [
+   {
+    "product": "jellyfin",
+    "where": "media",
+    "have": "12.4",
+    "kept": 7,
+    "looked": 23,
+    "cut": false,
+    "label": "Jellyfin"
+   }
+  ]
  },
  "tiles": {
   "login": {

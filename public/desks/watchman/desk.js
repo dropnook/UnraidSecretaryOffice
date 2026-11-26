@@ -1538,6 +1538,11 @@ function postureRow(x) {
   meta.appendChild(chip(T(`posture.level_${x.level}`), x.level === 'advice' ? 'accent' : 'quiet', T(`posture.level_${x.level}_text`)));
   main.appendChild(meta);
   main.appendChild(el('div', 'row-detail', T(`posture.${x.id}.why`, params)));
+  // known serious vulnerabilities by the projects' own advisories (2026-11-26): one line per container and program
+  if (x.id === 'software_vuln' && Array.isArray(params.items)) {
+    params.items.filter((i) => i && typeof i.product === 'string' && typeof i.where === 'string').forEach((i) => main.appendChild(el('div', 'row-detail role',
+      T(i.fixed ? 'posture.software_vuln.item' : 'posture.software_vuln.item_open', { product: i.product, have: String(i.have || ''), where: i.where, fixed: String(i.fixed || ''), n: Number(i.n) || 1 }))));
+  }
   // privileged containers that are stopped and start by nothing: not part of the tip, a quiet line in it (inbox #10)
   if (x.id === 'privileged' && params.quiet) main.appendChild(el('div', 'row-detail role', T('posture.privileged.quiet', { quiet: params.quiet, n: Number(params.quiet_n) || 1 })));
   // what your exceptions call intended (1.96): named, no advice (lifted in his setup)
@@ -3837,16 +3842,33 @@ function vulnOffBox() {
  */
 /** The calm lists of «Known vulnerabilities» (checked: doesn't concern you; can't be checked for sure): their lines */
 const vulnLines = (list) => (Array.isArray(list) ? list : []).filter((x) => x && typeof x.cve === 'string');
+/**
+ * The projects' own advisories (2026-11-26, agent: watchman-vuln-advisories.php): their rows — named by the CVE when
+ * they have one, else by the advisory's id; `verdict` yes (the fold «known serious vulnerabilities») or maybe (they join
+ * «Can't be checked for sure»). An older state has none.
+ */
+const GHSA_ID = /^GHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4}$/;
+const vulnGhsa = (v, verdict) => (v && Array.isArray(v.ghsa) ? v.ghsa : [])
+  .filter((x) => x && typeof x.id === 'string' && GHSA_ID.test(x.id) && x.verdict === verdict)
+  .map((x) => ({ ...x, cve: typeof x.cve === 'string' && x.cve ? x.cve : x.id }));
+/** A version as the page says it (2026-11-26): a container's as judged (`shown`), a build number as a build («Build 90080») */
+const vulnVer = (x, v) => {
+  const s = typeof v === 'string' ? v : '';
+  return x && x.build && s ? T('vuln.build', { build: s }) : s;
+};
 /** A line's words for the area's filter: the vulnerability, the product, its name, where it runs, the version */
 const vulnHay = (x) => [x.cve, x.label || '', x.product || '', x.name || '', x.where && x.where !== 'host' ? x.where : '', x.have || ''];
 /** How many lines the calm lists hold (the area's filter counts them with what waits), «What he checked» with them */
 const vulnListCount = () => (state && state.vuln && state.vuln.on !== false
-  ? vulnLines(state.vuln.not).length + vulnLines(state.vuln.unsure).length + vulnLookItems(state.vuln).length : 0);
+  ? vulnLines(state.vuln.not).length + vulnLines(state.vuln.unsure).length + vulnLookItems(state.vuln).length
+    + vulnGhsa(state.vuln, 'yes').length + vulnGhsa(state.vuln, 'maybe').length : 0);
 /** An unsure line's reason (2026-11-25): a bound coarser than the version, a release line past its end then, (2026-11-26) a
  * version that is only where it started (it may have updated itself), or the NVD's word */
 const vulnUnsureWhy = (x) => (x.why === 'rough' && x.bound ? T('vuln.unsure_why_rough', { bound: x.bound })
   : x.why === 'eol' && x.bound ? T('vuln.unsure_why_eol', { line: x.bound })
-  : x.why === 'lower' && x.bound ? T('vuln.unsure_why_lower', { have: x.bound }) : T(x.nvd ? 'vuln.unsure_nvd_asked' : 'vuln.unsure_nvd_wait'));
+  : x.why === 'lower' && x.bound ? T('vuln.unsure_why_lower', { have: vulnVer(x, x.bound === x.have && x.shown ? x.shown : x.bound) })
+  : x.why === 'ghsa' ? T('vuln.unsure_why_ghsa', { range: x.bound || '–' })      // an advisory's own words (2026-11-26)
+  : T(x.nvd ? 'vuln.unsure_nvd_asked' : 'vuln.unsure_nvd_wait'));
 /**
  * «What he checked» (2026-11-25, agent: watchmanVulnLook()): its lines — this server's programs, the containers read, those
  * not read, the routers — each with the words the area's filter meets it by. None in an older state (host null).
@@ -3857,7 +3879,7 @@ function vulnLookItems(v) {
   const unknown = new Set(Array.isArray(v.unknown) ? v.unknown : []);
   return [
     ...v.host.filter((x) => x && typeof x.version === 'string').map((x) => ({ part: 'host', x, hay: [str(x.label), str(x.product), x.version] })),
-    ...(Array.isArray(v.cts) ? v.cts : []).filter((x) => x && typeof x.where === 'string').map((x) => ({ part: 'ct', x, hay: [x.where, str(x.label), str(x.product), str(x.version)] })),
+    ...(Array.isArray(v.cts) ? v.cts : []).filter((x) => x && typeof x.where === 'string').map((x) => ({ part: 'ct', x, hay: [x.where, str(x.label), str(x.product), str(x.shown || x.version)] })),
     ...(Array.isArray(v.unread) ? v.unread : []).filter((n) => typeof n === 'string').map((n) => ({ part: unknown.has(n) ? 'none' : 'unasked', x: n, hay: [n] })),
     ...(Array.isArray(v.routers) ? v.routers : []).filter((x) => x && typeof x.label === 'string').map((x) => ({ part: 'router', x, hay: [x.label, str(x.version)] })),
   ];
@@ -3884,6 +3906,7 @@ function vulnLists(words) {
       : T('vuln.counted_none', { total: fmt.number(v.kev_total) });
     box.appendChild(el('p', 'role wm-vuln-counted', [line, v.pending ? T('vuln.pending', { n: v.pending }) : ''].filter(Boolean).join(' ')));
   }
+  vulnGhsaLines(v).forEach((x) => box.appendChild(x));
   // his limits (2026-11-25), always there, calm: he compares only with what is listed, only for what he knows and can read
   box.appendChild(el('p', 'wm-vuln-limits', T('vuln.limits')));
   // the routers by their own log (2026-11-23): under «What he checked» since 2026-11-25 — an older state without it keeps them here
@@ -3897,17 +3920,24 @@ function vulnLists(words) {
   const checked = fit(v.not);
   const not = checked.filter((x) => !x.ancient);
   const old = checked.filter((x) => x.ancient);           // fixed long before anything the office runs on: folded apart
-  const unsure = fit(v.unsure);
+  const unsure = [...fit(v.unsure), ...fit(vulnGhsa(v, 'maybe'))];      // the projects' advisories' unsure rows join them (2026-11-26)
+  const ghsa = fit(vulnGhsa(v, 'yes'));
   const forced = !!(words && words.length);
-  const notRow = (x) => T(x.fixed ? 'vuln.not_row' : 'vuln.not_row_never', { product: x.label || x.product, cve: x.cve, fixed: x.fixed || '', have: x.have || '', where: where(x) });
+  const have = (x) => vulnVer(x, x.shown || x.have || '');
+  const notRow = (x) => T(x.fixed ? 'vuln.not_row' : 'vuln.not_row_never', { product: x.label || x.product, cve: x.cve, fixed: x.fixed || '', have: have(x), where: where(x) });
   const nvdSaid = (x) => (x.src === 'nvd' ? T('vuln.src_nvd') : '');
+  // known serious vulnerabilities by the projects' own advisories (2026-11-26): critical first (the agent's order), each
+  // with its severity, its summary and a link to the advisory — built from its checked id alone
+  vulnFold(box, 'vuln.ghsa', ghsa, forced, (x) => T(x.fixed ? 'vuln.ghsa_row' : 'vuln.ghsa_row_open', { id: x.cve, product: x.label || x.product, have: have(x),
+    fixed: x.fixed || '', where: where(x) }), (x) => (Office.has(`${ID}.vuln.sev_${x.sev}`) ? T(`vuln.sev_${x.sev}`) : ''), {},
+  (x) => Office.safeHref(`https://github.com/advisories/${x.id}`));
   vulnFold(box, 'vuln.not', not, forced, notRow, nvdSaid);
   vulnFold(box, 'vuln.old', old, forced, notRow, nvdSaid, { floor: v.floor || '7.3.2' });
-  vulnFold(box, 'vuln.unsure', unsure, forced, (x) => T('vuln.unsure_row', { product: x.label || x.product, cve: x.cve, have: x.have || '', where: where(x) }),
+  vulnFold(box, 'vuln.unsure', unsure, forced, (x) => T('vuln.unsure_row', { product: x.label || x.product, cve: x.cve, have: have(x), where: where(x) }),
     vulnUnsureWhy);
   const look = vulnLookItems(v).filter((i) => !forced || Office.fits(words, i.hay));
   vulnLookFold(box, v, look, forced);
-  return { el: box, shown: checked.length + unsure.length + look.length };
+  return { el: box, shown: checked.length + unsure.length + ghsa.length + look.length };
 }
 
 /**
@@ -3958,7 +3988,7 @@ function vulnLookFold(box, v, items, forced) {
     if (total === null) body.appendChild(el('p', 'role', T('vuln.look_ct_none')));
     else if (!total) body.appendChild(el('p', 'role', T('vuln.look_ct_zero')));
     else if (!forced) body.appendChild(el('p', 'role', ctLine));
-    rows(cts, (x) => T('vuln.look_ct_row', { where: x.where, product: x.label || x.product, version: x.version }));
+    rows(cts, (x) => T('vuln.look_ct_row', { where: x.where, product: x.label || x.product, version: vulnVer(x, x.shown || x.version) }));
     // the unread by reason: the image names none of the names he reads, or he couldn't read the image this time; past the
     // list's cap (the state keeps WATCH_VULN_LOOK_MAX names) only how many more
     if (none.length) body.appendChild(el('p', 'role', T('vuln.look_unread_none', { n: none.length, names: names(none) })));
@@ -4003,8 +4033,26 @@ function vulnDownLines() {
   });
 }
 
+/**
+ * What he read of the projects' own advisories (2026-11-26, state.vuln.ghsa_here): one line — per program how many serious
+ * advisories he keeps —, then calmly a version older than what a cut list kept, and a program whose advisories he couldn't
+ * check right now. An older state has none.
+ */
+function vulnGhsaLines(v) {
+  const here = (Array.isArray(v.ghsa_here) ? v.ghsa_here : []).filter((x) => x && typeof x.where === 'string' && typeof x.product === 'string');
+  if (!here.length) return [];
+  const out = [];
+  const read = new Map();
+  here.filter((x) => !x.stale && !x.unread).forEach((x) => read.set(x.label || x.product, Number(x.kept) || 0));
+  if (read.size) out.push(el('p', 'role wm-vuln-counted', T('vuln.ghsa_line', { list: [...read].map(([l, n]) => `${l} ${n}`).join(' · ') })));
+  here.filter((x) => x.older).forEach((x) => out.push(el('p', 'role wm-vuln-ghsa-older',
+    T('vuln.ghsa_older', { product: x.label || x.product, have: vulnVer(x, x.shown || x.have || ''), where: x.where, n: Number(x.kept) || 1 }))));
+  here.filter((x) => x.stale).forEach((x) => out.push(el('p', 'role wm-vuln-ghsa-stale', T('vuln.ghsa_stale', { product: x.label || x.product, where: x.where }))));
+  return out;
+}
+
 /** One calm list, folded: its head with the count, unfolded (or holding the filter's hits) its sentence and a row each */
-function vulnFold(box, key, list, forced, words, more, params) {
+function vulnFold(box, key, list, forced, words, more, params, link) {
   if (!list.length) return;
   const open = forced || knownOpen.has(key);
   const head = el('button', 'btn small plain wm-known-head', `${open ? '▾' : '▸'} ${T(`${key}_title`, { ...(params || {}), n: list.length })}`);
@@ -4020,8 +4068,16 @@ function vulnFold(box, key, list, forced, words, more, params) {
     const r = el('div', 'row nocheck wm-vuln-not');
     const main = el('div', 'row-main');
     main.appendChild(el('div', 'row-name text', words(x)));
-    const meta = [x.name || '', more ? more(x) : ''].filter(Boolean).join(' · ');
+    const meta = [more && link ? more(x) : '', x.name || '', more && !link ? more(x) : ''].filter(Boolean).join(' · ');
     if (meta) main.appendChild(el('div', 'row-meta', meta));
+    const href = link ? link(x) : null;      // (2026-11-26) the advisory on GitHub, from its checked id
+    if (href) {
+      const a = el('a', 'wm-vuln-link', T('vuln.ghsa_link'));
+      a.href = href;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      main.appendChild(a);
+    }
     r.appendChild(main);
     rows.appendChild(r);
   });

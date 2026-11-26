@@ -309,7 +309,13 @@ When you hire him he learns what is normal. Then he walks his round every five m
   server software: databases, web servers, Nextcloud, Immich, Plex, Jellyfin, Home Assistant, Vaultwarden …), and
   Synology DSM in virtual-dsm by the build its storage folder names (read only while its disks are awake). A version
   that is only where the program started (Plex installing another at its start, DSM updating itself) is never called
-  affected.
+  affected. For the software he finds in containers he also reads the project's own security advisories on GitHub
+  (Vaultwarden, Paperless-ngx, Immich, Jellyfin, Home Assistant, Nextcloud, AdGuard Home, n8n, Valkey, Redis, PHP), only
+  those rated «high» or «critical»: one the version here lies in is a hint — «Paperless-ngx 2.1.3 (container paperless):
+  3 known serious vulnerabilities, closed from 2.14.7 — update the container» —, never an entry or a notification;
+  what the maintainers' words don't say cleanly («All», a commit, one bound per release line) stands under «Can't be
+  checked for sure». A build number shows as a build («Build 90080»), a container's version as he judged it («12.4», not
+  the image label's «12.4ubu2604-ls61»).
 
 **How:**
 
@@ -540,7 +546,8 @@ You need Unraid **7.3.2 or a newer 7.x**. Nothing else to install.
   same; nothing of your server goes along. Then services.nvd.nist.gov (NIST's NVD), only for the vulnerabilities that
   concern a program here and that the CVE record can't settle: the request names the CVE id and nothing else, at most 40
   a day, one every 6.5 seconds (NVD's limit without a key). This product uses the NVD API but is not endorsed or certified
-  by the NVD. Your router counts too, passively: MikroTik RouterOS and the UniFi Network Application by the version their
+  by the NVD. And api.github.com, only for the programs found in a container here that publish their advisories there:
+  the request names the project and nothing else, at most three pages of 100 a program and day. Your router counts too, passively: MikroTik RouterOS and the UniFi Network Application by the version their
   own log says (or a UniFi container's image) — the office never logs into a router; without a version it says so.
 - It sends a report only when you send one. No telemetry.
 - The desks never wake a sleeping disk unless you ask. The scheduled backup does, unless you leave sleeping pools out.
