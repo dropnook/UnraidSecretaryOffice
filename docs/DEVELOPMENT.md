@@ -937,7 +937,12 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   one-page list, WATCH_VULN_GHSA_TIME; the maintainers' range read as one lower and one upper bound or a version alone
   (`after` in watchmanVulnRange() for «> X»), anything else unsure (reason `ghsa`) unless past every fix; affected rows the
   tip `software_vuln` (advice) and the fold `vuln.ghsa`, unsure rows join `vuln.unsure`; state.json vuln_look `ghsa`,
-  `ghsa_here` (additive); a CVE CISA's list has for the product is left to it. Same day: the CVE records' part bounded by
+  `ghsa_here` (additive); a CVE CISA's list has for the product is left to it. Round 2: «and below/above», «=>» read as
+  operators; a list with one bound per release line read per line (watchmanVulnGhsaLines(); line = major.minor, or the
+  one line the list names for the version's major); words still not comparable with a CVE decided by its CVE record, then
+  NVD (watchmanVulnGhsaByCve(); the job wants those CVEs after the exploited list's — watchmanVulnGhsaCves(), judged anew
+  from the files so a settled one stays wanted —, NVD after the list's unsure); the page shows one row per advisory,
+  program and version naming its containers. Same day: the CVE records' part bounded by
   WATCH_VULN_CVE_TIME, status.json written at the job's start and after each part, a record that came in the job (`pending`
   in the last look) asked of NVD the same day; the page shows a container's version as judged (`shown`, look rows `clean`)
   and a `build` product's value as «Build …»); «long fixed» below WATCH_VULN_FLOOR — the kernel line of the .plg's min

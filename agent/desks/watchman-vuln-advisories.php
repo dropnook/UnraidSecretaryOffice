@@ -40,6 +40,12 @@ declare(strict_types=1);
  * a lower bound alone without a clean fixed version, a version named alone above the one here. The one exception, the
  * same as a CVE record's: a version at or past every fixed version the advisory names (and above every bound) is not
  * affected — a later release line.
+ * Round 2 (2026-11-26, from the first real runs): wordings that mean a bound («7.2.10 and below», «8.1.4 and above», the
+ * typo «=>») are read as the operator (watchmanVulnGhsaWords()); a list with one bound per release line (Valkey's «<= 9.1.3,
+ * <= 9.0.7 …» with «9.1.4, 9.0.8 …», Redis' «>= 2.8.18» with «6.2.16, 7.2.6, 7.4.1», n8n's «< 2.48.3» · «< 3.2.2») is read per
+ * line (watchmanVulnGhsaLines(): the version's own line decides; newer than every line with a fix named: not affected;
+ * older, between, an rc line or TBD: unsure); and words that still can't be compared, with a CVE, are decided by that CVE's
+ * record, then NVD (watchmanVulnGhsaByCve(): the same files, caps and daily budgets, fetched after the exploited list's own).
  * Shown calmly: never an entry in the watch book, never a notification (those stay for the actively exploited); «affected»
  * rows make the tip `software_vuln` (advice, «I know, thanks»), the rows themselves fold in the area, the unsure ones join
  * «Can't be checked for sure». An advisory whose CVE CISA's list has for the product is left to that list.
@@ -397,12 +403,19 @@ function watchmanVulnGhsaFixed(array $fixed): ?array
 function watchmanVulnGhsaVerdict(array $it, string $have): array
 {
     $h = watchmanVulnParse($have);
-    $ranges = array_values(array_filter((array) ($it['ranges'] ?? []), 'is_string'));
-    $words = implode(' · ', array_map(fn ($r) => $r === '' ? '–' : $r, $ranges));
-    if ($h === null || !$ranges) {
+    $raw = array_values(array_filter((array) ($it['ranges'] ?? []), 'is_string'));
+    $words = implode(' · ', array_map(fn ($r) => $r === '' ? '–' : $r, $raw));        // their own words, for the page
+    if ($h === null || !$raw) {
         return ['maybe', null, 'ghsa', $words];
     }
-    $fixed = watchmanVulnGhsaFixed((array) ($it['fixed'] ?? []));
+    // (round 2, 2026-11-26) wordings that mean a bound: «7.2.10 and below», «8.1.4 and above», the typo «=>»
+    $ranges = array_map('watchmanVulnGhsaWords', $raw);
+    $fixedWords = array_map(fn ($x) => is_string($x) ? watchmanVulnGhsaWords($x) : $x, (array) ($it['fixed'] ?? []));
+    $byLine = watchmanVulnGhsaLines($ranges, $fixedWords, $h);       // one bound per release line, read per line (or null: not such a list)
+    if ($byLine !== null && ($byLine[2] ?? null) === 'ghsa') {
+        $byLine[3] = $words;
+    }
+    $fixed = watchmanVulnGhsaFixed($fixedWords);
     $oneFix = $fixed !== null && count(array_unique($fixed)) === 1 ? $fixed[0] : null;
     $bounds = array_map('watchmanVulnGhsaBounds', $ranges);
     // past everything it names: every fixed version (all clean) and every bound — whatever the ranges' words
@@ -438,7 +451,7 @@ function watchmanVulnGhsaVerdict(array $it, string $have): array
     };
     $loose = count(array_filter($bounds, fn ($b) => $b !== null && !isset($b['lo']) && !isset($b['eq']))) > 1;     // several lines, each «< X»
     if (in_array(null, $bounds, true) || $loose) {
-        return $past() ?? ['maybe', null, 'ghsa', $words];
+        return $byLine ?? $past() ?? ['maybe', null, 'ghsa', $words];
     }
     $versions = [];
     foreach ($bounds as $b) {
@@ -457,7 +470,7 @@ function watchmanVulnGhsaVerdict(array $it, string $have): array
         if ($hi === null) {
             // a lower bound alone: affected from there until its one clean fix — no fix named, nothing to compare
             if ($oneFix === null || watchmanVulnCmp(watchmanVulnParse($oneFix), watchmanVulnParse($b['lo'])) <= 0) {
-                return $past() ?? ['maybe', null, 'ghsa', $words];
+                return $byLine ?? $past() ?? ['maybe', null, 'ghsa', $words];
             }
             [$hi, $incl] = [$oneFix, false];
         }
@@ -474,6 +487,144 @@ function watchmanVulnGhsaVerdict(array $it, string $have): array
     return [$v[0], $oneFix ?? $v[1]];
 }
 
+/**
+ * Wordings that mean a bound (round 2, 2026-11-26) → the operator: «7.2.10 and below» → «<= 7.2.10», «8.1.4 and above»
+ * («and newer», «and later») → «>= 8.1.4», «and older/earlier» → «<=», the typo «=>» → «>=», «=<» → «<=» — per comma part,
+ * nothing else changed
+ */
+function watchmanVulnGhsaWords(string $text): string
+{
+    $parts = [];
+    foreach (explode(',', $text) as $part) {
+        $x = trim($part);
+        $x = preg_replace('/^=>/', '>=', $x) ?? $x;
+        $x = preg_replace('/^=</', '<=', $x) ?? $x;
+        $x = preg_replace('/^(v?\d[0-9A-Za-z.-]{0,40})\s+and\s+(?:below|older|earlier)$/Di', '<= $1', $x) ?? $x;
+        $x = preg_replace('/^(v?\d[0-9A-Za-z.-]{0,40})\s+and\s+(?:above|newer|later)$/Di', '>= $1', $x) ?? $x;
+        $parts[] = $x;
+    }
+    return implode(', ', $parts);
+}
+
+/**
+ * A list with one bound per release line, read per line (round 2, 2026-11-26: Valkey's «<= 9.2.0-rc2, <= 9.1.3, <= 9.0.7 …»
+ * with «9.2.0, 9.1.4, 9.0.8 …»; Redis' «>= 2.8.18» with «6.2.16, 7.2.6, 7.4.1»; Nextcloud's «>= 32.0.0, >= 33.0.0» with
+ * «32.0.13, 33.0.7»; n8n's «< 2.48.3» · «< 2.47.6» · «< 3.2.2») → [verdict, fixed, why?, bound?], or null: not such a list.
+ *
+ * Such a list: every range part an upper bound («<», «<=»), a lower bound or «All»/nothing — and at least two upper bounds,
+ * two lower bounds or two fixed versions; the fixed versions clean («TBD», «N/A» name none). Each entry belongs to a
+ * release line (major.minor), at most one upper bound, one lower bound and one fix a line — else null. One lower bound
+ * alone (beside several lines) is the list's start: below it not affected.
+ * The line of the version here: of the entries with its major, the one line they name when they name only one (a product
+ * whose lines are majors — Nextcloud's 34.x, n8n's 3.x —, as the list itself shows it), else its own major.minor when
+ * listed. Then:
+ *   its line listed   — only that line's bound and fix: below the fix (at or below an inclusive bound) affected, «fixed
+ *                       from» the line's fix; at or past it not affected; below the line's own start not affected. A
+ *                       pre-release bound or fix («9.2.0-rc2») in its line, bound and fix that disagree, a line without an
+ *                       end: unsure. An inclusive bound coarser than the version («<= 8.0» for 8.0.3): unsure (rough)
+ *   newer than every  — not affected (a newer line was born with the fix), but only when the newest listed line names a
+ *   listed line         clean fix (a fixed version, or an exclusive bound) — not while it says TBD or only an rc
+ *   older than every listed line, or between lines without being listed: unsure, as before
+ */
+function watchmanVulnGhsaLines(array $ranges, array $fixedWords, array $h): ?array
+{
+    $ver = '(?:v)?(\d{1,9}(?:\.\d{1,9}){0,4})(-(?:rc|beta|alpha|pre)\.?\d{0,4})?';
+    $uppers = $lowers = $fixes = [];
+    foreach ($ranges as $r) {
+        foreach (explode(',', (string) $r) as $part) {
+            $x = trim($part);
+            if ($x === '' || preg_match('/^all(?: versions)?$/Di', $x)) {
+                continue;
+            }
+            if (!preg_match('/^(<=|<|>=|>)\s*' . $ver . '$/Di', $x, $m) || ($p = watchmanVulnParse($m[2])) === null) {
+                return null;            // an exact version, a branch, words: not such a list
+            }
+            $e = ['v' => $p, 'text' => $m[2], 'pre' => ($m[3] ?? '') !== '', 'incl' => strlen($m[1]) === 2];
+            if ($m[1][0] === '<') {
+                $uppers[] = $e;
+            } else {
+                $lowers[] = $e;
+            }
+        }
+    }
+    foreach ($fixedWords as $f) {
+        foreach (is_string($f) ? explode(',', $f) : [] as $part) {
+            $x = trim($part);
+            if ($x === '' || preg_match('/^(?:tbd|n\/a|na|none|-|unpatched|not fixed(?: yet)?)$/Di', $x)) {
+                continue;           // none named (the newest line's fix is looked for below)
+            }
+            if (!preg_match('/^(?:>=\s*)?' . $ver . '$/Di', $x, $m) || ($p = watchmanVulnParse($m[1])) === null) {
+                return null;            // «6.2.X», words
+            }
+            $fixes[] = ['v' => $p, 'text' => $m[1], 'pre' => ($m[2] ?? '') !== ''];
+        }
+    }
+    if (count($uppers) < 2 && count($lowers) < 2 && count($fixes) < 2) {
+        return null;
+    }
+    $start = null;          // one lower bound beside several lines: the list's start
+    if (count($lowers) === 1) {
+        $start = $lowers[0];
+        $lowers = [];
+    }
+    $mm = fn (array $v): string => ($v[0][0] ?? 0) . '.' . ($v[0][1] ?? 0);
+    $lines = [];
+    foreach (['hi' => $uppers, 'lo' => $lowers, 'fix' => $fixes] as $kind => $list) {
+        foreach ($list as $e) {
+            $k = $mm($e['v']);
+            if (isset($lines[$k][$kind])) {
+                return null;            // two of a kind in one line: not one bound per line
+            }
+            $lines[$k][$kind] = $e;
+        }
+    }
+    if ($start !== null && watchmanVulnCmp($h, $start['v']) < ($start['incl'] ? 0 : 1)) {
+        return ['no', null];            // below where the list begins
+    }
+    // its line: of the entries with its major the one line they name, else its own major.minor
+    $major = array_values(array_filter(array_keys($lines), fn ($k) => (int) explode('.', (string) $k)[0] === ($h[0][0] ?? 0)));
+    $line = count($major) === 1 ? $lines[$major[0]] : ($lines[$mm($h)] ?? null);
+    if ($line !== null) {
+        $hi = $line['hi'] ?? null;
+        $fix = $line['fix'] ?? null;
+        $lo = $line['lo'] ?? null;
+        if (($hi !== null && $hi['pre']) || ($fix !== null && $fix['pre'])) {
+            return ['maybe', null, 'ghsa', ''];
+        }
+        if ($lo !== null && watchmanVulnCmp($h, $lo['v']) < ($lo['incl'] ? 0 : 1)) {
+            return ['no', null];        // below the line's own start
+        }
+        if ($hi === null && $fix === null) {
+            return ['maybe', null, 'ghsa', ''];         // a line without an end
+        }
+        if ($hi !== null && $hi['incl'] && watchmanVulnCoarser($h, $hi['v'])) {
+            return ['maybe', null, 'rough', $hi['text']];
+        }
+        $byHi = $hi === null ? null : watchmanVulnCmp($h, $hi['v']) < ($hi['incl'] ? 1 : 0);
+        $byFix = $fix === null ? null : watchmanVulnCmp($h, $fix['v']) < 0;
+        if ($byHi !== null && $byFix !== null && $byHi !== $byFix) {
+            return ['maybe', null, 'ghsa', ''];         // its bound and its fix disagree
+        }
+        $fixedFrom = $fix['text'] ?? ($hi !== null && !$hi['incl'] ? $hi['text'] : null);
+        return [($byHi ?? $byFix) ? 'yes' : 'no', $fixedFrom];
+    }
+    // not listed: newer than every listed line — with a clean fix named for the newest one
+    $top = $topV = null;
+    foreach ($lines as $k => $l) {
+        foreach ($l as $kind => $e) {
+            if (watchmanVulnCmp($h, $e['v']) < ($kind === 'fix' || ($kind === 'hi' && !$e['incl']) ? 0 : 1)) {
+                return ['maybe', null, 'ghsa', ''];     // older than a listed line, or between them
+            }
+            if ($topV === null || watchmanVulnCmp($e['v'], $topV) > 0) {
+                [$top, $topV] = [(string) $k, $e['v']];
+            }
+        }
+    }
+    $newest = $top !== null ? $lines[$top] : [];
+    $clean = (isset($newest['fix']) && !$newest['fix']['pre']) || (isset($newest['hi']) && !$newest['hi']['incl'] && !$newest['hi']['pre']);
+    return $clean ? ['no', null] : ['maybe', null, 'ghsa', ''];
+}
+
 // ===================================================================== judging what is here
 
 /**
@@ -486,7 +637,8 @@ function watchmanVulnGhsaVerdict(array $it, string $have): array
  */
 function watchmanVulnGhsaJudge(string $dir, array $inv, int $now, array $kev = []): array
 {
-    $f = watchmanVulnDir($dir) . '/ghsa';
+    $fd = watchmanVulnDir($dir);
+    $f = "$fd/ghsa";
     $all = watchmanVulnGhsaProducts();
     $rows = $here = $files = $seen = [];
     foreach ($inv as $x) {
@@ -519,6 +671,13 @@ function watchmanVulnGhsaJudge(string $dir, array $inv, int $now, array $kev = [
                 continue;           // CISA's list has it: the exploited one wins, never twice
             }
             $v = watchmanVulnGhsaVerdict($it, $x['clean']);
+            // (round 2) words that can't be compared, with a CVE: the machinery that exists decides — its CVE record, then
+            // NVD (fetched by the job as the exploited list's are, after them); a clean verdict replaces the unsure one
+            $src = null;
+            $asked = [];
+            if ($v[0] === 'maybe' && ($v[2] ?? null) === 'ghsa' && $cve !== null) {
+                [$v, $src, $asked] = watchmanVulnGhsaByCve($fd, $id, $cve, $x['clean'], $v);
+            }
             if ($v[0] === 'yes' && !empty(WATCH_VULN_PRODUCTS[$id]['self'])) {
                 $v = ['maybe', $v[1], 'lower', $shown];
             }
@@ -527,12 +686,102 @@ function watchmanVulnGhsaJudge(string $dir, array $inv, int $now, array $kev = [
             }
             $rows[] = ['id' => $it['id'], 'cve' => $cve, 'product' => $id, 'where' => $x['where'], 'have' => $shown, 'sev' => $it['sev'], 'verdict' => $v[0],
                        'fixed' => $v[1], 'name' => mb_strcut((string) ($it['sum'] ?? ''), 0, 120, 'UTF-8'), 'pub' => is_string($it['pub'] ?? null) ? $it['pub'] : null]
-                + (isset($v[2]) ? ['why' => $v[2], 'bound' => mb_substr((string) $v[3], 0, 120)] : []);
+                + (isset($v[2]) ? ['why' => $v[2], 'bound' => mb_substr((string) $v[3], 0, 120)] : []) + ($src !== null ? ['src' => $src] : []) + $asked;
         }
     }
     usort($rows, fn ($a, $b) => ($b['verdict'] === 'yes') <=> ($a['verdict'] === 'yes') ?: WATCH_VULN_GHSA_SEV[$b['sev']] <=> WATCH_VULN_GHSA_SEV[$a['sev']]
         ?: strcmp((string) $b['pub'], (string) $a['pub']) ?: strcmp($a['id'], $b['id']));
     return ['ghsa' => array_slice($rows, 0, WATCH_VULN_LOOK_MAX), 'ghsa_here' => array_slice($here, 0, WATCH_VULN_LOOK_MAX)];
+}
+
+/**
+ * An advisory the words of which can't be compared, by its CVE (round 2, 2026-11-26): the CVE record (feeds/cve/), then
+ * NVD's answer (feeds/nvd/) — the same verdict as for the exploited list's (watchmanVulnVerdict(), the product's `cna`).
+ * → [verdict (the clean one, or the advisory's own unsure), src 'cve'|'nvd'|null, what was asked: rec (the record here
+ * or asked without one), nvd (NVD answered)]
+ *
+ * @return array{0: array, 1: ?string, 2: array{rec?: bool, nvd?: bool}}
+ */
+function watchmanVulnGhsaByCve(string $fd, string $product, string $cve, string $clean, array $v): array
+{
+    $p = WATCH_VULN_PRODUCTS[$product] ?? null;
+    if ($p === null || !preg_match('/^CVE-\d{4}-\d{4,7}$/D', $cve)) {
+        return [$v, null, []];
+    }
+    $letters = !empty($p['letters']);
+    $rec = readJson("$fd/cve/$cve.json");
+    $by = is_array($rec) ? watchmanVulnVerdict($rec, $p['cna'], $clean, $letters) : ['maybe', null];
+    if ($by[0] !== 'maybe') {
+        return [[$by[0], $by[1]], 'cve', []];
+    }
+    $nvd = readJson("$fd/nvd/$cve.json");
+    $byNvd = is_array($nvd) ? watchmanVulnVerdict($nvd, $p['cna'], $clean, $letters) : ['maybe', null];
+    if ($byNvd[0] !== 'maybe') {
+        return [[$byNvd[0], $byNvd[1]], 'nvd', []];
+    }
+    $tried = readJson("$fd/cve-tried.json");
+    return [$v, null, ['rec' => is_array($rec) || isset($tried[$cve]), 'nvd' => is_array($nvd)]];
+}
+
+/**
+ * The CVEs of the kept advisories whose words can't be compared for a version his last look read in a container
+ * (state.json vuln_look.cts, the advisories' files — judged anew, not from the last rows: a CVE its record settled stays
+ * wanted, or its record would go and the row come back the next day) → [cve, product, version] each; the job fetches
+ * their records after the exploited list's (watchmanVulnFetch())
+ *
+ * @return list<array{0: string, 1: string, 2: string}>
+ */
+function watchmanVulnGhsaCveRows(string $fd, array $look): array
+{
+    $all = watchmanVulnGhsaProducts();
+    $out = $files = [];
+    foreach (is_array($look['cts'] ?? null) ? $look['cts'] : [] as $x) {
+        $id = is_array($x) && is_string($x['product'] ?? null) ? $x['product'] : '';
+        if (!isset($all[$id]) || !is_string($x['version'] ?? null)) {
+            continue;
+        }
+        $clean = is_string($x['clean'] ?? null) ? $x['clean'] : watchmanVulnShownClean($id, $x['version']);
+        $files[$id] ??= readJson("$fd/ghsa/$id.json");
+        if ($clean === null || !is_array($files[$id]['items'] ?? null)) {
+            continue;
+        }
+        foreach ($files[$id]['items'] as $it) {
+            $cve = is_array($it) && is_string($it['cve'] ?? null) && preg_match('/^CVE-\d{4}-\d{4,7}$/D', $it['cve']) ? $it['cve'] : null;
+            if ($cve === null || isset($out["$cve|$id|$clean"])) {
+                continue;
+            }
+            $v = watchmanVulnGhsaVerdict($it, $clean);
+            if ($v[0] === 'maybe' && ($v[2] ?? null) === 'ghsa') {
+                $out["$cve|$id|$clean"] = [$cve, $id, $clean];
+            }
+        }
+    }
+    return array_values($out);
+}
+
+/** The CVEs of watchmanVulnGhsaCveRows(), once each */
+function watchmanVulnGhsaCves(string $fd, array $look): array
+{
+    return array_values(array_unique(array_column(watchmanVulnGhsaCveRows($fd, $look), 0)));
+}
+
+/**
+ * Of those, the ones to ask NVD: their record is here and can't settle it for that version, or it was asked and didn't
+ * come ($tried) — after the exploited list's own (watchmanVulnFetch(), NVD's caps)
+ *
+ * @return list<string>
+ */
+function watchmanVulnGhsaNvd(string $fd, array $look, array $tried): array
+{
+    $out = [];
+    foreach (watchmanVulnGhsaCveRows($fd, $look) as [$cve, $id, $clean]) {
+        $p = WATCH_VULN_PRODUCTS[$id];
+        $rec = readJson("$fd/cve/$cve.json");
+        if (isset($tried[$cve]) || (is_array($rec) && watchmanVulnVerdict($rec, $p['cna'], $clean, !empty($p['letters']))[0] === 'maybe')) {
+            $out[] = $cve;
+        }
+    }
+    return array_values(array_unique($out));
 }
 
 /**

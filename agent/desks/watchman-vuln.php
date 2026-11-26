@@ -1084,7 +1084,10 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
 
     // the CVE records of the kept entries: new ones first, then the oldest
     $want = array_values(array_unique(array_column(is_array($kept) ? (array) ($kept['entries'] ?? []) : [], 'cve')));
-    $want = array_slice($want, 0, WATCH_VULN_CVE_MAX);
+    // (round 2, 2026-11-26) and after them the CVEs of the projects' advisories his last look couldn't compare
+    // (watchman-vuln-advisories.php: «All», «TBD» …) — the same records, caps and files; the exploited list's come first
+    $look = (array) ((readJson("$dir/state.json") ?? [])['vuln_look'] ?? []);
+    $want = array_slice(array_values(array_unique(array_merge($want, watchmanVulnGhsaCves($f, $look)))), 0, WATCH_VULN_CVE_MAX);
     $have = [];
     $undated = [];          // kept by an older office, reduced without its publication date (2026-11-25): asked anew first
     foreach (glob("$f/cve/CVE-*.json") ?: [] as $file) {
@@ -1160,14 +1163,14 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
     }
     // (2026-11-26: not those unsure only because the record said «affected» for a version that is a lower bound — NVD can't
     // change that; a build below a fix (DSM, watchmanVulnBuildVerdict()) is asked: NVD's ranges may place it)
-    $look = (array) ((readJson("$dir/state.json") ?? [])['vuln_look'] ?? []);
     $unsure = $ctx['unsure'] ?? array_column(array_filter((array) ($look['unsure'] ?? []),
         fn ($x) => is_array($x) && (($x['why'] ?? null) !== 'lower' || !empty(WATCH_VULN_PRODUCTS[(string) ($x['product'] ?? '')]['build']))), 'cve');
     // 2026-11-26 (Plex 1.43.4 and CVE-2020-5741 on a test server: «can't be checked for sure», nvd false): the last round's
     // `unsure` holds only what it could judge — a record still to come then (`pending`, every record of a first fetch, of a
     // product the name table got since) was fetched by this very job, so its NVD answer waited a whole day more. Those
     // whose record came now and can't settle it for a version his last look read are asked today too.
-    $unsure = array_merge($unsure, watchmanVulnNvdPending($f, $look, is_array($kept) ? (array) ($kept['entries'] ?? []) : []));
+    $unsure = array_merge($unsure, watchmanVulnNvdPending($f, $look, is_array($kept) ? (array) ($kept['entries'] ?? []) : []),
+        watchmanVulnGhsaNvd($f, $look, $tried));        // the advisories' CVEs their record can't settle either: after the list's own
     $unsure = array_values(array_unique(array_filter($unsure, fn ($x) => is_string($x) && in_array($x, $want, true))));
     $nvdHave = [];
     $nvdUndated = [];       // an older office's answer, kept without its publication date: asked anew after the new ones
