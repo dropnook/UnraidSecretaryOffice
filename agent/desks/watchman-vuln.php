@@ -900,6 +900,22 @@ function watchmanVulnCveUrl(string $cve): ?string
     return WATCH_VULN_URLS['cve'] . $m[1] . '/' . intdiv((int) $m[2], 1000) . 'xxx/' . $cve . '.json';
 }
 
+/**
+ * The name table's KEV names as one short mark, kept beside the filtered list (kev.json `for`): the list is asked «only
+ * when newer» only while the table that filtered it is the same.
+ */
+function watchmanVulnKevFor(): string
+{
+    $names = [];
+    foreach (WATCH_VULN_PRODUCTS as $id => $p) {
+        foreach ($p['kev'] as $name) {
+            $names[] = "$id=$name";
+        }
+    }
+    sort($names);
+    return substr(hash('sha256', implode("\n", $names)), 0, 16);
+}
+
 /** The name table's product for a KEV entry (vendorProject|product, lower case), or null */
 function watchmanVulnKevProduct(string $vendor, string $product): ?string
 {
@@ -982,8 +998,10 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
     $res = ['kev' => null, 'cve' => 0, 'unraid' => null, 'nvd' => 0];
 
     // KEV: only when newer than what is kept
+    // (2026-11-26) what is kept holds only the entries of the name table that filtered it: a table that grew since (an
+    // update of the office) asks for the whole list once, or «not changed» would keep the new products' entries away
     $kept = readJson("$f/kev.json");
-    $since = is_array($kept) && is_string($kept['lm'] ?? null) ? $kept['lm'] : null;
+    $since = is_array($kept) && is_string($kept['lm'] ?? null) && ($kept['for'] ?? null) === watchmanVulnKevFor() ? $kept['lm'] : null;
     $a = $may('kev') ? watchmanVulnGet(WATCH_VULN_URLS['kev'], WATCH_VULN_MAX['kev'], $since, $ctx) : ['code' => -1, 'body' => '', 'lm' => null, 'err' => null];
     if ($a['code'] === -1) {
         // waiting out its back-off: what was kept stays
@@ -1009,7 +1027,7 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
                               'ransom' => ($e['knownRansomwareCampaignUse'] ?? '') === 'Known',
                               'desc' => mb_substr((string) ($e['shortDescription'] ?? ''), 0, WATCH_VULN_DESC)];
             }
-            writeAtomic("$f/kev.json", jsonEncode(['v' => 1, 'fetched' => $now, 'lm' => $a['lm'], 'count' => count($list),
+            writeAtomic("$f/kev.json", jsonEncode(['v' => 1, 'fetched' => $now, 'lm' => $a['lm'], 'for' => watchmanVulnKevFor(), 'count' => count($list),
                 'catalog' => is_string($j['catalogVersion'] ?? null) ? mb_substr($j['catalogVersion'], 0, 20) : null, 'entries' => $entries]), 0600, 0, 0);
             $kept = readJson("$f/kev.json");
             $mark('kev', null);

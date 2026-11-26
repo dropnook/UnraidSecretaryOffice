@@ -21757,7 +21757,16 @@ function testWatchmanVuln(): void
     $r = watchmanVulnFetch($dir, ['get' => $get, 'now' => $t0 + 86400]);
     same('vuln fetch: the next day — «only when newer» (304: kept), the records not asked again within their week', [[WATCH_VULN_URLS['kev'], 'Fri, 20 Nov 2026 17:48:39 GMT'], [WATCH_VULN_URLS['unraid'], null], null, $t0 + 86400],
         [$asked[0], $asked[1] ?? null, $r['kev'], readJson("$f/status.json")['kev']['ok'] ?? null]);
-    // a broken list (an error page, a cut file, too few entries): what was kept stays, the error is noted
+    // kept by an office whose name table was another one (no mark, or another): the whole list once, never «only when newer»
+    foreach ([array_diff_key(readJson("$f/kev.json"), ['for' => 1]), ['for' => 'another'] + readJson("$f/kev.json")] as $older) {
+        writeAtomic("$f/kev.json", jsonEncode($older), 0600, 0, 0);
+        /** @var list<array{0: string, 1: ?string}> $asked */
+        $asked = [];
+        watchmanVulnFetch($dir, ['get' => $get, 'now' => $t0 + 86400]);
+        same('vuln fetch: a list another name table filtered — asked whole, and marked with this table', [[WATCH_VULN_URLS['kev'], null], watchmanVulnKevFor()],
+            [$asked[0] ?? null, readJson("$f/kev.json")['for'] ?? null]);
+    }
+    same('vuln fetch: the mark is 16 hex characters and the list kept as before', [1, 4], [preg_match('/^[0-9a-f]{16}$/D', watchmanVulnKevFor()), count(readJson("$f/kev.json")['entries'])]);
     foreach (['<html>Access Denied</html>', '{"vulnerabilities":[]}', substr(json_encode($kev), 0, 5000)] as $bad) {
         $kevAnswer = fn (?string $since) => ['code' => 200, 'body' => $bad, 'lm' => null, 'err' => null];
         watchmanVulnFetch($dir, ['get' => $get, 'now' => $t0 + 2 * 86400]);
