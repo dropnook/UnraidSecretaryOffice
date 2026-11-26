@@ -33,6 +33,7 @@
   "vuln.not_row": "{product}{where}: vulnerability {cve}, fixed from {fixed}. Here runs {have}.",
   "vuln.not_row_never": "{product}{where}: vulnerability {cve}. Here runs {have} — never affected.",
   "vuln.not_in": " in the container {where}",
+  "vuln.not_in_many": " in the containers {where}",
   "vuln.unsure_title": {"one": "Can't be checked for sure ({n})", "other": "Can't be checked for sure ({n})"},
   "vuln.unsure_sub": "Whether these vulnerabilities concern your version, he can't say for sure — each line says why. So he doesn't tell them and doesn't count them.",
   "vuln.unsure_row": "{product}{where}: vulnerability {cve}. Here runs {have}.",

@@ -3848,16 +3848,28 @@ const vulnLines = (list) => (Array.isArray(list) ? list : []).filter((x) => x &&
  * «Can't be checked for sure»). An older state has none.
  */
 const GHSA_ID = /^GHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4}$/;
-const vulnGhsa = (v, verdict) => (v && Array.isArray(v.ghsa) ? v.ghsa : [])
-  .filter((x) => x && typeof x.id === 'string' && GHSA_ID.test(x.id) && x.verdict === verdict)
-  .map((x) => ({ ...x, cve: typeof x.cve === 'string' && x.cve ? x.cve : x.id }));
+function vulnGhsa(v, verdict) {
+  // (round 2) the same advisory for the same program and version in several containers is one row naming them all —
+  // 11 advisories of PHP in 3 containers are 11 rows, not 33 (the tip keeps a line per container)
+  const rows = new Map();
+  (v && Array.isArray(v.ghsa) ? v.ghsa : [])
+    .filter((x) => x && typeof x.id === 'string' && GHSA_ID.test(x.id) && x.verdict === verdict && typeof x.where === 'string')
+    .forEach((x) => {
+      const key = [x.id, x.product, x.shown || x.have, x.fixed, x.why, x.bound, x.src].map((p) => String(p || '')).join('|');
+      const had = rows.get(key);
+      if (had) { if (!had.wheres.includes(x.where)) had.wheres.push(x.where); return; }
+      rows.set(key, { ...x, cve: typeof x.cve === 'string' && x.cve ? x.cve : x.id, wheres: [x.where] });
+    });
+  return [...rows.values()];
+}
 /** A version as the page says it (2026-11-26): a container's as judged (`shown`), a build number as a build («Build 90080») */
 const vulnVer = (x, v) => {
   const s = typeof v === 'string' ? v : '';
   return x && x.build && s ? T('vuln.build', { build: s }) : s;
 };
 /** A line's words for the area's filter: the vulnerability, the product, its name, where it runs, the version */
-const vulnHay = (x) => [x.cve, x.label || '', x.product || '', x.name || '', x.where && x.where !== 'host' ? x.where : '', x.have || ''];
+const vulnHay = (x) => [x.cve, x.label || '', x.product || '', x.name || '', x.where && x.where !== 'host' ? x.where : '', x.have || '',
+  ...(Array.isArray(x.wheres) ? x.wheres : []), typeof x.id === 'string' ? x.id : ''];
 /** How many lines the calm lists hold (the area's filter counts them with what waits), «What he checked» with them */
 const vulnListCount = () => (state && state.vuln && state.vuln.on !== false
   ? vulnLines(state.vuln.not).length + vulnLines(state.vuln.unsure).length + vulnLookItems(state.vuln).length
@@ -3867,7 +3879,8 @@ const vulnListCount = () => (state && state.vuln && state.vuln.on !== false
 const vulnUnsureWhy = (x) => (x.why === 'rough' && x.bound ? T('vuln.unsure_why_rough', { bound: x.bound })
   : x.why === 'eol' && x.bound ? T('vuln.unsure_why_eol', { line: x.bound })
   : x.why === 'lower' && x.bound ? T('vuln.unsure_why_lower', { have: vulnVer(x, x.bound === x.have && x.shown ? x.shown : x.bound) })
-  : x.why === 'ghsa' ? T('vuln.unsure_why_ghsa', { range: x.bound || '–' })      // an advisory's own words (2026-11-26)
+  : x.why === 'ghsa' ? [T('vuln.unsure_why_ghsa', { range: x.bound || '–' }),      // an advisory's own words (2026-11-26)
+    x.nvd ? T('vuln.unsure_nvd_asked') : x.rec ? T('vuln.unsure_nvd_wait') : ''].filter(Boolean).join(' ')     // (round 2) its CVE record, NVD
   : T(x.nvd ? 'vuln.unsure_nvd_asked' : 'vuln.unsure_nvd_wait'));
 /**
  * «What he checked» (2026-11-25, agent: watchmanVulnLook()): its lines — this server's programs, the containers read, those
@@ -3915,7 +3928,8 @@ function vulnLists(words) {
       .forEach((x) => box.appendChild(el('p', 'role wm-vuln-router', vulnRouterWords(x))));
   }
   if (Number.isInteger(v.kev_total)) box.appendChild(el('p', 'wm-vuln-nvd-note', T('vuln.nvd_notice')));     // NVD's terms of use: this notice, as they word it
-  const where = (x) => (x.where && x.where !== 'host' ? T('vuln.not_in', { where: x.where }) : '');
+  const where = (x) => (Array.isArray(x.wheres) && x.wheres.length > 1 ? T('vuln.not_in_many', { where: x.wheres.join(', ') })
+    : x.where && x.where !== 'host' ? T('vuln.not_in', { where: x.where }) : '');
   const fit = (list) => vulnLines(list).filter((x) => !words || !words.length || Office.fits(words, vulnHay(x)));
   const checked = fit(v.not);
   const not = checked.filter((x) => !x.ancient);
@@ -3929,7 +3943,8 @@ function vulnLists(words) {
   // known serious vulnerabilities by the projects' own advisories (2026-11-26): critical first (the agent's order), each
   // with its severity, its summary and a link to the advisory — built from its checked id alone
   vulnFold(box, 'vuln.ghsa', ghsa, forced, (x) => T(x.fixed ? 'vuln.ghsa_row' : 'vuln.ghsa_row_open', { id: x.cve, product: x.label || x.product, have: have(x),
-    fixed: x.fixed || '', where: where(x) }), (x) => (Office.has(`${ID}.vuln.sev_${x.sev}`) ? T(`vuln.sev_${x.sev}`) : ''), {},
+    fixed: x.fixed || '', where: where(x) }), (x) => [Office.has(`${ID}.vuln.sev_${x.sev}`) ? T(`vuln.sev_${x.sev}`) : '', x.src === 'nvd' ? T('vuln.src_nvd') : '']
+    .filter(Boolean).join(' · '), {},
   (x) => Office.safeHref(`https://github.com/advisories/${x.id}`));
   vulnFold(box, 'vuln.not', not, forced, notRow, nvdSaid);
   vulnFold(box, 'vuln.old', old, forced, notRow, nvdSaid, { floor: v.floor || '7.3.2' });

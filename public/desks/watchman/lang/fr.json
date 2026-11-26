@@ -33,6 +33,7 @@
   "vuln.not_row": "{product}{where} : faille {cve}, corrigée à partir de {fixed}. Ici tourne {have}.",
   "vuln.not_row_never": "{product}{where} : faille {cve}. Ici tourne {have} — jamais concernée.",
   "vuln.not_in": " dans le conteneur {where}",
+  "vuln.not_in_many": " dans les conteneurs {where}",
   "vuln.unsure_title": {"one": "Pas vérifiable avec certitude ({n})", "other": "Pas vérifiables avec certitude ({n})"},
   "vuln.unsure_sub": "Si ces failles concernent ta version, il ne peut pas le dire avec certitude — chaque ligne dit pourquoi. C'est pourquoi il ne les signale pas et ne les compte pas.",
   "vuln.unsure_row": "{product}{where} : faille {cve}. Ici tourne {have}.",

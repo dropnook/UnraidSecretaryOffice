@@ -313,8 +313,9 @@ When you hire him he learns what is normal. Then he walks his round every five m
   (Vaultwarden, Paperless-ngx, Immich, Jellyfin, Home Assistant, Nextcloud, AdGuard Home, n8n, Valkey, Redis, PHP), only
   those rated «high» or «critical»: one the version here lies in is a hint — «Paperless-ngx 2.1.3 (container paperless):
   3 known serious vulnerabilities, closed from 2.14.7 — update the container» —, never an entry or a notification;
-  what the maintainers' words don't say cleanly («All», a commit, one bound per release line) stands under «Can't be
-  checked for sure». A build number shows as a build («Build 90080»), a container's version as he judged it («12.4», not
+  a list with one bound per release line is read for your line; what the maintainers' words still don't say cleanly
+  («All», «TBD», a commit) is asked of the vulnerability's CVE record and the NVD, and only what they can't settle either
+  stands under «Can't be checked for sure». One advisory in several containers is one row naming them. A build number shows as a build («Build 90080»), a container's version as he judged it («12.4», not
   the image label's «12.4ubu2604-ls61»).
 
 **How:**

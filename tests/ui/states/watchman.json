@@ -5888,6 +5888,45 @@
     "why": "ghsa",
     "bound": "> main@4ffa26c9",
     "label": "Jellyfin"
+   },
+   {
+    "id": "GHSA-qc49-hpvq-g2w6",
+    "cve": "CVE-2026-129289",
+    "product": "php",
+    "where": "webapp",
+    "have": "8.5.12",
+    "sev": "critical",
+    "verdict": "yes",
+    "fixed": "8.5.13",
+    "name": "Heap buffer overflow in sapi/fpm/fpm/fpm_main.c::fpm_request_executing_with_a_very_long_identifier_name()",
+    "pub": "2026-11-19",
+    "label": "PHP"
+   },
+   {
+    "id": "GHSA-qc49-hpvq-g2w6",
+    "cve": "CVE-2026-129289",
+    "product": "php",
+    "where": "wiki-php",
+    "have": "8.5.12",
+    "sev": "critical",
+    "verdict": "yes",
+    "fixed": "8.5.13",
+    "name": "Heap buffer overflow in sapi/fpm/fpm/fpm_main.c::fpm_request_executing_with_a_very_long_identifier_name()",
+    "pub": "2026-11-19",
+    "label": "PHP"
+   },
+   {
+    "id": "GHSA-qc49-hpvq-g2w6",
+    "cve": "CVE-2026-129289",
+    "product": "php",
+    "where": "shop-php",
+    "have": "8.5.12",
+    "sev": "critical",
+    "verdict": "yes",
+    "fixed": "8.5.13",
+    "name": "Heap buffer overflow in sapi/fpm/fpm/fpm_main.c::fpm_request_executing_with_a_very_long_identifier_name()",
+    "pub": "2026-11-19",
+    "label": "PHP"
    }
   ],
   "ghsa_here": [

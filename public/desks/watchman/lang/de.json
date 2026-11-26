@@ -33,6 +33,7 @@
   "vuln.not_row": "{product}{where}: Lücke {cve}, behoben ab {fixed}. Hier läuft {have}.",
   "vuln.not_row_never": "{product}{where}: Lücke {cve}. Hier läuft {have} — nie betroffen.",
   "vuln.not_in": " im Container {where}",
+  "vuln.not_in_many": " in den Containern {where}",
   "vuln.unsure_title": {"one": "Nicht sicher prüfbar ({n})", "other": "Nicht sicher prüfbar ({n})"},
   "vuln.unsure_sub": "Ob diese Lücken deine Version betreffen, kann er nicht sicher sagen — jede Zeile sagt, warum. Darum meldet er sie nicht und zählt sie nicht.",
   "vuln.unsure_row": "{product}{where}: Lücke {cve}. Hier läuft {have}.",

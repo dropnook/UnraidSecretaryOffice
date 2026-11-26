@@ -122,6 +122,9 @@
 .wm-hand-row{display:flex; flex-direction:column; gap:4px; margin:0 0 10px}
 .wm-hand-note{margin:0 0 10px; white-space:normal; overflow-wrap:anywhere}      /* what a wide exception means: wraps, never scrolls sideways */
 .wm-known-head{align-self:flex-start}
+/* (2026-11-26, round 2) a fold's head may be long («Known serious vulnerabilities from the projects' advisories (11)»):
+   it wraps on a phone instead of widening the page */
+.wm-known-head{white-space:normal; text-align:left; max-width:100%; overflow-wrap:anywhere}
 .wm-setup-to{padding-left:0}
 /* who woke my disks: the list's sub heads (by disk, every wake), the disk chosen, a wake's causes, files and facts */
 .wm-wakes{display:flex; flex-direction:column; gap:8px}

@@ -33,6 +33,7 @@
   "vuln.not_row": "{product}{where}: vulnerabilità {cve}, corretta dalla {fixed}. Qui gira la {have}.",
   "vuln.not_row_never": "{product}{where}: vulnerabilità {cve}. Qui gira la {have} — mai interessata.",
   "vuln.not_in": " nel container {where}",
+  "vuln.not_in_many": " nei container {where}",
   "vuln.unsure_title": {"one": "Non verificabile con certezza ({n})", "other": "Non verificabili con certezza ({n})"},
   "vuln.unsure_sub": "Se queste vulnerabilità riguardino la tua versione, non può dirlo con certezza — ogni riga dice perché. Per questo non le segnala e non le conta.",
   "vuln.unsure_row": "{product}{where}: vulnerabilità {cve}. Qui gira la {have}.",

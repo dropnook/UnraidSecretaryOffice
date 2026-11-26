@@ -486,9 +486,9 @@ async function vulnPage() {
   same('vulnerabilities: an unsure line says why — the list names the version only roughly', metas.some((m) => m.includes(T('vuln.unsure_why_rough', { bound: '4.3' }))), true);
   const old = await typed('CVE-2010-3904');
   same('vulnerabilities: the filter finds a line «long fixed» too (its own fold, open while it holds hits)', old[0], 1);
-  // the fixture: not 3 + unsure 4 + the projects' advisories 3 (2 affected, 1 unsure) = 10 in the lists; host 5 + containers
-  // 5 + unread 3 + routers 2 = 15 he checked
-  same('vulnerabilities: the filter\'s count is over all the lines (25 here: 10 in the lists, 15 he checked)', /\b25\b/.test(none[1]), true);
+  // the fixture: not 3 + unsure 4 + the projects' advisories 4 (Jellyfin's 2 affected and 1 unsure, PHP's one advisory in
+  // three containers: one row) = 11 in the lists; host 5 + containers 5 + unread 3 + routers 2 = 15 he checked
+  same('vulnerabilities: the filter\'s count is over all the lines (26 here: 11 in the lists, 15 he checked)', /\b26\b/.test(none[1]), true);
   // the projects' own advisories (2026-11-26): their fold critical first, each row its severity, summary and the advisory's
   // link built from its id; the unsure one under «Can't be checked for sure» with the advisory's own words
   const gh = await typed('Jellyfin');
@@ -511,7 +511,16 @@ async function vulnPage() {
   const ct = await typed('webapp');
   const ctMetas = sectionOf(r, 'area.vuln').querySelectorAll('.row-meta').map(tx);
   same('vulnerabilities: a container\'s name finds its unsure line (its why: the line past its end) and its rows under «What he checked»',
-    [ct[0], ctMetas.some((m) => m.includes(T('vuln.unsure_why_eol', { line: '7.2' })))], [3, true]);
+    [ct[0], ctMetas.some((m) => m.includes(T('vuln.unsure_why_eol', { line: '7.2' })))], [4, true]);     // (round 2: and PHP's advisory row)
+  // (round 2) one advisory of one program and version in three containers: one row naming them, counted once
+  const php = await typed('GHSA-qc49');
+  const phpSec = sectionOf(r, 'area.vuln');
+  same('vulnerabilities: the same advisory in three containers — one row naming them all',
+    [php[0], phpSec.querySelectorAll('.wm-vuln-not').map((x) => tx(x.querySelector('.row-name')))[0]],
+    [1, T('vuln.ghsa_row', { id: 'CVE-2026-129289', product: 'PHP', where: T('vuln.not_in_many', { where: 'webapp, wiki-php, shop-php' }), have: '8.5.12', fixed: '8.5.13' })]);
+  await typed('');
+  same('vulnerabilities: the fold\'s head counts advisories, not containers (Jellyfin 2, PHP 1)',
+    sectionOf(r, 'area.vuln').querySelectorAll('.wm-known-head').map(tx).some((x) => x.includes(T('vuln.ghsa_title', { n: 3 }))), true);
   await typed('homevideos');
   same('vulnerabilities: a container he couldn\'t check is found by its name too', (sectionOf(r, 'area.vuln').querySelector('.wm-vuln-look') || new FakeNode('div')).querySelectorAll('p').map(tx)
     .includes(T('vuln.look_unread_none', { n: 1, names: 'homevideos' })), true);
