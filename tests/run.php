@@ -21461,6 +21461,46 @@ function testWatchmanVulnNvd(): void
     watchmanVulnFetch($dir2, ['get' => $get429, 'now' => $now, 'sleep' => $sleep, 'unsure' => ['CVE-2016-5195', 'CVE-2014-6278']]);
     same('vuln nvd: «429 Too Many Requests» — the batch ends at once, the rest the next day, said in its status', [1, 'HTTP 429'],
         [$n429, readJson(watchmanVulnDir($dir2) . '/status.json')['nvd']['err'] ?? null]);
+
+    // 2026-11-26: one request without an answer no longer ends the day — noted, the gap waited, the next id asked; the id
+    // that failed stays due (nothing written). Two in a row: away. 403/429: at once, as before.
+    $three = ['CVE-2016-5195', 'CVE-2014-6278', 'CVE-2021-3156'];
+    $run = function (string $name, array $codes, array $ctx = []) use ($tmp, $get, $now, $three): array {
+        $d = "$tmp/$name";
+        @mkdir($d, 0700, true);
+        $nvd = [];
+        $gaps = 0;
+        $g = function (string $url, ?string $since) use ($get, &$nvd, $codes): array {
+            if (!str_contains($url, 'nvd.nist.gov')) {
+                return $get($url, $since);
+            }
+            $code = $codes[count($nvd)] ?? 200;
+            $nvd[] = substr($url, strrpos($url, '=') + 1);
+            return $code === 200 ? $get($url, $since) : ['code' => $code, 'body' => '', 'lm' => null, 'err' => $code === 0 ? 'curl 28: Operation timed out' : "HTTP $code"];
+        };
+        $r = watchmanVulnFetch($d, $ctx + ['get' => $g, 'now' => $now, 'sleep' => function () use (&$gaps): void { $gaps++; }, 'unsure' => $three]);
+        $st = readJson(watchmanVulnDir($d) . '/status.json')['nvd'] ?? [];
+        $kept = array_map(fn ($f) => basename($f, '.json'), glob(watchmanVulnDir($d) . '/nvd/CVE-*.json') ?: []);
+        sort($kept);
+        return [$nvd, $r['nvd'], $gaps, $st['err'] ?? null, $st['fails'] ?? null, $kept];
+    };
+    same('vuln nvd: a timeout, then answers — noted, the gap waited, the next asked; 2 kept, the one that failed stays due; one answer is an answer',
+        [$three, 2, 2, 'curl 28: Operation timed out', null, ['CVE-2014-6278', 'CVE-2021-3156']], $run('nvd-one', [0, 200, 200]));
+    same('vuln nvd: two timeouts in a row — away: the rest another day, a failed try (back-off)',
+        [['CVE-2016-5195', 'CVE-2014-6278'], 0, 1, 'curl 28: Operation timed out', 1, []], $run('nvd-two', [0, 0, 200]));
+    same('vuln nvd: a timeout between answers is never two in a row — all three asked',
+        [$three, 2, 2, 'curl 28: Operation timed out', null, ['CVE-2016-5195', 'CVE-2021-3156']], $run('nvd-turn', [200, 0, 200]));
+    same('vuln nvd: «403 Forbidden» after a timeout — ends at once', [['CVE-2016-5195', 'CVE-2014-6278'], 0, 1, 'HTTP 403', 1, []],
+        $run('nvd-403', [0, 403, 200]));
+    same('vuln nvd: «429» as the first answer — ends at once', [['CVE-2016-5195'], 0, 0, 'HTTP 429', 1, []], $run('nvd-429', [429]));
+    // the job's time: no request starts that could end after WATCH_VULN_NVD_TIME (a clock that moves 250 s each time it is
+    // read — slow requests): the third would end past it, so it isn't asked; endoflife.date's part keeps its own bound
+    $t = 0.0;
+    $clock = function () use (&$t): float {
+        return $t += 250;
+    };
+    same('vuln nvd: the time bound — the first two asked (a timeout, an answer), the third would end past WATCH_VULN_NVD_TIME: the next day',
+        [['CVE-2016-5195', 'CVE-2014-6278'], 1, 'curl 28: Operation timed out', null], array_values(array_intersect_key($run('nvd-time', [0, 200, 200], ['clock' => $clock]), [0 => 1, 1 => 1, 3 => 1, 4 => 1])));
 }
 
 /**

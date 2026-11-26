@@ -20,7 +20,9 @@ declare(strict_types=1);
  *                              here and stayed «can't be checked for sure» — its CPE configurations (versionStart…/
  *                              versionEnd…) judge them cleanly. Nothing goes along but the CVE id; NVD's limit without a key
  *                              (5 requests in 30 s) kept by one request every WATCH_VULN_NVD_GAP s, at most WATCH_VULN_NVD_RUN
- *                              a day, each answer kept (nvd/<id>.json) and asked anew after WATCH_VULN_CVE_AGE
+ *                              a day, each answer kept (nvd/<id>.json) and asked anew after WATCH_VULN_CVE_AGE; a request
+ *                              without an answer (2026-11-26) is noted and the next id asked — two in a row, a «slow down»
+ *                              (429, 403, 5xx) or WATCH_VULN_NVD_TIME end the day's part, what wasn't answered stays due
  * Kept in data/watchman/feeds/ (kev.json, cve/<id>.json reduced to the affected data, unraid.json, status.json): at
  * most WATCH_VULN_CVE_MAX records, each file small; a list missing, broken, too big or older than WATCH_VULN_OLD is «not
  * checked», never «all fine».
@@ -58,6 +60,8 @@ const WATCH_VULN_CVE_AGE = 7 * 86400;      // a kept record fetched anew after t
 const WATCH_VULN_UA      = 'UnraidSecretaryOffice';      // the same for every office: no version, no name
 const WATCH_VULN_NVD_RUN = 40;             // NVD (2026-11-23): records asked in one run at most …
 const WATCH_VULN_NVD_GAP = 6.5;            // … one every this many seconds (NVD without a key: 5 requests in 30 s)
+const WATCH_VULN_NVD_MISS = 2;             // 2026-11-26: … requests in a row without an answer end it (one is noted, the next id asked)
+const WATCH_VULN_NVD_TIME = 600;           // … and none starts that could end later than this many seconds after the job began
 // every Unraid the office installs on (the .plg's min, a test holds them equal) runs this kernel line or newer: a
 // vulnerability whose every range the record names ends below it was fixed long before — «long fixed» on the page
 const WATCH_VULN_FLOOR_UNRAID = '7.3.2';
@@ -801,6 +805,7 @@ function watchmanVulnReduce(array $rec): ?array
 function watchmanVulnFetch(string $dir, array $ctx = []): array
 {
     $now = $ctx['now'] ?? time();
+    $began = isset($ctx['clock']) ? ($ctx['clock'])() : hrtime(true) / 1e9;      // the job's start (the NVD part's bound)
     $f = watchmanVulnDir($dir);
     foreach ([$f, "$f/cve"] as $d) {
         if (!is_dir($d)) {
@@ -952,13 +957,37 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
     $nvdErr = null;
     $nvdAsk = $may('nvd') ? array_slice(array_values(array_unique($nvdDue)), 0, WATCH_VULN_NVD_RUN) : [];
     $sleep = $ctx['sleep'] ?? fn (float $s) => usleep((int) ($s * 1e6));
+    // 2026-11-26: one request without an answer (a timeout, no connection: code 0) no longer ends the day's NVD part — on
+    // nostromo one timeout left 27 of 28 due records unasked. It is noted, the loop waits its gap and asks the next id; the
+    // id itself stays due (nothing written for it: asked again the next day). Two in a row: NVD is away — the rest another
+    // day. An answer saying «slow down» or «away» (429, 403, 5xx: watchmanVulnSourceDown()) still ends it at once.
+    // The time (WATCH_VULN_RUN_MAX 900 s, after which his tick stops the whole job): a request takes at most
+    // WATCH_VULN_TIMEOUT + 10 = 70 s (hostNet()'s bound), then the gap of 6.5 s. 40 answers: 39 × 6.5 ≈ 254 s; a run of
+    // failures stops after 2 × 76.5 = 153 s. But failures in turn with answers (fail, answer, fail …) are never two in a
+    // row: 20 × 76.5 + 20 × 7.5 ≈ 1680 s — the rule alone doesn't bound it. So no request starts that could end later than
+    // WATCH_VULN_NVD_TIME s after the job began (the rest of the job — Unraid's list, endoflife.date — keeps its time).
+    $clock = $ctx['clock'] ?? fn (): float => hrtime(true) / 1e9;
+    $nvdMiss = 0;           // requests in a row without an answer
+    $nvdTried = 0;
     foreach ($nvdAsk as $i => $id) {
+        if ($clock() - $began + WATCH_VULN_TIMEOUT + 10 + ($i > 0 ? WATCH_VULN_NVD_GAP : 0) > WATCH_VULN_NVD_TIME) {
+            break;          // no time left for one more: the rest the next day
+        }
         if ($i > 0) {
             $sleep(WATCH_VULN_NVD_GAP);
         }
+        $nvdTried++;
         $b = watchmanVulnGet(WATCH_VULN_URLS['nvd'] . $id, WATCH_VULN_MAX['nvd'], null, $ctx);
+        if ((int) $b['code'] === 0) {
+            $nvdErr = (string) ($b['err'] ?? 'no answer');
+            if (++$nvdMiss >= WATCH_VULN_NVD_MISS) {
+                break;      // twice in a row no answer: away — the rest another day
+            }
+            continue;       // this one stays due
+        }
+        $nvdMiss = 0;
         if (watchmanVulnSourceDown((int) $b['code'])) {
-            $nvdErr = $b['code'] ? 'HTTP ' . $b['code'] : (string) ($b['err'] ?? 'no answer');   // NVD says slow down (or is away): the rest another day
+            $nvdErr = 'HTTP ' . $b['code'];         // NVD says slow down (or is away): the rest another day
             break;
         }
         $j = $b['code'] === 200 ? json_decode($b['body'], true, 64) : null;
@@ -970,7 +999,7 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
         writeAtomic("$f/nvd/$id.json", jsonEncode(['v' => 1, 'fetched' => $now] + $red + ['published' => null]), 0600, 0, 0);
         $res['nvd']++;
     }
-    if ($nvdAsk) {
+    if ($nvdTried) {
         $mark('nvd', $nvdErr !== null && !$res['nvd'] ? $nvdErr : null);       // one answer is an answer: the rest the next day
         if ($nvdErr !== null && $res['nvd']) {
             $status['nvd']['err'] = $nvdErr;
@@ -999,9 +1028,18 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
         @mkdir("$f/eol", 0700, true);
     }
     $eolErr = 0;
-    $slugs = $may('eol') ? array_unique(array_filter(array_column(WATCH_VULN_PRODUCTS, 'eol'))) : [];
-    foreach ($slugs as $slug) {
+    $slugs = $may('eol') ? array_values(array_unique(array_filter(array_column(WATCH_VULN_PRODUCTS, 'eol')))) : [];
+    // 2026-11-26: more slugs (the home server's software) — endoflife.date away must not hold the job past its bound: two
+    // in a row without an answer end it, and no request starts that could end after WATCH_VULN_RUN_MAX − 30 s (the slugs
+    // not asked count as failed; what was kept stays)
+    $eolMiss = 0;
+    foreach ($slugs as $k => $slug) {
+        if ($eolMiss >= WATCH_VULN_NVD_MISS || $clock() - $began + WATCH_VULN_TIMEOUT + 10 > WATCH_VULN_RUN_MAX - 30) {
+            $eolErr += count($slugs) - $k;
+            break;
+        }
         $e = watchmanVulnGet(WATCH_VULN_URLS['eol'] . $slug, WATCH_VULN_MAX['eol'], null, $ctx);
+        $eolMiss = (int) $e['code'] === 0 ? $eolMiss + 1 : 0;
         $j = $e['code'] === 200 ? json_decode($e['body'], true, 16) : null;
         $cycles = [];
         foreach (is_array($j['result']['releases'] ?? null) ? $j['result']['releases'] : [] as $r) {
