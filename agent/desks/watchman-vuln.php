@@ -22,8 +22,18 @@ declare(strict_types=1);
  *                              (5 requests in 30 s) kept by one request every WATCH_VULN_NVD_GAP s, at most WATCH_VULN_NVD_RUN
  *                              a day, each answer kept (nvd/<id>.json) and asked anew after WATCH_VULN_CVE_AGE; a request
  *                              without an answer (2026-11-26) is noted and the next id asked — two in a row, a «slow down»
- *                              (429, 403, 5xx) or WATCH_VULN_NVD_TIME end the day's part, what wasn't answered stays due
- * Kept in data/watchman/feeds/ (kev.json, cve/<id>.json reduced to the affected data, unraid.json, status.json): at
+ *                              (429, 403, 5xx) or WATCH_VULN_NVD_TIME end the day's part, what wasn't answered stays due;
+ *                              (2026-11-26) a record that came in the same job and can't settle its CVE for a version the
+ *                              last look read (it was `pending` then) is asked the same day, not a day later
+ *   api.github.com             (2026-11-26, its own part file watchman-vuln-advisories.php) the projects' own security
+ *                              advisories (GitHub's repository advisories, no key) — only for the products found in a
+ *                              container here whose name table entry says `ghsa` (the repository, its package names), only
+ *                              «high» and «critical», at most WATCH_VULN_GHSA_PAGES pages, WATCH_VULN_GHSA_TIME; what the
+ *                              maintainers' range words don't say cleanly is «can't be checked for sure». An affected one
+ *                              is the tip software_vuln, never an entry or a notification (those stay for the exploited)
+ * The records' part has a time bound of its own (2026-11-26, WATCH_VULN_CVE_TIME), and status.json is written at the job's
+ * start and after each part: a job his tick stops after WATCH_VULN_RUN_MAX keeps what it did and its day.
+ * Kept in data/watchman/feeds/ (kev.json, cve/<id>.json reduced to the affected data, unraid.json, status.json, ghsa/<product>.json): at
  * most WATCH_VULN_CVE_MAX records, each file small; a list missing, broken, too big or older than WATCH_VULN_OLD is «not
  * checked», never «all fine».
  *
@@ -50,6 +60,8 @@ declare(strict_types=1);
  *   not        no entry; counted («31 checked, not affected»), the page's list «checked: doesn't concern you»
  * One entry a vulnerability, product and place (key vuln_known:<cve>:<product>:<where>), kept up to date wherever it
  * stands. Unraid's own version without security updates (eol, superseded): the advice `unraid_eol`.
+ * The page (2026-11-26): a container's version as judged (`shown`: a label in its `oci_form`, an ENV cleaned — never the
+ * raw «12.4ubu2604-ls61» beside another image's «12.4»), a `build` product's value as a build («Build 90080»).
  */
 
 const WATCH_VULN_EVERY   = 86400;          // the lists once a day …
@@ -57,12 +69,13 @@ const WATCH_VULN_EVERY   = 86400;          // the lists once a day …
 // one answer resets it — never told, never a colour; after this many failures in a row the page says so in a calm line
 const WATCH_VULN_BACKOFF_MAX = 7 * 86400;
 const WATCH_VULN_DOWN_FAILS  = 3;
-const WATCH_VULN_SOURCES     = ['kev', 'cve', 'nvd', 'unraid', 'eol'];
+const WATCH_VULN_SOURCES     = ['kev', 'cve', 'nvd', 'unraid', 'eol', 'ghsa'];      // ghsa (2026-11-26): watchman-vuln-advisories.php
 const WATCH_VULN_OLD     = 3 * 86400;      // a list older than this: «not checked»
 const WATCH_VULN_RUN_MAX = 900;            // a fetch that takes longer is stopped
 const WATCH_VULN_CVE_MAX = 300;            // CVE records kept at most
 const WATCH_VULN_CVE_RUN = 60;             // fetched in one run at most (the rest the next day)
 const WATCH_VULN_CVE_AGE = 7 * 86400;      // a kept record fetched anew after this long
+const WATCH_VULN_CVE_TIME = 300;           // 2026-11-26: no record's request starts that could end later than this many seconds after the job began
 const WATCH_VULN_UA      = 'UnraidSecretaryOffice';      // the same for every office: no version, no name
 const WATCH_VULN_NVD_RUN = 40;             // NVD (2026-11-23): records asked in one run at most …
 const WATCH_VULN_NVD_GAP = 6.5;            // … one every this many seconds (NVD without a key: 5 requests in 30 s)
@@ -78,6 +91,7 @@ const WATCH_VULN_URLS    = [
     'cve'    => 'https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/',
     'unraid' => 'https://releases.unraid.net/json',
     'eol'    => 'https://endoflife.date/api/v1/products/',      // step 16: <slug> of a fixed list (WATCH_VULN_PRODUCTS' eol)
+    'ghsa'   => 'https://api.github.com/repos/',                // 2026-11-26: <owner>/<repo>/security-advisories of the name table's `ghsa`
 ];
 // step 16: the only names read from a container image's environment — the official images set them (their Dockerfiles);
 // never any other value of an image's or a container's environment (passwords live there). 2026-11-26: the home server's
@@ -115,7 +129,9 @@ const WATCH_VULN_PRODUCTS = [
     'unraid'   => ['label' => 'Unraid', 'kev' => ['unraid|unraid'], 'cna' => ['unraid|unraid', 'lime technology|unraid', 'lime-technology|unraid'], 'host' => 'unraid'],
     'kernel'   => ['label' => 'Linux kernel', 'kev' => ['linux|kernel'], 'cna' => ['linux|linux', 'linux|linux kernel'], 'host' => 'kernel'],
     'php'      => ['label' => 'PHP', 'kev' => ['php group|php', 'php|php', 'php|fastcgi process manager (fpm)'], 'cna' => ['php group|php', 'php|php'], 'host' => 'php',
-                   'env' => 'PHP_VERSION', 'eol' => 'php'],
+                   'env' => 'PHP_VERSION', 'eol' => 'php',
+                   // 2026-11-26: php-src's advisories name the part («ext-session», «sapi-fpm», «engine», «php-src») or nothing
+                   'ghsa' => ['repo' => 'php/php-src', 'package' => ['php-src', 'engine', 'php'], 'package_re' => '/^(?:ext|sapi)-[a-z0-9_]{1,40}$/D', 'unnamed' => true]],
     'openssh'  => ['label' => 'OpenSSH', 'kev' => ['openbsd|openssh'], 'cna' => ['openbsd|openssh', '|openssh'], 'pkg' => 'openssh'],
     // `letters` (2026-11-25): its versions up to 1.1.1 carry a letter («1.0.1g») — read as a patch level for it alone
     'openssl'  => ['label' => 'OpenSSL', 'kev' => ['openssl|openssl'], 'cna' => ['openssl|openssl'], 'pkg' => 'openssl', 'letters' => true],
@@ -129,7 +145,8 @@ const WATCH_VULN_PRODUCTS = [
     // step 16: software inside containers, by the official images' own ENV (WATCH_VULN_ENV)
     'mariadb'  => ['label' => 'MariaDB', 'kev' => [], 'cna' => ['mariadb|mariadb', 'mariadb|mariadb server'], 'env' => 'MARIADB_VERSION', 'eol' => 'mariadb'],
     'postgresql' => ['label' => 'PostgreSQL', 'kev' => ['postgresql|postgresql'], 'cna' => ['postgresql|postgresql'], 'env' => 'PG_VERSION', 'eol' => 'postgresql'],
-    'redis'    => ['label' => 'Redis', 'kev' => ['redis|redis'], 'cna' => ['redis|redis'], 'env' => 'REDIS_VERSION', 'eol' => 'redis'],
+    'redis'    => ['label' => 'Redis', 'kev' => ['redis|redis'], 'cna' => ['redis|redis'], 'env' => 'REDIS_VERSION', 'eol' => 'redis',
+                   'ghsa' => ['repo' => 'redis/redis', 'package' => ['redis', 'redis-server'], 'unnamed' => true]],
     'nodejs'   => ['label' => 'Node.js', 'kev' => ['nodejs|node.js', 'node.js|node.js'], 'cna' => ['nodejs|node', 'nodejs|node.js'], 'env' => 'NODE_VERSION', 'eol' => 'nodejs'],
     'python'   => ['label' => 'Python', 'kev' => ['python software foundation|python'], 'cna' => ['python software foundation|cpython', 'python|python'], 'env' => 'PYTHON_VERSION', 'eol' => 'python'],
     'go'       => ['label' => 'Go', 'kev' => ['golang|go'], 'cna' => ['go standard library|crypto/tls', 'golang|go'], 'env' => 'GOLANG_VERSION', 'eol' => 'go'],
@@ -170,7 +187,8 @@ const WATCH_VULN_PRODUCTS = [
     'jenkins'  => ['label' => 'Jenkins', 'kev' => ['jenkins|jenkins'], 'cna' => ['jenkins project|jenkins', 'jenkins|jenkins'], 'env' => 'JENKINS_VERSION'],
     //   n8n: its label (N8N_VERSION in older images; the nightly tag's label «nightly» isn't a version)
     'n8n'      => ['label' => 'n8n', 'kev' => ['n8n|n8n'], 'cna' => ['n8n-io|n8n', 'n8n|n8n'], 'env' => 'N8N_VERSION',
-                   'oci' => '#^(?:' . WATCH_VULN_REG . '|docker\.n8n\.io/)n8nio/n8n' . WATCH_VULN_TAG . '#i'],
+                   'oci' => '#^(?:' . WATCH_VULN_REG . '|docker\.n8n\.io/)n8nio/n8n' . WATCH_VULN_TAG . '#i',
+                   'ghsa' => ['repo' => 'n8n-io/n8n', 'package' => ['n8n', 'n8nio/n8n'], 'unnamed' => true]],
     //   Roundcube: its label (ROUNDCUBEMAIL_VERSION in older images); its start brings the volume to the image's version
     'roundcube' => ['label' => 'Roundcube', 'kev' => ['roundcube|roundcube webmail', 'roundcube|webmail'],
                    'cna' => ['roundcube|webmail', 'roundcube|roundcubemail', 'roundcube|roundcube webmail'], 'env' => 'ROUNDCUBEMAIL_VERSION', 'eol' => 'roundcube',
@@ -192,32 +210,43 @@ const WATCH_VULN_PRODUCTS = [
     'jellyfin' => ['label' => 'Jellyfin', 'kev' => ['jellyfin|jellyfin', 'jellyfin|jellyfin media server'], 'cna' => ['jellyfin|jellyfin'],
                    'oci' => '#^' . WATCH_VULN_REG . '(?:jellyfin/jellyfin|linuxserver/jellyfin)' . WATCH_VULN_TAG . '#i',
                    // the official «12.4»; linuxserver's «12.4ubu2604-ls61» (the Debian/Ubuntu package's version without its «+»)
-                   'oci_form' => '/^v?(\d{1,9}(?:\.\d{1,9}){0,4})(?:ubu\d{4})?(?:-ls\d{1,6})?$/D'],
+                   'oci_form' => '/^v?(\d{1,9}(?:\.\d{1,9}){0,4})(?:ubu\d{4})?(?:-ls\d{1,6})?$/D',
+                   'ghsa' => ['repo' => 'jellyfin/jellyfin', 'package' => ['jellyfin'], 'unnamed' => true]],
     //   Emby: only linuxserver's image names its version (the official one carries none)
     'emby'     => ['label' => 'Emby Server', 'kev' => ['emby|emby server', 'emby|emby media server', 'media browser|emby server'],
                    'cna' => ['embysupport|security', 'embysupport|emby.security', 'media browser|emby server'],
                    'oci' => '#^' . WATCH_VULN_REG . 'linuxserver/emby' . WATCH_VULN_TAG . '#i'],
     //   Immich: the server image's label («v3.4.2»; IMMICH_VERSION is the compose file's tag, not the image's)
     'immich'   => ['label' => 'Immich', 'kev' => ['immich|immich', 'immich-app|immich'], 'cna' => ['immich-app|immich'],
-                   'oci' => '#^' . WATCH_VULN_REG . 'immich-app/immich-server' . WATCH_VULN_TAG . '#i'],
+                   'oci' => '#^' . WATCH_VULN_REG . 'immich-app/immich-server' . WATCH_VULN_TAG . '#i',
+                   // the server's names (its repository holds the mobile app and the CLI too: «@immich/cli», unnamed ones — never read)
+                   'ghsa' => ['repo' => 'immich-app/immich', 'package' => ['immich', 'immich-server', 'immich-app/immich', 'ghcr.io/immich-app/immich-server',
+                              '@immich/server', 'immich (immich-app/immich) — server']]],
     'homeassistant' => ['label' => 'Home Assistant', 'kev' => ['home assistant|home assistant', 'home assistant|home assistant core', 'home-assistant|core'],
                    'cna' => ['home-assistant|core'],
-                   'oci' => '#^' . WATCH_VULN_REG . '(?:home-assistant/home-assistant|homeassistant/home-assistant|linuxserver/homeassistant)' . WATCH_VULN_TAG . '#i'],
+                   'oci' => '#^' . WATCH_VULN_REG . '(?:home-assistant/home-assistant|homeassistant/home-assistant|linuxserver/homeassistant)' . WATCH_VULN_TAG . '#i',
+                   // Core only: the repository's Supervisor, Operating System, Companion apps and home-assistant-js-websocket are not the container's version
+                   'ghsa' => ['repo' => 'home-assistant/core', 'package' => ['home assistant core', 'home assistant', 'homeassistant']]],
     'adguardhome' => ['label' => 'AdGuard Home', 'kev' => ['adguard|adguard home', 'adguard|adguardhome'],
                    'cna' => ['adguardteam|adguardhome', 'adguardhome|adguardhome', 'adguard|adguard home'],
-                   'oci' => '#^' . WATCH_VULN_REG . 'adguard/adguardhome' . WATCH_VULN_TAG . '#i'],
+                   'oci' => '#^' . WATCH_VULN_REG . 'adguard/adguardhome' . WATCH_VULN_TAG . '#i',
+                   'ghsa' => ['repo' => 'AdGuardTeam/AdGuardHome', 'package' => ['adguardhome', 'adguard home'], 'unnamed' => true]],
     //   Nextcloud: NEXTCLOUD_VERSION of the official image (and of images built on it), linuxserver's label; both bring the
     //   installation to the image's version at the start. Its GitHub records' «nextcloud|security-advisories» names the
     //   server and every app alike (app versions): never read — the newer records' «Nextcloud|Server» and NVD's
     'nextcloud' => ['label' => 'Nextcloud', 'kev' => ['nextcloud|nextcloud server', 'nextcloud|server', 'nextcloud|nextcloud'],
                    'cna' => ['nextcloud|server', 'nextcloud|nextcloud server'], 'env' => 'NEXTCLOUD_VERSION', 'eol' => 'nextcloud',
-                   'oci' => '#^' . WATCH_VULN_REG . 'linuxserver/nextcloud' . WATCH_VULN_TAG . '#i'],
+                   'oci' => '#^' . WATCH_VULN_REG . 'linuxserver/nextcloud' . WATCH_VULN_TAG . '#i',
+                   // its advisories' repository holds the server and every app: only «Server», never Nextcloud Enterprise's versions
+                   'ghsa' => ['repo' => 'nextcloud/security-advisories', 'package' => ['server'], 'skip' => ['nextcloud enterprise', 'nextcloud entreprise']]],
     'vaultwarden' => ['label' => 'Vaultwarden', 'kev' => ['vaultwarden|vaultwarden', 'dani-garcia|vaultwarden'], 'cna' => ['dani-garcia|vaultwarden', 'vaultwarden|vaultwarden'],
-                   'oci' => '#^' . WATCH_VULN_REG . 'vaultwarden/server' . WATCH_VULN_TAG . '#i'],
+                   'oci' => '#^' . WATCH_VULN_REG . 'vaultwarden/server' . WATCH_VULN_TAG . '#i',
+                   'ghsa' => ['repo' => 'dani-garcia/vaultwarden', 'package' => ['vaultwarden', 'vaultwarden/server'], 'unnamed' => true]],
     'paperless' => ['label' => 'Paperless-ngx', 'kev' => ['paperless-ngx|paperless-ngx'], 'cna' => ['paperless-ngx|paperless-ngx'],
-                   'oci' => '#^' . WATCH_VULN_REG . 'paperless-ngx/paperless-ngx' . WATCH_VULN_TAG . '#i'],
+                   'oci' => '#^' . WATCH_VULN_REG . 'paperless-ngx/paperless-ngx' . WATCH_VULN_TAG . '#i',
+                   'ghsa' => ['repo' => 'paperless-ngx/paperless-ngx', 'package' => ['paperless-ngx', 'paperless-ngx/paperless-ngx'], 'unnamed' => true]],
     'valkey'   => ['label' => 'Valkey', 'kev' => ['valkey|valkey'], 'cna' => ['valkey-io|valkey', 'valkey|valkey', 'lfprojects|valkey'], 'env' => 'VALKEY_VERSION',
-                   'eol' => 'valkey'],
+                   'eol' => 'valkey', 'ghsa' => ['repo' => 'valkey-io/valkey', 'package' => ['valkey', 'valkey-server'], 'unnamed' => true]],
 ];
 // the places an entry names: the server itself, or (step 16) a container
 const WATCH_VULN_HOST = 'host';
@@ -287,8 +316,10 @@ function watchmanVulnClean(string $raw, string $from = 'plain', bool $letters = 
 /**
  * One range of a CVE record's affected versions → what the comparison needs, or null when it can't be compared (another
  * version scheme — git, rpm …; a «changes» list; a version that isn't clean). «X.*» as an end: up to the end of branch X.
+ * `after` (2026-11-26, only an advisory's «> X», watchman-vuln-advisories.php — a record's reduced ranges never carry it):
+ * the start itself is not in the range.
  *
- * @return array{status: string, start: ?array, end: ?array, incl: bool, branch: ?list<int>, exact: bool}|null
+ * @return array{status: string, start: ?array, end: ?array, incl: bool, branch: ?list<int>, exact: bool, after?: true}|null
  */
 function watchmanVulnRange(array $r, bool $letters = false): ?array
 {
@@ -308,6 +339,9 @@ function watchmanVulnRange(array $r, bool $letters = false): ?array
     $incl = isset($r['lessThanOrEqual']) && !isset($r['lessThan']);
     if ($end === null) {
         return ['status' => $status, 'start' => $start, 'end' => null, 'incl' => false, 'branch' => null, 'exact' => !str_ends_with($ver, '.*')];
+    }
+    if (($r['after'] ?? false) === true && is_string($end) && ($e = watchmanVulnParse($end, $letters)) !== null) {
+        return ['status' => $status, 'start' => $start, 'end' => $e, 'incl' => $incl, 'branch' => null, 'exact' => false, 'after' => true];
     }
     if (!is_string($end)) {
         return null;
@@ -329,7 +363,7 @@ function watchmanVulnIn(array $have, array $r): bool
     if ($r['exact']) {
         return watchmanVulnCmp($have, $r['start']) === 0;
     }
-    if (watchmanVulnCmp($have, $r['start']) < 0) {
+    if (watchmanVulnCmp($have, $r['start']) < (empty($r['after']) ? 0 : 1)) {
         return false;
     }
     if ($r['branch'] !== null) {
@@ -976,7 +1010,7 @@ function watchmanVulnReduce(array $rec): ?array
  * was tried, when it last worked, and what went wrong — never a body. A list that failed keeps what it had (it ages into
  * «not checked»). $ctx: `get` (the tests' answers), `now`.
  *
- * @return array{kev: ?string, cve: int, unraid: ?string, nvd: int}  what went wrong per list (null: fine), the records fetched
+ * @return array{kev: ?string, cve: int, unraid: ?string, nvd: int, ghsa?: int}  what went wrong per list (null: fine), the records fetched
  */
 function watchmanVulnFetch(string $dir, array $ctx = []): array
 {
@@ -990,6 +1024,14 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
     }
     $status = readJson("$f/status.json") ?? [];
     $status['run'] = $now;          // the job's day (watchmanVulnDue()): a source waiting out its back-off isn't tried
+    // 2026-11-26: status.json written at the start and after each part, not only at the end — a job his tick stops after
+    // WATCH_VULN_RUN_MAX keeps what its parts did (each record, list and answer is written at once anyway), and its day: the
+    // next tick doesn't start it all over again (it did: `run` stayed the day before, so it was due at once)
+    $save = function () use (&$status, $f): void {
+        writeAtomic("$f/status.json", jsonEncode($status), 0600, 0, 0);
+    };
+    $save();
+    $clock = $ctx['clock'] ?? fn (): float => hrtime(true) / 1e9;
     // each source: try, ok, err, and while it fails: fails (in a row), since (the first of them), next (not before)
     $mark = function (string $list, ?string $err) use (&$status, $now): void {
         $status[$list] = watchmanVulnBackoff(is_array($status[$list] ?? null) ? $status[$list] : [], $err, $now);
@@ -1038,6 +1080,7 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
     if ($res['kev'] !== null) {
         $mark('kev', $res['kev']);
     }
+    $save();
 
     // the CVE records of the kept entries: new ones first, then the oldest
     $want = array_values(array_unique(array_column(is_array($kept) ? (array) ($kept['entries'] ?? []) : [], 'cve')));
@@ -1070,7 +1113,13 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
     // nobody asked about yet is never judged («maybe» for every entry of a first fetch: concept 12.1, gap 3)
     $tried = readJson("$f/cve-tried.json");
     $tried = is_array($tried) ? array_intersect_key(array_filter($tried, 'is_int'), array_flip($want)) : [];
+    // 2026-11-26: a bound of its own, in the style of the NVD part — no request starts that could end later than
+    // WATCH_VULN_CVE_TIME s after the job began (60 records at the worst 70 s each would be 4200 s: the tick's 900 s stop
+    // came first, and NVD, the projects' advisories, Unraid's list and endoflife.date got nothing); what wasn't asked stays due
     foreach ($may('cve') ? array_slice($due, 0, WATCH_VULN_CVE_RUN) : [] as $id) {
+        if ($clock() - $began + WATCH_VULN_TIMEOUT + 10 > WATCH_VULN_CVE_TIME) {
+            break;          // no time left for one more: the rest the next day
+        }
         $url = watchmanVulnCveUrl($id);
         $b = $url === null ? ['code' => 0, 'body' => '', 'err' => 'bad_id'] : watchmanVulnGet($url, WATCH_VULN_MAX['cve'], null, $ctx);
         if ($url !== null && watchmanVulnSourceDown((int) $b['code'])) {
@@ -1100,6 +1149,7 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
             $status['cve']['err'] = ($errors ? "$errors failed" : '') . ($errors && $down ? ', ' : '') . ($down ? "$down not answered" : '');
         }
     }
+    $save();
 
     // NVD (2026-11-23): only the CVEs that concern a program here and stayed «can't be checked for sure» (his last round's
     // vuln_look.unsure), and those asked before while still on the list — new ones first, then the oldest; one request every
@@ -1108,9 +1158,16 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
     if (!is_dir("$f/nvd")) {
         @mkdir("$f/nvd", 0700, true);
     }
-    // (2026-11-26: not those unsure only because the version here is a lower bound — NVD can't change that)
-    $unsure = $ctx['unsure'] ?? array_column(array_filter((array) ((readJson("$dir/state.json") ?? [])['vuln_look']['unsure'] ?? []),
-        fn ($x) => is_array($x) && ($x['why'] ?? null) !== 'lower'), 'cve');
+    // (2026-11-26: not those unsure only because the record said «affected» for a version that is a lower bound — NVD can't
+    // change that; a build below a fix (DSM, watchmanVulnBuildVerdict()) is asked: NVD's ranges may place it)
+    $look = (array) ((readJson("$dir/state.json") ?? [])['vuln_look'] ?? []);
+    $unsure = $ctx['unsure'] ?? array_column(array_filter((array) ($look['unsure'] ?? []),
+        fn ($x) => is_array($x) && (($x['why'] ?? null) !== 'lower' || !empty(WATCH_VULN_PRODUCTS[(string) ($x['product'] ?? '')]['build']))), 'cve');
+    // 2026-11-26 (Plex 1.43.4 and CVE-2020-5741 on a test server: «can't be checked for sure», nvd false): the last round's
+    // `unsure` holds only what it could judge — a record still to come then (`pending`, every record of a first fetch, of a
+    // product the name table got since) was fetched by this very job, so its NVD answer waited a whole day more. Those
+    // whose record came now and can't settle it for a version his last look read are asked today too.
+    $unsure = array_merge($unsure, watchmanVulnNvdPending($f, $look, is_array($kept) ? (array) ($kept['entries'] ?? []) : []));
     $unsure = array_values(array_unique(array_filter($unsure, fn ($x) => is_string($x) && in_array($x, $want, true))));
     $nvdHave = [];
     $nvdUndated = [];       // an older office's answer, kept without its publication date: asked anew after the new ones
@@ -1146,7 +1203,6 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
     // failures stops after 2 × 76.5 = 153 s. But failures in turn with answers (fail, answer, fail …) are never two in a
     // row: 20 × 76.5 + 20 × 7.5 ≈ 1680 s — the rule alone doesn't bound it. So no request starts that could end later than
     // WATCH_VULN_NVD_TIME s after the job began (the rest of the job — Unraid's list, endoflife.date — keeps its time).
-    $clock = $ctx['clock'] ?? fn (): float => hrtime(true) / 1e9;
     $nvdMiss = 0;           // requests in a row without an answer
     $nvdTried = 0;
     foreach ($nvdAsk as $i => $id) {
@@ -1184,6 +1240,18 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
         if ($nvdErr !== null && $res['nvd']) {
             $status['nvd']['err'] = $nvdErr;
         }
+    }
+    $save();
+
+    // the projects' own advisories on GitHub (2026-11-26, watchman-vuln-advisories.php): only for the products found here
+    $res['ghsa'] = 0;
+    if ($may('ghsa')) {
+        [$ghsaAsked, $res['ghsa'], $ghsaErr] = watchmanVulnGhsaFetch($dir, $now, $ctx,
+            fn (): bool => $clock() - $began + WATCH_VULN_TIMEOUT + 10 <= WATCH_VULN_GHSA_TIME, $ctx['ghsa_products'] ?? null);
+        if ($ghsaAsked) {
+            $mark('ghsa', $ghsaErr);
+        }
+        $save();
     }
 
     // Unraid's releases: version, support status, date
@@ -1242,8 +1310,45 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
             $status['eol']['err'] = "$eolErr failed";
         }
     }
-    writeAtomic("$f/status.json", jsonEncode($status), 0600, 0, 0);
+    $save();
     return $res;
+}
+
+/**
+ * The last round's pending CVEs ($look: state.json vuln_look) whose record is here now and doesn't settle them for a version
+ * that round read of the product (this server's rows, the containers'): asked of NVD by the same job (2026-11-26)
+ *
+ * @return list<string>
+ */
+function watchmanVulnNvdPending(string $f, array $look, array $entries): array
+{
+    $pending = array_flip(array_filter((array) ($look['pending'] ?? []), 'is_string'));
+    $out = [];
+    foreach ($entries as $e) {
+        $id = is_array($e) ? ($e['cve'] ?? null) : null;
+        $p = WATCH_VULN_PRODUCTS[is_array($e) ? (string) ($e['product'] ?? '') : ''] ?? null;
+        if (!is_string($id) || !isset($pending[$id]) || $p === null || !is_file("$f/cve/$id.json") || is_file("$f/nvd/$id.json")) {
+            continue;
+        }
+        $rec = readJson("$f/cve/$id.json");
+        foreach (['host', 'cts'] as $k) {
+            foreach ((array) ($look[$k] ?? []) as $x) {
+                if (!is_array($x) || ($x['product'] ?? null) !== $e['product'] || !is_string($x['version'] ?? null)) {
+                    continue;
+                }
+                $clean = is_string($x['clean'] ?? null) ? $x['clean'] : ($k === 'host'
+                    ? watchmanVulnClean($x['version'], $e['product'] === 'kernel' ? 'kernel' : 'plain', !empty($p['letters']))
+                    : watchmanVulnShownClean((string) $e['product'], $x['version']));
+                $v = $clean === null ? ['maybe'] : (!empty($p['build']) ? watchmanVulnBuildVerdict($rec, $p['cna'], $clean)
+                    : watchmanVulnVerdict($rec, $p['cna'], $clean, !empty($p['letters'])));
+                if ($v[0] === 'maybe') {
+                    $out[] = $id;
+                    continue 3;
+                }
+            }
+        }
+    }
+    return $out;
 }
 
 /** The job: only while he is on watch and the switch is on (one at a time: a lock in RAM) */
@@ -1262,7 +1367,7 @@ function watchmanVulnFetchRun(): int
     $r = watchmanVulnFetch($dir);
     $bad = array_filter(['kev' => $r['kev'], 'unraid' => $r['unraid']]);
     logLine('Night watchman: the lists of known vulnerabilities fetched — ' . ($bad ? 'not all: ' . implode(', ', array_map(fn ($k, $v) => "$k $v", array_keys($bad), $bad)) : 'fine')
-        . " ({$r['cve']} records, {$r['nvd']} from NVD)");
+        . " ({$r['cve']} records, {$r['nvd']} from NVD, " . ($r['ghsa'] ?? 0) . ' advisory lists)');
     return 0;
 }
 
@@ -1390,7 +1495,9 @@ function watchmanVulnSet(mixed $on, ?string $dir = null, bool $page = true): arr
  * @return array{found: list<array>, checked: int, fresh: bool, kev: ?int, pending: list<string>, not: list<array>, unsure: list<array>,
  *               kev_total: ?int, kev_known: int, kev_here: int, kev_products: array<string, int>, down: list<array>, routers: list<array>, unraid: ?array{version: string, status: string, newest: ?string},
  *               software: list<array>, unknown: list<string>, host: list<array>, cts: list<array>, ct_total: ?int, ct_read: int,
- *               unread: list<string>, unread_n: int}
+ *               unread: list<string>, unread_n: int, ghsa: list<array>, ghsa_here: list<array>}
+ *
+ * 2026-11-26: the projects' own advisories (watchmanVulnGhsaJudge()): `ghsa` (affected and unsure rows), `ghsa_here`.
  *
  * What he looked at (1.96, 2026-11-25: «Was er geprüft hat» on the page): this server's rows of the inventory (host), the
  * containers' (cts: container, product, version), and of $cts (every container's name; null: Docker didn't answer) how
@@ -1511,6 +1618,14 @@ function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []
                                'fixed' => $verdict[1], 'name' => (string) ($e['name'] ?? ''), 'ransom' => !empty($e['ransom']), 'added' => $e['added'] ?? null];
         }
     }
+    // the projects' own advisories (2026-11-26, watchman-vuln-advisories.php): what CISA's list has for a product is left to it
+    $kevBy = [];
+    foreach (is_array($kev) ? (array) ($kev['entries'] ?? []) : [] as $e) {
+        if (is_array($e) && is_string($e['cve'] ?? null)) {
+            $kevBy[(string) ($e['product'] ?? '')][] = $e['cve'];
+        }
+    }
+    $out += watchmanVulnGhsaJudge($dir, $inv, $now, $kevBy);
     $rel = readJson("$f/unraid.json");
     foreach ($inv as $x) {
         if ($x['product'] !== 'unraid') {
@@ -1537,7 +1652,7 @@ function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []
  * containers' rows, and of the containers ($cts: their names; null: Docker didn't answer) the total, those read and the
  * others — lists capped at WATCH_VULN_LOOK_MAX, the counts whole
  *
- * @return array{host: list<array{product: string, version: string}>, cts: list<array{where: string, product: string, version: string}>,
+ * @return array{host: list<array{product: string, version: string}>, cts: list<array{where: string, product: string, version: string, clean?: string}>,
  *               ct_total: ?int, ct_read: int, unread: list<string>, unread_n: int}
  */
 function watchmanVulnLook(array $inv, ?array $cts): array
@@ -1557,7 +1672,8 @@ function watchmanVulnLook(array $inv, ?array $cts): array
         }
         $read[$x['where']] = true;
         if (count($rows) < WATCH_VULN_LOOK_MAX) {
-            $rows[] = ['where' => $x['where'], 'product' => $x['product'], 'version' => $x['version']];
+            // `clean` (2026-11-26): the version as judged — the page shows it («12.4», not linuxserver's «12.4ubu2604-ls61»)
+            $rows[] = ['where' => $x['where'], 'product' => $x['product'], 'version' => $x['version']] + ($x['clean'] !== null ? ['clean' => $x['clean']] : []);
         }
     }
     usort($rows, fn ($a, $b) => strcasecmp($a['where'], $b['where']) ?: strcmp($a['product'], $b['product']));
@@ -1693,10 +1809,12 @@ function watchmanVulnSettings(string $dir): array
 
 /**
  * The advice: Unraid without security updates (posture tip unraid_eol: its version, its status, the newest supported);
- * step 16: software in containers whose release line is past its end (software_eol: «PHP 8.1 (nextcloud)» …)
+ * step 16: software in containers whose release line is past its end (software_eol: «PHP 8.1 (nextcloud)» …);
+ * 2026-11-26: software in containers the projects' own advisories call affected (software_vuln, watchmanVulnGhsaTip())
  */
 function watchmanVulnTips(?array $judged, callable $add): void
 {
+    watchmanVulnGhsaTip($judged, $add);         // 2026-11-26: known serious vulnerabilities by the projects' own advisories (software_vuln)
     $old = array_values(array_filter((array) ($judged['software'] ?? []), fn ($x) => is_array($x) && ($x['eol'] ?? null) === true));
     if ($old) {
         $names = array_map(fn ($x) => (WATCH_VULN_PRODUCTS[$x['product']]['label'] ?? $x['product']) . " {$x['cycle']} ({$x['where']})", $old);
@@ -1714,6 +1832,13 @@ function watchmanVulnPage(array $st, ?array $judged): array
 {
     $on = ($st['vuln_on'] ?? false) === true;
     $j = is_array($judged) ? $judged : [];
+    // 2026-11-26: a row's version as the page shows it (`shown`: a container's as judged — the label's «12.4», never
+    // «12.4ubu2604-ls61» from one image and «12.4» from another; an older state has only the raw value) and whether it is a
+    // build number (`build`: Synology DSM — «Build 90080», never a version 90080)
+    $shown = fn (array $x, string $key): array => $x + ['label' => WATCH_VULN_PRODUCTS[$x['product']]['label'] ?? $x['product']]
+        + (!empty(WATCH_VULN_PRODUCTS[$x['product']]['build']) ? ['build' => true] : [])
+        + (is_string($x[$key] ?? null) && ($v = is_string($x['clean'] ?? null) ? $x['clean'] : watchmanVulnShown((string) $x['product'], (string) ($x['where'] ?? WATCH_VULN_HOST), $x[$key])) !== $x[$key]
+            ? ['shown' => $v] : []);
     return ['on' => $on, 'since' => is_int($st['vuln_since'] ?? null) ? $st['vuln_since'] : null, 'checked_at' => $j['kev'] ?? null,
             'fresh' => !empty($j['fresh']), 'checked' => (int) ($j['checked'] ?? 0),
             'affected' => count(array_filter((array) ($j['found'] ?? []), fn ($x) => ($x['verdict'] ?? '') === 'yes')),
@@ -1722,7 +1847,7 @@ function watchmanVulnPage(array $st, ?array $judged): array
             'software' => array_values(array_filter((array) ($j['software'] ?? []), fn ($x) => is_array($x) && (($x['eol'] ?? null) === true || ($x['latest'] ?? null) !== null))),
             'unknown' => array_values(array_filter((array) ($j['unknown'] ?? []), 'is_string')),
             // checked against what runs here, not affected (1.96): the calm proof he looked — an older state has none
-            'not' => array_map(fn ($x) => $x + ['label' => WATCH_VULN_PRODUCTS[$x['product']]['label'] ?? $x['product']],
+            'not' => array_map(fn ($x) => $shown($x, 'have'),
                 array_values(array_filter((array) ($j['not'] ?? []), fn ($x) => is_array($x) && is_string($x['cve'] ?? null) && is_string($x['product'] ?? null)))),
             // what he looked at (2026-11-23): the list's entries, those of products here (by product, named), records still to come
             'kev_total' => is_int($j['kev_total'] ?? null) ? $j['kev_total'] : null, 'kev_here' => (int) ($j['kev_here'] ?? 0),
@@ -1735,15 +1860,17 @@ function watchmanVulnPage(array $st, ?array $judged): array
             // what he looked at (2026-11-25): this server's programs, the containers read and not — an older state has none (null)
             'host' => is_array($j['host'] ?? null) ? array_map(fn ($x) => $x + ['label' => WATCH_VULN_PRODUCTS[$x['product']]['label'] ?? $x['product']],
                 array_values(array_filter($j['host'], fn ($x) => is_array($x) && is_string($x['product'] ?? null) && is_string($x['version'] ?? null)))) : null,
-            'cts' => array_map(fn ($x) => $x + ['label' => WATCH_VULN_PRODUCTS[$x['product']]['label'] ?? $x['product']],
+            'cts' => array_map(fn ($x) => $shown($x, 'version'),
                 array_values(array_filter((array) ($j['cts'] ?? []), fn ($x) => is_array($x) && is_string($x['where'] ?? null) && is_string($x['product'] ?? null)
                     && is_string($x['version'] ?? null)))),
             'ct_total' => is_int($j['ct_total'] ?? null) ? $j['ct_total'] : null, 'ct_read' => (int) ($j['ct_read'] ?? 0),
             'unread' => array_values(array_filter((array) ($j['unread'] ?? []), 'is_string')), 'unread_n' => (int) ($j['unread_n'] ?? 0),
             'vms' => is_int($j['vms'] ?? null) ? $j['vms'] : null,
             // can't be checked for sure (1.96, 2026-11-23): the record names no version he can compare — calm, never an entry
-            'unsure' => array_map(fn ($x) => $x + ['label' => WATCH_VULN_PRODUCTS[$x['product']]['label'] ?? $x['product']],
-                array_values(array_filter((array) ($j['unsure'] ?? []), fn ($x) => is_array($x) && is_string($x['cve'] ?? null) && is_string($x['product'] ?? null))))];
+            'unsure' => array_map(fn ($x) => $shown($x, 'have'),
+                array_values(array_filter((array) ($j['unsure'] ?? []), fn ($x) => is_array($x) && is_string($x['cve'] ?? null) && is_string($x['product'] ?? null))))]
+        // the projects' own advisories (2026-11-26): rows and what he read per product — an older state has none ([])
+        + array_map(fn (array $list) => array_map(fn ($x) => $shown($x, 'have'), $list), watchmanVulnGhsaPage($j));
 }
 
 /** An entry's words */
@@ -1891,6 +2018,22 @@ function watchmanVulnLabelClean(string $product, string $label): ?string
         return null;
     }
     return watchmanVulnParse($m[1]) !== null ? $m[1] : null;
+}
+
+/**
+ * A version as the page and the hints show it (2026-11-26): this server's as read; a container's as judged — its label in
+ * its product's `oci_form` («12.4ubu2604-ls61» → 12.4), else an image's ENV cleaned («1:11.8.9+maria~ubu2404» → 11.8.9) —
+ * or as read when neither gives one
+ */
+function watchmanVulnShown(string $product, string $where, string $raw): string
+{
+    return $where === WATCH_VULN_HOST ? $raw : (watchmanVulnShownClean($product, $raw) ?? $raw);
+}
+
+/** A container's raw version → the clean one (its label's form, else an ENV's), or null */
+function watchmanVulnShownClean(string $product, string $raw): ?string
+{
+    return watchmanVulnLabelClean($product, $raw) ?? watchmanVulnClean($raw, 'env');
 }
 
 /**

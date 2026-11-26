@@ -125,6 +125,7 @@ require_once __DIR__ . '/../lib/paritywhy.php';
 require_once __DIR__ . '/../lib/arrayhold.php';     // «What holds the array?» (his page, on demand)
 require_once __DIR__ . '/watchman-diskwakes.php';    // «Who woke my disks?» (data/watchman/wakes.json): the sampler in his tick
 require_once __DIR__ . '/watchman-vuln.php';         // «Known vulnerabilities» (1.96, concept 11.3 A): off until switched on
+require_once __DIR__ . '/watchman-vuln-advisories.php';     // … its second source: the projects' own advisories on GitHub (2026-11-26)
 require_once __DIR__ . '/watchman-cats.php';         // his areas (1.96): every kind and tip in one, the lights of his page (state.cats)
 require_once __DIR__ . '/watchman-heat.php';         // «too warm for hours» (1.96, concept 11.3 D): hw_hot
 require_once __DIR__ . '/../lib/logsigns.php';       // signs in the log: the shared patterns (1.96, concept 11.3 H)
@@ -366,6 +367,7 @@ const WATCH_POSTURE = [
     'partner_friend'  => 'info',       // plain copies going to a partner marked «a friend»
     'unraid_eol'      => 'advice',     // known vulnerabilities (1.96): this Unraid version gets no security updates (eol, superseded)
     'software_eol'    => 'advice',     // … software in a container whose release line is past its end (endoflife.date)
+    'software_vuln'   => 'advice',     // … software in a container its project's own advisories call affected (high, critical; 2026-11-26)
     'mitigations_on'  => 'info',
 ];
 /** The office's dashboard in Grafana (monitoring/grafana-dashboard.json): the panel of a data flow group (tests check the ids) */
@@ -1820,7 +1822,9 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
                 'not' => $vuln['not'], 'unsure' => $vuln['unsure'], 'kev_total' => $vuln['kev_total'], 'kev_here' => $vuln['kev_here'],
                 'kev_products' => $vuln['kev_products'], 'pending' => $vuln['pending'], 'down' => $vuln['down'], 'routers' => $vuln['routers'],
                 'host' => $vuln['host'], 'cts' => $vuln['cts'], 'ct_total' => $vuln['ct_total'], 'ct_read' => $vuln['ct_read'], 'unread' => $vuln['unread'],
-                'unread_n' => $vuln['unread_n'], 'vms' => $vuln['vms']];
+                'unread_n' => $vuln['unread_n'], 'vms' => $vuln['vms'],
+                // 2026-11-26: the projects' own advisories (watchman-vuln-advisories.php) — additive, an older office never reads them
+                'ghsa' => $vuln['ghsa'], 'ghsa_here' => $vuln['ghsa_here']];
             if ($vulnImagesCache !== null) {
                 $st['vuln_images'] = $vulnImagesCache;
             }

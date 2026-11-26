@@ -928,7 +928,19 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   product's version from its image's ENV (`env`, `image` to restrict it) or, for the images its `oci` names, the OCI version
   label in its `oci_form` — cache `vuln_images` v 2; Synology DSM in virtual-dsm by its storage's dsm.ver (`file`,
   watchmanVulnFiles(): every disk behind it awake, no link, state.json `vuln_files`), judged by build numbers; `self`: a
-  lower bound, never «affected» — unsure, reason `lower`); «long fixed» below WATCH_VULN_FLOOR — the kernel line of the .plg's min
+  lower bound, never «affected» — unsure, reason `lower`; 2026-11-26 a second source in its own part file
+  watchman-vuln-advisories.php: the projects' GitHub repository advisories (api.github.com, no key, source `ghsa` with its
+  own status/back-off), asked only for the products found in a container here whose name table entry has `ghsa` (repo —
+  WATCH_VULN_GHSA_REPO before any URL —, package names, `unnamed`, `skip`), sorted by publication, at most
+  WATCH_VULN_GHSA_PAGES pages by the Link header's cursor, kept in feeds/ghsa/<product>.json (`v` 1: high and critical only,
+  at most WATCH_VULN_GHSA_KEEP; `cut` + `floor`: a version below it is «older than what he kept»), «only when newer» for a
+  one-page list, WATCH_VULN_GHSA_TIME; the maintainers' range read as one lower and one upper bound or a version alone
+  (`after` in watchmanVulnRange() for «> X»), anything else unsure (reason `ghsa`) unless past every fix; affected rows the
+  tip `software_vuln` (advice) and the fold `vuln.ghsa`, unsure rows join `vuln.unsure`; state.json vuln_look `ghsa`,
+  `ghsa_here` (additive); a CVE CISA's list has for the product is left to it. Same day: the CVE records' part bounded by
+  WATCH_VULN_CVE_TIME, status.json written at the job's start and after each part, a record that came in the job (`pending`
+  in the last look) asked of NVD the same day; the page shows a container's version as judged (`shown`, look rows `clean`)
+  and a `build` product's value as «Build …»); «long fixed» below WATCH_VULN_FLOOR — the kernel line of the .plg's min
   Unraid; an older office's open vuln_maybe lines close quietly). Their entries live in **book-more.json** (`WATCH_KINDS_MORE`, every kind
   newer than 1.95 — an older office never reads it, so never drops them; `watchmanLoad()`/`watchmanSave()` treat both as one
   book). The hardware has no ATT&CK technique and never joins a chain. Settings (`WATCH_SETTINGS` hw, host, lan.dns,
