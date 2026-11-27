@@ -2798,6 +2798,184 @@ function testFanboyDriveMain(): void
     }
 }
 
+/**
+ * 2026-11-27 «Nicht beachten» (fanboyAside(), fanboyAsideIds()): a heat source set aside is read and shown, never the
+ * net's, never proposed, never the warmest spot; one in a zone only with the page's yes, and out of that zone then; never
+ * a zone's last; a store from before (no `aside`) has nothing set aside; the running control takes it within a round.
+ */
+function testFanboyAside(): void
+{
+    $t = fanboyT('aside');
+    try {
+        $spec = fanboyR12Spec();
+        fanboyNetDisks($t, 35, 33);
+        fanboyR12CpuTemp($t, 40);
+        fanboyDriveTemps($t, 90, 40);
+        $s = fanboyNetSettings();
+        fanboyTStore($s);
+        fanboyTSettle($t, $spec);
+        $refused = fn (array $r) => fanboyR6Refused(fn () => fanboyAside($r));
+        // a store from before this version: no key — nothing set aside, the drive at 90 °C pulls the net as ever
+        $c = fanboyControlNew(fanboyBoardRaw(), FANBOY_T_KEY, fanboyMe('control'));
+        $now = 1000.0;
+        fanboyTRounds($c, $now, $t, $spec, 3);
+        same('fanboy aside: an older store (no `aside`) — nothing set aside, the page says none; the NVMe at 90 °C: the net at 100 %',
+            [[], [], 100], [fanboyAsideIds(fanboyBoardRaw()), fanboySetupState(fanboyDetect(), fanboyBoardRaw())['aside'], $c['net']['level'] ?? null]);
+        fanboyLetGo($c, 'end');
+        same('fanboy aside: the request read strictly — no source, a source that is no string, `on` not a bool, a sensor not there',
+            ['missing_field', 'missing_field', 'bad_request', 'bad_request', 'fanboy_aside_gone'],
+            [$refused(['on' => true]), $refused(['source' => ['x'], 'on' => true]), $refused(['source' => FANBOY_T_NVME]), $refused(['source' => FANBOY_T_NVME, 'on' => 'yes']),
+             $refused(['source' => 'nvme@pci0000:00/9999/nvme#1', 'on' => true])]);
+        same('fanboy aside: … an id in the list in another shape is not one (only strings)', ['ssd'], fanboyAsideIds(['aside' => ['ssd', 7, ['x'], '', 'ssd']]));
+        same('fanboy aside: … `aside` not a list: nothing', [], fanboyAsideIds(['aside' => ['a' => 'ssd']]));
+
+        // set aside: the NVMe's Composite (in no zone) — kept with his settings, the rest of them as they were
+        $n0 = count(fanboyTNotified($t));
+        $before = fanboyBoardRaw();
+        $r = fanboyAside(['source' => FANBOY_T_NVME, 'on' => true]);
+        $after = fanboyBoardRaw();
+        same('fanboy aside: «Nicht beachten» — stored in this board\'s settings as `aside`, every other key as it was; the answer carries the state',
+            [[FANBOY_T_NVME], true, [FANBOY_T_NVME]], [$after['aside'] ?? null, array_diff_key($after, ['aside' => 1]) == $before, $r['state']['setup']['aside'] ?? null]);
+        $scan = fanboyDetect();
+        $un = array_column(fanboySetupState($scan, $after)['uncovered'], 'id');
+        $prop = $after;
+        unset($prop['zones']);
+        $ids = array_merge(...array_map(fn ($z) => array_column($z['sources'], 'id'), fanboyZonesPropose($scan, $prop)));
+        same('fanboy aside: … no more in «in no zone», never proposed, not the warmest spot (90 °C — the state\'s `hottest` goes by the others)',
+            [false, false, true, true], [in_array(FANBOY_T_NVME, $un, true), in_array(FANBOY_T_NVME, $ids, true), ($r['state']['hottest']['c'] ?? 0) < 90,
+             ($scan['hottest']['c'] ?? 0) >= 90]);
+        same('fanboy aside: … still read and shown (the look and the setup\'s sources keep it)', [true, 90.0],
+            [in_array(FANBOY_T_NVME, array_column($r['state']['setup']['sources'], 'id'), true), (float) (array_column($r['state']['setup']['sources'], 'c', 'id')[FANBOY_T_NVME] ?? 0)]);
+        $c = fanboyControlNew($after, FANBOY_T_KEY, fanboyMe('control'));
+        fanboyTRounds($c, $now, $t, $spec, 10);
+        same('fanboy aside: the control — the set-aside NVMe at 90 °C pulls no net, nothing told, the cage fans stand',
+            [null, false, [], 0], [$c['net'], isset($c['loose'][FANBOY_T_NVME]), array_slice(fanboyTNotified($t), $n0), fanboyTOut($t, 4)[0]]);
+        same('fanboy aside: … the same sensor twice — once in the list', [FANBOY_T_NVME], (fanboyAside(['source' => FANBOY_T_NVME, 'on' => true]) && true) ? fanboyBoardRaw()['aside'] : null);
+        fanboyLetGo($c, 'end');
+
+        // in a zone: only with the page's yes, and out of the zone then; never the zone's last heat source
+        same('fanboy aside: disk1 is in «HDD-Käfig» — refused without the page\'s yes (from_zones), nothing changed',
+            ['fanboy_aside_in_zone', 6, [FANBOY_T_NVME]], [$refused(['source' => 'disk1', 'on' => true]), count(fanboyBoardRaw()['zones'][1]['sources']), fanboyBoardRaw()['aside']]);
+        fanboyAside(['source' => 'disk1', 'on' => true, 'from_zones' => true]);
+        $e = fanboyBoardRaw();
+        same('fanboy aside: … with it — set aside and out of the zone (the other five disks stay); the zone\'s other keys as they were',
+            [[FANBOY_T_NVME, 'disk1'], ['parity', 'disk2', 'disk3', 'disk4', 'disk5'], $s['zones'][1]['target']],
+            [$e['aside'], array_column($e['zones'][1]['sources'], 'id'), $e['zones'][1]['target']]);
+        same('fanboy aside: the CPU zone\'s only heat source — refused (its fans would go by nothing), even with the yes',
+            ['fanboy_aside_last', [FANBOY_R12_CPU]], [$refused(['source' => FANBOY_R12_CPU, 'on' => true, 'from_zones' => true]), array_column(fanboyBoardRaw()['zones'][0]['sources'], 'id')]);
+        // back: «Wieder beachten» — off the list (an id no longer there too)
+        fanboyAside(['source' => FANBOY_T_NVME, 'on' => false]);
+        same('fanboy aside: «Wieder beachten» — off the list, nothing else changed (disk1 stays out of its zone: the user puts it back)',
+            [['disk1'], 5], [fanboyBoardRaw()['aside'], count(fanboyBoardRaw()['zones'][1]['sources'])]);
+        $e = fanboyBoardRaw();
+        $e['aside'][] = 'nvme@pci0000:00/9999/nvme#1';
+        fanboyTStore($e);
+        same('fanboy aside: … a sensor no longer on this server comes off the list too; a sensor there not on it: nothing to do, no refusal',
+            [['disk1'], ''], [(fanboyAside(['source' => 'nvme@pci0000:00/9999/nvme#1', 'on' => false]) && true) ? fanboyBoardRaw()['aside'] : null,
+             $refused(['source' => 'disk2', 'on' => false])]);
+        // putting it into a zone again counts it again
+        $zones = array_map(fn ($z) => ['id' => $z['id'], 'name' => $z['name'], 'fans' => $z['fans'], 'unit' => $z['unit'], 'target' => $z['target'],
+            'sources' => array_map(fn ($x) => ['id' => $x['id']], $z['sources'])], fanboyBoardRaw()['zones']);
+        $zones[1]['sources'][] = ['id' => 'disk1'];
+        fanboyZonesSave(['zones' => $zones]);
+        same('fanboy aside: disk1 put into «HDD-Käfig» again and the zones saved — counted again (off the list)', [[], 6],
+            [fanboyBoardRaw()['aside'] ?? null, count(fanboyBoardRaw()['zones'][1]['sources'])]);
+        $plain = fanboyBoardRaw();
+        unset($plain['aside']);
+        fanboyTStore($plain);
+        fanboyZonesSave(['zones' => $zones]);
+        same('fanboy aside: … a store without the key gets none from a zones save (additive only where it was)', false, array_key_exists('aside', fanboyBoardRaw()));
+
+        // the running control: the net held by the NVMe (75 °C: 60 %) — set aside, it ends at the next round, not after 2 minutes
+        fanboyTStore($s);
+        fanboyDriveTemps($t, 75, 40);
+        $c = fanboyControlNew(fanboyBoardRaw(), FANBOY_T_KEY, fanboyMe('control'));
+        $n0 = count(fanboyTNotified($t));
+        fanboyTRounds($c, $now, $t, $spec, 4);
+        $held = [$c['net']['level'] ?? null, isset($c['told']['net']), fanboyTOut($t, 4)[0] >= 153];
+        $stamp = fanboyControlStamp();
+        clearstatcache();
+        sleep(1);           // (the store's time is the control's stamp outside the RAM mode: a second of its own)
+        fanboyAside(['source' => FANBOY_T_NVME, 'on' => true]);
+        clearstatcache();
+        $seen = fanboyControlStamp() !== $stamp;
+        fanboyControlReload($c, fanboyBoardRaw(), FANBOY_T_KEY, $c['owner']);      // what the control's loop does when the stamp moved
+        fanboyTRounds($c, $now, $t, $spec, 1);
+        same('fanboy aside: the control steering with the net at 60 % for the NVMe; set aside — the stamp moved, the reload takes it, and the very next round the net is over, its notice cleared',
+            [[60, true, true], true, null, false, 1], [$held, $seen, $c['net'], isset($c['told']['net']), count(array_slice(fanboyTNotified($t), $n0))]);
+        fanboyTRounds($c, $now, $t, $spec, 30);
+        same('fanboy aside: … the cage fans back on their curve (they stand), nothing more told', [0, 1], [fanboyTOut($t, 4)[0], count(array_slice(fanboyTNotified($t), $n0))]);
+        // counted again while warm: the net comes back and tells anew (its notice was cleared)
+        fanboyAside(['source' => FANBOY_T_NVME, 'on' => false]);
+        fanboyControlReload($c, fanboyBoardRaw(), FANBOY_T_KEY, $c['owner']);
+        fanboyTRounds($c, $now, $t, $spec, 3);
+        same('fanboy aside: «Wieder beachten» while it is warm — the net at 60 % again, said again', [60, 2], [$c['net']['level'] ?? null, count(array_slice(fanboyTNotified($t), $n0))]);
+        // a zone save while the net holds: it goes on (no second notice), the zones as saved
+        fanboyZonesSave(['zones' => array_map(fn ($z) => ['id' => $z['id'], 'name' => $z['name'], 'fans' => $z['fans'], 'unit' => $z['unit'], 'target' => $z['target'],
+            'sources' => array_map(fn ($x) => ['id' => $x['id']], $z['sources'])], fanboyBoardRaw()['zones'])]);
+        fanboyControlReload($c, fanboyBoardRaw(), FANBOY_T_KEY, $c['owner']);
+        fanboyTRounds($c, $now, $t, $spec, 2);
+        same('fanboy aside: a zone saved while the net holds for a source still in no zone — it holds on, told once', [60, 2], [$c['net']['level'] ?? null, count(array_slice(fanboyTNotified($t), $n0))]);
+        // … and one put into a zone: the net over at once — its zone decides now
+        $zones = array_map(fn ($z) => ['id' => $z['id'], 'name' => $z['name'], 'fans' => $z['fans'], 'unit' => $z['unit'], 'target' => $z['target'],
+            'sources' => array_map(fn ($x) => ['id' => $x['id']], $z['sources'])], fanboyBoardRaw()['zones']);
+        $zones[1]['sources'][] = ['id' => FANBOY_T_NVME];
+        fanboyZonesSave(['zones' => $zones]);
+        fanboyControlReload($c, fanboyBoardRaw(), FANBOY_T_KEY, $c['owner']);
+        fanboyTRounds($c, $now, $t, $spec, 1);
+        same('fanboy aside: the NVMe put into «HDD-Käfig» — the net over at the next round, the zone leads by it', [null, FANBOY_T_NVME],
+            [$c['net'], $c['zones']['hdd']['warmest']['id'] ?? null]);
+        fanboyLetGo($c, 'end');
+        $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/desk.js');
+        same('fanboy aside: the page — a fresh look first, the yes for a source in a zone, the action with from_zones; the rows know who is set aside',
+            [true, true, true], [str_contains($js, "async function asideAsk(id, on, b) {\n  if (!(await Office.freshState(ID))) return;"),
+             str_contains($js, "await act('aside', { source: id, on: true, from_zones: true }, b);"), str_contains($js, 'aside: !!sid && aside.has(sid)')]);
+    } finally {
+        fanboyR12CpuTemp($t, 28);
+        fanboyTEnd();
+    }
+}
+
+/**
+ * 2026-11-27: «Nicht beachten» reaches the control that runs — a RAM job of its own reading only his mirror (as on the
+ * server) — without a restart: the net it holds for the NVMe ends within a round or two, its pid the same
+ */
+function testFanboyAsideControl(): void
+{
+    $t = fanboyT('aside-ctl');
+    $keep = alwaysOnTHire($t, true);
+    $p = null;
+    try {
+        fanboyNetDisks($t, 35, 33);
+        fanboyR12CpuTemp($t, 40);
+        fanboyDriveTemps($t, 75, 40);
+        fanboyTStore(fanboyNetSettings());
+        fanboyMirrorKeep(true);
+        $data = "{$t['tmp']}/data";
+        @mkdir("$data/fanboy", 0700, true);
+        $net = fn () => readJson(fanboyStatusFile())['net']['level'] ?? null;
+        $p = alwaysOnTControl($t, $data);
+        $on = fanboyTWait(fn () => $net() === 60, 20);
+        $pidFile = fn () => trim((string) @file_get_contents(fanboyRunDir() . '/control.pid'));      // (fanboyControlPid() needs /proc: not on a Mac)
+        $pid = $pidFile();
+        check('fanboy aside control: the control runs as a RAM job, the NVMe at 75 °C in no zone — its net at 60 %', $on,
+            json_encode(readJson(fanboyStatusFile())['net'] ?? null) . ' ' . (string) @file_get_contents("{$t['tmp']}/proc.out"));
+        $t0 = hrtime(true);
+        fanboyAside(['source' => FANBOY_T_NVME, 'on' => true]);
+        $off = fanboyTWait(fn () => $net() === null && is_array(readJson(fanboyStatusFile())), 8);
+        $secs = round((hrtime(true) - $t0) / 1e9, 1);
+        check("fanboy aside control: set aside on the page — the running control ends the net within a round or two ($secs s; at most 6), the same process",
+            $off && $secs <= 6.0 && $pidFile() === $pid && $pid !== '' && proc_get_status($p)['running'], json_encode(readJson(fanboyStatusFile())['net'] ?? null));
+    } finally {
+        if ($p !== null) {
+            alwaysOnTStop($p);
+        }
+        fanboyR12CpuTemp($t, 28);
+        alwaysOnTHireEnd($keep);
+        fanboyTEnd();
+    }
+}
+
 /** Round 12 fix: «take over» with fans that may stand while heat sources are in no zone — refused without an explicit yes */
 function testFanboyNetTakeOver(): void
 {

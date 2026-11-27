@@ -636,6 +636,27 @@ function fanboyDriveLimits(string $kind, string $input): array
     return ['max' => $one("{$base}_max"), 'crit' => $one("{$base}_crit")];
 }
 
+/*
+ * «Nicht beachten» (2026-11-27, the same user: «there is no way to set a sensor aside»): the heat sources the user set
+ * aside, by the ids his zones use (fanboySourceId() — a chip's device without hwmonN, a disk by its name: steady across
+ * boots). Kept in this board's entry of settings.json as `aside` [id…] (new, additive: an older office never reads it and
+ * keeps it on rewrite, a store without it has nothing set aside); his mirror carries the entry whole, so the running
+ * control sees a change as it sees a zone saved (fanboyControlReload()). A source set aside is read and shown as before
+ * — it is never the net's, never proposed for a zone, never the warmest spot; setting it aside takes it out of every
+ * zone (fanboyAside()), putting it into a zone again counts it again (fanboyZonesSave()).
+ */
+const FANBOY_ASIDE_MAX = 256;
+
+/** The ids set aside in this board's settings — only strings in exactly that shape; none, or another shape: [] */
+function fanboyAsideIds(?array $settings): array
+{
+    $a = $settings['aside'] ?? null;
+    if (!is_array($a) || !array_is_list($a)) {
+        return [];
+    }
+    return array_slice(array_values(array_unique(array_filter($a, fn ($id) => is_string($id) && $id !== '' && strlen($id) <= 1000))), 0, FANBOY_ASIDE_MAX);
+}
+
 /** Every heat source the server offers now: Unraid's disks (by name) and every hwmon temperature (no drivetemp) */
 function fanboySources(array $scan): array
 {
@@ -756,6 +777,7 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
         'disks_at' => null, 'disks' => [], 'scan_at' => null, 'events' => [], 'poll' => null, 'allow' => 0, 'disks_unknown' => null,
         'loose' => [], 'net' => null,         // round 12 fix: the heat sources in none of his zones, and the net for them
         'net_out' => [],                      // 2026-11-27: … those there that are not the net's (in a zone, a further sensor, set aside)
+        'aside' => array_fill_keys(fanboyAsideIds($settings), true),        // 2026-11-27: the sources the user set aside
     ];
 }
 
@@ -954,9 +976,9 @@ function fanboyReadSources(array &$c, float $now): void
             if (!in_array($s['kind'], FANBOY_NET_KINDS, true)) {
                 continue;
             }
-            // 2026-11-27: there now but not the net's — in a zone, or a drive's further sensor (fanboyDriveMain()): a
-            // net it holds ends at once (fanboyNet()), never after the clear time
-            if (isset($inZones[$s['id']]) || !empty($s['further'])) {
+            // 2026-11-27: there now but not the net's — in a zone, a drive's further sensor (fanboyDriveMain()), set aside
+            // by the user (fanboyAsideIds()): a net it holds ends at once (fanboyNet()), never after the clear time
+            if (isset($inZones[$s['id']]) || !empty($s['further']) || isset($c['aside'][$s['id']])) {
                 $out[$s['id']] = true;
                 continue;
             }

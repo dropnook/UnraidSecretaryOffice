@@ -86,7 +86,7 @@
   "help.outputs": "Uscite",
   "help.outputs_text": "I connettori per ventole del chip che Linux potrebbe comandare. «regola il chip»: la sua curva (quella del BIOS); «valore fisso»: un valore impostato da qualcuno; «velocità massima»: nessuno regola.",
   "help.sensors": "Sensori",
-  "help.sensors_text": "Ogni temperatura: CPU, NVMe, RAM, scheda madre, scheda grafica — e i dischi di Unraid come Unraid li ha visti l'ultima volta. Un disco che dorme non mostra temperatura.",
+  "help.sensors_text": "Ogni temperatura: CPU, NVMe, RAM, scheda madre, scheda grafica — e i dischi di Unraid come Unraid li ha visti l'ultima volta. Un disco che dorme non mostra temperatura. Una riga apre i suoi dettagli; lì puoi anche scegliere «Ignora» per un sensore su cui Fanboy non deve basarsi.",
   "help.report": "Invia a chi la costruisce",
   "help.report_text": "Apre il modulo per un desiderio con il rapporto di Fanboy: il modello della scheda madre, chip e driver, quante uscite e ingressi, i tipi di sensori, kernel e versione di Unraid. Mai il nome del tuo server, numeri di serie, nomi di dischi o percorsi.",
   "hints.fits": {
@@ -1378,5 +1378,22 @@
   "dash.back_no": "Annulla",
   "sensors.further": "sensore aggiuntivo",
   "sensors.further_title": "Non è la temperatura su cui si basa il disco stesso",
-  "sensors.further_line": "Un sensore aggiuntivo di questo NVMe — il disco stesso si basa su «{main}». Fanboy non fa mai girare più veloci le ventole per lui di sua iniziativa; reagisce solo una zona in cui lo inserisci."
+  "sensors.further_line": "Un sensore aggiuntivo di questo NVMe — il disco stesso si basa su «{main}». Fanboy non fa mai girare più veloci le ventole per lui di sua iniziativa; reagisce solo una zona in cui lo inserisci.",
+  "sensors.aside": "ignorato",
+  "sensors.aside_title": "Hai scelto «Ignora» per questa fonte di calore",
+  "sensors.aside_line": "L'hai messa da parte: Fanboy continua a leggerla e mostrarla, ma non fa mai girare più veloci le ventole, non viene mai proposta per una zona e non conta mai come il punto più caldo.",
+  "sensors.aside_go": "Ignora",
+  "sensors.aside_go_tip": "Fanboy continua a leggere questa fonte di calore ma non si basa più su di lei: non fa mai girare più veloci le ventole, non viene proposta per una zona, non è mai il punto più caldo",
+  "sensors.aside_back": "Considera di nuovo",
+  "sensors.aside_back_tip": "Fanboy si basa di nuovo su questa fonte di calore come su ogni altra",
+  "sensors.aside_confirm_title": "Ignorare {source}?",
+  "sensors.aside_confirm": {"one": "{source} è una fonte di calore della zona {zones}. Ignorata, esce subito da questa zona: le sue ventole non reagiscono più a lei. Fanboy continua a leggerla e mostrarla, e puoi considerarla di nuovo in qualsiasi momento.", "other": "{source} è una fonte di calore delle zone {zones}. Ignorata, esce subito da queste {n} zone: le loro ventole non reagiscono più a lei. Fanboy continua a leggerla e mostrarla, e puoi considerarla di nuovo in qualsiasi momento."},
+  "sensors.aside_last": "{source} è l'unica fonte di calore di «{zone}» — aggiungi prima un'altra a questa zona.",
+  "zones.uncovered_aside": "Ignora:",
+  "zones.uncovered_aside_tip": "Fanboy non si basa più su questa fonte di calore — subito, senza «Salva le zone»; sotto «Sensori» puoi considerarla di nuovo",
+  "zones.src_aside_tip": "Ignorata — aggiunta a questa zona, conta di nuovo appena salvi le zone",
+  "errors.fanboy_aside_gone": "{source} al momento non è su questo server.",
+  "errors.fanboy_aside_in_zone": "{source} ora è una fonte di calore di {zones} — guarda di nuovo e conferma che ne esca.",
+  "errors.fanboy_aside_last": "{source} è l'unica fonte di calore di «{zone}» — aggiungi prima un'altra a questa zona.",
+  "errors.fanboy_aside_max": "Si possono ignorare al massimo {max} fonti di calore."
 }

@@ -570,7 +570,7 @@
     "margin": -14,
     "over": null
    },
-   "count": 4,
+   "count": 3,
    "asleep": 0
   },
   {
@@ -847,12 +847,6 @@
     "c": 46
    },
    {
-    "id": "nvme@pci0000:00/0000:00:1b.4/0000:82:00.0/nvme#1",
-    "kind": "nvme",
-    "label": "Composite",
-    "c": 29.9
-   },
-   {
     "id": "nvme@pci0000:00/0000:00:01.0/0000:01:00.0/nvme#1",
     "kind": "nvme",
     "label": "Composite",
@@ -874,18 +868,14 @@
    },
    {
     "kind": "nvme",
-    "id": "nvme@pci0000:00/0000:00:1b.4/0000:82:00.0/nvme#1",
-    "name": "Composite",
-    "c": 29.9,
-    "asleep": false
-   },
-   {
-    "kind": "nvme",
     "id": "nvme@pci0000:00/0000:00:01.0/0000:01:00.0/nvme#1",
     "name": "Composite",
     "c": 25.9,
     "asleep": false
    }
+  ],
+  "aside": [
+   "nvme@pci0000:00/0000:00:1b.4/0000:82:00.0/nvme#1"
   ],
   "board": "Example Boards Inc. | EB-Z100 PRO",
   "others": 0,

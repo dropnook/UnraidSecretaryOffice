@@ -445,6 +445,10 @@ His fans' biggest fan: he steers the fans on the mainboard's fan connectors by w
   its limit at 100 %, and he tells you. A drive is judged by what it reports itself: an NVMe by its *Composite*
   temperature. Its further sensors (*Sensor 1 … 8*) are shown and count in a zone you put them into, but never speed
   the fans up on their own, are never proposed for a zone and are never the warmest spot.
+- **Ignore:** unfold a sensor under *Sensors* (or, for a heat source in no zone, in the zones step) and choose *Ignore*.
+  Fanboy keeps reading and showing it, greyed, but it never speeds the fans up, is never proposed for a zone and never
+  counts as the warmest spot. One in a zone asks first and leaves that zone; a zone's only heat source can't be ignored.
+  *Count again* undoes it, and so does putting it into a zone and saving the zones.
 - **How he reacts:** *React slowly* (up a little every 2 s, down only once it is 3 °C cooler and after 30 s) or *React
   quickly* (up at once, down soon).
 - **Take over** hands the fans to him. The CPU cooler and pumps stay with the BIOS, unless you give him the cooler at

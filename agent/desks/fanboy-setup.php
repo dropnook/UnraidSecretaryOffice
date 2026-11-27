@@ -1858,8 +1858,10 @@ function fanboyZonesPropose(array $scan, array $settings): array
     $disks = array_keys(array_filter($fans, fn ($f) => $f['role'] === 'disks'));
     $cpu = array_keys(array_filter($fans, fn ($f) => $f['role'] === 'cpu'));
     $case = array_keys(array_filter($fans, fn ($f) => !in_array($f['role'], ['disks', 'cpu'], true)));
-    // 2026-11-27: never a drive's further sensor (the drive is judged by its main reading, fanboyDriveMain())
-    $sources = array_values(array_filter(fanboySources($scan), fn ($s) => empty($s['further'])));
+    // 2026-11-27: never a drive's further sensor (the drive is judged by its main reading, fanboyDriveMain()), never one
+    // the user set aside (fanboyAsideIds())
+    $aside = array_flip(fanboyAsideIds($settings));
+    $sources = array_values(array_filter(fanboySources($scan), fn ($s) => empty($s['further']) && !isset($aside[$s['id']])));
     $zones = [];
     if ($disks) {
         $zones[] = ['id' => 'disks', 'kind' => 'disks', 'name' => '', 'fans' => $disks, 'unit' => 'pct', 'target' => ['preset' => 'normal'],
@@ -2096,9 +2098,72 @@ function fanboyZonesSave(array $r): array
     }
     $e = fanboyStoreUpdate(function (array $e) use ($zones): array {
         $e['zones'] = $zones;
+        // 2026-11-27: a source set aside that the user put into a zone counts again (what is in a zone is never «aside»)
+        if (array_key_exists('aside', $e)) {
+            $in = array_merge(...array_map(fn ($z) => array_column($z['sources'], 'id'), $zones ?: [['sources' => []]]));
+            $e['aside'] = array_values(array_diff(fanboyAsideIds($e), $in));
+        }
         return $e;
     }, $scan['board']);
     return ['ok' => true, 'zones' => $e['zones']];
+}
+
+/**
+ * «Nicht beachten» / «Wieder beachten» for one heat source (2026-11-27; fanboyAsideIds()): `source` (its id as the zones
+ * keep it), `on` (true: set aside). Setting aside: only a source the server shows now; one in a zone only with
+ * `from_zones` (the page's confirmation: «… and out of the zones X»), never the last heat source of a zone (its fans
+ * would go by nothing) — then taken out of those zones in the same save. Back: any id on the list (a sensor gone may be
+ * taken off it too). The running control sees it within a round (his mirror, fanboyControlReload()); a net the source
+ * held ends at that round (fanboyNet()).
+ */
+function fanboyAside(array $r): array
+{
+    $id = textField($r, 'source');
+    $on = boolField($r, 'on');
+    $fromZones = optBool($r, 'from_zones', false);
+    $scan = fanboyDetect();
+    $settings = fanboyBoardRaw($scan['board']) ?? [];
+    $known = array_column(fanboySources($scan), null, 'id');
+    $names = fanboySourceNames(array_values($known), function_exists('officeNotifyLang') ? officeNotifyLang() : 'en');
+    $name = $names[$id] ?? fanboySourceSay($id, $known);
+    $zones = array_values(array_filter(is_array($settings['zones'] ?? null) ? $settings['zones'] : [],
+        fn ($z) => is_array($z) && in_array($id, array_column(array_filter(is_array($z['sources'] ?? null) ? $z['sources'] : [], 'is_array'), 'id'), true)));
+    $zoneName = fn (array $z) => is_string($z['name'] ?? null) && $z['name'] !== '' ? $z['name'] : (string) ($z['id'] ?? '?');
+    if ($on) {
+        if (!isset($known[$id])) {
+            throw new Problem('fanboy_aside_gone', ['source' => $name, 'id' => $id]);
+        }
+        foreach ($zones as $z) {
+            if (count(array_filter($z['sources'], fn ($s) => is_array($s) && is_string($s['id'] ?? null))) <= 1) {
+                throw new Problem('fanboy_aside_last', ['source' => $name, 'id' => $id, 'zone' => $zoneName($z)]);
+            }
+        }
+        if ($zones && !$fromZones) {
+            throw new Problem('fanboy_aside_in_zone', ['source' => $name, 'id' => $id, 'zones' => implode(', ', array_map($zoneName, $zones))]);
+        }
+        if (!in_array($id, fanboyAsideIds($settings), true) && count(fanboyAsideIds($settings)) >= FANBOY_ASIDE_MAX) {
+            throw new Problem('fanboy_aside_max', ['max' => FANBOY_ASIDE_MAX]);
+        }
+    } elseif (!in_array($id, fanboyAsideIds($settings), true) && !isset($known[$id])) {
+        throw new Problem('fanboy_aside_gone', ['source' => $name, 'id' => $id]);
+    }
+    fanboyStoreUpdate(function (array $e) use ($id, $on): array {
+        $list = fanboyAsideIds($e);
+        if ($on) {
+            $list = in_array($id, $list, true) ? $list : [...$list, $id];
+            foreach (is_array($e['zones'] ?? null) ? $e['zones'] : [] as $i => $z) {
+                if (is_array($z) && is_array($z['sources'] ?? null)) {
+                    $e['zones'][$i]['sources'] = array_values(array_filter($z['sources'], fn ($s) => !is_array($s) || ($s['id'] ?? null) !== $id));
+                }
+            }
+        } else {
+            $list = array_values(array_diff($list, [$id]));
+        }
+        $e['aside'] = $list;
+        return $e;
+    }, $scan['board']);
+    logLine('Fanboy: ' . $name . ($on ? ' set aside on the user\'s click' . ($zones ? ' (taken out of ' . implode(', ', array_map($zoneName, $zones)) . ')' : '') : ' counted again on the user\'s click'));
+    return ['ok' => true, 'state' => fanboyScan()];
 }
 
 /**
@@ -2157,10 +2222,12 @@ function fanboyUncovered(array $scan, ?array $settings): array
     }
     $sources = fanboySources($scan);
     $names = fanboySourceNames($sources, function_exists('officeNotifyLang') ? officeNotifyLang() : 'en');
+    $aside = array_flip(fanboyAsideIds($settings));
     $out = [];
     foreach ($sources as $src) {
-        // (2026-11-27: a drive's further sensor is no heat source the net watches — fanboyDriveMain())
-        if (!isset($in[$src['id']]) && in_array($src['kind'], FANBOY_NET_KINDS, true) && empty($src['further'])) {
+        // (2026-11-27: a drive's further sensor and one set aside are no heat sources the net watches — fanboyDriveMain(),
+        // fanboyAsideIds())
+        if (!isset($in[$src['id']]) && in_array($src['kind'], FANBOY_NET_KINDS, true) && empty($src['further']) && !isset($aside[$src['id']])) {
             $out[] = ['kind' => $src['kind'], 'id' => $src['id'], 'name' => $names[$src['id']] ?? $src['id'], 'c' => $src['c'], 'asleep' => $src['asleep']];
         }
     }

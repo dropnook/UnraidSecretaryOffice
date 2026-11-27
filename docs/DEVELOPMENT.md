@@ -1300,6 +1300,22 @@ the last 60 history lines only for a source the file has none for. **The file
   that round and its notification is untold; one whose source went away waits `FANBOY_NET_CLEAR` as before. A settings
   reload carries `net` and `loose` (before, a save dropped the net and its «told» stayed for good). Tests:
   `testFanboyDriveMain`.
+  **«Nicht beachten»** (2026-11-27, the same user: no way to set a sensor aside): the heat sources the user set aside,
+  by the ids the zones use (`fanboySourceId()` — no hwmonN — or a disk's name), in this board's entry of settings.json
+  as `aside` [id…] (`fanboyAsideIds()`: only strings, at most `FANBOY_ASIDE_MAX`; additive — an older office keeps the
+  key on rewrite and reads nothing of it, a store without it has nothing set aside; a zones save drops from it what the
+  zones now hold and never adds the key). The mirror carries the entry whole (no new `v`): the control sees a change
+  as it sees a zone saved (`fanboyControlStamp()` → `fanboyControlReload()`, `$c['aside']`), and a net the source held
+  ends at the next round (`$c['net_out']`). Set aside: read and shown, greyed in the list with a line why — never the
+  net's, never `uncovered`, never proposed, never the warmest spot (`fanboyScan()` recomputes `hottest`,
+  `hottest_kinds`, `hottest_lead` without them), never «too warm» on the page; the measuring's guard and the watch still
+  see it (their own «Start anyway» stays the way past a guard). The action `aside {source, on, from_zones?}`
+  (`fanboyAside()`): on — only a source there now, one in a zone only with `from_zones` (the page's confirmation names
+  the zones) and then out of them in the same save, never a zone's only heat source (`fanboy_aside_last`); off — any id
+  on the list. The page: «Nicht beachten» / «Wieder beachten» in a sensor row's unfolded detail (fresh look first,
+  `asideAsk()`), «Nicht beachten:» per source in the zones step's «in no zone» box (only those in no saved zone), and a
+  set-aside chip in a zone's heat sources dashed — putting it into a zone and saving counts it again. Tests:
+  `testFanboyAside`, `testFanboyAsideControl` (the RAM job takes it without a restart).
 * **`caretaker` — The Team Lead** (id stays `caretaker`). Hires, fires (no «Hire» while a needed colleague can't come),
   suggests, collects all checks, reports new red findings once. «I know, thanks» puts aside recommended findings and hints —
   **never musts**; his notification history (`notify-log.json`) shows a counted decision's `times` and, for a run's very same

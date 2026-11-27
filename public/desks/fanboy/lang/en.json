@@ -86,7 +86,7 @@
   "help.outputs": "Outputs",
   "help.outputs_text": "The chip's fan connectors Linux could steer. «chip steers»: its own curve (the BIOS's); «fixed value»: a value someone set; «full speed»: nobody steers.",
   "help.sensors": "Sensors",
-  "help.sensors_text": "Every temperature: CPU, NVMe, RAM, board, graphics card — and Unraid's disks as Unraid itself last saw them. A sleeping disk shows no temperature.",
+  "help.sensors_text": "Every temperature: CPU, NVMe, RAM, board, graphics card — and Unraid's disks as Unraid itself last saw them. A sleeping disk shows no temperature. A row unfolds its details; there you can also choose «Ignore» for a sensor Fanboy should not go by.",
   "help.report": "Send to the makers",
   "help.report_text": "Opens the form for a wish with Fanboy's report: the board's model, chips and drivers, how many outputs and inputs, the kinds of sensors, kernel and Unraid version. Never your server's name, serial numbers, disk names or paths.",
   "hints.fits": {
@@ -1378,5 +1378,22 @@
   "dash.back_no": "Cancel",
   "sensors.further": "further sensor",
   "sensors.further_title": "Not the temperature the drive itself goes by",
-  "sensors.further_line": "A further sensor of this NVMe — the drive itself goes by «{main}». Fanboy never speeds the fans up for it on his own; only a zone you put it into reacts to it."
+  "sensors.further_line": "A further sensor of this NVMe — the drive itself goes by «{main}». Fanboy never speeds the fans up for it on his own; only a zone you put it into reacts to it.",
+  "sensors.aside": "ignored",
+  "sensors.aside_title": "You chose «Ignore» for this heat source",
+  "sensors.aside_line": "You set it aside: Fanboy still reads and shows it, but it never speeds the fans up, is never proposed for a zone and never counts as the warmest spot.",
+  "sensors.aside_go": "Ignore",
+  "sensors.aside_go_tip": "Fanboy keeps reading this heat source but no longer goes by it: it never speeds the fans up, is never proposed for a zone, never the warmest spot",
+  "sensors.aside_back": "Count again",
+  "sensors.aside_back_tip": "Fanboy goes by this heat source again like any other",
+  "sensors.aside_confirm_title": "Ignore {source}?",
+  "sensors.aside_confirm": {"one": "{source} is a heat source of the zone {zones}. Ignored, it leaves that zone at once: its fans no longer react to it. Fanboy still reads and shows it, and you can count it again at any time.", "other": "{source} is a heat source of the zones {zones}. Ignored, it leaves these {n} zones at once: their fans no longer react to it. Fanboy still reads and shows it, and you can count it again at any time."},
+  "sensors.aside_last": "{source} is the only heat source of «{zone}» — put another one into that zone first.",
+  "zones.uncovered_aside": "Ignore:",
+  "zones.uncovered_aside_tip": "Fanboy no longer goes by this heat source — at once, without «Save the zones»; under «Sensors» you can count it again",
+  "zones.src_aside_tip": "Ignored — put into this zone, it counts again once you save the zones",
+  "errors.fanboy_aside_gone": "{source} is not on this server right now.",
+  "errors.fanboy_aside_in_zone": "{source} is a heat source of {zones} now — look again and confirm that it leaves them.",
+  "errors.fanboy_aside_last": "{source} is the only heat source of «{zone}» — put another one into that zone first.",
+  "errors.fanboy_aside_max": "At most {max} heat sources can be ignored."
 }
