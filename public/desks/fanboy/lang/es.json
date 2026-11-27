@@ -1375,5 +1375,8 @@
   "dash.back_title": "¿Devolver los ventiladores a la BIOS?",
   "dash.back_text": "Cada ventilador que regula vuelve enseguida a la BIOS. Solo los retoma con «Darle el control» en su página, cuando el array esté en marcha.",
   "dash.back_yes": "Devolver",
-  "dash.back_no": "Cancelar"
+  "dash.back_no": "Cancelar",
+  "sensors.further": "sensor adicional",
+  "sensors.further_title": "No es la temperatura por la que se guía el propio disco",
+  "sensors.further_line": "Un sensor adicional de este NVMe — el propio disco se guía por «{main}». Fanboy nunca acelera los ventiladores por él por su cuenta; solo reacciona una zona en la que lo pongas."
 }

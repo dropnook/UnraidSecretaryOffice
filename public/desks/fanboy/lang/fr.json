@@ -1375,5 +1375,8 @@
   "dash.back_title": "Rendre les ventilateurs au BIOS ?",
   "dash.back_text": "Chaque ventilateur qu'il règle retourne aussitôt au BIOS. Il ne les reprend qu'avec «Prendre en main» sur sa page, une fois l'array démarré.",
   "dash.back_yes": "Rendre",
-  "dash.back_no": "Annuler"
+  "dash.back_no": "Annuler",
+  "sensors.further": "sonde supplémentaire",
+  "sensors.further_title": "Pas la température d'après laquelle le disque se juge lui-même",
+  "sensors.further_line": "Une sonde supplémentaire de ce NVMe — le disque lui-même se fie à «{main}». Fanboy n'accélère jamais les ventilateurs pour elle de son propre chef ; seule une zone où tu la mets y réagit."
 }

@@ -1375,5 +1375,8 @@
   "dash.back_title": "Give the fans back to the BIOS?",
   "dash.back_text": "Every fan he steers goes back to the BIOS at once. He takes them again only on «Take over» on his page, once the array runs.",
   "dash.back_yes": "Give back",
-  "dash.back_no": "Cancel"
+  "dash.back_no": "Cancel",
+  "sensors.further": "further sensor",
+  "sensors.further_title": "Not the temperature the drive itself goes by",
+  "sensors.further_line": "A further sensor of this NVMe — the drive itself goes by «{main}». Fanboy never speeds the fans up for it on his own; only a zone you put it into reacts to it."
 }

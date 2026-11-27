@@ -2666,6 +2666,138 @@ function testFanboyNet(): void
     }
 }
 
+/**
+ * 2026-11-27: the fake board's NVMe of the net (FANBOY_T_NVME's drive, hwmon2) as a Kingston KC3000 shows itself — temp1
+ * «Composite» with the drive's own max/crit (null: the file not there), temp2 «Sensor 1», temp3 «Sensor 2» (°C each)
+ */
+function fanboyDriveTemps(array $t, float $composite, float $sensor2, ?int $maxMilli = 83850, ?int $critMilli = 88850): void
+{
+    $hw = "{$t['root']}/sys/devices/pci0000:00/0000:00:06.1/0000:03:00.0/nvme/nvme0/hwmon/hwmon2";
+    file_put_contents("$hw/temp1_input", (int) round($composite * 1000) . "\n");
+    file_put_contents("$hw/temp2_input", (int) round(($composite + 2) * 1000) . "\n");
+    file_put_contents("$hw/temp3_input", (int) round($sensor2 * 1000) . "\n");
+    file_put_contents("$hw/temp3_label", "Sensor 2\n");
+    foreach (['max' => $maxMilli, 'crit' => $critMilli] as $k => $v) {
+        $v === null ? @unlink("$hw/temp1_$k") : file_put_contents("$hw/temp1_$k", "$v\n");
+    }
+    @unlink("$hw/temp3_max");          // «Sensor 2»: no limits of its own (as on the KC3000)
+}
+
+/**
+ * 2026-11-27 (a user's W680 board, two Kingston KC3000): a drive is judged by what the drive itself reports. The net takes
+ * only an NVMe's «Composite» (its first temperature where none is labelled so) with the drive's own warning and critical
+ * value when they are sane; «Sensor 1 … 8» are shown, never the net's, never proposed, never the warmest spot, never the
+ * measuring's guard — and a real hot drive still gets every fan to 60 % and 100 % as before.
+ */
+function testFanboyDriveMain(): void
+{
+    $chip = fn (array $temps, string $kind = 'nvme') => ['kind' => $kind, 'temps' => array_map(fn ($n, $l) => ['n' => $n, 'label' => $l], array_keys($temps), $temps)];
+    same('fanboy drive: the main reading — «Composite» wherever it stands, else temp1, else the lowest; a chip that is no drive has none',
+        [1, 3, 1, 2, null, null],
+        [fanboyDriveMain($chip([1 => 'Composite', 2 => 'Sensor 1', 3 => 'Sensor 2'])), fanboyDriveMain($chip([1 => 'Sensor 1', 3 => 'composite'])),
+         fanboyDriveMain($chip([1 => '', 2 => ''])), fanboyDriveMain($chip([2 => 'Sensor 1', 5 => 'Sensor 4'])), fanboyDriveMain($chip([1 => 'Package id 0'], 'cpu')), fanboyDriveMain($chip([]))]);
+    $t = fanboyT('drivemain');
+    try {
+        $spec = fanboyR12Spec();
+        fanboyNetDisks($t, 35, 33);
+        fanboyR12CpuTemp($t, 40);
+        fanboyDriveTemps($t, 33, 77);
+        $s = fanboyNetSettings();
+        fanboyTStore($s);
+        fanboyTSettle($t, $spec);
+        $sensor2 = 'nvme@pci0000:00/0000:00:06.1/0000:03:00.0/nvme#3';
+        $sensor1 = 'nvme@pci0000:00/0000:00:06.1/0000:03:00.0/nvme#2';
+        $scan = fanboyDetect();
+        $src = array_column(fanboySources($scan), null, 'id');
+        same('fanboy drive: the sources say which is a further sensor — Composite no, «Sensor 1» and «Sensor 2» yes, a disk none',
+            [false, true, true, null], [$src[FANBOY_T_NVME]['further'], $src[$sensor1]['further'], $src[$sensor2]['further'], $src['ssd']['further'] ?? null]);
+        $un = array_column(fanboySetupState($scan, fanboyBoardRaw())['uncovered'], 'id');
+        same('fanboy drive: «in no zone» lists the drive\'s Composite, never its further sensors', [true, false, false],
+            [in_array(FANBOY_T_NVME, $un, true), in_array($sensor1, $un, true), in_array($sensor2, $un, true)]);
+        $hot = $scan['hottest'];
+        $k = array_column($scan['hottest_kinds'], null, 'kind');
+        check('fanboy drive: the warmest spot is never a further sensor (Sensor 2 at 77 °C, the drive at 33) — ' . json_encode([$hot, $k['ssd']['warmest'] ?? null]),
+            ($hot['c'] ?? 0) < 77 && ($k['ssd']['warmest']['c'] ?? 0) < 77);
+        same('fanboy drive: the measuring\'s guard — Sensor 2 at 77 °C (over the NVMe\'s 80 − 5) is not the drive: nothing too warm', null, fanboyStepWarm($s));
+        same('fanboy drive: the watch\'s «something warm» — not Sensor 2 either', null, fanboyWarmNow($scan['chips'], $scan['disks']));
+        $propose = $s;
+        unset($propose['zones']);
+        $ids = array_merge(...array_map(fn ($z) => array_column($z['sources'], 'id'), fanboyZonesPropose($scan, $propose)));
+        same('fanboy drive: a proposal takes the drive\'s Composite, never its further sensors', [true, false, false],
+            [in_array(FANBOY_T_NVME, $ids, true), in_array($sensor1, $ids, true), in_array($sensor2, $ids, true)]);
+
+        // the KC3000 as the user's server had it: Composite 33, Sensor 2 77 — the net quiet, nothing told
+        $c = fanboyControlNew($s, FANBOY_T_KEY, fanboyMe('control'));
+        $now = 1000.0;
+        $n0 = count(fanboyTNotified($t));
+        fanboyTRounds($c, $now, $t, $spec, 20);
+        same('fanboy drive: the KC3000 — Composite 33 °C, «Sensor 2» 77 °C: no net, the cage fans stand, nothing told; the net watches the Composite with the drive\'s own limits',
+            [null, 0, 0, [], [83.85, 88.85]], [$c['net'], fanboyTOut($t, 4)[0], fanboyTOut($t, 5)[0], array_slice(fanboyTNotified($t), $n0),
+             [$c['loose'][FANBOY_T_NVME]['max'] ?? null, $c['loose'][FANBOY_T_NVME]['crit'] ?? null]]);
+        check('fanboy drive: … its further sensors are no source of the net', !isset($c['loose'][$sensor1]) && !isset($c['loose'][$sensor2]));
+        // the drive itself warm: Composite 72 °C (the NVMe's «volle Drehzahl bei» 70, the drive's own warning 83.85), Sensor 2 40
+        fanboyDriveTemps($t, 72, 40);
+        $now += FANBOY_SLOW_EVERY;
+        fanboyTRounds($c, $now, $t, $spec, 6);
+        same('fanboy drive: Composite 72 °C, Sensor 2 40 °C — the net at 60 %, every fan he steers at least there; said once, by the drive\'s name',
+            [60, true, true, FANBOY_T_NVME], [$c['net']['level'] ?? null, fanboyTOut($t, 4)[0] >= 153, fanboyTOut($t, 5)[0] >= 153, $c['net']['source']['id'] ?? null]);
+        same('fanboy drive: … one warning', 1, count(array_filter(array_slice(fanboyTNotified($t), $n0), fn ($l) => str_contains($l, 'in no zone'))));
+        fanboyLetGo($c, 'end');
+
+        // the drive's own limits lower than the kind's: warns at 65, critical at 75 — 66 °C: 60 %, 76 °C: 100 %
+        fanboyDriveTemps($t, 40, 40, 65000, 75000);
+        $c = fanboyControlNew($s, FANBOY_T_KEY, fanboyMe('control'));
+        fanboyTRounds($c, $now, $t, $spec, 3);
+        fanboyDriveTemps($t, 66, 40, 65000, 75000);
+        $now += FANBOY_SLOW_EVERY;
+        fanboyTRounds($c, $now, $t, $spec, 3);
+        $at66 = $c['net']['level'] ?? null;
+        fanboyDriveTemps($t, 76, 40, 65000, 75000);
+        $now += FANBOY_SLOW_EVERY;
+        fanboyTRounds($c, $now, $t, $spec, 3);
+        same('fanboy drive: its own warning 65, critical 75 (under the kind\'s 70 / 80) — at 66 °C 60 %, at 76 °C (over its critical) 100 %, the outputs full',
+            [60, 100, 255, 255], [$at66, $c['net']['level'] ?? null, fanboyTOut($t, 4)[0], fanboyTOut($t, 5)[0]]);
+        fanboyLetGo($c, 'end');
+
+        // limits that say nothing: 0, absurd (127 °C over the NVMe's bounds), or none — the kind's 70 / 80
+        foreach (['0' => [0, 0], 'absurd' => [127000, 130000], 'none' => [null, null], 'under' => [5000, 15000]] as $what => [$max, $crit]) {
+            fanboyDriveTemps($t, 40, 40, $max, $crit);
+            $c = fanboyControlNew($s, FANBOY_T_KEY, fanboyMe('control'));
+            fanboyTRounds($c, $now, $t, $spec, 2);
+            $l = $c['loose'][FANBOY_T_NVME] ?? [];
+            $limits = [array_key_exists('max', $l) ? $l['max'] : 'x', array_key_exists('crit', $l) ? $l['crit'] : 'x'];
+            fanboyDriveTemps($t, 69, 40, $max, $crit);
+            $now += FANBOY_SLOW_EVERY;
+            fanboyTRounds($c, $now, $t, $spec, 2);
+            $at69 = $c['net']['level'] ?? null;
+            fanboyDriveTemps($t, 79, 40, $max, $crit);
+            $now += FANBOY_SLOW_EVERY;
+            fanboyTRounds($c, $now, $t, $spec, 2);
+            $at79 = $c['net']['level'] ?? null;
+            fanboyDriveTemps($t, 80, 40, $max, $crit);
+            $now += FANBOY_SLOW_EVERY;
+            fanboyTRounds($c, $now, $t, $spec, 2);
+            same("fanboy drive: the drive's limits $what — ignored (none kept), the kind's: 69 °C nothing, 79 °C 60 %, 80 °C 100 %",
+                [[null, null], null, 60, 100], [$limits, $at69, $at79, $c['net']['level'] ?? null]);
+            fanboyLetGo($c, 'end');
+        }
+
+        // a further sensor in a zone on purpose: it counts there as any source of the zone
+        $z = $s;
+        $z['zones'][1]['sources'][] = ['kind' => 'nvme', 'id' => $sensor2];
+        fanboyTStore($z);
+        fanboyDriveTemps($t, 33, 77);
+        $c = fanboyControlNew($z, FANBOY_T_KEY, fanboyMe('control'));
+        fanboyTRounds($c, $now, $t, $spec, 10);
+        same('fanboy drive: «Sensor 2» put into the cage\'s zone on purpose — it leads that zone (77 °C), the net stays quiet',
+            [$sensor2, true, null], [$c['zones']['hdd']['warmest']['id'] ?? null, fanboyTOut($t, 4)[0] > 0, $c['net']]);
+        fanboyLetGo($c, 'end');
+    } finally {
+        fanboyR12CpuTemp($t, 28);
+        fanboyTEnd();
+    }
+}
+
 /** Round 12 fix: «take over» with fans that may stand while heat sources are in no zone — refused without an explicit yes */
 function testFanboyNetTakeOver(): void
 {

@@ -56,6 +56,10 @@ function ite(outs, rpms) {
   return c;
 }
 const devKey = (d) => d.replace(/\/([a-z]+)\/\1\d+$/, '/$1');
+/** A drive chip's main temperature as fanboyDriveMain() says (2026-11-27): «Composite», else the lowest — null: no drive */
+const driveMain = (c) => (c.kind !== 'nvme' || !c.temps.length ? null : (c.temps.find((t) => /^composite$/i.test((t.label || '').trim())) || { n: Math.min(...c.temps.map((t) => t.n)) }).n);
+/** A drive's further sensor (fanboyFurther()) */
+const further = (c, n) => driveMain(c) !== null && driveMain(c) !== n;
 /** Every heat source as fanboySources() lists them */
 function sources(chips, disks) {
   // (round 13b: a disk outside array and pools carries its group, the Unassigned Devices plugin's name or none, its size, «in use»)
@@ -63,14 +67,18 @@ function sources(chips, disks) {
     ...(d.type === 'unassigned' ? { group: 'unassigned', name: d.label || null, size: d.size || 0, in_use: !!d.in_use } : {}) }));
   for (const c of chips) {
     if (c.kind === 'disk') continue;
-    for (const t of c.temps) out.push({ kind: c.kind, id: `${c.name}@${devKey(c.device)}#${t.n}`, label: t.label || `${c.name} #${t.n}`, c: t.c, asleep: false, chip: c.name, hwmon: c.hwmon, n: t.n });
+    for (const t of c.temps) out.push({ kind: c.kind, id: `${c.name}@${devKey(c.device)}#${t.n}`, label: t.label || `${c.name} #${t.n}`, c: t.c, asleep: false, chip: c.name, hwmon: c.hwmon, n: t.n,
+      pool: null, further: further(c, t.n) });
   }
   return out;
 }
-/** The heat sources no zone has, as fanboyUncovered() lists them: disks, SSDs and NVMe (FANBOY_NET_KINDS) in none of the zones */
+/**
+ * The heat sources no zone has, as fanboyUncovered() lists them: disks, SSDs and NVMe (FANBOY_NET_KINDS) in none of the
+ * zones — never a drive's further sensor (2026-11-27)
+ */
 function uncovered(zones, all) {
   const inZones = new Set((zones || []).flatMap((z) => (z.sources || []).map((x) => x.id)));
-  return all.filter((x) => ['disk', 'ssd', 'nvme'].includes(x.kind) && !inZones.has(x.id)).map((x) => ({ kind: x.kind, id: x.id, name: x.label, c: x.c, asleep: x.asleep }));
+  return all.filter((x) => ['disk', 'ssd', 'nvme'].includes(x.kind) && !inZones.has(x.id) && !x.further).map((x) => ({ kind: x.kind, id: x.id, name: x.label, c: x.c, asleep: x.asleep }));
 }
 // FANBOY_SOURCE_DEFAULTS of agent/desks/fanboy-control.php (2026-11-20, the owner's table): [low, high, limit, step]
 const DEFAULTS = { disk: [40, 50, 55, 5], ssd: [50, 70, 80, 10], nvme: [50, 70, 80, 10], cpu: [50, 80, 92, 10], ram: [50, 70, 75, 5], gpu: [50, 80, 90, 10], board: [45, 65, 70, 5], other: [50, 70, 75, 5] };
@@ -197,7 +205,7 @@ function hottestKinds(chips, disks) {
   for (const c of chips) {
     if (c.kind === 'disk') continue;
     const kind = { nvme: 'ssd', cpu: 'cpu', board: 'board', ram: 'ram' }[c.kind] || 'other';
-    for (const t of c.temps) cand.push({ kind, c: t.c, label: t.label, disk: null, chip: c.name, n: t.n, asleep: false, warn: null, crit: null });
+    for (const t of c.temps) if (!further(c, t.n)) cand.push({ kind, c: t.c, label: t.label, disk: null, chip: c.name, n: t.n, asleep: false, warn: null, crit: null });
   }
   const out = [];
   for (const kind of ['hdd', 'ssd', 'cpu', 'board', 'ram', 'other']) {
@@ -233,7 +241,7 @@ function state(o) {
   const fans = (o.fans || []).map((f) => withPlan(clone(f)));
   const zones = clone(o.zones || []);
   let hottest = null;
-  for (const c of chips) for (const t of c.temps) if (t.c !== null && (!hottest || t.c > hottest.c)) hottest = { c: t.c, kind: c.kind, chip: c.name, label: t.label, n: t.n, disk: null };
+  for (const c of chips) for (const t of c.temps) if (t.c !== null && !further(c, t.n) && (!hottest || t.c > hottest.c)) hottest = { c: t.c, kind: c.kind, chip: c.name, label: t.label, n: t.n, disk: null };
   for (const d of disks) if (d.temp !== null && (!hottest || d.temp > hottest.c)) hottest = { c: d.temp, kind: 'disk', chip: null, label: '', n: null, disk: d.name };
   const kinds = hottestKinds(chips, disks);
   const s = {
@@ -673,6 +681,7 @@ write(path.join(DEMO, 'post'), 'fanboy.dry_run', dry);
 write(path.join(DEMO, 'post'), 'fanboy.history', { ok: true, state: histOf(72) });
 fs.mkdirSync(path.join(STATES, 'post'), { recursive: true });
 write(path.join(STATES, 'post'), 'fanboy.history', { ok: true, state: histOf(72) });
-// the click test's stub: the overview steering (every tile has its section), its history
+// the click test's stub: the overview steering (every tile has its section), its history (2026-11-27: the drives'
+// «Sensor 1» are their further sensors)
 write(STATES, 'fanboy', files.fanboy);
 write(STATES, 'fanboy-history', hist);

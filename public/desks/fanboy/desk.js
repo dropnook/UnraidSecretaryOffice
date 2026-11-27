@@ -1168,9 +1168,12 @@ function sensorRows() {
   const out = [];
   const src = setup().sources || [];
   chips().forEach((c) => c.temps.forEach((x) => {
-    const sid = (src.find((y) => y.chip === c.name && y.hwmon === c.hwmon && y.n === x.n) || {}).id || null;
-    out.push({ id: sid, name: sid ? srcLabel(src.find((y) => y.id === sid)) : x.label || T('sensors.row', { n: x.n }), label: x.label, chip: c, kind: c.kind, c: x.c,
-      key: `${c.address}:${x.n}`, feature: `temp${x.n}` });
+    const s = src.find((y) => y.chip === c.name && y.hwmon === c.hwmon && y.n === x.n) || {};
+    const sid = s.id || null;
+    // 2026-11-27: a drive's further sensor — and the drive's main reading it is not (the agent's fanboyDriveMain())
+    const main = s.further === true ? src.find((y) => y.chip === c.name && y.hwmon === c.hwmon && y.further === false) : null;
+    out.push({ id: sid, name: sid ? srcLabel(s) : x.label || T('sensors.row', { n: x.n }), label: x.label, chip: c, kind: c.kind, c: x.c,
+      key: `${c.address}:${x.n}`, feature: `temp${x.n}`, further: s.further === true, main: main ? srcLabel(main) : '' });
   }));
   (S().disks || []).forEach((d) => out.push({ id: d.name, name: srcLabel({ kind: 'disk', id: d.name }), chip: null, kind: 'disk', c: d.temp, asleep: d.asleep, in_use: d.in_use === true, key: `disk:${d.name}`, disk: d.name,
     rot: d.rotational !== false, warn: num(d.warn), crit: num(d.crit) }));
@@ -1204,8 +1207,13 @@ function sensorRow(x, place) {
   else if (x.c === null || x.c === undefined) meta.appendChild(chipOfText('quiet', T('sensors.no_value'), T('sensors.no_value_title')));
   if (inAlarm(x)) meta.appendChild(chipOfText('warn', T('sensors.too_warm'), T('sensors.too_warm_title')));
   x.zones.forEach((z) => meta.appendChild(chipOfText('accent', z.name, T('sensors.in_zone'))));
+  if (x.further) meta.appendChild(chipOfText('quiet', T('sensors.further'), T('sensors.further_title')));
   const v = el('div', 'fb-value', x.c === null || x.c === undefined ? '–' : T('temp', { c: fmt.number(x.c) }));
-  return unfoldRow(`temp:${x.key}`, place ? { place: `temp:${x.key}` } : {}, x.name, meta, v,
+  // 2026-11-27: what a drive's further sensor is, said on the row itself (not only in a tip)
+  const lines = el('div', 'fb-row-says');
+  lines.appendChild(meta);
+  if (x.further) lines.appendChild(el('p', 'fb-row-note', T('sensors.further_line', { main: x.main || T('kind.nvme') })));
+  return unfoldRow(`temp:${x.key}`, place ? { place: `temp:${x.key}` } : {}, x.name, lines, v,
     x.chip ? [[T('tech.chip'), `${x.chip.name} · ${x.chip.address}`], [T('tech.sensor'), `${x.feature}_input · ${x.chip.hwmon}`]]
       : [[T('tech.disk'), x.disk], [T('tech.from'), 'disks.ini']]);
 }
@@ -3847,7 +3855,7 @@ function uncoveredNow(zones) {
   const all = setup().sources || [];
   if (!zdraft || !zones) return (setup().uncovered || []).map((u) => all.find((x) => x.id === u.id) || { id: u.id, kind: u.kind, label: u.name, c: u.c, asleep: u.asleep });
   const inZones = new Set(zones.flatMap((z) => (z.sources || []).map((x) => x.id)));
-  return all.filter((x) => NET_KINDS.includes(x.kind) && !inZones.has(x.id));
+  return all.filter((x) => NET_KINDS.includes(x.kind) && !inZones.has(x.id) && x.further !== true);      // (never a drive's further sensor)
 }
 /** A heat source said in a sentence: its name and what it reads now (asleep: said, never a number) */
 const srcSay = (x) => `${srcLabel(x)}${num(x.c) !== null ? ` (${T('temp', { c: fmt.number(Math.round(x.c)) })})` : x.in_use ? ` (${T('src.in_use')})` : x.asleep ? ` (${T('pic.asleep')})` : ''}`;
@@ -4147,6 +4155,7 @@ function zoneSources(z, i) {
       b2.title = on ? T('zones.src_out') : T('zones.src_in');
       // 2026-11-22: AMD's two CPU values told apart (k10temp)
       if (s.chip === 'k10temp' && ['Tctl', 'Tdie'].includes(s.label)) b2.title += ` — ${T(s.label === 'Tctl' ? 'src.tctl' : 'src.tdie')}`;
+      if (s.further === true) b2.title += ` — ${T('sensors.further_title')}`;      // 2026-11-27: a drive's further sensor
       b2.onclick = () => changeZones((all) => {
         const has2 = all[i].sources.some((x) => x.id === s.id);
         all[i].sources = has2 ? all[i].sources.filter((x) => x.id !== s.id) : [...all[i].sources, { id: s.id, kind: s.kind }];

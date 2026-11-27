@@ -1284,6 +1284,22 @@ the last 60 history lines only for a source the file has none for. **The file
   at a boot's first take where the chip's automatic stood before him. The plugin's removal takes both flash files.
   **Not built:** maintenance mode (the control steers there too; nobody restarts it after a death). Tests:
   tests/always-on-tests.php (part `alwayson`).
+  **A drive is judged by what it reports itself** (2026-11-27, a user's W680 board with two Kingston KC3000: «Sensor 2»
+  at 77 °C, the drive's own Composite at 33 — the net held every fan at 60 % for good and mailed at every start): a
+  drive's hwmon (`FANBOY_DRIVE_KINDS`: nvme — drivetemp is never read) has ONE main reading (`fanboyDriveMain()`: the
+  sensor labelled «Composite», else its first temperature); the others are its further sensors (`further` on each
+  source of `fanboySources()`). They are read and shown as before (the sensors' list says what they are: «weiterer
+  Fühler», a line naming the main reading) and count in a zone the user put them into — never in the net
+  (`$c['loose']`), `uncovered`, a proposal (`fanboyZonesPropose()`), the warmest spot (`fanboyHottest()`,
+  `fanboyHottestKinds()`: `fanboyHotSkip()`), the measuring's guard (`fanboyStepWarm()`) or the watch's «something
+  warm» (`fanboyWarmNow()`). The net's warm value and limit for a main reading: the kind's `high`/`limit`, Unraid's
+  warning/critical where the id is a disk's, and the drive's own `tempN_max` / `tempN_crit` (`fanboyDriveLimits()`:
+  the nvme driver's over-temperature threshold — WCTEMP unless set — and CCTEMP; 0 or outside `FANBOY_KIND_BOUNDS`
+  ignored; read once per path, kept in the loose entry as `max`/`crit`/`lim_path`) — the lowest of each wins. A net
+  whose source is still there but no longer the net's (`$c['net_out']`: put into a zone, a further sensor) ends at
+  that round and its notification is untold; one whose source went away waits `FANBOY_NET_CLEAR` as before. A settings
+  reload carries `net` and `loose` (before, a save dropped the net and its «told» stayed for good). Tests:
+  `testFanboyDriveMain`.
 * **`caretaker` — The Team Lead** (id stays `caretaker`). Hires, fires (no «Hire» while a needed colleague can't come),
   suggests, collects all checks, reports new red findings once. «I know, thanks» puts aside recommended findings and hints —
   **never musts**; his notification history (`notify-log.json`) shows a counted decision's `times` and, for a run's very same

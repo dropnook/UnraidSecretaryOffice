@@ -1375,5 +1375,8 @@
   "dash.back_title": "Restituire le ventole al BIOS?",
   "dash.back_text": "Ogni ventola che regola torna subito al BIOS. Le riprende solo con «Affida a lui» sulla sua pagina, quando l'array è in funzione.",
   "dash.back_yes": "Restituisci",
-  "dash.back_no": "Annulla"
+  "dash.back_no": "Annulla",
+  "sensors.further": "sensore aggiuntivo",
+  "sensors.further_title": "Non è la temperatura su cui si basa il disco stesso",
+  "sensors.further_line": "Un sensore aggiuntivo di questo NVMe — il disco stesso si basa su «{main}». Fanboy non fa mai girare più veloci le ventole per lui di sua iniziativa; reagisce solo una zona in cui lo inserisci."
 }

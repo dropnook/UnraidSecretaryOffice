@@ -103,7 +103,8 @@ function fanboyWarmNow(array $chips, array $disks, array $allow = [], ?string $l
     }
     $best = null;
     foreach ($sources as $s) {
-        if ($s['c'] === null || $s['asleep'] || !in_array($s['kind'], FANBOY_IDLE_KINDS, true)) {
+        // (2026-11-27: a drive's further sensor never — the drive isn't judged by it, fanboyDriveMain())
+        if ($s['c'] === null || $s['asleep'] || !in_array($s['kind'], FANBOY_IDLE_KINDS, true) || !empty($s['further'])) {
             continue;
         }
         $disk = in_array($s['kind'], FANBOY_DISK_KINDS, true);

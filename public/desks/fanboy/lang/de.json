@@ -1375,5 +1375,8 @@
   "dash.back_title": "Lüfter ans BIOS zurückgeben?",
   "dash.back_text": "Jeder Lüfter, den er regelt, geht sofort ans BIOS zurück. Er übernimmt sie erst wieder mit «Übernehmen» auf seiner Seite, sobald das Array läuft.",
   "dash.back_yes": "Zurückgeben",
-  "dash.back_no": "Abbrechen"
+  "dash.back_no": "Abbrechen",
+  "sensors.further": "weiterer Fühler",
+  "sensors.further_title": "Nicht die Temperatur, nach der sich die Disk selbst richtet",
+  "sensors.further_line": "Ein weiterer Fühler dieser NVMe — die Disk selbst richtet sich nach «{main}». Fanboy lässt die Lüfter seinetwegen nie von sich aus schneller drehen; nur eine Zone, in die du ihn aufnimmst, reagiert auf ihn."
 }

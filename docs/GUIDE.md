@@ -440,6 +440,11 @@ His fans' biggest fan: he steers the fans on the mainboard's fan connectors by w
   Every kind of heat source in a zone has its own curve: *Quiet*, *Normal*, *Cool* or your own (kept per kind). The zone
   runs at what the most demanding curve asks; the curve alone decides. Disks outside the array and pools count too; a
   sleeping disk is never woken.
+- **Heat sources in no zone** (disks, SSDs, NVMe): when one gets warm — its kind's full-speed temperature, Unraid's
+  warning for that disk or the drive's own warning, whichever is lowest — every fan he steers runs at least at 60 %, at
+  its limit at 100 %, and he tells you. A drive is judged by what it reports itself: an NVMe by its *Composite*
+  temperature. Its further sensors (*Sensor 1 … 8*) are shown and count in a zone you put them into, but never speed
+  the fans up on their own, are never proposed for a zone and are never the warmest spot.
 - **How he reacts:** *React slowly* (up a little every 2 s, down only once it is 3 °C cooler and after 30 s) or *React
   quickly* (up at once, down soon).
 - **Take over** hands the fans to him. The CPU cooler and pumps stay with the BIOS, unless you give him the cooler at

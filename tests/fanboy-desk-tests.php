@@ -443,8 +443,9 @@ function testFanboyUx(): void
     // round 12 fix, the net: heat sources no zone covers — said in the zones step and at «Übernehmen», the net's state in the banner
     same('fanboy ux uncovered: while he changes zones the page uses the agent\'s rule on the draft — the kinds the net watches', FANBOY_NET_KINDS,
         preg_match("/const NET_KINDS = \\[([^\\]]+)\\];/", $js, $m) ? array_map(fn ($x) => trim($x, " '"), explode(',', $m[1])) : []);
+    // (2026-11-27: never a drive's further sensor — as the agent's fanboyUncovered())
     check('fanboy ux uncovered: for the kept zones the list is the agent\'s (setup.uncovered); the zones step says it above the zones with one click per source into the zone shown',
-        str_contains($js, "if (!zdraft || !zones) return (setup().uncovered || []).map(") && str_contains($js, "return all.filter((x) => NET_KINDS.includes(x.kind) && !inZones.has(x.id));")
+        str_contains($js, "if (!zdraft || !zones) return (setup().uncovered || []).map(") && str_contains($js, "return all.filter((x) => NET_KINDS.includes(x.kind) && !inZones.has(x.id) && x.further !== true);")
         && str_contains($js, "const loose = uncoveredNow(zones);") && str_contains($js, "...loose.map((x) => btn(srcLabel(x), 'btn plain', () => into([x.id]), T('zones.uncovered_in_tip'))),")
         && str_contains($js, "const text = el('p', '', T(pct === null ? 'zones.uncovered' : 'zones.uncovered_pct', { list: loose.map(srcSay).join(', '), pct }));"));
     check('fanboy ux uncovered: at «Übernehmen» the same list; where a fan of his may stand (the state\'s may_stand) the dialog asks plainly and only that yes sends uncovered_ok',

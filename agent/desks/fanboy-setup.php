@@ -835,6 +835,9 @@ function fanboyStepWarm(?array $settings = null, ?array &$seen = null): ?array
     foreach (fanboyChips($p['hwmon']) as $chip) {
         if (in_array($chip['kind'], ['cpu', 'nvme'], true)) {
             foreach ($chip['temps'] as $t) {
+                if (fanboyFurther($chip, $t['n'])) {
+                    continue;           // 2026-11-27: a drive's further sensor — the drive is judged by its main reading
+                }
                 $w = $check(fanboySourceId($chip, $t['n']), $chip['kind'], $t['label'] !== '' ? $t['label'] : $chip['name'] . " #{$t['n']}", $t['c'] === null ? null : (float) $t['c']);
                 if ($w !== null) {
                     return $w;
@@ -1855,7 +1858,8 @@ function fanboyZonesPropose(array $scan, array $settings): array
     $disks = array_keys(array_filter($fans, fn ($f) => $f['role'] === 'disks'));
     $cpu = array_keys(array_filter($fans, fn ($f) => $f['role'] === 'cpu'));
     $case = array_keys(array_filter($fans, fn ($f) => !in_array($f['role'], ['disks', 'cpu'], true)));
-    $sources = fanboySources($scan);
+    // 2026-11-27: never a drive's further sensor (the drive is judged by its main reading, fanboyDriveMain())
+    $sources = array_values(array_filter(fanboySources($scan), fn ($s) => empty($s['further'])));
     $zones = [];
     if ($disks) {
         $zones[] = ['id' => 'disks', 'kind' => 'disks', 'name' => '', 'fans' => $disks, 'unit' => 'pct', 'target' => ['preset' => 'normal'],
@@ -2155,7 +2159,8 @@ function fanboyUncovered(array $scan, ?array $settings): array
     $names = fanboySourceNames($sources, function_exists('officeNotifyLang') ? officeNotifyLang() : 'en');
     $out = [];
     foreach ($sources as $src) {
-        if (!isset($in[$src['id']]) && in_array($src['kind'], FANBOY_NET_KINDS, true)) {
+        // (2026-11-27: a drive's further sensor is no heat source the net watches — fanboyDriveMain())
+        if (!isset($in[$src['id']]) && in_array($src['kind'], FANBOY_NET_KINDS, true) && empty($src['further'])) {
             $out[] = ['kind' => $src['kind'], 'id' => $src['id'], 'name' => $names[$src['id']] ?? $src['id'], 'c' => $src['c'], 'asleep' => $src['asleep']];
         }
     }
