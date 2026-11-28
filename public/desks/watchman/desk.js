@@ -3920,6 +3920,8 @@ function vulnLists(words) {
     box.appendChild(el('p', 'role wm-vuln-counted', [line, v.pending ? T('vuln.pending', { n: v.pending }) : ''].filter(Boolean).join(' ')));
   }
   vulnGhsaLines(v).forEach((x) => box.appendChild(x));
+  const unraid = vulnUnraidLine(v);
+  if (unraid) box.appendChild(unraid);
   // his limits (2026-11-25), always there, calm: he compares only with what is listed, only for what he knows and can read
   box.appendChild(el('p', 'wm-vuln-limits', T('vuln.limits')));
   // the routers by their own log (2026-11-23): under «What he checked» since 2026-11-25 — an older state without it keeps them here
@@ -4046,6 +4048,20 @@ function vulnDownLines() {
     else if (x.ok && Office.has(`${ID}.vuln.down_${x.src}`)) said.push(T(`vuln.down_${x.src}`, { date: fmt.date(x.ok) }));
     return el('p', 'role wm-vuln-down', said.join(' '));
   });
+}
+
+/**
+ * The Unraid here and what Unraid's own update check last said of it (2026-11-28, agent: watchmanVulnUnraidCheck() — he
+ * never asks Unraid's servers himself): a newer one, none newer, or plainly «not checked». An older state has none.
+ */
+function vulnUnraidLine(v) {
+  const u = v && v.unraid;
+  if (!u || typeof u.version !== 'string' || typeof u.said !== 'boolean') return null;
+  const date = Number.isInteger(u.at) ? fmt.date(u.at) : '–';
+  const words = !u.said ? T('vuln.unraid_unknown', { version: u.version })
+    : typeof u.newer === 'string' ? T('vuln.unraid_newer', { version: u.version, newer: u.newer, date })
+      : T('vuln.unraid_none', { version: u.version, date });
+  return el('p', 'role wm-vuln-unraid', words);
 }
 
 /**

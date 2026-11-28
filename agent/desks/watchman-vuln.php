@@ -14,8 +14,6 @@ declare(strict_types=1);
  *                     only the entries whose vendor/product the name table knows (WATCH_VULN_PRODUCTS), whether or not
  *                     that product runs here — so the fetches look alike at every office
  *   raw.githubusercontent.com  the CVE record (CVE List V5) of each of those entries: the vendor's own affected versions
- *   releases.unraid.net        Unraid's list of releases with their support status (not Unraid's own update check: that
- *                              one sends an id of the server)
  *   services.nvd.nist.gov      (2026-11-23) NIST's NVD, CVE API 2.0 without a key: only for the CVEs that concern a program
  *                              here and stayed «can't be checked for sure» — its CPE configurations (versionStart…/
  *                              versionEnd…) judge them cleanly. Nothing goes along but the CVE id; NVD's limit without a key
@@ -33,9 +31,15 @@ declare(strict_types=1);
  *                              is the tip software_vuln, never an entry or a notification (those stay for the exploited)
  * The records' part has a time bound of its own (2026-11-26, WATCH_VULN_CVE_TIME), and status.json is written at the job's
  * start and after each part: a job his tick stops after WATCH_VULN_RUN_MAX keeps what it did and its day.
- * Kept in data/watchman/feeds/ (kev.json, cve/<id>.json reduced to the affected data, unraid.json, status.json, ghsa/<product>.json): at
+ * Kept in data/watchman/feeds/ (kev.json, cve/<id>.json reduced to the affected data, status.json, ghsa/<product>.json): at
  * most WATCH_VULN_CVE_MAX records, each file small; a list missing, broken, too big or older than WATCH_VULN_OLD is «not
  * checked», never «all fine».
+ * Not fetched (2026-11-28): releases.unraid.net. Lime Technology's website terms (unraid.net/policies) forbid automated
+ * access without written permission and name no exception for its release list, so the office never asks it. What he
+ * says of Unraid's releases is only what Unraid's OWN update check last wrote on this server (/tmp/unraidcheck/result.json,
+ * watchmanVulnUnraidCheck(): whether and when that check runs is the user's choice in Unraid) — «Unraid X is available»,
+ * or no newer one; whether a release line still gets security updates is not checked. An unraid.json an earlier 1.96
+ * build kept in feeds/ is left alone and read by nothing.
  *
  * Each round (the day's; the night shift has no data folder and no network) compares them with what is here — the
  * inventory, all local: Unraid's version (/etc/unraid-version), the kernel's (uname), the PHP the office runs on
@@ -59,7 +63,7 @@ declare(strict_types=1);
  *              PHP 7.2 against a record of the 8.x lines: watchmanVulnOutside())
  *   not        no entry; counted («31 checked, not affected»), the page's list «checked: doesn't concern you»
  * One entry a vulnerability, product and place (key vuln_known:<cve>:<product>:<where>), kept up to date wherever it
- * stands. Unraid's own version without security updates (eol, superseded): the advice `unraid_eol`.
+ * stands. Unraid's own update check found a newer Unraid than the one running: the advice `unraid_newer`.
  * The page (2026-11-26): a container's version as judged (`shown`: a label in its `oci_form`, an ENV cleaned — never the
  * raw «12.4ubu2604-ls61» beside another image's «12.4»), a `build` product's value as a build («Build 90080»).
  */
@@ -69,7 +73,9 @@ const WATCH_VULN_EVERY   = 86400;          // the lists once a day …
 // one answer resets it — never told, never a colour; after this many failures in a row the page says so in a calm line
 const WATCH_VULN_BACKOFF_MAX = 7 * 86400;
 const WATCH_VULN_DOWN_FAILS  = 3;
-const WATCH_VULN_SOURCES     = ['kev', 'cve', 'nvd', 'unraid', 'eol', 'ghsa'];      // ghsa (2026-11-26): watchman-vuln-advisories.php
+// ghsa (2026-11-26): watchman-vuln-advisories.php; `unraid` (releases.unraid.net) no longer since 2026-11-28 — an older
+// status.json's block for it is kept as it is and read by nothing
+const WATCH_VULN_SOURCES     = ['kev', 'cve', 'nvd', 'eol', 'ghsa'];
 const WATCH_VULN_OLD     = 3 * 86400;      // a list older than this: «not checked»
 const WATCH_VULN_RUN_MAX = 900;            // a fetch that takes longer is stopped
 const WATCH_VULN_CVE_MAX = 300;            // CVE records kept at most
@@ -85,11 +91,17 @@ const WATCH_VULN_NVD_TIME = 600;           // … and none starts that could end
 // vulnerability whose every range the record names ends below it was fixed long before — «long fixed» on the page
 const WATCH_VULN_FLOOR_UNRAID = '7.3.2';
 const WATCH_VULN_FLOOR = ['kernel' => '6.12'];
+// Unraid's own entries in CISA's list (their records name no version, «n/a»; 2026-11-28 without releases.unraid.net's
+// dates): every Unraid from WATCH_VULN_FLOOR_UNRAID on came out after Unraid 7.0.0 (January 2025; this day is a lower
+// bound on purpose) — an entry CISA listed more than a year before it was about an Unraid long before the one here
+const WATCH_VULN_UNRAID_SINCE = '2025-01-01';
+// what Unraid's own update check last said (UnraidCheck.php writes it; never fetched by the office): read only, at most this much
+const WATCH_VULN_UNRAID_CHECK = '/tmp/unraidcheck/result.json';
+const WATCH_VULN_UNRAID_CHECK_MAX = 65536;
 const WATCH_VULN_URLS    = [
     'kev'    => 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json',
     'nvd'    => 'https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=',
     'cve'    => 'https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/',
-    'unraid' => 'https://releases.unraid.net/json',
     'eol'    => 'https://endoflife.date/api/v1/products/',      // step 16: <slug> of a fixed list (WATCH_VULN_PRODUCTS' eol)
     'ghsa'   => 'https://api.github.com/repos/',                // 2026-11-26: <owner>/<repo>/security-advisories of the name table's `ghsa`
 ];
@@ -110,7 +122,7 @@ const WATCH_VULN_OCI_FORM = '/^v?(\d{1,9}(?:\.\d{1,9}){0,4})(?:-ls\d{1,6})?$/D';
 const WATCH_VULN_IMAGES_EVERY = 3600;      // the images' versions looked at anew at most this often (or when the images change)
 const WATCH_VULN_IMAGES_MAX   = 100;       // images asked at most
 const WATCH_VULN_IMAGES_ASK   = 30;        // seconds one query of them may take, its asks one image at a time included
-const WATCH_VULN_MAX     = ['kev' => 8 << 20, 'cve' => 2 << 20, 'unraid' => 1 << 20, 'eol' => 1 << 20, 'nvd' => 4 << 20];     // bytes of an answer at most
+const WATCH_VULN_MAX     = ['kev' => 8 << 20, 'cve' => 2 << 20, 'eol' => 1 << 20, 'nvd' => 4 << 20];     // bytes of an answer at most
 const WATCH_VULN_TIMEOUT = 60;             // seconds a fetch may take
 const WATCH_VULN_DESC    = 300;            // characters of a description kept
 const WATCH_VULN_NOT_MAX = 100;            // «checked: doesn't concern you» kept for his page (state.json vuln_look.not)
@@ -1006,11 +1018,11 @@ function watchmanVulnReduce(array $rec): ?array
 /**
  * The day's fetch (`job watchman-feeds`): KEV («only when newer»; kept: the entries the name table knows), the CVE
  * records of those (new ones, and kept ones older than WATCH_VULN_CVE_AGE — at most WATCH_VULN_CVE_RUN a run, the rest
- * the next day; records of entries that left the list go), Unraid's release list. status.json says, per list, when it
+ * the next day; records of entries that left the list go). status.json says, per list, when it
  * was tried, when it last worked, and what went wrong — never a body. A list that failed keeps what it had (it ages into
  * «not checked»). $ctx: `get` (the tests' answers), `now`.
  *
- * @return array{kev: ?string, cve: int, unraid: ?string, nvd: int, ghsa?: int}  what went wrong per list (null: fine), the records fetched
+ * @return array{kev: ?string, cve: int, nvd: int, ghsa?: int}  what went wrong per list (null: fine), the records fetched
  */
 function watchmanVulnFetch(string $dir, array $ctx = []): array
 {
@@ -1037,7 +1049,7 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
         $status[$list] = watchmanVulnBackoff(is_array($status[$list] ?? null) ? $status[$list] : [], $err, $now);
     };
     $may = fn (string $list): bool => watchmanVulnSourceDue($status, $list, $now);
-    $res = ['kev' => null, 'cve' => 0, 'unraid' => null, 'nvd' => 0];
+    $res = ['kev' => null, 'cve' => 0, 'nvd' => 0];
 
     // KEV: only when newer than what is kept
     // (2026-11-26) what is kept holds only the entries of the name table that filtered it: a table that grew since (an
@@ -1118,7 +1130,7 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
     $tried = is_array($tried) ? array_intersect_key(array_filter($tried, 'is_int'), array_flip($want)) : [];
     // 2026-11-26: a bound of its own, in the style of the NVD part — no request starts that could end later than
     // WATCH_VULN_CVE_TIME s after the job began (60 records at the worst 70 s each would be 4200 s: the tick's 900 s stop
-    // came first, and NVD, the projects' advisories, Unraid's list and endoflife.date got nothing); what wasn't asked stays due
+    // came first, and NVD, the projects' advisories and endoflife.date got nothing); what wasn't asked stays due
     foreach ($may('cve') ? array_slice($due, 0, WATCH_VULN_CVE_RUN) : [] as $id) {
         if ($clock() - $began + WATCH_VULN_TIMEOUT + 10 > WATCH_VULN_CVE_TIME) {
             break;          // no time left for one more: the rest the next day
@@ -1205,7 +1217,7 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
     // WATCH_VULN_TIMEOUT + 10 = 70 s (hostNet()'s bound), then the gap of 6.5 s. 40 answers: 39 × 6.5 ≈ 254 s; a run of
     // failures stops after 2 × 76.5 = 153 s. But failures in turn with answers (fail, answer, fail …) are never two in a
     // row: 20 × 76.5 + 20 × 7.5 ≈ 1680 s — the rule alone doesn't bound it. So no request starts that could end later than
-    // WATCH_VULN_NVD_TIME s after the job began (the rest of the job — Unraid's list, endoflife.date — keeps its time).
+    // WATCH_VULN_NVD_TIME s after the job began (the rest of the job — the advisories, endoflife.date — keeps its time).
     $nvdMiss = 0;           // requests in a row without an answer
     $nvdTried = 0;
     foreach ($nvdAsk as $i => $id) {
@@ -1257,23 +1269,6 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
         $save();
     }
 
-    // Unraid's releases: version, support status, date
-    $u = $may('unraid') ? watchmanVulnGet(WATCH_VULN_URLS['unraid'], WATCH_VULN_MAX['unraid'], null, $ctx) : null;
-    $rel = $u !== null && $u['code'] === 200 ? json_decode($u['body'], true, 16) : null;
-    $rows = [];
-    foreach (is_array($rel) && array_is_list($rel) ? $rel : [] as $r) {
-        if (is_array($r) && is_string($r['version'] ?? null) && preg_match('/^[0-9A-Za-z.+-]{1,40}$/D', $r['version'])
-            && in_array($r['supportStatus'] ?? null, ['supported', 'security-updates', 'superseded', 'eol'], true)) {
-            $rows[] = ['version' => $r['version'], 'status' => $r['supportStatus'], 'date' => is_string($r['date'] ?? null) ? mb_substr($r['date'], 0, 20) : null];
-        }
-    }
-    if ($rows) {
-        writeAtomic("$f/unraid.json", jsonEncode(['v' => 1, 'fetched' => $now, 'releases' => $rows]), 0600, 0, 0);
-        $mark('unraid', null);
-    } elseif ($u !== null) {
-        $res['unraid'] = $u['err'] ?? 'shape';
-        $mark('unraid', $res['unraid']);
-    }
     // endoflife.date (step 16): each slug of the fixed list — the same for every office
     if (!is_dir("$f/eol")) {
         @mkdir("$f/eol", 0700, true);
@@ -1368,7 +1363,7 @@ function watchmanVulnFetchRun(): int
         return 0;
     }
     $r = watchmanVulnFetch($dir);
-    $bad = array_filter(['kev' => $r['kev'], 'unraid' => $r['unraid']]);
+    $bad = array_filter(['kev' => $r['kev']]);
     logLine('Night watchman: the lists of known vulnerabilities fetched — ' . ($bad ? 'not all: ' . implode(', ', array_map(fn ($k, $v) => "$k $v", array_keys($bad), $bad)) : 'fine')
         . " ({$r['cve']} records, {$r['nvd']} from NVD, " . ($r['ghsa'] ?? 0) . ' advisory lists)');
     return 0;
@@ -1496,17 +1491,19 @@ function watchmanVulnSet(mixed $on, ?string $dir = null, bool $page = true): arr
  * Step 16: the containers' software against endoflife.date (watchmanVulnEol(); $images: container => its versions).
  *
  * @return array{found: list<array>, checked: int, fresh: bool, kev: ?int, pending: list<string>, not: list<array>, unsure: list<array>,
- *               kev_total: ?int, kev_known: int, kev_here: int, kev_products: array<string, int>, down: list<array>, routers: list<array>, unraid: ?array{version: string, status: string, newest: ?string},
+ *               kev_total: ?int, kev_known: int, kev_here: int, kev_products: array<string, int>, down: list<array>, routers: list<array>, unraid: ?array{version: string, said: bool, newer: ?string, at: ?int},
  *               software: list<array>, unknown: list<string>, host: list<array>, cts: list<array>, ct_total: ?int, ct_read: int,
  *               unread: list<string>, unread_n: int, ghsa: list<array>, ghsa_here: list<array>}
  *
  * 2026-11-26: the projects' own advisories (watchmanVulnGhsaJudge()): `ghsa` (affected and unsure rows), `ghsa_here`.
+ * 2026-11-28: `unraid` — the Unraid running here and what Unraid's own update check last said of it ($check:
+ * watchmanVulnUnraidCheck(); `said` false: it said nothing for this version — not checked, never «up to date»).
  *
  * What he looked at (1.96, 2026-11-25: «Was er geprüft hat» on the page): this server's rows of the inventory (host), the
  * containers' (cts: container, product, version), and of $cts (every container's name; null: Docker didn't answer) how
  * many there are, how many had a version he could read, and the others by name — each list at most WATCH_VULN_LOOK_MAX.
  */
-function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = [], array $routers = [], ?array $cts = null): array
+function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = [], array $routers = [], ?array $cts = null, ?array $check = null): array
 {
     $f = watchmanVulnDir($dir);
     $kev = readJson("$f/kev.json");
@@ -1570,9 +1567,9 @@ function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []
                 $verdict = ['maybe', null];
             } else {
                 $verdict = $judge(is_array($rec) ? $rec : null, $x['clean']);
-                // Unraid's own entries: their records name no version («n/a»); a version released long after the entry
-                // was listed (and fixed) isn't the one it was about
-                if ($verdict[0] === 'maybe' && $e['product'] === 'unraid' && watchmanVulnUnraidLater($f, $x['version'], (string) ($e['added'] ?? ''))) {
+                // Unraid's own entries: their records name no version («n/a»); an Unraid that came out long after the
+                // entry was listed (and fixed) isn't the one it was about
+                if ($verdict[0] === 'maybe' && $e['product'] === 'unraid' && watchmanVulnUnraidLater($x['clean'], (string) ($e['added'] ?? ''))) {
                     $verdict = ['no', null];
                 }
                 // still «maybe»: NVD's CPE ranges, when it was asked (2026-11-23) — only a clean verdict counts; its reason
@@ -1629,22 +1626,12 @@ function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []
         }
     }
     $out += watchmanVulnGhsaJudge($dir, $inv, $now, $kevBy);
-    $rel = readJson("$f/unraid.json");
+    // Unraid here and what its own update check last said of exactly this version (2026-11-28: no list of releases fetched)
     foreach ($inv as $x) {
-        if ($x['product'] !== 'unraid') {
-            continue;
-        }
-        $newest = null;
-        foreach ((array) ($rel['releases'] ?? []) as $r) {
-            if (($r['status'] ?? '') === 'supported' && ($newest === null || version_compare((string) $r['version'], $newest, '>'))) {
-                $newest = (string) $r['version'];
-            }
-            if (($r['version'] ?? null) === $x['version']) {
-                $out['unraid'] = ['version' => $x['version'], 'status' => (string) $r['status'], 'newest' => null];
-            }
-        }
-        if ($out['unraid'] !== null) {
-            $out['unraid']['newest'] = $newest;
+        if ($x['product'] === 'unraid' && $x['where'] === WATCH_VULN_HOST) {
+            $said = $check !== null && $check['current'] === $x['version'];
+            $out['unraid'] = ['version' => $x['version'], 'said' => $said, 'newer' => $said ? $check['newer'] : null, 'at' => $said ? $check['at'] : null];
+            break;
         }
     }
     return $out;
@@ -1699,19 +1686,52 @@ function watchmanVulnAncient(string $product, ?string $fixed): bool
     return $floor !== null && $f !== null && watchmanVulnCmp($f, $floor) < 0;
 }
 
-/** Unraid: this version was released more than a year after the entry was listed (Unraid's own list says when) */
-function watchmanVulnUnraidLater(string $f, string $version, string $added): bool
+/**
+ * Unraid: this version came out more than a year after the entry was listed — known without asking anyone (2026-11-28):
+ * a clean version from WATCH_VULN_FLOOR_UNRAID on came out after WATCH_VULN_UNRAID_SINCE (a lower bound); anything else
+ * (an older version, a beta, no date): not known
+ */
+function watchmanVulnUnraidLater(?string $clean, string $added): bool
 {
-    $t = strtotime($added);
-    if ($t === false) {
-        return false;
+    $v = $clean !== null ? watchmanVulnParse($clean) : null;
+    $floor = watchmanVulnParse(WATCH_VULN_FLOOR_UNRAID);
+    $t = preg_match('/^\d{4}-\d\d-\d\d$/D', $added) ? strtotime("$added 00:00:00 UTC") : false;
+    $since = strtotime(WATCH_VULN_UNRAID_SINCE . ' 00:00:00 UTC');
+    return $v !== null && $floor !== null && $t !== false && $since !== false && watchmanVulnCmp($v, $floor) >= 0 && $t + 365 * 86400 < $since;
+}
+
+/**
+ * What Unraid's own update check last said (2026-11-28; the office never asks Unraid's servers itself): its result file
+ * (Unraid's UnraidCheck.php writes it from releases.unraid.net/os when the check runs — the user's choice in Unraid), read
+ * only, at most WATCH_VULN_UNRAID_CHECK_MAX bytes, a plain file (never through a link), only in exactly the shape Unraid
+ * writes: `isNewer` true or false, `version` the release it names, `params.current_version` the version it checked for,
+ * `params.branch` «stable». A missing key, another type, another branch, a «newer» that isn't higher: null — not known.
+ * Never read further than «Unraid's own check last said: Unraid X is available» (or none newer): nothing about support.
+ *
+ * @return array{current: string, newer: ?string, at: ?int}|null  `newer` null: none newer; `at` when the file was written
+ */
+function watchmanVulnUnraidCheck(?string $path): ?array
+{
+    if ($path === null || $path === '' || !is_file($path) || is_link($path)) {
+        return null;
     }
-    foreach ((array) (readJson("$f/unraid.json")['releases'] ?? []) as $r) {
-        if (($r['version'] ?? null) === $version && is_string($r['date'] ?? null) && ($d = strtotime($r['date'])) !== false) {
-            return $d > $t + 365 * 86400;
-        }
+    $raw = @file_get_contents($path, false, null, 0, WATCH_VULN_UNRAID_CHECK_MAX + 1);
+    if (!is_string($raw) || strlen($raw) > WATCH_VULN_UNRAID_CHECK_MAX) {
+        return null;
     }
-    return false;
+    $j = json_decode($raw, true, 8);
+    $ver = '/^\d{1,4}\.\d{1,4}\.\d{1,4}$/D';         // a release as Unraid numbers it (a beta, an rc: not read)
+    $p = is_array($j) && is_array($j['params'] ?? null) ? $j['params'] : null;
+    if ($p === null || !is_bool($j['isNewer'] ?? null) || !is_string($j['version'] ?? null) || !is_string($p['current_version'] ?? null)
+        || ($p['branch'] ?? null) !== 'stable' || !preg_match($ver, $p['current_version']) || !preg_match($ver, $j['version'])) {
+        return null;
+    }
+    $newer = $j['isNewer'] ? $j['version'] : null;
+    if ($newer !== null && version_compare($newer, $p['current_version'], '<=')) {
+        return null;            // «newer» but not higher: not in its shape
+    }
+    $at = @filemtime($path);
+    return ['current' => $p['current_version'], 'newer' => $newer, 'at' => is_int($at) && $at > 0 ? $at : null];
 }
 
 /**
@@ -1811,7 +1831,8 @@ function watchmanVulnSettings(string $dir): array
 }
 
 /**
- * The advice: Unraid without security updates (posture tip unraid_eol: its version, its status, the newest supported);
+ * The advice: Unraid's own update check found a newer Unraid than the one running here (posture tip unraid_newer: the
+ * version here, the newer one — 2026-11-28; before: unraid_eol by releases.unraid.net's support status, never released);
  * step 16: software in containers whose release line is past its end (software_eol: «PHP 8.1 (nextcloud)» …);
  * 2026-11-26: software in containers the projects' own advisories call affected (software_vuln, watchmanVulnGhsaTip())
  */
@@ -1824,9 +1845,9 @@ function watchmanVulnTips(?array $judged, callable $add): void
         $add('software_eol', ['names' => watchmanNames($names), 'n' => count($old)], implode(',', $names), ['to' => 'docker', 'path' => '/Docker']);
     }
     $u = is_array($judged['unraid'] ?? null) ? $judged['unraid'] : null;
-    if ($u !== null && in_array($u['status'], ['eol', 'superseded'], true)) {
-        $add('unraid_eol', ['version' => $u['version'], 'status' => $u['status'], 'newest' => (string) ($u['newest'] ?? '') ?: '–'],
-            "{$u['version']}|{$u['status']}", ['to' => 'update', 'path' => '/Tools/Update']);
+    if ($u !== null && ($u['said'] ?? null) === true && is_string($u['newer'] ?? null) && is_string($u['version'] ?? null)) {
+        $add('unraid_newer', ['version' => $u['version'], 'newer' => $u['newer']],
+            "{$u['version']}|{$u['newer']}", ['to' => 'update', 'path' => '/Tools/Update']);
     }
 }
 
@@ -1857,6 +1878,8 @@ function watchmanVulnPage(array $st, ?array $judged): array
             'kev_products' => array_map(fn ($id, $n) => ['product' => (string) $id, 'label' => WATCH_VULN_PRODUCTS[$id]['label'] ?? (string) $id, 'n' => (int) $n],
                 array_keys(array_filter((array) ($j['kev_products'] ?? []), 'is_int')), array_filter((array) ($j['kev_products'] ?? []), 'is_int')),
             'pending' => is_array($j['pending'] ?? null) ? count($j['pending']) : 0, 'floor' => WATCH_VULN_FLOOR_UNRAID,
+            // (2026-11-28) the Unraid here and what Unraid's own update check last said of it — only in its shape, an older state has none (null)
+            'unraid' => watchmanVulnUnraidShaped($j['unraid'] ?? null),
             // the sources that haven't answered for days (2026-11-23): a calm line each, never a colour, never told
             'down' => array_values(array_filter((array) ($j['down'] ?? []), fn ($x) => is_array($x) && in_array($x['src'] ?? null, WATCH_VULN_SOURCES, true))),
             'routers' => array_values(array_filter((array) ($j['routers'] ?? []), fn ($x) => is_array($x) && is_string($x['label'] ?? null))),
@@ -1874,6 +1897,16 @@ function watchmanVulnPage(array $st, ?array $judged): array
                 array_values(array_filter((array) ($j['unsure'] ?? []), fn ($x) => is_array($x) && is_string($x['cve'] ?? null) && is_string($x['product'] ?? null))))]
         // the projects' own advisories (2026-11-26): rows and what he read per product — an older state has none ([])
         + array_map(fn (array $list) => array_map(fn ($x) => $shown($x, 'have'), $list), watchmanVulnGhsaPage($j));
+}
+
+/** The judge's `unraid` (2026-11-28) only in exactly its shape — anything else (an older build's support status): null */
+function watchmanVulnUnraidShaped(mixed $u): ?array
+{
+    if (!is_array($u) || !is_string($u['version'] ?? null) || !is_bool($u['said'] ?? null)) {
+        return null;
+    }
+    return ['version' => $u['version'], 'said' => $u['said'], 'newer' => $u['said'] && is_string($u['newer'] ?? null) ? $u['newer'] : null,
+            'at' => $u['said'] && is_int($u['at'] ?? null) ? $u['at'] : null];
 }
 
 /** An entry's words */

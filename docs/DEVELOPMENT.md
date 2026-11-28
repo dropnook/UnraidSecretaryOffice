@@ -920,7 +920,7 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   shared by day and night; C known CPU faults: watchman-cpu-faults.json, tips cpu_fault, old_microcode; E the disks' wear:
   hw_wear from Unraid's SMART files via `waSmart()`, data/watchman/hw.json a point a day, 90 days), watchman-heat.php (D
   hw_hot), agent/lib/logsigns.php + watchman-signs.php (H: host_oom, host_crash, host_flood, hw_io), watchman-boot.php (F
-  flash_boot, ld_preload) and watchnet.php (G net_gateway, net_dns), watchman-vuln.php (A vuln_known, tips unraid_eol,
+  flash_boot, ld_preload) and watchnet.php (G net_gateway, net_dns), watchman-vuln.php (A vuln_known, tips unraid_newer (2026-11-28: Unraid's own update check, /tmp/unraidcheck/result.json — releases.unraid.net is never fetched, its site terms forbid automated access),
   software_eol; off until switched on; «maybe» is never an entry since 2026-11-23 — the page's list `vuln.unsure`, a CVE
   record's ADP ranges read when its CNA named none; then NVD's CPE ranges (CVE API 2.0, no key, only the unsure CVEs, 40 a
   day, one every 6.5 s: watchmanVulnNvdReduce(); one timeout is noted and the next id asked, two in a row or a 429/403/5xx

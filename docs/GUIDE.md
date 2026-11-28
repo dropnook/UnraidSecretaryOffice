@@ -304,8 +304,8 @@ When you hire him he learns what is normal. Then he walks his round every five m
   router or DNS suddenly different (the gateway with another MAC).
 - Only if you switch on «Known vulnerabilities»: an actively exploited vulnerability that applies to a version running here
   (only when the versions compare cleanly — what can't be compared stands calmly under «Can't be checked for sure», never
-  an entry or a notification), an Unraid or software without security updates. Here means Unraid, its kernel, PHP and
-  packages, and in containers what the image declares itself (its environment or its version label — the usual home
+  an entry or a notification), a newer Unraid that Unraid's own update check found, software without security updates.
+  Here means Unraid, its kernel, PHP and packages, and in containers what the image declares itself (its environment or its version label — the usual home
   server software: databases, web servers, Nextcloud, Immich, Plex, Jellyfin, Home Assistant, Vaultwarden …), and
   Synology DSM in virtual-dsm by the build its storage folder names (read only while its disks are awake). A version
   that is only where the program started (Plex installing another at its start, DSM updating itself) is never called
@@ -551,9 +551,10 @@ You need Unraid **7.3.2 or a newer 7.x**. Nothing else to install.
 
 - The office asks GitHub once a day for a new version and checks logo addresses for containers without a picture.
 - Only if you switch on the Night Watchman's «Known vulnerabilities» (off until you do): once a day public lists —
-  cisa.gov (actively exploited vulnerabilities), raw.githubusercontent.com (the CVE records of those), releases.unraid.net
-  (Unraid's releases and their support), endoflife.date (which release lines still get fixes). Every office asks the
-  same; nothing of your server goes along. Then services.nvd.nist.gov (NIST's NVD), only for the vulnerabilities that
+  cisa.gov (actively exploited vulnerabilities), raw.githubusercontent.com (the CVE records of those), endoflife.date
+  (which release lines still get fixes). Every office asks the same; nothing of your server goes along. Unraid's own
+  servers are never asked: of Unraid's releases the office says only what Unraid's own update check last found
+  (*Tools → Update OS*), and whether a version still gets security updates isn't checked. Then services.nvd.nist.gov (NIST's NVD), only for the vulnerabilities that
   concern a program here and that the CVE record can't settle: the request names the CVE id and nothing else, at most 40
   a day, one every 6.5 seconds (NVD's limit without a key). This product uses the NVD API but is not endorsed or certified
   by the NVD. And api.github.com, only for the programs found in a container here that publish their advisories there:

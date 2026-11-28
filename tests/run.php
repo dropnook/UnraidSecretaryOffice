@@ -21327,7 +21327,6 @@ function testWatchmanVulnPhp(): void
         'adp' => [['providerMetadata' => ['shortName' => 'CISA-ADP'], 'affected' => [['vendor' => 'php', 'product' => 'php', 'defaultStatus' => 'unknown',
             'versions' => [['version' => '0', 'status' => 'affected', 'lessThan' => '5.3.12', 'versionType' => 'custom'],
                            ['version' => '5.4.0', 'status' => 'affected', 'lessThan' => '5.4.2', 'versionType' => 'custom']]]]]]]]);
-    $answers[WATCH_VULN_URLS['unraid']] = json_encode([['version' => '7.4.1', 'supportStatus' => 'supported', 'date' => '2026-11-10']]);
     $get = fn (string $url, ?string $since): array => isset($answers[$url]) ? ['code' => 200, 'body' => $answers[$url], 'lm' => null, 'err' => null]
         : ['code' => 404, 'body' => '', 'lm' => null, 'err' => 'HTTP 404'];
     watchmanVulnFetch($dir, ['get' => $get, 'now' => $now]);
@@ -21393,8 +21392,7 @@ function testWatchmanVulnNvd(): void
         'versions' => [['version' => 'n/a', 'status' => 'affected']]]]]]]);
     $answers = [WATCH_VULN_URLS['kev'] => json_encode(['catalogVersion' => '2026.11.22', 'count' => count($kev), 'vulnerabilities' => $kev]),
                 watchmanVulnCveUrl('CVE-2016-5195') => $na('CVE-2016-5195'), watchmanVulnCveUrl('CVE-2014-6278') => $na('CVE-2014-6278'),
-                watchmanVulnCveUrl('CVE-2021-3156') => $na('CVE-2021-3156'),
-                WATCH_VULN_URLS['unraid'] => json_encode([['version' => '7.4.1', 'supportStatus' => 'supported', 'date' => '2026-11-10']])];
+                watchmanVulnCveUrl('CVE-2021-3156') => $na('CVE-2021-3156')];
     // NVD's answers as API 2.0 gives them (shortened: the same fields, fewer ranges)
     $cpe = fn (string $vp, string $ver = '*', string $upd = '*') => "cpe:2.3:$vp:$ver:$upd:*:*:*:*:*:*";
     $answers[WATCH_VULN_URLS['nvd'] . 'CVE-2016-5195'] = json_encode(['resultsPerPage' => 1, 'startIndex' => 0, 'totalResults' => 1, 'format' => 'NVD_CVE', 'version' => '2.0',
@@ -21555,9 +21553,6 @@ function testWatchmanVulnBackoff(): void
         if (str_contains($url, 'nvd.nist.gov')) {
             return ['code' => 0, 'body' => '', 'lm' => null, 'err' => 'Could not resolve host'];
         }
-        if ($url === WATCH_VULN_URLS['unraid']) {
-            return ['code' => 200, 'body' => json_encode([['version' => '7.4.1', 'supportStatus' => 'supported', 'date' => '2026-11-10']]), 'lm' => null, 'err' => null];
-        }
         if (str_starts_with($url, WATCH_VULN_URLS['eol'])) {
             return ['code' => 200, 'body' => json_encode(['result' => ['releases' => [['name' => '8.4', 'isEol' => false]]]]), 'lm' => null, 'err' => null];
         }
@@ -21714,19 +21709,13 @@ function testWatchmanVuln(): void
         'CVE-2025-32463' => $cveRec('CVE-2025-32463', [['vendor' => 'sudo project', 'product' => 'sudo', 'defaultStatus' => 'unaffected',
             'versions' => [['version' => '1.9.14', 'lessThan' => '1.9.17p1', 'status' => 'affected', 'versionType' => 'custom']]]]),
     ];
-    $releases = json_encode([['version' => '7.4.1', 'supportStatus' => 'supported', 'date' => '2026-11-10'], ['version' => '7.3.6', 'supportStatus' => 'security-updates', 'date' => '2026-10-20'],
-        ['version' => '7.2.3', 'supportStatus' => 'eol', 'date' => '2025-12-01'], ['version' => '7.4.0', 'supportStatus' => 'superseded', 'date' => '2026-10-01'],
-        ['version' => '7.4.1', 'supportStatus' => 'weird']]);
     /** @var list<array{0: string, 1: ?string}> $asked */
     $asked = [];
     $kevAnswer = fn (?string $since) => ['code' => 200, 'body' => json_encode($kev), 'lm' => 'Fri, 20 Nov 2026 17:48:39 GMT', 'err' => null];
-    $get = function (string $url, ?string $since) use (&$asked, &$kevAnswer, $records, $releases): array {
+    $get = function (string $url, ?string $since) use (&$asked, &$kevAnswer, $records): array {
         $asked[] = [$url, $since];
         if ($url === WATCH_VULN_URLS['kev']) {
             return $kevAnswer($since);
-        }
-        if ($url === WATCH_VULN_URLS['unraid']) {
-            return ['code' => 200, 'body' => $releases, 'lm' => null, 'err' => null];
         }
         foreach ($records as $id => $body) {
             if ($url === watchmanVulnCveUrl($id)) {
@@ -21741,26 +21730,27 @@ function testWatchmanVuln(): void
     $r = watchmanVulnFetch($dir, ['get' => $get, 'now' => $t0]);
     $f = watchmanVulnDir($dir);
     $kept = readJson("$f/kev.json");
-    same('vuln fetch: KEV, the four records the name table knows, Unraid\'s releases — nothing else asked, nothing failed', [
+    same('vuln fetch: KEV, the four records the name table knows — nothing else asked (never Unraid\'s servers: 2026-11-28), nothing failed', [
         [WATCH_VULN_URLS['kev'], 'https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/2024/1xxx/CVE-2024-1086.json',
          'https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/2024/4xxx/CVE-2024-4577.json',
          'https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/2020/5xxx/CVE-2020-5847.json',
-         'https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/2025/32xxx/CVE-2025-32463.json', WATCH_VULN_URLS['unraid']],
-        ['kev' => null, 'cve' => 4, 'unraid' => null, 'nvd' => 0, 'ghsa' => 0]], [array_values(array_filter(array_column($asked, 0), fn ($u) => !str_starts_with($u, WATCH_VULN_URLS['eol']))), $r]);
+         'https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/2025/32xxx/CVE-2025-32463.json'],
+        ['kev' => null, 'cve' => 4, 'nvd' => 0, 'ghsa' => 0]], [array_values(array_filter(array_column($asked, 0), fn ($u) => !str_starts_with($u, WATCH_VULN_URLS['eol']))), $r]);
+    same('vuln fetch: no address of unraid.net anywhere in what he may fetch, no unraid.json written', [[], false],
+        [array_values(array_filter(WATCH_VULN_URLS, fn ($u) => str_contains(strtolower($u), 'unraid'))), is_file("$f/unraid.json")]);
     same('vuln fetch: kept — only the name table\'s entries (whether here or not), its count, its Last-Modified; records reduced (no descriptions)',
         [['CVE-2024-1086', 'CVE-2024-4577', 'CVE-2020-5847', 'CVE-2025-32463'], ['kernel', 'php', 'unraid', 'sudo'], 124, 'Fri, 20 Nov 2026 17:48:39 GMT', true, false],
         [array_column($kept['entries'], 'cve'), array_column($kept['entries'], 'product'), $kept['count'], $kept['lm'], $kept['entries'][0]['ransom'],
          str_contains((string) file_get_contents("$f/cve/CVE-2024-1086.json"), 'xxxxx')]);
-    same('vuln fetch: Unraid\'s releases — only the known statuses; root only', [['7.4.1', '7.3.6', '7.2.3', '7.4.0'], '600'],
-        [array_column(readJson("$f/unraid.json")['releases'], 'version'), decoct(fileperms("$f/kev.json") & 0777)]);
+    same('vuln fetch: the list root only', '600', decoct(fileperms("$f/kev.json") & 0777));
     // the next day: only when newer — 304 keeps it
     /** @var list<array{0: string, 1: ?string}> $asked */
     $asked = [];
     $kevAnswer = fn (?string $since) => $since === 'Fri, 20 Nov 2026 17:48:39 GMT' ? ['code' => 304, 'body' => '', 'lm' => null, 'err' => null]
         : ['code' => 200, 'body' => json_encode($kev), 'lm' => null, 'err' => null];
     $r = watchmanVulnFetch($dir, ['get' => $get, 'now' => $t0 + 86400]);
-    same('vuln fetch: the next day — «only when newer» (304: kept), the records not asked again within their week', [[WATCH_VULN_URLS['kev'], 'Fri, 20 Nov 2026 17:48:39 GMT'], [WATCH_VULN_URLS['unraid'], null], null, $t0 + 86400],
-        [$asked[0], $asked[1] ?? null, $r['kev'], readJson("$f/status.json")['kev']['ok'] ?? null]);
+    same('vuln fetch: the next day — «only when newer» (304: kept), the records not asked again within their week', [[[WATCH_VULN_URLS['kev'], 'Fri, 20 Nov 2026 17:48:39 GMT']], null, $t0 + 86400],
+        [array_values(array_filter($asked, fn ($a) => !str_starts_with($a[0], WATCH_VULN_URLS['eol']))), $r['kev'], readJson("$f/status.json")['kev']['ok'] ?? null]);
     // kept by an office whose name table was another one (no mark, or another): the whole list once, never «only when newer»
     foreach ([array_diff_key(readJson("$f/kev.json"), ['for' => 1]), ['for' => 'another'] + readJson("$f/kev.json")] as $older) {
         writeAtomic("$f/kev.json", jsonEncode($older), 0600, 0, 0);
@@ -21813,11 +21803,16 @@ function testWatchmanVuln(): void
             return [...$head, ...$rest];
         })());
 
-    // judged: the kernel affected (fixed 6.12.48), PHP not (Windows only), Unraid not (released years after the entry), sudo gone from the list
+    // judged: the kernel affected (fixed 6.12.48), PHP not (Windows only), Unraid not (every Unraid from 7.3.2 came out years
+    // after a 2021 entry — known without asking anyone: 2026-11-28), sudo gone from the list
     $j = watchmanVulnJudge($dir, $inv, $t0 + 3 * 86400);
-    same('vuln judge: the kernel affected with its fix; PHP (Windows only) and Unraid 7.4.1 (released long after a 2021 entry) checked, not affected; the lists fresh',
-        [[['CVE-2024-1086', 'kernel', 'yes', '6.12.24-Unraid', '6.12.48']], 2, true, ['version' => '7.4.1', 'status' => 'supported', 'newest' => '7.4.1']],
+    same('vuln judge: the kernel affected with its fix; PHP (Windows only) and Unraid 7.4.1 (an Unraid from 7.3.2 on, a 2021 entry) checked, not affected; the lists fresh; Unraid\'s own check said nothing',
+        [[['CVE-2024-1086', 'kernel', 'yes', '6.12.24-Unraid', '6.12.48']], 2, true, ['version' => '7.4.1', 'said' => false, 'newer' => null, 'at' => null]],
         [array_map(fn ($x) => [$x['cve'], $x['product'], $x['verdict'], $x['have'], $x['fixed']], $j['found']), $j['checked'], $j['fresh'], $j['unraid']]);
+    same('vuln judge: Unraid\'s own entries — «long after» only from Unraid 7.3.2 on, only for an entry listed over a year before 2025; else not known',
+        [true, false, false, false, false, false],
+        [watchmanVulnUnraidLater('7.4.1', '2021-11-03'), watchmanVulnUnraidLater('7.2.3', '2021-11-03'), watchmanVulnUnraidLater('7.4.1', '2024-06-01'),
+         watchmanVulnUnraidLater(null, '2021-11-03'), watchmanVulnUnraidLater('7.4.1', ''), watchmanVulnUnraidLater('7.4.1', 'junk')]);
     same('vuln judge: the two checked and not affected listed for his page (1.96 «einfacher»: what runs here, the vulnerability)',
         [['CVE-2024-4577', 'php', '8.3.4'], ['CVE-2020-5847', 'unraid', '7.4.1']],
         (function () use ($j) { $x = array_map(fn ($n) => [$n['cve'], $n['product'], $n['have']], $j['not']); usort($x, fn ($a, $b) => strcmp($a[1], $b[1])); return $x; })());
@@ -21889,13 +21884,66 @@ function testWatchmanVuln(): void
         [array_map(fn ($x) => [$x['cve'], $x['label']], watchmanVulnPage(['vuln_on' => true], $j2)['unsure']), watchmanVulnPage(['vuln_on' => true], $j2)['maybe'],
          watchmanVulnPage(['vuln_on' => true], ['found' => []])['unsure']]);
 
-    // Unraid's advice: eol or superseded
+    // what Unraid's own update check last said (2026-11-28: /tmp/unraidcheck/result.json, never fetched by the office) —
+    // read only in exactly Unraid's shape: valid, missing, wrong shape, another branch, none newer, a stale file, a link
+    $uc = "$tmp/unraidcheck";
+    @mkdir($uc, 0700);
+    $ucFile = "$uc/result.json";
+    $ucBody = ['version' => '7.4.1', 'name' => 'Unraid 7.4.1', 'date' => '2026-11-20', 'date0' => '2026-11-09', 'isNewer' => true, 'sha256' => str_repeat('a', 64),
+               'changelog' => 'https://releases.unraid.net/dl/changelog/x/7.4.1.md', 'changelogPretty' => 'https://docs.unraid.net/unraid-os/release-notes/7.4.1/',
+               'isEligible' => true, 'params' => ['branch' => 'stable', 'current_version' => '7.4.0']];
+    $ucRead = function (mixed $body) use ($ucFile, $t0): ?array {
+        @unlink($ucFile);
+        if ($body !== null) {
+            file_put_contents($ucFile, is_string($body) ? $body : json_encode($body));
+            touch($ucFile, $t0);
+        }
+        return watchmanVulnUnraidCheck($ucFile);
+    };
+    $ucNo = $ucBody;
+    $ucNo['isNewer'] = false;
+    $ucNo['version'] = '7.4.0';
+    $ucNext = $ucBody;
+    $ucNext['params']['branch'] = 'next';
+    $ucNoBranch = $ucBody;
+    unset($ucNoBranch['params']['branch']);
+    $ucBeta = $ucBody;
+    $ucBeta['version'] = '7.5.0-beta.1';
+    $ucLower = $ucBody;
+    $ucLower['version'] = '7.3.6';
+    $ucStrNewer = $ucBody;
+    $ucStrNewer['isNewer'] = 'true';
+    same('vuln unraid check: Unraid\'s own answer — newer, none newer; missing, broken, another shape, another branch, no branch, a beta, «newer» lower, isNewer a string: not known',
+        [['current' => '7.4.0', 'newer' => '7.4.1', 'at' => $t0], ['current' => '7.4.0', 'newer' => null, 'at' => $t0], null, null, null, null, null, null, null, null, null, null, null],
+        [$ucRead($ucBody), $ucRead($ucNo), $ucRead(null), $ucRead('{"version":'), $ucRead('[1,2]'), $ucRead(['version' => '7.4.1', 'isNewer' => true]),
+         $ucRead($ucNext), $ucRead($ucNoBranch), $ucRead($ucBeta), $ucRead($ucLower), $ucRead($ucStrNewer), $ucRead(str_repeat(' ', WATCH_VULN_UNRAID_CHECK_MAX + 1)),
+         watchmanVulnUnraidCheck(null)]);
+    $ucRead($ucBody);
+    symlink($ucFile, "$uc/link.json");
+    same('vuln unraid check: never through a link; the office\'s path is Unraid\'s own file, left out at night', [null, '/tmp/unraidcheck/result.json', false],
+        [watchmanVulnUnraidCheck("$uc/link.json"), watchmanPaths()['unraid_check'] ?? null, isset(watchmanNightPaths()['unraid_check'])]);
+    $j74 = fn (?array $check) => watchmanVulnJudge($dir, [['product' => 'unraid', 'version' => '7.4.0', 'clean' => '7.4.0', 'where' => 'host']], $t0 + 3 * 86400, [], [], null, $check)['unraid'];
+    same('vuln judge: Unraid\'s own check for this version — said newer, said none; for another version (from before an update) or none: not said',
+        [['version' => '7.4.0', 'said' => true, 'newer' => '7.4.1', 'at' => $t0], ['version' => '7.4.0', 'said' => true, 'newer' => null, 'at' => $t0],
+         ['version' => '7.4.0', 'said' => false, 'newer' => null, 'at' => null], ['version' => '7.4.0', 'said' => false, 'newer' => null, 'at' => null]],
+        [$j74($ucRead($ucBody)), $j74($ucRead($ucNo)), $j74(['current' => '7.3.6', 'newer' => '7.4.1', 'at' => $t0]), $j74(null)]);
+    same('vuln page: Unraid\'s line only in its shape — an older build\'s support status (never released) is none',
+        [['version' => '7.4.0', 'said' => true, 'newer' => '7.4.1', 'at' => $t0], null, null],
+        [watchmanVulnPage(['vuln_on' => true], ['unraid' => $j74($ucRead($ucBody))])['unraid'],
+         watchmanVulnPage(['vuln_on' => true], ['unraid' => ['version' => '7.2.3', 'status' => 'eol', 'newest' => '7.4.1']])['unraid'],
+         watchmanVulnPage(['vuln_on' => true], ['kev' => $t0])['unraid']]);
+
+    // Unraid's advice: only a newer Unraid its own check found for exactly this version; never from an older shape
     $tips = [];
-    $add = function (string $id, array $p, string $about, ?array $link) use (&$tips): void { $tips[$id] = [$p, $link['path'] ?? null]; };
-    watchmanVulnTips(['unraid' => ['version' => '7.2.3', 'status' => 'eol', 'newest' => '7.4.1']], $add);
-    watchmanVulnTips(['unraid' => ['version' => '7.4.1', 'status' => 'supported', 'newest' => '7.4.1']], fn () => check('vuln tip: a supported version — none', false));
-    same('vuln tip: Unraid without security updates — the advice, its area, to Update OS', [[['version' => '7.2.3', 'status' => 'eol', 'newest' => '7.4.1'], '/Tools/Update'], 'advice', 'vuln'],
-        [$tips['unraid_eol'] ?? null, WATCH_POSTURE['unraid_eol'], watchmanCatOfTip('unraid_eol')]);
+    $add = function (string $id, array $p, string $about, ?array $link) use (&$tips): void { $tips[$id] = [$p, $about, $link['path'] ?? null]; };
+    watchmanVulnTips(['unraid' => $j74($ucRead($ucBody))], $add);
+    $none = fn () => check('vuln tip: none newer, not said, an older build\'s support status — no advice', false);
+    watchmanVulnTips(['unraid' => $j74($ucRead($ucNo))], $none);
+    watchmanVulnTips(['unraid' => $j74(null)], $none);
+    watchmanVulnTips(['unraid' => ['version' => '7.2.3', 'status' => 'eol', 'newest' => '7.4.1']], $none);
+    same('vuln tip: a newer Unraid by its own update check — the advice, its area, to Update OS; the old tip gone',
+        [[['version' => '7.4.0', 'newer' => '7.4.1'], '7.4.0|7.4.1', '/Tools/Update'], 'advice', 'vuln', false],
+        [$tips['unraid_newer'] ?? null, WATCH_POSTURE['unraid_newer'], watchmanCatOfTip('unraid_newer'), isset(WATCH_POSTURE['unraid_eol'])]);
 
     // the switch, due once a day, the light
     $wd = "$tmp/w";
@@ -21927,7 +21975,7 @@ function testWatchmanVuln(): void
             $light(['on' => true, 'checked_at' => $t0, 'fresh' => true], [$open('vuln_known', true)])]));
     same('vuln page: the switch, freshness, counts', ['on' => true, 'since' => null, 'checked_at' => $t0, 'fresh' => true, 'checked' => 2, 'affected' => 1, 'maybe' => 0],
         array_diff_key(watchmanVulnPage(['vuln_on' => true], ['kev' => $t0, 'fresh' => true, 'checked' => 2, 'found' => [['verdict' => 'yes']]]), ['software' => 1, 'unknown' => 1, 'not' => 1, 'unsure' => 1, 'kev_total' => 1, 'kev_here' => 1, 'kev_products' => 1, 'pending' => 1, 'floor' => 1, 'down' => 1, 'routers' => 1,
-            'host' => 1, 'cts' => 1, 'ct_total' => 1, 'ct_read' => 1, 'unread' => 1, 'unread_n' => 1, 'vms' => 1, 'ghsa' => 1, 'ghsa_here' => 1]));
+            'host' => 1, 'cts' => 1, 'ct_total' => 1, 'ct_read' => 1, 'unread' => 1, 'unread_n' => 1, 'vms' => 1, 'ghsa' => 1, 'ghsa_here' => 1, 'unraid' => 1]));
     // 1.96 «einfacher»: «Checked: doesn't concern you» — what runs here, the vulnerability, fixed from; an older state has none
     same('vuln page: the list «checked, doesn\'t concern you» (only exactly-shaped lines); none in an older state',
         [[['cve' => 'CVE-2024-4577', 'product' => 'php', 'where' => 'host', 'have' => '8.5.12', 'fixed' => '8.5.12', 'name' => 'x', 'label' => 'PHP']], []],
@@ -22101,7 +22149,6 @@ function testWatchmanVulnSoftware(): void
     $answers[watchmanVulnCveUrl('CVE-2024-4577')] = json_encode(['cveMetadata' => ['cveId' => 'CVE-2024-4577'], 'containers' => ['cna' => ['affected' => [
         ['vendor' => 'PHP Group', 'product' => 'PHP', 'defaultStatus' => 'affected', 'versions' => [['version' => '8.1.*', 'lessThan' => '8.1.29', 'status' => 'affected', 'versionType' => 'semver'],
             ['version' => '8.3.*', 'lessThan' => '8.3.8', 'status' => 'affected', 'versionType' => 'semver']]]]]]]);
-    $answers[WATCH_VULN_URLS['unraid']] = json_encode([['version' => '7.4.1', 'supportStatus' => 'supported', 'date' => '2026-11-10']]);
     $asked = [];
     $get = function (string $url, ?string $since) use (&$asked, $answers): array {
         $asked[] = $url;
