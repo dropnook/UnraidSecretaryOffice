@@ -365,7 +365,7 @@ const WATCH_POSTURE = [
     'remote_access'   => 'info',
     'privileged'      => 'info',
     'partner_friend'  => 'info',       // plain copies going to a partner marked «a friend»
-    'unraid_eol'      => 'advice',     // known vulnerabilities (1.96): this Unraid version gets no security updates (eol, superseded)
+    'unraid_newer'    => 'advice',     // known vulnerabilities (1.96): Unraid's own update check found a newer Unraid (2026-11-28: was unraid_eol, never released)
     'software_eol'    => 'advice',     // … software in a container whose release line is past its end (endoflife.date)
     'software_vuln'   => 'advice',     // … software in a container its project's own advisories call affected (high, critical; 2026-11-26)
     'mitigations_on'  => 'info',
@@ -518,6 +518,7 @@ function watchmanPaths(): array
         // known vulnerabilities (watchman-vuln.php): Unraid's version, Slackware's packages — the day's rounds only
         'unraid_version' => '/etc/unraid-version',
         'packages'   => '/var/log/packages',
+        'unraid_check' => WATCH_VULN_UNRAID_CHECK,        // what Unraid's own update check last said (2026-11-28; never asked by the office)
         'libvirt_sock' => '/var/run/libvirt/libvirt-sock',
         'virsh'      => 'virsh',
         // the host itself (watchmanHost())
@@ -1008,7 +1009,7 @@ function watchmanNightPaths(): array
         'sec', 'sec_nfs', 'share_cfg', 'libvirt_sock', 'virsh', 'partner_pairs', 'partner_tickets', 'partner_data',
         'rsyslog_cfg', 'shares_ini', 'parity_log', 'parity_cron', 'pct_dir', 'boot_logs', 'domain_cfg', 'docker_cfg',
         'docker_autostart', 'compose_cfg', 'compose_projects', 'office_runs', 'jack_settings', 'gather_settings', 'mover_pid',
-        'moverelli_status', 'jack_progress', 'hot_disks', 'hw_file', 'unraid_version', 'packages']));
+        'moverelli_status', 'jack_progress', 'hot_disks', 'hw_file', 'unraid_version', 'packages', 'unraid_check']));
 }
 
 /** This server's name as the syslog writes it (short, lower case; '' — not known: every line counts) */
@@ -1654,7 +1655,8 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
     // the routers by what their own log said (watchnet.php's net.json: never asked of the router)
     $vulnRouters = $vulnOn ? watchmanVulnRouters(readJson("$dir/net.json")) : [];
     $vuln = $vulnOn ? watchmanVulnJudge($dir, watchmanVulnInventory($paths + ['vuln_images' => $vulnImages, 'vuln_routers' => $vulnRouters]), $now,
-        $vulnImages, $vulnRouters, is_array($containers) ? array_map('strval', array_keys($containers)) : null) : null;
+        $vulnImages, $vulnRouters, is_array($containers) ? array_map('strval', array_keys($containers)) : null,
+        watchmanVulnUnraidCheck(isset($paths['unraid_check']) ? (string) $paths['unraid_check'] : null)) : null;
     if ($vuln !== null) {
         $vuln['vms'] = $facts['vms'] ?? null;       // how many VMs (libvirt's own list, already asked for the posture): he never looks inside one
     }
@@ -1824,7 +1826,9 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
                 'host' => $vuln['host'], 'cts' => $vuln['cts'], 'ct_total' => $vuln['ct_total'], 'ct_read' => $vuln['ct_read'], 'unread' => $vuln['unread'],
                 'unread_n' => $vuln['unread_n'], 'vms' => $vuln['vms'],
                 // 2026-11-26: the projects' own advisories (watchman-vuln-advisories.php) — additive, an older office never reads them
-                'ghsa' => $vuln['ghsa'], 'ghsa_here' => $vuln['ghsa_here']];
+                'ghsa' => $vuln['ghsa'], 'ghsa_here' => $vuln['ghsa_here'],
+                // 2026-11-28: the Unraid here and what Unraid's own update check last said of it — additive
+                'unraid' => $vuln['unraid']];
             if ($vulnImagesCache !== null) {
                 $st['vuln_images'] = $vulnImagesCache;
             }
@@ -4584,7 +4588,7 @@ function watchmanPosture(array $f, array $seen, array $prev = [], array $intende
         $add('router_clock', ['router' => (string) $c['router'], 'minutes' => abs((int) $c['minutes']), 'zone' => !empty($c['zone']) ? 1 : 0, 'n' => count($clock)],
             implode(',', array_map(fn ($x) => $x['sender'] . ':' . (int) round($x['minutes'] / 15), $clock)), ['to' => 'advisor', 'path' => '#/advisor']);
     }
-    // known vulnerabilities (watchman-vuln.php): Unraid without security updates
+    // known vulnerabilities (watchman-vuln.php): a newer Unraid by Unraid's own check, software past its end or with advisories
     watchmanVulnTips(is_array($f['vuln'] ?? null) ? $f['vuln'] : null, $add);
     return array_values(array_filter(array_map(fn ($id) => $tips[$id] ?? null, array_keys(WATCH_POSTURE))));
 }

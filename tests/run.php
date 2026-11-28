@@ -21327,7 +21327,6 @@ function testWatchmanVulnPhp(): void
         'adp' => [['providerMetadata' => ['shortName' => 'CISA-ADP'], 'affected' => [['vendor' => 'php', 'product' => 'php', 'defaultStatus' => 'unknown',
             'versions' => [['version' => '0', 'status' => 'affected', 'lessThan' => '5.3.12', 'versionType' => 'custom'],
                            ['version' => '5.4.0', 'status' => 'affected', 'lessThan' => '5.4.2', 'versionType' => 'custom']]]]]]]]);
-    $answers[WATCH_VULN_URLS['unraid']] = json_encode([['version' => '7.4.1', 'supportStatus' => 'supported', 'date' => '2026-11-10']]);
     $get = fn (string $url, ?string $since): array => isset($answers[$url]) ? ['code' => 200, 'body' => $answers[$url], 'lm' => null, 'err' => null]
         : ['code' => 404, 'body' => '', 'lm' => null, 'err' => 'HTTP 404'];
     watchmanVulnFetch($dir, ['get' => $get, 'now' => $now]);
@@ -21393,8 +21392,7 @@ function testWatchmanVulnNvd(): void
         'versions' => [['version' => 'n/a', 'status' => 'affected']]]]]]]);
     $answers = [WATCH_VULN_URLS['kev'] => json_encode(['catalogVersion' => '2026.11.22', 'count' => count($kev), 'vulnerabilities' => $kev]),
                 watchmanVulnCveUrl('CVE-2016-5195') => $na('CVE-2016-5195'), watchmanVulnCveUrl('CVE-2014-6278') => $na('CVE-2014-6278'),
-                watchmanVulnCveUrl('CVE-2021-3156') => $na('CVE-2021-3156'),
-                WATCH_VULN_URLS['unraid'] => json_encode([['version' => '7.4.1', 'supportStatus' => 'supported', 'date' => '2026-11-10']])];
+                watchmanVulnCveUrl('CVE-2021-3156') => $na('CVE-2021-3156')];
     // NVD's answers as API 2.0 gives them (shortened: the same fields, fewer ranges)
     $cpe = fn (string $vp, string $ver = '*', string $upd = '*') => "cpe:2.3:$vp:$ver:$upd:*:*:*:*:*:*";
     $answers[WATCH_VULN_URLS['nvd'] . 'CVE-2016-5195'] = json_encode(['resultsPerPage' => 1, 'startIndex' => 0, 'totalResults' => 1, 'format' => 'NVD_CVE', 'version' => '2.0',
@@ -21555,9 +21553,6 @@ function testWatchmanVulnBackoff(): void
         if (str_contains($url, 'nvd.nist.gov')) {
             return ['code' => 0, 'body' => '', 'lm' => null, 'err' => 'Could not resolve host'];
         }
-        if ($url === WATCH_VULN_URLS['unraid']) {
-            return ['code' => 200, 'body' => json_encode([['version' => '7.4.1', 'supportStatus' => 'supported', 'date' => '2026-11-10']]), 'lm' => null, 'err' => null];
-        }
         if (str_starts_with($url, WATCH_VULN_URLS['eol'])) {
             return ['code' => 200, 'body' => json_encode(['result' => ['releases' => [['name' => '8.4', 'isEol' => false]]]]), 'lm' => null, 'err' => null];
         }
@@ -21714,19 +21709,13 @@ function testWatchmanVuln(): void
         'CVE-2025-32463' => $cveRec('CVE-2025-32463', [['vendor' => 'sudo project', 'product' => 'sudo', 'defaultStatus' => 'unaffected',
             'versions' => [['version' => '1.9.14', 'lessThan' => '1.9.17p1', 'status' => 'affected', 'versionType' => 'custom']]]]),
     ];
-    $releases = json_encode([['version' => '7.4.1', 'supportStatus' => 'supported', 'date' => '2026-11-10'], ['version' => '7.3.6', 'supportStatus' => 'security-updates', 'date' => '2026-10-20'],
-        ['version' => '7.2.3', 'supportStatus' => 'eol', 'date' => '2025-12-01'], ['version' => '7.4.0', 'supportStatus' => 'superseded', 'date' => '2026-10-01'],
-        ['version' => '7.4.1', 'supportStatus' => 'weird']]);
     /** @var list<array{0: string, 1: ?string}> $asked */
     $asked = [];
     $kevAnswer = fn (?string $since) => ['code' => 200, 'body' => json_encode($kev), 'lm' => 'Fri, 20 Nov 2026 17:48:39 GMT', 'err' => null];
-    $get = function (string $url, ?string $since) use (&$asked, &$kevAnswer, $records, $releases): array {
+    $get = function (string $url, ?string $since) use (&$asked, &$kevAnswer, $records): array {
         $asked[] = [$url, $since];
         if ($url === WATCH_VULN_URLS['kev']) {
             return $kevAnswer($since);
-        }
-        if ($url === WATCH_VULN_URLS['unraid']) {
-            return ['code' => 200, 'body' => $releases, 'lm' => null, 'err' => null];
         }
         foreach ($records as $id => $body) {
             if ($url === watchmanVulnCveUrl($id)) {
@@ -21741,26 +21730,27 @@ function testWatchmanVuln(): void
     $r = watchmanVulnFetch($dir, ['get' => $get, 'now' => $t0]);
     $f = watchmanVulnDir($dir);
     $kept = readJson("$f/kev.json");
-    same('vuln fetch: KEV, the four records the name table knows, Unraid\'s releases — nothing else asked, nothing failed', [
+    same('vuln fetch: KEV, the four records the name table knows — nothing else asked (never Unraid\'s servers: 2026-11-28), nothing failed', [
         [WATCH_VULN_URLS['kev'], 'https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/2024/1xxx/CVE-2024-1086.json',
          'https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/2024/4xxx/CVE-2024-4577.json',
          'https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/2020/5xxx/CVE-2020-5847.json',
-         'https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/2025/32xxx/CVE-2025-32463.json', WATCH_VULN_URLS['unraid']],
-        ['kev' => null, 'cve' => 4, 'unraid' => null, 'nvd' => 0, 'ghsa' => 0]], [array_values(array_filter(array_column($asked, 0), fn ($u) => !str_starts_with($u, WATCH_VULN_URLS['eol']))), $r]);
+         'https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/2025/32xxx/CVE-2025-32463.json'],
+        ['kev' => null, 'cve' => 4, 'nvd' => 0, 'ghsa' => 0]], [array_values(array_filter(array_column($asked, 0), fn ($u) => !str_starts_with($u, WATCH_VULN_URLS['eol']))), $r]);
+    same('vuln fetch: no address of unraid.net anywhere in what he may fetch, no unraid.json written', [[], false],
+        [array_values(array_filter(WATCH_VULN_URLS, fn ($u) => str_contains(strtolower($u), 'unraid'))), is_file("$f/unraid.json")]);
     same('vuln fetch: kept — only the name table\'s entries (whether here or not), its count, its Last-Modified; records reduced (no descriptions)',
         [['CVE-2024-1086', 'CVE-2024-4577', 'CVE-2020-5847', 'CVE-2025-32463'], ['kernel', 'php', 'unraid', 'sudo'], 124, 'Fri, 20 Nov 2026 17:48:39 GMT', true, false],
         [array_column($kept['entries'], 'cve'), array_column($kept['entries'], 'product'), $kept['count'], $kept['lm'], $kept['entries'][0]['ransom'],
          str_contains((string) file_get_contents("$f/cve/CVE-2024-1086.json"), 'xxxxx')]);
-    same('vuln fetch: Unraid\'s releases — only the known statuses; root only', [['7.4.1', '7.3.6', '7.2.3', '7.4.0'], '600'],
-        [array_column(readJson("$f/unraid.json")['releases'], 'version'), decoct(fileperms("$f/kev.json") & 0777)]);
+    same('vuln fetch: the list root only', '600', decoct(fileperms("$f/kev.json") & 0777));
     // the next day: only when newer — 304 keeps it
     /** @var list<array{0: string, 1: ?string}> $asked */
     $asked = [];
     $kevAnswer = fn (?string $since) => $since === 'Fri, 20 Nov 2026 17:48:39 GMT' ? ['code' => 304, 'body' => '', 'lm' => null, 'err' => null]
         : ['code' => 200, 'body' => json_encode($kev), 'lm' => null, 'err' => null];
     $r = watchmanVulnFetch($dir, ['get' => $get, 'now' => $t0 + 86400]);
-    same('vuln fetch: the next day — «only when newer» (304: kept), the records not asked again within their week', [[WATCH_VULN_URLS['kev'], 'Fri, 20 Nov 2026 17:48:39 GMT'], [WATCH_VULN_URLS['unraid'], null], null, $t0 + 86400],
-        [$asked[0], $asked[1] ?? null, $r['kev'], readJson("$f/status.json")['kev']['ok'] ?? null]);
+    same('vuln fetch: the next day — «only when newer» (304: kept), the records not asked again within their week', [[[WATCH_VULN_URLS['kev'], 'Fri, 20 Nov 2026 17:48:39 GMT']], null, $t0 + 86400],
+        [array_values(array_filter($asked, fn ($a) => !str_starts_with($a[0], WATCH_VULN_URLS['eol']))), $r['kev'], readJson("$f/status.json")['kev']['ok'] ?? null]);
     // kept by an office whose name table was another one (no mark, or another): the whole list once, never «only when newer»
     foreach ([array_diff_key(readJson("$f/kev.json"), ['for' => 1]), ['for' => 'another'] + readJson("$f/kev.json")] as $older) {
         writeAtomic("$f/kev.json", jsonEncode($older), 0600, 0, 0);
@@ -21813,11 +21803,16 @@ function testWatchmanVuln(): void
             return [...$head, ...$rest];
         })());
 
-    // judged: the kernel affected (fixed 6.12.48), PHP not (Windows only), Unraid not (released years after the entry), sudo gone from the list
+    // judged: the kernel affected (fixed 6.12.48), PHP not (Windows only), Unraid not (every Unraid from 7.3.2 came out years
+    // after a 2021 entry — known without asking anyone: 2026-11-28), sudo gone from the list
     $j = watchmanVulnJudge($dir, $inv, $t0 + 3 * 86400);
-    same('vuln judge: the kernel affected with its fix; PHP (Windows only) and Unraid 7.4.1 (released long after a 2021 entry) checked, not affected; the lists fresh',
-        [[['CVE-2024-1086', 'kernel', 'yes', '6.12.24-Unraid', '6.12.48']], 2, true, ['version' => '7.4.1', 'status' => 'supported', 'newest' => '7.4.1']],
+    same('vuln judge: the kernel affected with its fix; PHP (Windows only) and Unraid 7.4.1 (an Unraid from 7.3.2 on, a 2021 entry) checked, not affected; the lists fresh; Unraid\'s own check said nothing',
+        [[['CVE-2024-1086', 'kernel', 'yes', '6.12.24-Unraid', '6.12.48']], 2, true, ['version' => '7.4.1', 'said' => false, 'newer' => null, 'at' => null]],
         [array_map(fn ($x) => [$x['cve'], $x['product'], $x['verdict'], $x['have'], $x['fixed']], $j['found']), $j['checked'], $j['fresh'], $j['unraid']]);
+    same('vuln judge: Unraid\'s own entries — «long after» only from Unraid 7.3.2 on, only for an entry listed over a year before 2025; else not known',
+        [true, false, false, false, false, false],
+        [watchmanVulnUnraidLater('7.4.1', '2021-11-03'), watchmanVulnUnraidLater('7.2.3', '2021-11-03'), watchmanVulnUnraidLater('7.4.1', '2024-06-01'),
+         watchmanVulnUnraidLater(null, '2021-11-03'), watchmanVulnUnraidLater('7.4.1', ''), watchmanVulnUnraidLater('7.4.1', 'junk')]);
     same('vuln judge: the two checked and not affected listed for his page (1.96 «einfacher»: what runs here, the vulnerability)',
         [['CVE-2024-4577', 'php', '8.3.4'], ['CVE-2020-5847', 'unraid', '7.4.1']],
         (function () use ($j) { $x = array_map(fn ($n) => [$n['cve'], $n['product'], $n['have']], $j['not']); usort($x, fn ($a, $b) => strcmp($a[1], $b[1])); return $x; })());
@@ -21889,13 +21884,67 @@ function testWatchmanVuln(): void
         [array_map(fn ($x) => [$x['cve'], $x['label']], watchmanVulnPage(['vuln_on' => true], $j2)['unsure']), watchmanVulnPage(['vuln_on' => true], $j2)['maybe'],
          watchmanVulnPage(['vuln_on' => true], ['found' => []])['unsure']]);
 
-    // Unraid's advice: eol or superseded
+    // what Unraid's own update check last said (2026-11-28: /tmp/unraidcheck/result.json, never fetched by the office) —
+    // read only in exactly Unraid's shape: valid, missing, wrong shape, another branch, none newer, a stale file, a link
+    $uc = "$tmp/unraidcheck";
+    @mkdir($uc, 0700);
+    $ucFile = "$uc/result.json";
+    $ucBody = ['version' => '7.4.1', 'name' => 'Unraid 7.4.1', 'date' => '2026-11-20', 'date0' => '2026-11-09', 'isNewer' => true, 'sha256' => str_repeat('a', 64),
+               'changelog' => 'https://releases.unraid.net/dl/changelog/x/7.4.1.md', 'changelogPretty' => 'https://docs.unraid.net/unraid-os/release-notes/7.4.1/',
+               'isEligible' => true, 'params' => ['branch' => 'stable', 'current_version' => '7.4.0']];
+    $ucRead = function (mixed $body) use ($ucFile, $t0): ?array {
+        @unlink($ucFile);
+        if ($body !== null) {
+            file_put_contents($ucFile, is_string($body) ? $body : json_encode($body));
+            touch($ucFile, $t0);
+        }
+        return watchmanVulnUnraidCheck($ucFile);
+    };
+    $ucNo = $ucBody;
+    $ucNo['isNewer'] = false;
+    $ucNo['version'] = '7.4.0';
+    $ucNext = $ucBody;
+    $ucNext['params']['branch'] = 'next';
+    $ucNoBranch = $ucBody;
+    unset($ucNoBranch['params']['branch']);
+    $ucBeta = $ucBody;
+    $ucBeta['version'] = '7.5.0-beta.1';
+    $ucLower = $ucBody;
+    $ucLower['version'] = '7.3.6';
+    $ucStrNewer = $ucBody;
+    $ucStrNewer['isNewer'] = 'true';
+    same('vuln unraid check: Unraid\'s own answer — newer, none newer; missing, broken, another shape, another branch, no branch, a beta, «newer» lower, isNewer a string: not known',
+        [['current' => '7.4.0', 'newer' => '7.4.1', 'at' => $t0], ['current' => '7.4.0', 'newer' => null, 'at' => $t0], null, null, null, null, null, null, null, null, null, null, null],
+        [$ucRead($ucBody), $ucRead($ucNo), $ucRead(null), $ucRead('{"version":'), $ucRead('[1,2]'), $ucRead(['version' => '7.4.1', 'isNewer' => true]),
+         $ucRead($ucNext), $ucRead($ucNoBranch), $ucRead($ucBeta), $ucRead($ucLower), $ucRead($ucStrNewer), $ucRead(str_repeat(' ', WATCH_VULN_UNRAID_CHECK_MAX + 1)),
+         watchmanVulnUnraidCheck(null)]);
+    $ucRead($ucBody);
+    symlink($ucFile, "$uc/link.json");
+    same('vuln unraid check: never through a link; the office\'s path is Unraid\'s own file, left out at night', [null, '/tmp/unraidcheck/result.json', false],
+        [watchmanVulnUnraidCheck("$uc/link.json"), watchmanPaths()['unraid_check'] ?? null, isset(watchmanNightPaths()['unraid_check'])]);
+    $j74 = fn (?array $check) => watchmanVulnJudge($dir, [['product' => 'unraid', 'version' => '7.4.0', 'clean' => '7.4.0', 'where' => 'host']], $t0 + 3 * 86400, [], [], null, $check)['unraid'];
+    same('vuln judge: Unraid\'s own check for this version — said newer, said none; for another version (from before an update) or none: not said',
+        [['version' => '7.4.0', 'said' => true, 'newer' => '7.4.1', 'at' => $t0], ['version' => '7.4.0', 'said' => true, 'newer' => null, 'at' => $t0],
+         ['version' => '7.4.0', 'said' => false, 'newer' => null, 'at' => null], ['version' => '7.4.0', 'said' => false, 'newer' => null, 'at' => null]],
+        [$j74($ucRead($ucBody)), $j74($ucRead($ucNo)), $j74(['current' => '7.3.6', 'newer' => '7.4.1', 'at' => $t0]), $j74(null)]);
+    same('vuln page: Unraid\'s line only in its shape — an older build\'s support status (never released) is none',
+        [['version' => '7.4.0', 'said' => true, 'newer' => '7.4.1', 'at' => $t0], null, null],
+        [watchmanVulnPage(['vuln_on' => true], ['unraid' => $j74($ucRead($ucBody))])['unraid'],
+         watchmanVulnPage(['vuln_on' => true], ['unraid' => ['version' => '7.2.3', 'status' => 'eol', 'newest' => '7.4.1']])['unraid'],
+         watchmanVulnPage(['vuln_on' => true], ['kev' => $t0])['unraid']]);
+
+    // Unraid's advice: only a newer Unraid its own check found for exactly this version; never from an older shape
     $tips = [];
-    $add = function (string $id, array $p, string $about, ?array $link) use (&$tips): void { $tips[$id] = [$p, $link['path'] ?? null]; };
-    watchmanVulnTips(['unraid' => ['version' => '7.2.3', 'status' => 'eol', 'newest' => '7.4.1']], $add);
-    watchmanVulnTips(['unraid' => ['version' => '7.4.1', 'status' => 'supported', 'newest' => '7.4.1']], fn () => check('vuln tip: a supported version — none', false));
-    same('vuln tip: Unraid without security updates — the advice, its area, to Update OS', [[['version' => '7.2.3', 'status' => 'eol', 'newest' => '7.4.1'], '/Tools/Update'], 'advice', 'vuln'],
-        [$tips['unraid_eol'] ?? null, WATCH_POSTURE['unraid_eol'], watchmanCatOfTip('unraid_eol')]);
+    $add = function (string $id, array $p, string $about, ?array $link) use (&$tips): void { $tips[$id] = [$p, $about, $link['path'] ?? null]; };
+    watchmanVulnTips(['unraid' => $j74($ucRead($ucBody))], $add);
+    $none = fn () => check('vuln tip: none newer, not said, an older build\'s support status — no advice', false);
+    watchmanVulnTips(['unraid' => $j74($ucRead($ucNo))], $none);
+    watchmanVulnTips(['unraid' => $j74(null)], $none);
+    watchmanVulnTips(['unraid' => ['version' => '7.2.3', 'status' => 'eol', 'newest' => '7.4.1']], $none);
+    same('vuln tip: a newer Unraid by its own update check — the advice, its area, to Update OS; the old tip gone',
+        [[['version' => '7.4.0', 'newer' => '7.4.1'], '7.4.0|7.4.1', '/Tools/Update'], 'advice', 'vuln', false],
+        [$tips['unraid_newer'] ?? null, WATCH_POSTURE['unraid_newer'], watchmanCatOfTip('unraid_newer'),
+         isset(langFile(OFFICE_WEB . '/desks/watchman/lang/en.json')['posture.unraid_eol.title'])]);
 
     // the switch, due once a day, the light
     $wd = "$tmp/w";
@@ -21927,7 +21976,7 @@ function testWatchmanVuln(): void
             $light(['on' => true, 'checked_at' => $t0, 'fresh' => true], [$open('vuln_known', true)])]));
     same('vuln page: the switch, freshness, counts', ['on' => true, 'since' => null, 'checked_at' => $t0, 'fresh' => true, 'checked' => 2, 'affected' => 1, 'maybe' => 0],
         array_diff_key(watchmanVulnPage(['vuln_on' => true], ['kev' => $t0, 'fresh' => true, 'checked' => 2, 'found' => [['verdict' => 'yes']]]), ['software' => 1, 'unknown' => 1, 'not' => 1, 'unsure' => 1, 'kev_total' => 1, 'kev_here' => 1, 'kev_products' => 1, 'pending' => 1, 'floor' => 1, 'down' => 1, 'routers' => 1,
-            'host' => 1, 'cts' => 1, 'ct_total' => 1, 'ct_read' => 1, 'unread' => 1, 'unread_n' => 1, 'vms' => 1, 'ghsa' => 1, 'ghsa_here' => 1]));
+            'host' => 1, 'cts' => 1, 'ct_total' => 1, 'ct_read' => 1, 'unread' => 1, 'unread_n' => 1, 'vms' => 1, 'ghsa' => 1, 'ghsa_here' => 1, 'unraid' => 1]));
     // 1.96 «einfacher»: «Checked: doesn't concern you» — what runs here, the vulnerability, fixed from; an older state has none
     same('vuln page: the list «checked, doesn\'t concern you» (only exactly-shaped lines); none in an older state',
         [[['cve' => 'CVE-2024-4577', 'product' => 'php', 'where' => 'host', 'have' => '8.5.12', 'fixed' => '8.5.12', 'name' => 'x', 'label' => 'PHP']], []],
@@ -22101,7 +22150,6 @@ function testWatchmanVulnSoftware(): void
     $answers[watchmanVulnCveUrl('CVE-2024-4577')] = json_encode(['cveMetadata' => ['cveId' => 'CVE-2024-4577'], 'containers' => ['cna' => ['affected' => [
         ['vendor' => 'PHP Group', 'product' => 'PHP', 'defaultStatus' => 'affected', 'versions' => [['version' => '8.1.*', 'lessThan' => '8.1.29', 'status' => 'affected', 'versionType' => 'semver'],
             ['version' => '8.3.*', 'lessThan' => '8.3.8', 'status' => 'affected', 'versionType' => 'semver']]]]]]]);
-    $answers[WATCH_VULN_URLS['unraid']] = json_encode([['version' => '7.4.1', 'supportStatus' => 'supported', 'date' => '2026-11-10']]);
     $asked = [];
     $get = function (string $url, ?string $since) use (&$asked, $answers): array {
         $asked[] = $url;
@@ -23006,6 +23054,227 @@ function testWatchmanVulnAdvisoryLines(): void
     same('vuln advisory lines, the job: records — the exploited list\'s first, then the advisories\' not here yet; NVD — the list\'s unsure first, then the advisory\'s; the settled records kept',
         [['CVE-2024-99999', 'CVE-2025-32023'], ['CVE-2024-99999', 'CVE-2025-46817', 'CVE-2025-32023'], true, true],
         [$ids('cvelistV5'), $ids('nvd.nist.gov'), is_file("$f/cve/CVE-2026-25243.json"), is_file("$f/cve/CVE-2026-23479.json")]);
+}
+
+/**
+ * The lists' own notices (2026-11-28, their terms checked): where the matches are shown — the area and its help — a
+ * «Sources» block: the CVE records' copyright designation (MITRE's English words in every language, the year the
+ * page's) and their terms of use, the GitHub Advisory Database's CC BY 4.0, endoflife.date's MIT licence and copyright
+ * line, CISA's catalogue (CC0, no logo, no endorsement); NVD's notice whenever the area is on, not only once CISA's list
+ * came; THIRD-PARTY-DATA.md has them in full, shipped in the package and named by the README; endoflife.date's product
+ * descriptions (Wikipedia's, CC BY-SA) are never kept.
+ */
+function testWatchmanVulnCredits(): void
+{
+    $want = ['vuln.credit_cve' => ['Copyright © 1999–{year} The MITRE Corporation', '{terms}'], 'vuln.credit_cve_terms' => ['CVE Program Terms of Use'],
+             'vuln.credit_ghsa' => ['{db}', '{licence}'], 'vuln.credit_ghsa_db' => ['GitHub Advisory Database'], 'vuln.credit_ghsa_licence' => ['CC BY 4.0'],
+             'vuln.credit_eol' => ['{site}', 'Copyright 2020 endoflife.date contributors', '{licence}'], 'vuln.credit_eol_licence' => ['MIT License'],
+             'vuln.credit_kev' => ['{kev}', 'CISA', 'CC0'], 'vuln.credit_more' => ['{file}']];
+    $miss = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $s = langFile(OFFICE_WEB . "/desks/watchman/lang/$l.json");
+        foreach ($want as $k => $parts) {
+            foreach ($parts as $p) {
+                if (!is_string($s[$k] ?? null) || !str_contains($s[$k], $p)) {
+                    $miss[] = "$l $k: $p";
+                }
+            }
+        }
+    }
+    same('vuln credits: the notices in every language, the legal names and copyright lines in their own English words', [], $miss);
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/watchman/desk.js');
+    preg_match('/const VULN_CREDITS = \[(.*?)\n\];/s', $js, $m);
+    preg_match_all("#'(https://[^']+)'#", $m[1] ?? '', $urls);
+    same('vuln credits: the links fixed in the page, never from state — the terms, the database, the licences, the catalogue, the notices in full',
+        ['https://www.cve.org/Legal/TermsOfUse', 'https://github.com/advisories', 'https://creativecommons.org/licenses/by/4.0/', 'https://endoflife.date',
+         'https://github.com/endoflife-date/endoflife.date/blob/master/LICENSE', 'https://www.cisa.gov/known-exploited-vulnerabilities-catalog',
+         'https://github.com/dropnook/UnraidSecretaryOffice/blob/main/THIRD-PARTY-DATA.md'], $urls[1]);
+    $lists = preg_match('/function vulnLists\(words\) \{(.*?)\n\}/s', $js, $l1) ? $l1[1] : '';
+    $help = preg_match('/function helpAreas\(help\) \{(.*?)\n\}/s', $js, $l2) ? $l2[1] : '';
+    $credits = preg_match('/function vulnCredits\(\) \{(.*?)\n\}/s', $js, $l3) ? $l3[1] : '';
+    same('vuln credits: shown where the matches are (the area, not folded) and in its help; NVD\'s notice whenever the area is on; links through safeHref; the year the page\'s',
+        [true, true, true, true, false, true, true],
+        [str_contains($lists, "box.appendChild(el('p', 'wm-vuln-nvd-note', T('vuln.nvd_notice')));\n  box.appendChild(vulnCredits());"),
+         str_contains($help, 'vulnCredits()'), str_contains($help, "T('vuln.nvd_notice')"), str_contains($credits, 'Office.safeHref(url)'),
+         str_contains($lists, "if (Number.isInteger(v.kev_total)) box.appendChild(el('p', 'wm-vuln-nvd-note'"), str_contains($credits, 'getFullYear()'),
+         str_contains($credits, "a.rel = 'noopener noreferrer'")]);
+    // no CISA logo or DHS seal anywhere in the office
+    $logo = [];
+    $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(OFFICE_WEB, FilesystemIterator::SKIP_DOTS));
+    foreach ($it as $file) {
+        $n = strtolower($file->getFilename());
+        if (preg_match('/\.(svg|png|jpe?g|webp|gif)$/', $n) && (str_contains($n, 'cisa') || str_contains($n, 'dhs') || str_contains($n, 'mitre') || str_contains($n, 'nvd'))) {
+            $logo[] = $file->getPathname();
+        }
+    }
+    same('vuln credits: no CISA, DHS, MITRE or NVD logo among the office\'s pictures', [], $logo);
+    // the notices in full: the file, shipped, named
+    $tp = (string) @file_get_contents(OFFICE_DIR . '/THIRD-PARTY-DATA.md');
+    $need = ['CVE Usage: MITRE hereby grants you a perpetual, worldwide,', "reproduce MITRE's copyright designation and this license in any such",
+             'Copyright © 1999-<current year>, The MITRE Corporation', 'https://www.cve.org/Legal/TermsOfUse',
+             'This product uses the NVD API but is not endorsed or certified by the NVD.', 'Copyright 2020 endoflife.date contributors',
+             'Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated',
+             'The above copyright notice and this permission notice shall be included in all copies or substantial portions of the',
+             'CC BY 4.0', 'https://github.com/advisories', 'CC0 1.0 Universal', 'https://unraid.net/policies'];
+    same('vuln credits: THIRD-PARTY-DATA.md — the CVE terms, MITRE\'s designation, NVD\'s notice, the MIT licence, CC BY 4.0, CC0, why not Unraid\'s servers', [],
+        array_values(array_filter($need, fn ($x) => !str_contains((string) preg_replace('/\s*\n>?\s*/', ' ', $tp), $x))));
+    same('vuln credits: the package carries it beside the licence; the README names it', [true, true],
+        [str_contains((string) file_get_contents(OFFICE_DIR . '/plugin/build.sh'), 'cp plugin/*.page LICENSE THIRD-PARTY-DATA.md "$pkg/"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/README.md'), '[THIRD-PARTY-DATA.md](THIRD-PARTY-DATA.md)')]);
+    // endoflife.date: only release lines are kept — never a product's description (Wikipedia's words, CC BY-SA)
+    $tmp = hardeningTmp('vuln-credits');
+    $dir = "$tmp/data";
+    @mkdir($dir, 0700, true);
+    $eol = json_encode(['schema_version' => '1.2.0', 'result' => ['name' => 'php', 'label' => 'PHP', 'description' => 'PHP is a general-purpose scripting language (Wikipedia)',
+        'links' => ['html' => 'https://endoflife.date/php'], 'releases' => [['name' => '8.4', 'label' => '8.4', 'isEol' => false, 'eolFrom' => '2028-12-31',
+        'latest' => ['name' => '8.4.28', 'link' => 'https://x'], 'description' => 'The 8.4 line (Wikipedia)']]]]);
+    watchmanVulnFetch($dir, ['now' => strtotime('2026-11-28 12:00:00'), 'sleep' => fn () => null, 'unsure' => [], 'ghsa_products' => [],
+        'get' => fn (string $url) => str_starts_with($url, WATCH_VULN_URLS['eol']) ? ['code' => 200, 'body' => $eol, 'lm' => null, 'err' => null]
+            : ['code' => 404, 'body' => '', 'lm' => null, 'err' => 'HTTP 404']]);
+    $kept = (string) @file_get_contents(watchmanVulnDir($dir) . '/eol/php.json');
+    same('vuln credits: endoflife.date kept as release lines only — no description, no label, no link', [true, false, false],
+        [str_contains($kept, '8.4.28'), str_contains($kept, 'Wikipedia') || str_contains($kept, 'description'), str_contains($kept, 'https://')]);
+    hardeningRm($tmp);
+}
+
+/**
+ * The pacing against the sources' terms (2026-11-28). NVD without a key: at most 5 requests in a rolling 30 s — one every
+ * WATCH_VULN_NVD_GAP s (waited after an answer, so start to start is longer still). GitHub without a key: 60 requests an
+ * hour per address, a 304 counted too — the CVE records (raw.githubusercontent.com) and the projects' advisories
+ * (api.github.com) share WATCH_VULN_GH_HOUR in any hour, whatever the number of containers and products, across jobs (a
+ * job run again within the hour asks GitHub nothing); GitHub's «rate limit» (403, 429 on either host, an answer with
+ * x-ratelimit-remaining 0) ends the day's GitHub part; the advisories asked the longest ago come first.
+ */
+function testWatchmanVulnPacing(): void
+{
+    $tmp = hardeningTmp('vuln-pacing');
+    $t0 = strtotime('2026-11-28 12:00:00');
+    // NVD: eight unsure CVEs, answers that take no time — the requests' starts by the waits the job made; any 30 s at most 5
+    $nvdKev = [];
+    for ($i = 0; $i < 120; $i++) {
+        $nvdKev[] = ['cveID' => sprintf('CVE-2024-%05d', 60000 + $i), 'vendorProject' => 'Linux', 'product' => 'Kernel', 'vulnerabilityName' => 'x', 'dateAdded' => '2024-06-01'];
+    }
+    $nvdIds = array_slice(array_column($nvdKev, 'cveID'), 0, 8);
+    $clockNow = 0.0;
+    $starts = [];
+    $nvdDir = "$tmp/nvd";
+    @mkdir($nvdDir, 0700, true);
+    watchmanVulnFetch($nvdDir, ['now' => $t0, 'unsure' => $nvdIds, 'ghsa_products' => [], 'clock' => function () use (&$clockNow): float { return $clockNow; },
+        'sleep' => function (float $sec) use (&$clockNow): void { $clockNow += $sec; },
+        'get' => function (string $url) use (&$starts, &$clockNow, $nvdKev): array {
+            if ($url === WATCH_VULN_URLS['kev']) {
+                return ['code' => 200, 'body' => json_encode(['count' => count($nvdKev), 'vulnerabilities' => $nvdKev]), 'lm' => null, 'err' => null];
+            }
+            if (str_starts_with($url, WATCH_VULN_URLS['nvd'])) {
+                $starts[] = $clockNow;
+                $id = substr($url, strlen(WATCH_VULN_URLS['nvd']));
+                return ['code' => 200, 'body' => json_encode(['vulnerabilities' => [['cve' => ['id' => $id, 'configurations' => []]]]]), 'lm' => null, 'err' => null];
+            }
+            return ['code' => 404, 'body' => '', 'lm' => null, 'err' => 'HTTP 404'];
+        }]);
+    $most = 0;
+    foreach ($starts as $a) {
+        $most = max($most, count(array_filter($starts, fn ($b) => $b >= $a && $b <= $a + 30)));
+    }
+    same('vuln pacing: NVD — all eight asked, at most 5 starts in any 30 s (one every 6 s or more)', [8, true, true],
+        [count($starts), $most <= 5, count($starts) > 1 && min(array_map(fn ($i) => $starts[$i] - $starts[$i - 1], range(1, count($starts) - 1))) >= 6]);
+    // a server with every product of the name table in a container, 200 records due, every advisory list three pages
+    $kev = [];
+    for ($i = 0; $i < 200; $i++) {
+        $kev[] = ['cveID' => sprintf('CVE-2024-%05d', 50000 + $i), 'vendorProject' => 'Linux', 'product' => 'Kernel', 'vulnerabilityName' => 'x', 'dateAdded' => '2024-06-01'];
+    }
+    $kevBody = json_encode(['count' => count($kev), 'vulnerabilities' => $kev]);
+    $all = array_keys(watchmanVulnGhsaProducts());
+    $page = fn (int $n) => json_encode(array_map(fn ($i) => ['ghsa_id' => sprintf('GHSA-%04d-aaaa-%04d', $i, $n), 'severity' => 'high',
+        'published_at' => '2026-10-01T10:00:00Z', 'vulnerabilities' => [['package' => ['name' => 'x'], 'vulnerable_version_range' => '< 1.0.0', 'patched_versions' => '1.0.0']]], range(0, 99)));
+    $mk = function (array &$asked, ?callable $raw = null, ?callable $api = null) use ($kevBody, $page): callable {
+        return function (string $url, ?string $since) use (&$asked, $kevBody, $page, $raw, $api): array {
+            $asked[] = $url;
+            if ($url === WATCH_VULN_URLS['kev']) {
+                return ['code' => 200, 'body' => $kevBody, 'lm' => null, 'err' => null];
+            }
+            if (str_starts_with($url, WATCH_VULN_URLS['cve'])) {
+                return $raw !== null ? $raw(count(array_filter($asked, fn ($u) => str_starts_with($u, WATCH_VULN_URLS['cve']))))
+                    : ['code' => 404, 'body' => '', 'lm' => null, 'err' => 'HTTP 404'];
+            }
+            if (str_starts_with($url, WATCH_VULN_URLS['ghsa'])) {
+                $n = preg_match('/after=c(\d)$/', $url, $m) ? (int) $m[1] : 0;
+                return ($api !== null ? $api(count(array_filter($asked, fn ($u) => str_starts_with($u, WATCH_VULN_URLS['ghsa'])))) : [])
+                    + ['code' => 200, 'body' => $page($n), 'lm' => null, 'err' => null, 'remaining' => null,
+                       'link' => '<https://api.github.com/repositories/1/security-advisories?per_page=100&after=c' . ($n + 1) . '>; rel="next"'];
+            }
+            return ['code' => 404, 'body' => '', 'lm' => null, 'err' => 'HTTP 404'];
+        };
+    };
+    $gh = fn (array $asked) => count(array_filter($asked, fn ($u) => str_starts_with($u, WATCH_VULN_URLS['cve']) || str_starts_with($u, WATCH_VULN_URLS['ghsa'])));
+    $dir = "$tmp/data";
+    @mkdir($dir, 0700, true);
+    $asked = [];
+    $ctx = ['sleep' => fn () => null, 'unsure' => [], 'ghsa_products' => $all];
+    watchmanVulnFetch($dir, $ctx + ['get' => $mk($asked), 'now' => $t0]);
+    $st = readJson(watchmanVulnDir($dir) . '/status.json');
+    $cve = count(array_filter($asked, fn ($u) => str_starts_with($u, WATCH_VULN_URLS['cve'])));
+    same('vuln pacing: one job on a server with everything — GitHub asked at most the hour\'s budget (records first, their share; the advisories the rest), each one counted',
+        [WATCH_VULN_GH_HOUR, WATCH_VULN_CVE_RUN, WATCH_VULN_GH_HOUR - WATCH_VULN_CVE_RUN, WATCH_VULN_GH_HOUR],
+        [$gh($asked), $cve, $gh($asked) - $cve, count($st['github']['at'] ?? [])]);
+    same('vuln pacing: … below GitHub\'s 60 with room to spare, and at least 20 left for the advisories', [true, true], [$gh($asked) <= 55, $gh($asked) - $cve >= 20]);
+    $asked = [];
+    watchmanVulnFetch($dir, $ctx + ['get' => $mk($asked), 'now' => $t0 + 600]);
+    $again = $gh($asked);
+    $asked = [];
+    watchmanVulnFetch($dir, $ctx + ['get' => $mk($asked), 'now' => $t0 - 1800]);
+    $back = $gh($asked);
+    $asked = [];
+    watchmanVulnFetch($dir, $ctx + ['get' => $mk($asked), 'now' => $t0 + 3601]);
+    same('vuln pacing: run again within the hour, or with the clock set back — GitHub not asked at all; an hour later its budget again', [0, 0, WATCH_VULN_GH_HOUR],
+        [$again, $back, $gh($asked)]);
+    // the advisories asked the longest ago first: those that waited come before those fetched last time
+    $f = watchmanVulnDir($dir) . '/ghsa';
+    $ages = [];
+    foreach ($all as $id) {
+        $ages[$id] = (int) (readJson("$f/$id.json")['fetched'] ?? 0);
+    }
+    $asked = [];
+    watchmanVulnFetch($dir, $ctx + ['get' => $mk($asked), 'now' => $t0 + 2 * 86400]);
+    $repoOf = array_column(array_map(fn ($id, $g) => [$id, $g['repo']], array_keys(watchmanVulnGhsaProducts()), watchmanVulnGhsaProducts()), 1, 0);
+    $firstAsked = null;
+    foreach ($asked as $u) {
+        if (str_starts_with($u, WATCH_VULN_URLS['ghsa'])) {
+            $firstAsked = array_search(substr($u, strlen(WATCH_VULN_URLS['ghsa']), strpos($u, '/security-advisories') - strlen(WATCH_VULN_URLS['ghsa'])), $repoOf, true);
+            break;
+        }
+    }
+    check('vuln pacing: the advisories asked the longest ago come first (two jobs before: a product of the first)', is_string($firstAsked) && $ages[$firstAsked] === min($ages)
+        && min($ages) < max($ages), json_encode([$firstAsked, $ages]));
+
+    // GitHub's «rate limit exceeded» on the records (429, 403): the day's GitHub part ends at once — no advisory asked
+    foreach ([429, 403] as $code) {
+        $d = "$tmp/raw$code";
+        @mkdir($d, 0700, true);
+        $asked = [];
+        watchmanVulnFetch($d, $ctx + ['get' => $mk($asked, fn (int $n) => $n >= 3 ? ['code' => $code, 'body' => '', 'lm' => null, 'err' => "HTTP $code"]
+            : ['code' => 404, 'body' => '', 'lm' => null, 'err' => 'HTTP 404']), 'now' => $t0]);
+        $s = readJson(watchmanVulnDir($d) . '/status.json');
+        same("vuln pacing: the records answer $code — GitHub asked no more today (no advisory), the records' back-off says so",
+            [3, 0, "HTTP $code", 1], [count(array_filter($asked, fn ($u) => str_starts_with($u, WATCH_VULN_URLS['cve']))),
+             count(array_filter($asked, fn ($u) => str_starts_with($u, WATCH_VULN_URLS['ghsa']))), $s['cve']['err'] ?? null, $s['cve']['fails'] ?? null]);
+    }
+    // the advisories: GitHub says this was the hour's last (x-ratelimit-remaining 0) — that page used, nothing after it
+    $d = "$tmp/left0";
+    @mkdir($d, 0700, true);
+    $asked = [];
+    $r = watchmanVulnFetch($d, $ctx + ['get' => $mk($asked, null, fn (int $n) => $n === 2 ? ['remaining' => 0] : ['remaining' => 60 - $n]), 'now' => $t0]);
+    $s = readJson(watchmanVulnDir($d) . '/status.json');
+    same('vuln pacing: x-ratelimit-remaining 0 — that answer kept, no request to GitHub after it, not a failure', [2, 1, null],
+        [count(array_filter($asked, fn ($u) => str_starts_with($u, WATCH_VULN_URLS['ghsa']))), $r['ghsa'], $s['ghsa']['err'] ?? null]);
+    same('vuln pacing: curl\'s output for a page — the code, Last-Modified, Link, x-ratelimit-remaining read; none named: null', [[200, '<x>; rel="next"', 0], [304, null, null]],
+        [array_values(array_intersect_key(watchmanVulnGhsaAnswer("[]\n200\n\n<x>; rel=\"next\"\n0"), ['code' => 1, 'link' => 1, 'remaining' => 1])),
+         array_values(array_intersect_key(watchmanVulnGhsaAnswer("\n304\n\n\n"), ['code' => 1, 'link' => 1, 'remaining' => 1]))]);
+    check('vuln pacing: curl asks GitHub for x-ratelimit-remaining', str_contains(implode(' ', watchmanVulnGhsaCurl('https://api.github.com/repos/a/b/security-advisories?per_page=100&sort=published&direction=desc', null)),
+        '%header{x-ratelimit-remaining}'));
+    same('vuln pacing: GitHub\'s count — only the last hour\'s, a time ahead of the clock counts (up to two days), junk never', [[$t0 - 100, $t0 + 3600]],
+        [watchmanVulnGhRecent(['github' => ['at' => [$t0 - 100, $t0 - 3600, $t0 + 3600, $t0 + 3 * 86400, 'x', null]]], $t0)]);
+    hardeningRm($tmp);
 }
 
 /**
@@ -73011,7 +73280,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testLogsFlood',
                       'testWatchmanHandMore',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testWatchWakesPage', 'testWatchmanWakes', 'testWatchmanWakeTrail', 'testMetrics', 'testWatchmanCats', 'testWatchmanTiles', 'testWatchmanScope', 'testWatchmanGreet', 'testWatchmanRules', 'testWatchmanKnown', 'testWatchmanSettings', 'testWatchmanRules6a', 'testWatchmanRules6b', 'testWatchmanRules6c', 'testWatchmanRules6d', 'testWatchmanRules6e', 'testWatchmanRules6f', 'testWatchmanRules6g', 'testWatchmanFrom195', 'testWatchmanRelearn', 'testWatchmanStandRender', 'testWatchmanPageBars', 'testWatchmanRulesNew', 'testWatchmanJournal', 'testWatchmanBookMore', 'testWatchmanVuln', 'testWatchmanVulnRanges', 'testWatchmanVulnPhp', 'testWatchmanVulnNvd', 'testWatchmanVulnBackoff', 'testWatchmanVulnRouters', 'testWatchmanVulnSoftware', 'testWatchmanVulnHonest', 'testWatchmanVulnLetters', 'testWatchmanVulnLook', 'testWatchmanVulnHome', 'testWatchmanVulnAdvisories', 'testWatchmanVulnAdvisoryLines', 'testWatchmanHot', 'testLogsigns', 'testWatchmanSigns', 'testWatchmanHw', 'testWatchmanCpuFaults', 'testWatchmanWear', 'testWatchmanHwBookMore', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanStartFiles', 'testWatchmanGateway', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testWatchWakesPage', 'testWatchmanWakes', 'testWatchmanWakeTrail', 'testMetrics', 'testWatchmanCats', 'testWatchmanTiles', 'testWatchmanScope', 'testWatchmanGreet', 'testWatchmanRules', 'testWatchmanKnown', 'testWatchmanSettings', 'testWatchmanRules6a', 'testWatchmanRules6b', 'testWatchmanRules6c', 'testWatchmanRules6d', 'testWatchmanRules6e', 'testWatchmanRules6f', 'testWatchmanRules6g', 'testWatchmanFrom195', 'testWatchmanRelearn', 'testWatchmanStandRender', 'testWatchmanPageBars', 'testWatchmanRulesNew', 'testWatchmanJournal', 'testWatchmanBookMore', 'testWatchmanVuln', 'testWatchmanVulnRanges', 'testWatchmanVulnPhp', 'testWatchmanVulnNvd', 'testWatchmanVulnBackoff', 'testWatchmanVulnRouters', 'testWatchmanVulnSoftware', 'testWatchmanVulnHonest', 'testWatchmanVulnLetters', 'testWatchmanVulnLook', 'testWatchmanVulnHome', 'testWatchmanVulnAdvisories', 'testWatchmanVulnAdvisoryLines', 'testWatchmanVulnPacing', 'testWatchmanVulnCredits', 'testWatchmanHot', 'testLogsigns', 'testWatchmanSigns', 'testWatchmanHw', 'testWatchmanCpuFaults', 'testWatchmanWear', 'testWatchmanHwBookMore', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanStartFiles', 'testWatchmanGateway', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testMigrateWakes', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics', 'testReportDialogOwnWords', 'testReportDialogDesk',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testBackupRunEnded', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanAtLeft', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testSkipPlaces', 'testCleanupSkipGreeting', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testLights', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],

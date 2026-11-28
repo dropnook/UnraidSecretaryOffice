@@ -2064,6 +2064,7 @@ function helpAreas(help) {
     if (id === 'vuln') {
       vulnDownLines().forEach((x) => li.appendChild(x));      // a source away for days: said here too
       li.appendChild(el('p', 'wm-vuln-nvd-note', T('vuln.nvd_notice')));     // NVD's terms of use
+      li.appendChild(vulnCredits());                                         // the other lists' notices (2026-11-28)
     }      // the search's place (scope.<tile>.help) and the area's link land here
     ul.appendChild(li);
   });
@@ -3920,6 +3921,8 @@ function vulnLists(words) {
     box.appendChild(el('p', 'role wm-vuln-counted', [line, v.pending ? T('vuln.pending', { n: v.pending }) : ''].filter(Boolean).join(' ')));
   }
   vulnGhsaLines(v).forEach((x) => box.appendChild(x));
+  const unraid = vulnUnraidLine(v);
+  if (unraid) box.appendChild(unraid);
   // his limits (2026-11-25), always there, calm: he compares only with what is listed, only for what he knows and can read
   box.appendChild(el('p', 'wm-vuln-limits', T('vuln.limits')));
   // the routers by their own log (2026-11-23): under «What he checked» since 2026-11-25 — an older state without it keeps them here
@@ -3927,7 +3930,10 @@ function vulnLists(words) {
     (Array.isArray(v.routers) ? v.routers : []).filter((x) => x && typeof x.label === 'string')
       .forEach((x) => box.appendChild(el('p', 'role wm-vuln-router', vulnRouterWords(x))));
   }
-  if (Number.isInteger(v.kev_total)) box.appendChild(el('p', 'wm-vuln-nvd-note', T('vuln.nvd_notice')));     // NVD's terms of use: this notice, as they word it
+  // NVD's terms of use: this notice, as they word it — on whenever the area is (2026-11-28: before, only once CISA's list
+  // had come), with the other lists' own notices (vulnCredits())
+  box.appendChild(el('p', 'wm-vuln-nvd-note', T('vuln.nvd_notice')));
+  box.appendChild(vulnCredits());
   const where = (x) => (Array.isArray(x.wheres) && x.wheres.length > 1 ? T('vuln.not_in_many', { where: x.wheres.join(', ') })
     : x.where && x.where !== 'host' ? T('vuln.not_in', { where: x.where }) : '');
   const fit = (list) => vulnLines(list).filter((x) => !words || !words.length || Office.fits(words, vulnHay(x)));
@@ -4046,6 +4052,60 @@ function vulnDownLines() {
     else if (x.ok && Office.has(`${ID}.vuln.down_${x.src}`)) said.push(T(`vuln.down_${x.src}`, { date: fmt.date(x.ok) }));
     return el('p', 'role wm-vuln-down', said.join(' '));
   });
+}
+
+/**
+ * The lists he compares with and the notices their terms ask for (2026-11-28; THIRD-PARTY-DATA.md has them in full): the
+ * CVE records' copyright designation and terms (MITRE's own English words, the year the page's), endoflife.date's MIT
+ * licence, the GitHub Advisory Database's CC BY 4.0, CISA's catalogue (CC0: named as the source, never an endorsement).
+ * Each line's words come with placeholders the links fill — the links fixed here, never from state.
+ */
+const VULN_CREDITS = [
+  ['vuln.credit_cve', { terms: ['vuln.credit_cve_terms', 'https://www.cve.org/Legal/TermsOfUse'] }],
+  ['vuln.credit_ghsa', { db: ['vuln.credit_ghsa_db', 'https://github.com/advisories'], licence: ['vuln.credit_ghsa_licence', 'https://creativecommons.org/licenses/by/4.0/'] }],
+  ['vuln.credit_eol', { site: ['vuln.credit_eol_site', 'https://endoflife.date'],
+    licence: ['vuln.credit_eol_licence', 'https://github.com/endoflife-date/endoflife.date/blob/master/LICENSE'] }],
+  ['vuln.credit_kev', { kev: ['vuln.credit_kev_list', 'https://www.cisa.gov/known-exploited-vulnerabilities-catalog'] }],
+  ['vuln.credit_more', { file: ['vuln.credit_more_file', 'https://github.com/dropnook/UnraidSecretaryOffice/blob/main/THIRD-PARTY-DATA.md'] }],
+];
+function vulnCredits() {
+  const box = el('div', 'wm-vuln-credits');
+  box.appendChild(el('p', 'wm-vuln-credits-head', T('vuln.credits')));
+  const year = String(new Date(((state && Number(state.time)) || Date.now() / 1000) * 1000).getFullYear());
+  const ul = el('ul', 'wm-vuln-credits-list');
+  VULN_CREDITS.forEach(([key, links]) => {
+    const mark = {};
+    Object.keys(links).forEach((k) => { mark[k] = `\u0001${k}\u0001`; });
+    const li = el('li');
+    T(key, { year, ...mark }).split(/\u0001(\w+)\u0001/).forEach((part, i) => {
+      if (i % 2 === 0) { if (part) li.appendChild(el('span', '', part)); return; }
+      const [text, url] = links[part] || [];
+      const href = url ? Office.safeHref(url) : null;
+      if (!href) return;
+      const a = el('a', 'wm-vuln-link', T(text));
+      a.href = href;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      li.appendChild(a);
+    });
+    ul.appendChild(li);
+  });
+  box.appendChild(ul);
+  return box;
+}
+
+/**
+ * The Unraid here and what Unraid's own update check last said of it (2026-11-28, agent: watchmanVulnUnraidCheck() — he
+ * never asks Unraid's servers himself): a newer one, none newer, or plainly «not checked». An older state has none.
+ */
+function vulnUnraidLine(v) {
+  const u = v && v.unraid;
+  if (!u || typeof u.version !== 'string' || typeof u.said !== 'boolean') return null;
+  const date = Number.isInteger(u.at) ? fmt.date(u.at) : '–';
+  const words = !u.said ? T('vuln.unraid_unknown', { version: u.version })
+    : typeof u.newer === 'string' ? T('vuln.unraid_newer', { version: u.version, newer: u.newer, date })
+      : T('vuln.unraid_none', { version: u.version, date });
+  return el('p', 'role wm-vuln-unraid', words);
 }
 
 /**
