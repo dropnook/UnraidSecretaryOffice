@@ -41,7 +41,7 @@ A round every five minutes; he only reads. What is unusual goes into his watch b
 new plugin, far more data pulled than usual, a new device on the LAN — and your router's log, if you like.
 Switched on, «Known vulnerabilities» compares what runs here with CISA's list of exploited vulnerabilities, their CVE
 records and, for what those can't settle, the NVD's version ranges. This product uses the NVD API but is not endorsed or
-certified by the NVD.
+certified by the NVD. The lists' licences and notices: [THIRD-PARTY-DATA.md](THIRD-PARTY-DATA.md).
 
 <a name="watchman-book"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/watchman-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/watchman-light.png" alt="The watch book"></picture></a>
 

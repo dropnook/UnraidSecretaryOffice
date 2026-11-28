@@ -34,6 +34,8 @@ declare(strict_types=1);
  * Kept in data/watchman/feeds/ (kev.json, cve/<id>.json reduced to the affected data, status.json, ghsa/<product>.json): at
  * most WATCH_VULN_CVE_MAX records, each file small; a list missing, broken, too big or older than WATCH_VULN_OLD is «not
  * checked», never «all fine».
+ * The sources' licences and the notices their terms ask for (2026-11-28): THIRD-PARTY-DATA.md, shipped in the package; the
+ * page shows them in short under the area («Sources», desk.js vulnCredits()) beside NVD's own notice.
  * Not fetched (2026-11-28): releases.unraid.net. Lime Technology's website terms (unraid.net/policies) forbid automated
  * access without written permission and name no exception for its release list, so the office never asks it. What he
  * says of Unraid's releases is only what Unraid's OWN update check last wrote on this server (/tmp/unraidcheck/result.json,

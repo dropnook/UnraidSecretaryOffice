@@ -89,6 +89,12 @@
 .wm-quiet-row b{font-weight:600; white-space:nowrap}
 .wm-quiet-words{color:var(--muted); min-width:0; overflow-wrap:anywhere}
 .wm-vuln-nvd-note{margin:2px 0 8px; font-size:.85em; color:var(--ink2)}
+/* the lists' own notices (2026-11-28): small, plain, under the NVD's */
+.wm-vuln-credits{margin:0 0 8px; font-size:.85em; color:var(--ink2)}
+.wm-vuln-credits-head{margin:0 0 2px; font-weight:600}
+.wm-vuln-credits-list{margin:0; padding-left:18px}
+.wm-vuln-credits-list li{margin:1px 0; overflow-wrap:anywhere}
+.wm-vuln-credits .wm-vuln-link{font-size:1em}
 /* «What he checked»: its short lists (one router, one container) as tall as their rows — never the box's 80 px */
 .wm-vuln-look .box{min-height:0}
 /* the projects' own advisories (2026-11-26): the link to one under its row, an id never wider than a phone */

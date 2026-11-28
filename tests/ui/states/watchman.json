@@ -5939,7 +5939,13 @@
     "cut": false,
     "label": "Jellyfin"
    }
-  ]
+  ],
+  "unraid": {
+   "version": "7.4.0",
+   "said": true,
+   "newer": "7.4.1",
+   "at": 1791500000
+  }
  },
  "tiles": {
   "login": {
