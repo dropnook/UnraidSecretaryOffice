@@ -24,7 +24,7 @@
   "vuln.kev_line": "He compares with the list of the US agency CISA: vulnerabilities known to be exploited. It has been kept since November 2021.",
   "vuln.counted": {"one": "One of the list's {total} vulnerabilities concerns a program he checks here: {list}.", "other": "{n} of the list's {total} vulnerabilities concern programs he checks here: {list}."},
   "vuln.counted_none": "None of the list's {total} vulnerabilities concerns a program he checks here.",
-  "vuln.pending": {"one": "For one of them he is still fetching the description (at most 60 a day); until then it stands in no list.", "other": "For {n} of them he is still fetching the description (at most 60 a day); until then they stand in no list."},
+  "vuln.pending": {"one": "For one of them he is still fetching the description (at most 30 a day); until then it stands in no list.", "other": "For {n} of them he is still fetching the description (at most 30 a day); until then they stand in no list."},
   "vuln.router_seen": "{product} {version}: as its log has said since {date}.",
   "vuln.router_seen_undated": "{product} {version}: as its log said.",
   "vuln.router_unknown": "{product}: version unknown — he only sees it once the router writes it into its log.",

@@ -23056,6 +23056,120 @@ function testWatchmanVulnAdvisoryLines(): void
 }
 
 /**
+ * The pacing against the sources' terms (2026-11-28). NVD without a key: at most 5 requests in a rolling 30 s — one every
+ * WATCH_VULN_NVD_GAP s (waited after an answer, so start to start is longer still). GitHub without a key: 60 requests an
+ * hour per address, a 304 counted too — the CVE records (raw.githubusercontent.com) and the projects' advisories
+ * (api.github.com) share WATCH_VULN_GH_HOUR in any hour, whatever the number of containers and products, across jobs (a
+ * job run again within the hour asks GitHub nothing); GitHub's «rate limit» (403, 429 on either host, an answer with
+ * x-ratelimit-remaining 0) ends the day's GitHub part; the advisories asked the longest ago come first.
+ */
+function testWatchmanVulnPacing(): void
+{
+    same('vuln pacing: NVD — a gap of at least 6 s, at most 5 request starts in any 30 s', [true, true],
+        [WATCH_VULN_NVD_GAP >= 6, intdiv(300, (int) round(WATCH_VULN_NVD_GAP * 10)) + 1 <= 5]);
+    same('vuln pacing: GitHub — the hour\'s budget below its 60, the records\' share leaves room for the advisories', [true, true],
+        [WATCH_VULN_GH_HOUR <= 60 - 5, WATCH_VULN_CVE_RUN <= WATCH_VULN_GH_HOUR - 20]);
+    $tmp = hardeningTmp('vuln-pacing');
+    $t0 = strtotime('2026-11-28 12:00:00');
+    // a server with every product of the name table in a container, 200 records due, every advisory list three pages
+    $kev = [];
+    for ($i = 0; $i < 200; $i++) {
+        $kev[] = ['cveID' => sprintf('CVE-2024-%05d', 50000 + $i), 'vendorProject' => 'Linux', 'product' => 'Kernel', 'vulnerabilityName' => 'x', 'dateAdded' => '2024-06-01'];
+    }
+    $kevBody = json_encode(['count' => count($kev), 'vulnerabilities' => $kev]);
+    $all = array_keys(watchmanVulnGhsaProducts());
+    $page = fn (int $n) => json_encode(array_map(fn ($i) => ['ghsa_id' => sprintf('GHSA-%04d-aaaa-%04d', $i, $n), 'severity' => 'high',
+        'published_at' => '2026-10-01T10:00:00Z', 'vulnerabilities' => [['package' => ['name' => 'x'], 'vulnerable_version_range' => '< 1.0.0', 'patched_versions' => '1.0.0']]], range(0, 99)));
+    $mk = function (array &$asked, ?callable $raw = null, ?callable $api = null) use ($kevBody, $page): callable {
+        return function (string $url, ?string $since) use (&$asked, $kevBody, $page, $raw, $api): array {
+            $asked[] = $url;
+            if ($url === WATCH_VULN_URLS['kev']) {
+                return ['code' => 200, 'body' => $kevBody, 'lm' => null, 'err' => null];
+            }
+            if (str_starts_with($url, WATCH_VULN_URLS['cve'])) {
+                return $raw !== null ? $raw(count(array_filter($asked, fn ($u) => str_starts_with($u, WATCH_VULN_URLS['cve']))))
+                    : ['code' => 404, 'body' => '', 'lm' => null, 'err' => 'HTTP 404'];
+            }
+            if (str_starts_with($url, WATCH_VULN_URLS['ghsa'])) {
+                $n = preg_match('/after=c(\d)$/', $url, $m) ? (int) $m[1] : 0;
+                return ($api !== null ? $api(count(array_filter($asked, fn ($u) => str_starts_with($u, WATCH_VULN_URLS['ghsa'])))) : [])
+                    + ['code' => 200, 'body' => $page($n), 'lm' => null, 'err' => null, 'remaining' => null,
+                       'link' => '<https://api.github.com/repositories/1/security-advisories?per_page=100&after=c' . ($n + 1) . '>; rel="next"'];
+            }
+            return ['code' => 404, 'body' => '', 'lm' => null, 'err' => 'HTTP 404'];
+        };
+    };
+    $gh = fn (array $asked) => count(array_filter($asked, fn ($u) => str_starts_with($u, WATCH_VULN_URLS['cve']) || str_starts_with($u, WATCH_VULN_URLS['ghsa'])));
+    $dir = "$tmp/data";
+    @mkdir($dir, 0700, true);
+    $asked = [];
+    $ctx = ['sleep' => fn () => null, 'unsure' => [], 'ghsa_products' => $all];
+    watchmanVulnFetch($dir, $ctx + ['get' => $mk($asked), 'now' => $t0]);
+    $st = readJson(watchmanVulnDir($dir) . '/status.json');
+    $cve = count(array_filter($asked, fn ($u) => str_starts_with($u, WATCH_VULN_URLS['cve'])));
+    same('vuln pacing: one job on a server with everything — GitHub asked at most the hour\'s budget (records first, their share; the advisories the rest), each one counted',
+        [WATCH_VULN_GH_HOUR, WATCH_VULN_CVE_RUN, WATCH_VULN_GH_HOUR - WATCH_VULN_CVE_RUN, WATCH_VULN_GH_HOUR],
+        [$gh($asked), $cve, $gh($asked) - $cve, count($st['github']['at'] ?? [])]);
+    $asked = [];
+    watchmanVulnFetch($dir, $ctx + ['get' => $mk($asked), 'now' => $t0 + 600]);
+    $again = $gh($asked);
+    $asked = [];
+    watchmanVulnFetch($dir, $ctx + ['get' => $mk($asked), 'now' => $t0 - 1800]);
+    $back = $gh($asked);
+    $asked = [];
+    watchmanVulnFetch($dir, $ctx + ['get' => $mk($asked), 'now' => $t0 + 3601]);
+    same('vuln pacing: run again within the hour, or with the clock set back — GitHub not asked at all; an hour later its budget again', [0, 0, WATCH_VULN_GH_HOUR],
+        [$again, $back, $gh($asked)]);
+    // the advisories asked the longest ago first: those that waited come before those fetched last time
+    $f = watchmanVulnDir($dir) . '/ghsa';
+    $ages = [];
+    foreach ($all as $id) {
+        $ages[$id] = (int) (readJson("$f/$id.json")['fetched'] ?? 0);
+    }
+    $asked = [];
+    watchmanVulnFetch($dir, $ctx + ['get' => $mk($asked), 'now' => $t0 + 2 * 86400]);
+    $repoOf = array_column(array_map(fn ($id, $g) => [$id, $g['repo']], array_keys(watchmanVulnGhsaProducts()), watchmanVulnGhsaProducts()), 1, 0);
+    $firstAsked = null;
+    foreach ($asked as $u) {
+        if (str_starts_with($u, WATCH_VULN_URLS['ghsa'])) {
+            $firstAsked = array_search(substr($u, strlen(WATCH_VULN_URLS['ghsa']), strpos($u, '/security-advisories') - strlen(WATCH_VULN_URLS['ghsa'])), $repoOf, true);
+            break;
+        }
+    }
+    check('vuln pacing: the advisories asked the longest ago come first (two jobs before: a product of the first)', is_string($firstAsked) && $ages[$firstAsked] === min($ages)
+        && min($ages) < max($ages), json_encode([$firstAsked, $ages]));
+
+    // GitHub's «rate limit exceeded» on the records (429, 403): the day's GitHub part ends at once — no advisory asked
+    foreach ([429, 403] as $code) {
+        $d = "$tmp/raw$code";
+        @mkdir($d, 0700, true);
+        $asked = [];
+        watchmanVulnFetch($d, $ctx + ['get' => $mk($asked, fn (int $n) => $n >= 3 ? ['code' => $code, 'body' => '', 'lm' => null, 'err' => "HTTP $code"]
+            : ['code' => 404, 'body' => '', 'lm' => null, 'err' => 'HTTP 404']), 'now' => $t0]);
+        $s = readJson(watchmanVulnDir($d) . '/status.json');
+        same("vuln pacing: the records answer $code — GitHub asked no more today (no advisory), the records' back-off says so",
+            [3, 0, "HTTP $code", 1], [count(array_filter($asked, fn ($u) => str_starts_with($u, WATCH_VULN_URLS['cve']))),
+             count(array_filter($asked, fn ($u) => str_starts_with($u, WATCH_VULN_URLS['ghsa']))), $s['cve']['err'] ?? null, $s['cve']['fails'] ?? null]);
+    }
+    // the advisories: GitHub says this was the hour's last (x-ratelimit-remaining 0) — that page used, nothing after it
+    $d = "$tmp/left0";
+    @mkdir($d, 0700, true);
+    $asked = [];
+    $r = watchmanVulnFetch($d, $ctx + ['get' => $mk($asked, null, fn (int $n) => $n === 2 ? ['remaining' => 0] : ['remaining' => 60 - $n]), 'now' => $t0]);
+    $s = readJson(watchmanVulnDir($d) . '/status.json');
+    same('vuln pacing: x-ratelimit-remaining 0 — that answer kept, no request to GitHub after it, not a failure', [2, 1, null],
+        [count(array_filter($asked, fn ($u) => str_starts_with($u, WATCH_VULN_URLS['ghsa']))), $r['ghsa'], $s['ghsa']['err'] ?? null]);
+    same('vuln pacing: curl\'s output for a page — the code, Last-Modified, Link, x-ratelimit-remaining read; none named: null', [[200, '<x>; rel="next"', 0], [304, null, null]],
+        [array_values(array_intersect_key(watchmanVulnGhsaAnswer("[]\n200\n\n<x>; rel=\"next\"\n0"), ['code' => 1, 'link' => 1, 'remaining' => 1])),
+         array_values(array_intersect_key(watchmanVulnGhsaAnswer("\n304\n\n\n"), ['code' => 1, 'link' => 1, 'remaining' => 1]))]);
+    check('vuln pacing: curl asks GitHub for x-ratelimit-remaining', str_contains(implode(' ', watchmanVulnGhsaCurl('https://api.github.com/repos/a/b/security-advisories?per_page=100&sort=published&direction=desc', null)),
+        '%header{x-ratelimit-remaining}'));
+    same('vuln pacing: GitHub\'s count — only the last hour\'s, a time ahead of the clock counts (up to two days), junk never', [[$t0 - 100, $t0 + 3600]],
+        [watchmanVulnGhRecent(['github' => ['at' => [$t0 - 100, $t0 - 3600, $t0 + 3600, $t0 + 3 * 86400, 'x', null]]], $t0)]);
+    hardeningRm($tmp);
+}
+
+/**
  * The night watchman's areas (1.96 step 1, agent/desks/watchman-cats.php): every kind of his book and every posture tip
  * in exactly one area, the 19 areas in the page's order; the lights as a table of cases (open and important, open,
  * what an area couldn't see, advice not known, info never, grey for what isn't there); an old state.json without the
@@ -73058,7 +73172,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testLogsFlood',
                       'testWatchmanHandMore',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testWatchWakesPage', 'testWatchmanWakes', 'testWatchmanWakeTrail', 'testMetrics', 'testWatchmanCats', 'testWatchmanTiles', 'testWatchmanScope', 'testWatchmanGreet', 'testWatchmanRules', 'testWatchmanKnown', 'testWatchmanSettings', 'testWatchmanRules6a', 'testWatchmanRules6b', 'testWatchmanRules6c', 'testWatchmanRules6d', 'testWatchmanRules6e', 'testWatchmanRules6f', 'testWatchmanRules6g', 'testWatchmanFrom195', 'testWatchmanRelearn', 'testWatchmanStandRender', 'testWatchmanPageBars', 'testWatchmanRulesNew', 'testWatchmanJournal', 'testWatchmanBookMore', 'testWatchmanVuln', 'testWatchmanVulnRanges', 'testWatchmanVulnPhp', 'testWatchmanVulnNvd', 'testWatchmanVulnBackoff', 'testWatchmanVulnRouters', 'testWatchmanVulnSoftware', 'testWatchmanVulnHonest', 'testWatchmanVulnLetters', 'testWatchmanVulnLook', 'testWatchmanVulnHome', 'testWatchmanVulnAdvisories', 'testWatchmanVulnAdvisoryLines', 'testWatchmanHot', 'testLogsigns', 'testWatchmanSigns', 'testWatchmanHw', 'testWatchmanCpuFaults', 'testWatchmanWear', 'testWatchmanHwBookMore', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanStartFiles', 'testWatchmanGateway', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testWatchWakesPage', 'testWatchmanWakes', 'testWatchmanWakeTrail', 'testMetrics', 'testWatchmanCats', 'testWatchmanTiles', 'testWatchmanScope', 'testWatchmanGreet', 'testWatchmanRules', 'testWatchmanKnown', 'testWatchmanSettings', 'testWatchmanRules6a', 'testWatchmanRules6b', 'testWatchmanRules6c', 'testWatchmanRules6d', 'testWatchmanRules6e', 'testWatchmanRules6f', 'testWatchmanRules6g', 'testWatchmanFrom195', 'testWatchmanRelearn', 'testWatchmanStandRender', 'testWatchmanPageBars', 'testWatchmanRulesNew', 'testWatchmanJournal', 'testWatchmanBookMore', 'testWatchmanVuln', 'testWatchmanVulnRanges', 'testWatchmanVulnPhp', 'testWatchmanVulnNvd', 'testWatchmanVulnBackoff', 'testWatchmanVulnRouters', 'testWatchmanVulnSoftware', 'testWatchmanVulnHonest', 'testWatchmanVulnLetters', 'testWatchmanVulnLook', 'testWatchmanVulnHome', 'testWatchmanVulnAdvisories', 'testWatchmanVulnAdvisoryLines', 'testWatchmanVulnPacing', 'testWatchmanHot', 'testLogsigns', 'testWatchmanSigns', 'testWatchmanHw', 'testWatchmanCpuFaults', 'testWatchmanWear', 'testWatchmanHwBookMore', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanStartFiles', 'testWatchmanGateway', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testMigrateWakes', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics', 'testReportDialogOwnWords', 'testReportDialogDesk',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testBackupRunEnded', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanAtLeft', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testSkipPlaces', 'testCleanupSkipGreeting', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testLights', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],

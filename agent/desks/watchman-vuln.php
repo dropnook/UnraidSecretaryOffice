@@ -79,7 +79,12 @@ const WATCH_VULN_SOURCES     = ['kev', 'cve', 'nvd', 'eol', 'ghsa'];
 const WATCH_VULN_OLD     = 3 * 86400;      // a list older than this: «not checked»
 const WATCH_VULN_RUN_MAX = 900;            // a fetch that takes longer is stopped
 const WATCH_VULN_CVE_MAX = 300;            // CVE records kept at most
-const WATCH_VULN_CVE_RUN = 60;             // fetched in one run at most (the rest the next day)
+const WATCH_VULN_CVE_RUN = 30;             // fetched in one run at most (the rest the next day; 2026-11-28: 60 before — GitHub's hour)
+// GitHub without a key (2026-11-28, its terms): 60 requests an hour per address, a 304 counted too. The CVE records
+// (raw.githubusercontent.com — counted with it to be safe) and the projects' advisories (api.github.com) together at most
+// this many in any hour (status.json `github`, across jobs: a clock set back or a job run again doesn't ask more); what is
+// left of the 60 stays for the office's own release check and other devices behind the same address
+const WATCH_VULN_GH_HOUR = 50;
 const WATCH_VULN_CVE_AGE = 7 * 86400;      // a kept record fetched anew after this long
 const WATCH_VULN_CVE_TIME = 300;           // 2026-11-26: no record's request starts that could end later than this many seconds after the job began
 const WATCH_VULN_UA      = 'UnraidSecretaryOffice';      // the same for every office: no version, no name
@@ -1050,6 +1055,24 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
     };
     $may = fn (string $list): bool => watchmanVulnSourceDue($status, $list, $now);
     $res = ['kev' => null, 'cve' => 0, 'nvd' => 0];
+    // GitHub's hour (2026-11-28): every request to raw.githubusercontent.com or api.github.com takes one of
+    // WATCH_VULN_GH_HOUR first (written at once: a job stopped halfway keeps its count); GitHub's «rate limit» (403, 429,
+    // or x-ratelimit-remaining 0) ends the day's GitHub part — the CVE records and the advisories alike
+    $ghStop = null;
+    $ghTake = function () use (&$status, &$ghStop, $now, $save): bool {
+        if ($ghStop !== null) {
+            return false;
+        }
+        $at = watchmanVulnGhRecent($status, $now);
+        if (count($at) >= WATCH_VULN_GH_HOUR) {
+            $ghStop = 'hour';
+            return false;
+        }
+        $at[] = $now;
+        $status['github'] = ['at' => $at];
+        $save();
+        return true;
+    };
 
     // KEV: only when newer than what is kept
     // (2026-11-26) what is kept holds only the entries of the name table that filtered it: a table that grew since (an
@@ -1129,14 +1152,21 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
     $tried = readJson("$f/cve-tried.json");
     $tried = is_array($tried) ? array_intersect_key(array_filter($tried, 'is_int'), array_flip($want)) : [];
     // 2026-11-26: a bound of its own, in the style of the NVD part — no request starts that could end later than
-    // WATCH_VULN_CVE_TIME s after the job began (60 records at the worst 70 s each would be 4200 s: the tick's 900 s stop
+    // WATCH_VULN_CVE_TIME s after the job began (60 records (then the cap) at the worst 70 s each would be 4200 s: the tick's 900 s stop
     // came first, and NVD, the projects' advisories and endoflife.date got nothing); what wasn't asked stays due
     foreach ($may('cve') ? array_slice($due, 0, WATCH_VULN_CVE_RUN) : [] as $id) {
         if ($clock() - $began + WATCH_VULN_TIMEOUT + 10 > WATCH_VULN_CVE_TIME) {
             break;          // no time left for one more: the rest the next day
         }
         $url = watchmanVulnCveUrl($id);
+        if ($url !== null && !$ghTake()) {
+            break;          // GitHub's hour used up: the rest the next day
+        }
         $b = $url === null ? ['code' => 0, 'body' => '', 'err' => 'bad_id'] : watchmanVulnGet($url, WATCH_VULN_MAX['cve'], null, $ctx);
+        if ($url !== null && in_array((int) $b['code'], [403, 429], true)) {
+            $ghStop = 'HTTP ' . $b['code'];         // GitHub's «rate limit exceeded»: no request to GitHub any more today
+            break;
+        }
         if ($url !== null && watchmanVulnSourceDown((int) $b['code'])) {
             $down++;
             if ($down >= 3 && !$res['cve']) {
@@ -1158,7 +1188,9 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
         $res['cve']++;
     }
     writeAtomic("$f/cve-tried.json", (string) json_encode((object) $tried), 0600, 0, 0);
-    if ($may('cve')) {
+    if ($may('cve') && str_starts_with((string) $ghStop, 'HTTP')) {
+        $mark('cve', $ghStop);          // GitHub said «slow down»: its back-off, what came is kept
+    } elseif ($may('cve')) {
         $mark('cve', $down && !$res['cve'] ? "$down not answered" : null);
         if ($errors || ($down && $res['cve'])) {
             $status['cve']['err'] = ($errors ? "$errors failed" : '') . ($errors && $down ? ', ' : '') . ($down ? "$down not answered" : '');
@@ -1260,11 +1292,12 @@ function watchmanVulnFetch(string $dir, array $ctx = []): array
 
     // the projects' own advisories on GitHub (2026-11-26, watchman-vuln-advisories.php): only for the products found here
     $res['ghsa'] = 0;
-    if ($may('ghsa')) {
+    if ($may('ghsa') && $ghStop === null) {
+        // one more request: time left, and one of GitHub's hour taken (the CVE records' part used its share first)
         [$ghsaAsked, $res['ghsa'], $ghsaErr] = watchmanVulnGhsaFetch($dir, $now, $ctx,
-            fn (): bool => $clock() - $began + WATCH_VULN_TIMEOUT + 10 <= WATCH_VULN_GHSA_TIME, $ctx['ghsa_products'] ?? null);
+            fn (): bool => $clock() - $began + WATCH_VULN_TIMEOUT + 10 <= WATCH_VULN_GHSA_TIME && $ghTake(), $ctx['ghsa_products'] ?? null);
         if ($ghsaAsked) {
-            $mark('ghsa', $ghsaErr);
+            $mark('ghsa', $ghsaErr === 'limit' ? null : $ghsaErr);       // GitHub's hour used up after answers: an answer
         }
         $save();
     }
@@ -1367,6 +1400,18 @@ function watchmanVulnFetchRun(): int
     logLine('Night watchman: the lists of known vulnerabilities fetched — ' . ($bad ? 'not all: ' . implode(', ', array_map(fn ($k, $v) => "$k $v", array_keys($bad), $bad)) : 'fine')
         . " ({$r['cve']} records, {$r['nvd']} from NVD, " . ($r['ghsa'] ?? 0) . ' advisory lists)');
     return 0;
+}
+
+/**
+ * GitHub's requests of the last hour (status.json `github.at`, their times, 2026-11-28) — a time ahead of the clock (set
+ * back since) counts too, up to two days ahead; anything else isn't read
+ *
+ * @return list<int>
+ */
+function watchmanVulnGhRecent(array $status, int $now): array
+{
+    $at = is_array($status['github'] ?? null) && is_array($status['github']['at'] ?? null) ? $status['github']['at'] : [];
+    return array_values(array_filter($at, fn ($t) => is_int($t) && $t > $now - 3600 && $t <= $now + 2 * 86400));
 }
 
 /** Is a fetch due? On, and the last run a day ago (an older status: KEV's last try) — a clock set back: due */
@@ -1536,7 +1581,7 @@ function watchmanVulnJudge(string $dir, array $inv, int $now, array $images = []
         $out['kev_products'][$e['product']] = ($out['kev_products'][$e['product']] ?? 0) + 1;
         $rec = readJson("$f/cve/{$e['cve']}.json");
         if (!is_array($rec) && !isset($tried[$e['cve']])) {
-            $out['pending'][] = (string) $e['cve'];         // its record not fetched yet (a first fetch, over 60 a day): not judged yet
+            $out['pending'][] = (string) $e['cve'];         // its record not fetched yet (a first fetch, over WATCH_VULN_CVE_RUN a day): not judged yet
             continue;
         }
         $cna = WATCH_VULN_PRODUCTS[$e['product']]['cna'];

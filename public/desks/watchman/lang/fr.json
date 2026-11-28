@@ -24,7 +24,7 @@
   "vuln.kev_line": "Il compare avec la liste de l'agence américaine CISA : des failles dont l'exploitation est prouvée. Elle est tenue depuis novembre 2021.",
   "vuln.counted": {"one": "{n} des {total} failles de la liste concerne un programme qu'il vérifie ici : {list}.", "other": "{n} des {total} failles de la liste concernent des programmes qu'il vérifie ici : {list}."},
   "vuln.counted_none": "Aucune des {total} failles de la liste ne concerne un programme qu'il vérifie ici.",
-  "vuln.pending": {"one": "Pour {n} d'entre elles, il récupère encore la description (60 par jour au plus) ; d'ici là, elle ne figure dans aucune liste.", "other": "Pour {n} d'entre elles, il récupère encore la description (60 par jour au plus) ; d'ici là, elles ne figurent dans aucune liste."},
+  "vuln.pending": {"one": "Pour {n} d'entre elles, il récupère encore la description (30 par jour au plus) ; d'ici là, elle ne figure dans aucune liste.", "other": "Pour {n} d'entre elles, il récupère encore la description (30 par jour au plus) ; d'ici là, elles ne figurent dans aucune liste."},
   "vuln.router_seen": "{product} {version} : c'est ce que dit son journal depuis le {date}.",
   "vuln.router_seen_undated": "{product} {version} : c'est ce que disait son journal.",
   "vuln.router_unknown": "{product} : version inconnue — il ne la voit que lorsque le routeur l'écrit dans son journal.",

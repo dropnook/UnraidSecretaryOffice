@@ -24,7 +24,7 @@
   "vuln.kev_line": "Er vergleicht mit der Liste der US-Behörde CISA: Lücken, die nachweislich ausgenutzt werden. Sie wird seit November 2021 geführt.",
   "vuln.counted": {"one": "Eine der {total} Lücken der Liste betrifft ein Programm, das er hier prüft: {list}.", "other": "{n} der {total} Lücken der Liste betreffen Programme, die er hier prüft: {list}."},
   "vuln.counted_none": "Keine der {total} Lücken der Liste betrifft ein Programm, das er hier prüft.",
-  "vuln.pending": {"one": "Bei einer davon holt er die Beschreibung noch (höchstens 60 am Tag); bis dahin steht sie in keiner Liste.", "other": "Bei {n} davon holt er die Beschreibung noch (höchstens 60 am Tag); bis dahin stehen sie in keiner Liste."},
+  "vuln.pending": {"one": "Bei einer davon holt er die Beschreibung noch (höchstens 30 am Tag); bis dahin steht sie in keiner Liste.", "other": "Bei {n} davon holt er die Beschreibung noch (höchstens 30 am Tag); bis dahin stehen sie in keiner Liste."},
   "vuln.router_seen": "{product} {version}: so stand es in seinem Protokoll seit dem {date}.",
   "vuln.router_seen_undated": "{product} {version}: so stand es in seinem Protokoll.",
   "vuln.router_unknown": "{product}: Version unbekannt — er sieht sie erst, wenn der Router sie ins Protokoll schreibt.",

@@ -29,6 +29,12 @@ declare(strict_types=1);
  * «Only when newer» (If-Modified-Since with the first page's Last-Modified) only for a list of one page: GitHub still counts
  * such a request without a key (tried 2026-11-26), but it carries nothing. One request without an answer is noted and the
  * next product asked, two in a row, a «slow down» (403, 429, 5xx) or WATCH_VULN_GHSA_TIME end the day's part.
+ * GitHub's limit without a key (2026-11-28, checked against its terms): 60 requests an hour per address, a 304 counted
+ * too. This part and the CVE records' (raw.githubusercontent.com, counted with it to be safe) share one budget of
+ * WATCH_VULN_GH_HOUR requests in any hour (watchmanVulnGhTake(), kept in status.json across jobs) — whatever the number
+ * of containers or products; a 403 or 429 (GitHub's «rate limit exceeded», with retry-after or x-ratelimit-reset) or an
+ * answer with x-ratelimit-remaining 0 ends the day's GitHub part: the next try is the next day's job, later than any
+ * reset GitHub names (the hour's window, a secondary limit's minutes). Products asked the longest ago come first.
  *
  * Judged with the existing machinery: `vulnerable_version_range` is the maintainers' text — «< 1.132.0», «<=10.8.12»,
  * «>= 1.33.0, <= 1.37.3», «v0.107.72», «≤ 1.36.0» — read only as at most one lower and one upper bound joined by commas
@@ -101,27 +107,35 @@ function watchmanVulnGhsaNext(?string $link): ?string
 
 /**
  * One GET of a page through hostNet() (curl): as watchmanVulnGet() — https only, no redirects, the size cap, the fixed
- * User-Agent — with GitHub's Accept and API version, «only when newer» when $since is given → {code, body, lm, link, err}.
- * $ctx['get'] stands in for it (the tests).
+ * User-Agent — with GitHub's Accept and API version, «only when newer» when $since is given → {code, body, lm, link,
+ * remaining, err}. `remaining` (2026-11-28): GitHub's x-ratelimit-remaining, null when it named none. $ctx['get'] stands
+ * in for it (the tests).
  *
- * @return array{code: int, body: string, lm: ?string, link: ?string, err: ?string}
+ * @return array{code: int, body: string, lm: ?string, link: ?string, remaining: ?int, err: ?string}
  */
 function watchmanVulnGhsaGet(string $url, ?string $since, array $ctx = []): array
 {
     if (isset($ctx['get'])) {
-        return ($ctx['get'])($url, $since) + ['link' => null];
+        return ($ctx['get'])($url, $since) + ['link' => null, 'remaining' => null];
     }
     if (!preg_match(WATCH_VULN_GHSA_URL, $url)) {
-        return ['code' => 0, 'body' => '', 'lm' => null, 'link' => null, 'err' => 'bad_url'];
+        return ['code' => 0, 'body' => '', 'lm' => null, 'link' => null, 'remaining' => null, 'err' => 'bad_url'];
     }
     [$exit, $out, $err] = hostNet(watchmanVulnGhsaCurl($url, $since), WATCH_VULN_TIMEOUT + 10);
     if ($exit !== 0) {
-        return ['code' => 0, 'body' => '', 'lm' => null, 'link' => null, 'err' => 'curl ' . $exit . ($err !== '' ? ': ' . substr(trim($err), 0, 120) : '')];
+        return ['code' => 0, 'body' => '', 'lm' => null, 'link' => null, 'remaining' => null, 'err' => 'curl ' . $exit . ($err !== '' ? ': ' . substr(trim($err), 0, 120) : '')];
     }
+    return watchmanVulnGhsaAnswer($out);
+}
+
+/** curl's output for a page (the body, then code, Last-Modified, Link and x-ratelimit-remaining on lines of their own) */
+function watchmanVulnGhsaAnswer(string $out): array
+{
     $lines = explode("\n", $out);
+    $left = trim((string) array_pop($lines));
     $link = trim((string) array_pop($lines));
     $a = watchmanVulnAnswer(0, implode("\n", $lines));
-    return $a + ['link' => $link !== '' ? $link : null];
+    return $a + ['link' => $link !== '' ? $link : null, 'remaining' => preg_match('/^\d{1,6}$/D', $left) ? (int) $left : null];
 }
 
 /** curl's arguments for one page (a test reads them: nothing of this server in them) */
@@ -129,7 +143,7 @@ function watchmanVulnGhsaCurl(string $url, ?string $since): array
 {
     $args = ['curl', '-s', '-S', '-m', (string) WATCH_VULN_TIMEOUT, '--proto', '=https', '--max-redirs', '0', '--max-filesize', (string) WATCH_VULN_GHSA_MAX,
              '--compressed', '-A', WATCH_VULN_UA, '-H', 'Accept: application/vnd.github+json', '-H', 'X-GitHub-Api-Version: 2022-11-28',
-             '-w', '\n%{http_code}\n%header{last-modified}\n%header{link}'];
+             '-w', '\n%{http_code}\n%header{last-modified}\n%header{link}\n%header{x-ratelimit-remaining}'];
     if ($since !== null && preg_match('/^[A-Za-z]{3}, \d{2} [A-Za-z]{3} \d{4} \d{2}:\d{2}:\d{2} GMT$/D', $since)) {
         array_push($args, '-H', "If-Modified-Since: $since");
     }
@@ -198,9 +212,17 @@ function watchmanVulnGhsaFetch(string $dir, int $now, array $ctx, callable $left
             @unlink($file);          // no longer found here: never asked, never kept
         }
     }
-    sort($here);
+    // (2026-11-28) the longest unasked first, then by name: when GitHub's hour (WATCH_VULN_GH_HOUR, $left()) runs out before
+    // every product, the same ones don't wait day after day
+    $age = [];
+    foreach ($here as $id) {
+        $k = readJson("$f/$id.json");
+        $age[$id] = is_array($k) && is_int($k['fetched'] ?? null) ? $k['fetched'] : 0;
+    }
+    usort($here, fn ($a, $b) => $age[$a] <=> $age[$b] ?: strcmp($a, $b));
     $asked = $written = $miss = 0;
     $err = null;
+    $last = false;          // GitHub said this was the hour's last request (x-ratelimit-remaining 0): none after it
     foreach ($here as $id) {
         $g = $all[$id];
         $kept = readJson("$f/$id.json");
@@ -231,9 +253,15 @@ function watchmanVulnGhsaFetch(string $dir, int $now, array $ctx, callable $left
             if (watchmanVulnSourceDown((int) $a['code'])) {
                 return [$asked, $written, 'HTTP ' . $a['code']];       // «slow down» (GitHub's limit without a key) or away: the rest another day
             }
+            if (($a['remaining'] ?? null) === 0) {
+                $last = true;       // this answer is used; no request after it today (its reset lies within the hour, the next job a day later)
+            }
             if ($page === 0 && (int) $a['code'] === 304 && $kept !== null) {
                 writeAtomic("$f/$id.json", jsonEncode(['fetched' => $now] + $kept), 0600, 0, 0);
                 $written++;
+                if ($last) {
+                    return [$asked, $written, null];
+                }
                 continue 2;
             }
             $j = (int) $a['code'] === 200 && strlen($a['body']) <= WATCH_VULN_GHSA_MAX ? json_decode($a['body'], true, 32) : null;
@@ -255,6 +283,10 @@ function watchmanVulnGhsaFetch(string $dir, int $now, array $ctx, callable $left
             if ($cursor === null) {
                 break;
             }
+            if ($last) {
+                $more = true;       // a next page GitHub won't answer within the hour: the list is cut
+                break;
+            }
             $more = $page + 1 >= WATCH_VULN_GHSA_PAGES;      // a next page past the cap: the list is cut
         }
         if ($ok) {
@@ -268,6 +300,9 @@ function watchmanVulnGhsaFetch(string $dir, int $now, array $ctx, callable $left
         }
         if ($miss >= WATCH_VULN_NVD_MISS) {
             break;                  // twice in a row no answer: away — the rest another day
+        }
+        if ($last) {
+            return [$asked, $written, $written ? null : 'limit'];       // GitHub's hour used up: the rest another day
         }
     }
     return [$asked, $written, $written ? null : $err];

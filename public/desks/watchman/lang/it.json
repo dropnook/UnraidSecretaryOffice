@@ -24,7 +24,7 @@
   "vuln.kev_line": "Confronta con l'elenco dell'agenzia statunitense CISA: vulnerabilità di cui è provato lo sfruttamento. È tenuto da novembre 2021.",
   "vuln.counted": {"one": "Una delle {total} vulnerabilità dell'elenco riguarda un programma che verifica qui: {list}.", "other": "{n} delle {total} vulnerabilità dell'elenco riguardano programmi che verifica qui: {list}."},
   "vuln.counted_none": "Nessuna delle {total} vulnerabilità dell'elenco riguarda un programma che verifica qui.",
-  "vuln.pending": {"one": "Per una di queste sta ancora prendendo la descrizione (al massimo 60 al giorno); fino ad allora non sta in nessun elenco.", "other": "Per {n} di queste sta ancora prendendo la descrizione (al massimo 60 al giorno); fino ad allora non stanno in nessun elenco."},
+  "vuln.pending": {"one": "Per una di queste sta ancora prendendo la descrizione (al massimo 30 al giorno); fino ad allora non sta in nessun elenco.", "other": "Per {n} di queste sta ancora prendendo la descrizione (al massimo 30 al giorno); fino ad allora non stanno in nessun elenco."},
   "vuln.router_seen": "{product} {version}: così dice il suo registro dal {date}.",
   "vuln.router_seen_undated": "{product} {version}: così diceva il suo registro.",
   "vuln.router_unknown": "{product}: versione sconosciuta — la vede solo quando il router la scrive nel suo registro.",

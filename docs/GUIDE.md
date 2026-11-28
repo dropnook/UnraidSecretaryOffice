@@ -558,7 +558,8 @@ You need Unraid **7.3.2 or a newer 7.x**. Nothing else to install.
   concern a program here and that the CVE record can't settle: the request names the CVE id and nothing else, at most 40
   a day, one every 6.5 seconds (NVD's limit without a key). This product uses the NVD API but is not endorsed or certified
   by the NVD. And api.github.com, only for the programs found in a container here that publish their advisories there:
-  the request names the project and nothing else, at most three pages of 100 a program and day. Your router counts too, passively: MikroTik RouterOS and the UniFi Network Application by the version their
+  the request names the project and nothing else, at most three pages of 100 a program and day — and together with the
+  CVE records at most 50 requests to GitHub an hour (GitHub's limit without a key is 60); GitHub's «slow down» ends them for the day. Your router counts too, passively: MikroTik RouterOS and the UniFi Network Application by the version their
   own log says (or a UniFi container's image) — the office never logs into a router; without a version it says so.
 - It sends a report only when you send one. No telemetry.
 - The desks never wake a sleeping disk unless you ask. The scheduled backup does, unless you leave sleeping pools out.

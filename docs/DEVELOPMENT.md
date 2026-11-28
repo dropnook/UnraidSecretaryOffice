@@ -932,7 +932,8 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   watchman-vuln-advisories.php: the projects' GitHub repository advisories (api.github.com, no key, source `ghsa` with its
   own status/back-off), asked only for the products found in a container here whose name table entry has `ghsa` (repo —
   WATCH_VULN_GHSA_REPO before any URL —, package names, `unnamed`, `skip`), sorted by publication, at most
-  WATCH_VULN_GHSA_PAGES pages by the Link header's cursor, kept in feeds/ghsa/<product>.json (`v` 1: high and critical only,
+  WATCH_VULN_GHSA_PAGES pages by the Link header's cursor (2026-11-28: with the CVE records at most WATCH_VULN_GH_HOUR GitHub
+  requests in any hour, status.json `github`; a 403/429 or x-ratelimit-remaining 0 ends the day's GitHub part), kept in feeds/ghsa/<product>.json (`v` 1: high and critical only,
   at most WATCH_VULN_GHSA_KEEP; `cut` + `floor`: a version below it is «older than what he kept»), «only when newer» for a
   one-page list, WATCH_VULN_GHSA_TIME; the maintainers' range read as one lower and one upper bound or a version alone
   (`after` in watchmanVulnRange() for «> X»), anything else unsure (reason `ghsa`) unless past every fix; affected rows the
