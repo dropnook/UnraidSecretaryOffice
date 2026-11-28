@@ -154,9 +154,10 @@ function fanboyKind(string $chip): string
 
 /**
  * One chip of /sys/class/hwmon: its name, the device behind it without the boot number, the module, its outputs,
- * tach inputs and temperatures. Null for what is no hwmon entry.
+ * tach inputs and temperatures. Null for what is no hwmon entry. $values false: the temperatures' values not read (their
+ * `c` null) — the control's look «where is each sensor now?» (2026-11-25: one NVMe takes a second to answer a read)
  */
-function fanboyChip(string $hwmon, string $entry): ?array
+function fanboyChip(string $hwmon, string $entry, bool $values = true): ?array
 {
     $dir = "$hwmon/$entry";
     $real = realpath($dir);
@@ -208,7 +209,7 @@ function fanboyChip(string $hwmon, string $entry): ?array
     foreach ($temps as $n => $t) {
         // drivetemp asks the disk for its temperature: never read here (a sleeping disk would wake) — Unraid's own
         // disks.ini says it instead
-        $raw = $kind === 'disk' ? null : fanboyInt("$attr/temp{$n}_input");
+        $raw = $kind === 'disk' || !$values ? null : fanboyInt("$attr/temp{$n}_input");
         $temps[$n]['c'] = fanboySaneTemp($raw);
     }
     ksort($outputs);
@@ -246,14 +247,14 @@ function fanboySaneTemp(?int $milli): ?float
     return $c == 0.0 || $c <= -128.0 || $c >= 125.0 ? null : $c;
 }
 
-/** The chips under the hwmon folder, in its order (hwmon0, hwmon1 … hwmon10) */
-function fanboyChips(string $hwmon): array
+/** The chips under the hwmon folder, in its order (hwmon0, hwmon1 … hwmon10); $values false: no temperature read (fanboyChip()) */
+function fanboyChips(string $hwmon, bool $values = true): array
 {
     $entries = array_values(array_filter(@scandir($hwmon) ?: [], fn ($e) => preg_match('/^hwmon\d{1,4}$/D', $e) === 1));
     natsort($entries);
     $chips = [];
     foreach ($entries as $e) {
-        if (($c = fanboyChip($hwmon, $e)) !== null) {
+        if (($c = fanboyChip($hwmon, $e, $values)) !== null) {
             $chips[] = $c;
         }
     }
@@ -507,12 +508,16 @@ const FANBOY_HOT_KINDS = ['hdd', 'ssd', 'cpu', 'board', 'ram', 'other'];
  * The warmest place per kind (round 3, the owner: one «warmest» over hard disks, NVMe and a CPU compares what can't be
  * compared): hdd (rotating disks), ssd (SSDs, NVMe), cpu, board, ram, other — each its warmest with its value and whose,
  * the one of the kind nearest to (or over) its limit (`near`, only where a limit is known: Unraid's for disks), how many
- * sleep. A sleeping disk has no value and counts as asleep, never as cold.
+ * sleep. A sleeping disk has no value and counts as asleep, never as cold. Not counted at all: fanboyHotSkip() (a drive's
+ * further sensor, one set aside).
  */
-function fanboyHottestKinds(array $chips, array $disks): array
+function fanboyHottestKinds(array $chips, array $disks, array $skip = []): array
 {
     $cand = [];
     foreach ($disks as $d) {
+        if (in_array($d['name'], $skip, true)) {
+            continue;
+        }
         $cand[] = ['kind' => $d['rotational'] ? 'hdd' : 'ssd', 'c' => $d['temp'], 'label' => '', 'disk' => $d['name'], 'chip' => null, 'n' => null,
             'asleep' => $d['asleep'], 'warn' => $d['warn'] ?? null, 'crit' => $d['crit'] ?? null];
     }
@@ -522,6 +527,9 @@ function fanboyHottestKinds(array $chips, array $disks): array
         }
         $kind = match ($c['kind']) { 'nvme' => 'ssd', 'cpu' => 'cpu', 'board' => 'board', 'ram' => 'ram', default => 'other' };
         foreach ($c['temps'] as $t) {
+            if (fanboyHotSkip($c, $t['n'], $skip)) {
+                continue;
+            }
             $cand[] = ['kind' => $kind, 'c' => $t['c'], 'label' => $t['label'], 'disk' => null, 'chip' => $c['name'], 'n' => $t['n'], 'asleep' => false, 'warn' => null, 'crit' => null];
         }
     }
@@ -872,19 +880,28 @@ function fanboySituation(array $chips, array $controllers, ?array $ipmi, array $
     return ['code' => 'no_output'];
 }
 
-/** The warmest place: a temperature of a chip or an awake disk — null when nothing says one */
-function fanboyHottest(array $chips, array $disks): ?array
+/**
+ * Not a warmest spot (2026-11-27): a drive's further sensor (fanboyFurther() — the drive isn't judged by it), and any
+ * source id in $skip (a sensor the user set aside)
+ */
+function fanboyHotSkip(array $chip, int $n, array $skip): bool
+{
+    return fanboyFurther($chip, $n) || ($skip && in_array(fanboySourceId($chip, $n), $skip, true));
+}
+
+/** The warmest place: a temperature of a chip or an awake disk — null when nothing says one ($skip: fanboyHotSkip()) */
+function fanboyHottest(array $chips, array $disks, array $skip = []): ?array
 {
     $best = null;
     foreach ($chips as $c) {
         foreach ($c['temps'] as $t) {
-            if ($t['c'] !== null && ($best === null || $t['c'] > $best['c'])) {
+            if ($t['c'] !== null && !fanboyHotSkip($c, $t['n'], $skip) && ($best === null || $t['c'] > $best['c'])) {
                 $best = ['c' => $t['c'], 'kind' => $c['kind'], 'chip' => $c['name'], 'label' => $t['label'], 'n' => $t['n'], 'disk' => null];
             }
         }
     }
     foreach ($disks as $d) {
-        if ($d['temp'] !== null && ($best === null || $d['temp'] > $best['c'])) {
+        if ($d['temp'] !== null && !in_array($d['name'], $skip, true) && ($best === null || $d['temp'] > $best['c'])) {
             $best = ['c' => (float) $d['temp'], 'kind' => 'disk', 'chip' => null, 'label' => '', 'n' => null, 'disk' => $d['name']];
         }
     }

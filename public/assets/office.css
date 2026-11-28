@@ -513,6 +513,27 @@
 /* a number tile that filters or shows (core.js Office.stat, aria-pressed): on, it looks like .card.active; a button.stat
    without aria-pressed (it opens a dialog) keeps the hover only */
 & button.stat[aria-pressed=true]{border-color:var(--accent); background:var(--accent-soft)}
+/* light tiles (core.js Office.light, 1.96 — the Night Watchman's areas): one line, a traffic light and a name; a row of
+   them (.lights) narrower than number tiles. The light is never colour alone: a shape per level — danger a square,
+   warn a triangle, note a dot with «!», ok a dot, none an empty ring, not known yet «–» (the aria-label says it) */
+.lights{display:grid; gap:8px; grid-template-columns:repeat(auto-fill, minmax(min(100%, 150px), 1fr))}
+.light-tile{display:flex; align-items:center; gap:8px; min-width:0; padding:7px 10px; background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--radius); box-shadow:var(--shadow); font-size:13px; line-height:1.25; color:var(--ink)}
+& button.light-tile{font:inherit; font-size:13px; line-height:1.25; text-align:left; cursor:pointer; color:var(--ink)}
+& button.light-tile:hover{border-color:var(--line2)}
+& button.light-tile[aria-pressed=true]{border-color:var(--accent); background:var(--accent-soft)}
+.light-name{min-width:0; overflow-wrap:anywhere; hyphens:auto}
+.light-dot{flex:none; box-sizing:border-box; width:12px; height:12px; display:inline-flex; align-items:center; justify-content:center;
+  font-size:10px; font-weight:800; line-height:1; color:var(--on-fill)}
+.light-danger .light-dot{background:var(--danger); border-radius:2px}
+.light-warn .light-dot{background:var(--warn); clip-path:polygon(50% 0, 100% 100%, 0 100%)}
+.light-note .light-dot, .light-ok .light-dot{background:var(--good); border-radius:50%}
+.light-none .light-dot{border:2px solid var(--muted); border-radius:50%}
+.light-unknown .light-dot{color:var(--muted)}
+.light-none .light-name{color:var(--ink2)}
+.light-tile > .tile-mark{top:-8px; right:8px}         /* a badge on the top edge: the name keeps its line */
+/* the row's filter (Office.sections({filter})): close above its row */
+.sections > .sections-filter{margin-bottom:-12px}
 .card-icon{font-size:17px; line-height:1}
 .card-count{margin-left:auto; font-size:13px; font-weight:650; color:var(--muted); font-variant-numeric:tabular-nums}
 .card.active .card-count{color:var(--accent-ink)}
@@ -521,7 +542,7 @@
 
 /* the active tile (tiles v2, core.js Office.sections / tileMark: .tile-on beside aria-pressed=true) — a ring, a glow and
    a mark top right, built alike in both themes from the accent; no animation. :focus-visible keeps its outline outside */
-.tile-on, & button.card[aria-pressed=true], & button.stat[aria-pressed=true]{
+.tile-on, & button.card[aria-pressed=true], & button.stat[aria-pressed=true], & button.light-tile[aria-pressed=true]{
   position:relative;
   border-color:var(--accent);
   background:var(--accent-soft);

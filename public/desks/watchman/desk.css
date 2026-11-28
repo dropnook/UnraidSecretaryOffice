@@ -2,6 +2,7 @@
 #sso{   /* nested in the office's element, like office.css */
 /* the watch book: an entry, its «I know, thanks» on the right (under it on a phone) */
 .row.wm-entry{grid-template-columns:minmax(0,1fr) auto}
+.row.wm-entry > .wm-entry-acts{max-width:40vw}      /* the answers wrap before they take the row's middle (1.96: an exception beside them) */
 .wm-entry:not(.wm-open) .row-name{color:var(--ink2); font-weight:500}
 .row.wm-watch{background:var(--surface2)}
 .wm-detail .kv{margin-top:2px}
@@ -54,6 +55,77 @@
 .wm-hold > .callout{margin-bottom:6px}
 .wm-hold .row-name, .wm-hold-file{overflow-wrap:anywhere; min-width:0}
 .wm-hold-file{font-family:var(--mono); font-size:12px}
+/* an area's section (1.96): the light in words in its head, its advice under its entries */
+.wm-cat-state{font-size:12px; color:var(--ink2); overflow-wrap:anywhere}
+.wm-cat-state.wm-cat-danger{color:var(--danger)}
+.wm-cat-state.wm-cat-warn{color:var(--warn)}
+.wm-cat-tips > .box{margin-top:2px}
+.wm-cat-tips > p.role{margin:6px 2px 0}
+/* his setup (1.96): a setting's row (its words, the field), the buttons under a list left-aligned, the hand dialog's rows */
+.row.wm-setting{grid-template-columns:minmax(0,1fr) auto; align-items:center}
+.wm-setting-num{width:8em}
+.wm-settings > .wm-entry-acts{justify-content:flex-start; padding:8px 12px}
+.wm-setup-acts{display:flex; gap:8px; flex-wrap:wrap}
+/* re-learn (step 17): at the end of an area's setup, «everything» above the tiles; its question's checkboxes wrap */
+.wm-relearn{margin-top:14px}
+.wm-relearn .callout{display:flex; flex-direction:column; gap:6px; align-items:flex-start; margin-bottom:8px}
+.wm-relearn .callout p{margin:0}
+.wm-relearn-all{justify-content:flex-end; margin-bottom:8px}
+.wm-relearn-check{white-space:normal; align-items:flex-start; margin:6px 0}
+/* 1.96 «einfacher»: a quiet tile on the whole page — one line, a click shows it alone; the jumps to setup and book */
+/* «Undo» after an answer (1.96 «einfacher»): a line at the bottom, in #sso */
+.wm-undo{position:fixed; left:50%; bottom:20px; transform:translateX(-50%); z-index:60; display:flex; align-items:center; gap:12px;
+  max-width:calc(100vw - 32px); box-sizing:border-box; padding:10px 14px; background:var(--surface); color:var(--ink);
+  border:1px solid var(--line); border-radius:var(--radius, 6px); box-shadow:0 4px 16px rgba(0,0,0,.25)}
+.wm-undo span{min-width:0; overflow-wrap:anywhere}
+.wm-offer-pick{white-space:normal; align-items:flex-start; margin:4px 0}
+.dialog.wm-ask-dialog .btn{white-space:normal; max-width:100%; text-align:left}      /* the confirm names what follows: it wraps */
+.wm-rule-why{margin-top:10px}
+.wm-more-tags{margin:0 0 8px}
+.wm-quiet{margin:0 0 6px; padding:0}
+.wm-quiet-row{display:flex; align-items:center; gap:8px; width:100%; box-sizing:border-box; padding:9px 12px; text-align:left; cursor:pointer;
+  background:var(--surface); color:var(--ink); border:1px solid var(--line); border-radius:var(--radius, 6px); font:inherit}
+.wm-quiet-row:hover, .wm-quiet-row:focus-visible{border-color:var(--accent)}
+.wm-quiet-row b{font-weight:600; white-space:nowrap}
+.wm-quiet-words{color:var(--muted); min-width:0; overflow-wrap:anywhere}
+.wm-vuln-nvd-note{margin:2px 0 8px; font-size:.85em; color:var(--ink2)}
+/* «What he checked»: its short lists (one router, one container) as tall as their rows — never the box's 80 px */
+.wm-vuln-look .box{min-height:0}
+/* the projects' own advisories (2026-11-26): the link to one under its row, an id never wider than a phone */
+.wm-vuln-link{font-size:.85em; overflow-wrap:anywhere}
+/* «By disk»: a disk unfolds its wakes right beneath its row */
+.wm-wake-disk-fold{padding:0 0 6px 18px; border-bottom:1px solid var(--line)}
+.wm-wake-disk-more{margin:6px 12px}
+/* «What he checks here»: a fold per area, closed at first */
+.wm-scope{margin:12px 0 0; border:1px solid var(--line); border-radius:8px; background:var(--surface)}
+.wm-scope > summary{cursor:pointer; padding:9px 12px; display:flex; flex-wrap:wrap; gap:2px 10px; align-items:baseline}
+.wm-scope-sub{color:var(--ink2); font-size:.92em}
+.wm-scope-body{padding:0 14px 10px}
+.wm-scope-head{margin:10px 0 4px; font-size:1em}
+.wm-scope-list{margin:0; padding-left:20px}
+.wm-scope-list > li{margin:2px 0; overflow-wrap:anywhere}
+.wm-scope-ex > li{font-style:italic}
+.wm-help-areas{margin:0 0 6px; padding-left:18px}
+.wm-help-areas > li{margin:2px 0; overflow-wrap:anywhere}
+.page-help-list > dd:has(> .wm-help-areas){min-width:0}      /* the areas' folds never widen the help's grid (375 px) */
+.wm-scope{min-width:0}
+.wm-scope > summary > *{min-width:0}
+.wm-jumps{display:flex; flex-wrap:wrap; gap:6px 16px; align-items:center; margin:10px 2px 0}
+.wm-jump{font-size:12.5px}
+.wm-cat-tips > .btn, .wm-jumps .btn{white-space:normal; text-align:left; max-width:100%}
+.wm-subhead{display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-top:14px}
+.wm-alerts{margin-bottom:10px}
+.wm-setup-top{display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px}
+/* «Known vulnerabilities» switched off: what he would check, the switch right in the callout */
+.wm-vuln-off{display:flex; flex-direction:column; gap:6px; align-items:flex-start}
+.wm-vuln-off p{margin:0}
+.wm-hand-row{display:flex; flex-direction:column; gap:4px; margin:0 0 10px}
+.wm-hand-note{margin:0 0 10px; white-space:normal; overflow-wrap:anywhere}      /* what a wide exception means: wraps, never scrolls sideways */
+.wm-known-head{align-self:flex-start}
+/* (2026-11-26, round 2) a fold's head may be long («Known serious vulnerabilities from the projects' advisories (11)»):
+   it wraps on a phone instead of widening the page */
+.wm-known-head{white-space:normal; text-align:left; max-width:100%; overflow-wrap:anywhere}
+.wm-setup-to{padding-left:0}
 /* who woke my disks: the list's sub heads (by disk, every wake), the disk chosen, a wake's causes, files and facts */
 .wm-wakes{display:flex; flex-direction:column; gap:8px}
 .wm-wake-note{margin:0 2px}
@@ -84,5 +156,8 @@
   .row.wm-item{padding-left:14px}
   .row.wm-member{padding-left:20px}
   .wm-flow-note{padding-left:14px}
+  .row.wm-setting{grid-template-columns:minmax(0,1fr)}     /* a setting's field under its words */
+  .row.wm-setting > select{justify-self:stretch}
+  .row.wm-setting > input[type=checkbox]{justify-self:start}
 }
 }

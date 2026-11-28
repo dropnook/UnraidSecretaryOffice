@@ -221,4 +221,58 @@ same('src line: one read-only container — the line, the detail row', [none({ g
 same('src line: an entry of an older office (no sources) says nothing', W.srcFrom({ share: 'maple/Media' }), '');
 dict = null;
 
+// 1.96 «einfacher»: 12 tiles over the areas — «Only what waits for you» is red and yellow, nothing else; an entry's tile
+same('tiles: «only what waits for you» — red and yellow only', ['danger', 'warn', 'note', 'ok', 'none', ''].map((l) => W.tileWaits(l)), [true, true, false, false, false, false]);
+W.setState({ tiles: { login: { level: 'warn', why: ['open'], parts: ['login', 'partner'] } } });
+same('tiles: a tile\'s light from the messenger; none known — no light', [W.tileLevel('login'), W.tileLevel('net')], ['warn', '']);
+same('tiles: an entry\'s tile — the messenger\'s, else by kind (go on «Plugins and scripts»), else by area (an older state)',
+  [W.entryTile({ tile: 'access', kind: 'flash_ssh_key' }), W.entryTile({ kind: 'flash_go', cat: 'flash' }), W.entryTile({ kind: 'net_dns', cat: 'lan' }), W.entryTile({ kind: 'watch' })],
+  ['access', 'plugins', 'net', null]);
+same('tiles: every area on one tile, the old places on theirs', [Object.values(W.TILE_PARTS).flat().length, new Set(Object.values(W.TILE_PARTS).flat()).size, W.TILE_ROUTE.pull, W.TILE_ROUTE.hold, W.TILE_ROUTE.posture],
+  [19, 19, 'data', 'array', '']);
+
+// «What holds the array?»: what still waits for you, in words — a User Script that may run and a VM you know never count
+const holdLookOf = (more = {}) => ({ started: true, time: 1, count: 3, times: { fits: true, disk: 90, need: 60 },
+  holds: [{ kind: 'userscript', name: 'sync' }], vms: [{ name: 'Win11', agent: 'none' }, { name: 'Lab', agent: 'disconnected' }, { name: 'HA', agent: 'connected' }], ...more });
+const rule = (k, v) => ({ cat: 'hold', on: { [k]: v } });
+W.setState({ rules: [rule('script', 'sync'), rule('vm', 'Win11'), rule('vm', 'Lab')] });
+same('hold: all three known (a User Script, two VMs without agent) — nothing waits, three known', W.holdWaiting(holdLookOf()), { names: [], known: 3, more: 0 });
+W.setState({ rules: [rule('script', 'sync')] });
+same('hold: two VMs not known — named, as the tile\'s tip says them', W.holdWaiting(holdLookOf()).names.length, 2);
+same('hold: things beyond the look\'s list count as more', W.holdWaiting(holdLookOf({ count: 6 })).more, 3);
+same('hold: the array stopped — nothing waits', W.holdWaiting(holdLookOf({ started: false })).names, []);
+dict = JSON.parse(fs.readFileSync(path.join(path.dirname(file), 'lang/en.json'), 'utf8'));
+Office.light = (o) => o;
+Office.fmt.relative = () => 'just now';
+W.setState({ rules: [rule('script', 'sync'), rule('vm', 'Win11')], hold: { look: holdLookOf() } });
+same('hold tile: one VM waits — yellow, its tip says why; what you know said beside it',
+  W.holdTile({}).tip.split('\n'), ['What holds the array?: 1 thing', '2 you know · looked just now', '1 thing would hold the array: VM Lab without the guest agent']);
+W.setState({ rules: [rule('script', 'sync'), rule('vm', 'Win11'), rule('vm', 'Lab')], hold: { look: holdLookOf() } });
+same('hold tile: everything known — green, «nothing»', [W.holdTile({}).level, W.holdTile({}).tip.split('\n')[0]], ['ok', 'What holds the array?: nothing']);
+dict = null;
+
+// the hand-made exception's note (1.96, Benj: no second yes — the note says what it means, as he types); the address
+// rule is the agent's watchmanIpPrivate(): 10/8, 172.16/12, 192.168/16, 100.64/10, fc00::/7, fe80::/10
+const note = (id, t, v) => W.handNote(id, t, v);
+same('hand note: a LAN address or net — nothing to say', [note('login', 'ip', '192.168.1.7'), note('login', 'net', '10.0.0.0/8'), note('login', 'net', '172.20.0.0/16'),
+  note('login', 'ip', '100.100.1.1'), note('login', 'net', 'fd00:1:2:3::/64'), note('login', 'ip', 'fe80::1')], [null, null, null, null, null, null]);
+same('hand note: an address on the internet — it says so; a net wider than /24 (/48) — it says to narrow it',
+  [note('login', 'ip', '203.0.113.9'), note('login', 'net', '203.0.113.0/24'), note('login', 'net', '203.0.0.0/16'), note('login', 'net', '2001:db8::/32'),
+    note('login', 'user_net', '172.32.0.0/24'), note('router', 'admin', '8.8.8.8')],
+  ['setup.add_public', 'setup.add_public', 'setup.add_net_wide', 'setup.add_net_wide', 'setup.add_public', 'setup.add_public_router']);
+same('hand note: half typed or not an address — nothing yet', [note('login', 'ip', '203.0.'), note('login', 'ip', '')], [null, null]);
+same('hand note: wide by what it is — a whole source, the data flow, snapshots, guests writing, a whole sender, a product, a CVE',
+  [note('plugin', 'source', 'github.com'), note('plugin', 'source', 'github.com/alice'), note('data', 'gone', 'Downloads'), note('snap', 'series', 'x'),
+    note('share', 'guest_write', 'Media'), note('share', 'guest_read', 'Media'), note('router', 'sender', '192.168.1.1'), note('vuln', 'product', 'php'), note('vuln', 'cve', 'CVE-2024-1')],
+  ['setup.add_wide.plugin', null, 'setup.add_wide.data', 'setup.add_wide.snap', 'setup.add_wide.share', null, 'setup.add_wide.router', 'setup.add_wide.vuln', 'setup.add_wide.cve']);
+
+same('hand note: a container privileged, on the server\'s network or processes, new by its name — their own notes; an SMB machine, a flooded port — none',
+  [note('container', 'privileged', 'plex'), note('container', 'host', 'plex'), note('container', 'new', 'plex'), note('login', 'machine', 'LAPTOP'), note('host', 'flood', '443')],
+  ['setup.add_wide.privileged', 'setup.add_wide.host', 'setup.add_wide.new', null, null]);
+// the names he knows (state.hand_names): a list as it came, a wake's cause by the kind chosen (with its containers or VMs)
+W.setState({ hand_names: { container: ['plex', 'sonarr'], vm: ['Win11'], cause: ['container:fotosync', 'program:rsync', 'vm:Lab'], share: 'not a list' } });
+same('hand names: a list, a cause of a kind (a container\'s: its causes and the containers), none, a broken list — nothing',
+  [W.handNames('container'), W.handNames('cause', 'container'), W.handNames('cause', 'program'), W.handNames('cause', 'vm'), W.handNames('cause', 'smb'), W.handNames('share'), W.handNames('tunnel')],
+  [['plex', 'sonarr'], ['fotosync', 'plex', 'sonarr'], ['rsync'], ['Lab', 'Win11'], [], [], []]);
+
 console.log(JSON.stringify(out));

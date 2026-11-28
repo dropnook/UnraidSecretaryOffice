@@ -1,11 +1,13 @@
 /*
  * The Night Watchman's «Who woke my disks?» (public/desks/watchman/desk.js with core.js, under node, on a small stand-in
- * DOM; the agent stubbed with the click test's state tests/ui/states/watchman.json): his number tile and its section —
+ * DOM; the agent stubbed with the click test's state tests/ui/states/watchman.json): his tile (a light since 1.96, its
+ * words in its mouse-over text) and its section —
  * on a server without a spinning disk (all flash) the tile says so and the section is that one line (no switch, no
  * filter bar, no empty list); before his first look «not watching yet»; a spinning disk without a wake: «none», the
  * switch and the bar; a wake kept from before still counts; an older messenger's state (no `hdds`) reads as always; the
  * stub's wakes: the count in 7 days and today's, a disk's row filters the list and the note line says so. (Ms.
- * Protocolli's up to 1.95 — tests/logsfilters.js held these rules then.)
+ * Protocolli's up to 1.95 — tests/logsfilters.js held these rules then.) And since 1.96 his exceptions on the page: the
+ * offer on an open login, its dialog, the area's list.
  *
  *   node tests/watchwakes.js public/assets/core.js public/desks/watchman/desk.js [tests/ui/states]   → one JSON line {pass, fail: [[name, got, want], …]}
  *
@@ -197,8 +199,10 @@ const base = JSON.parse(fs.readFileSync(path.join(states, 'watchman.json'), 'utf
 let state = null;
 O.loadState = async (id, o, took) => { took({ ok: true, state }); };
 O.freshState = async () => true;
-O.api = { get: async () => ({ ok: true }), post: async () => ({ ok: false, error: { key: 'agent_away' } }) };
-O.dialog = () => ({ buttons: [], close() {} });
+const posts = [];
+O.api = { get: async () => ({ ok: true }), post: async (a, d) => { posts.push([a, d]); return { ok: false, error: { key: 'agent_away' } }; } };
+const dialogs = [];
+O.dialog = (d) => { dialogs.push(d); return { buttons: [], close() {} }; };
 O.menu = () => {};
 O.toast = () => {};
 (0, eval)(fs.readFileSync(deskFile, 'utf8'));
@@ -214,6 +218,16 @@ function sectionOf(root, place) {
 }
 const barIn = (s) => (s ? s.querySelector('.filterbar') : null);
 
+/**
+ * His tile is a light since 1.96 (core.js Office.light): what the number tile said is its mouse-over text — «Who woke my
+ * disks?: 17 wakes», then its lines. Read back as the number tile's value ('–' when the head has none) and lines.
+ */
+function tileWords(tile) {
+  const label = T('wakes.title');
+  const [head, ...lines] = String(tile.dataset.tip || '').split('\n');
+  return [head.startsWith(label + ': ') ? head.slice(label.length + 2) : '–', ...lines];
+}
+
 /** His page with this `wakes` in his state (undefined: none — before his first look), at this sub-route */
 async function visit(wakes, sub, then) {
   state = JSON.parse(JSON.stringify(base));
@@ -227,7 +241,7 @@ async function visit(wakes, sub, then) {
   const tile = r.all().find((n) => n.dataset && n.dataset.tile === 'wakes') || null;
   const sec = sectionOf(r, 'wakes.title');
   const res = {
-    tile: tile ? [tx(tile.querySelector('.stat-value')), ...tile.querySelectorAll('.stat-sub').map(tx)] : null,
+    tile: tile ? tileWords(tile) : null,
     section: sec ? sec.querySelectorAll('p').map(tx) : null,
     bar: !!barIn(sec),
     switch: !!(sec && sec.querySelector('.switch')),
@@ -265,14 +279,291 @@ async function run() {
   const full = await visit(base.wakes, 'wakes');
   same('the stub: his tile counts the wakes in 7 days', full.tile[0], T('tile.wakes_n', { n: all.length }));
   same('the stub: every wake a row, the switch there', [full.rows, full.switch], [all.length, true]);
+  // a disk's row unfolds its wakes right beneath it (2026-11-23, like Mr. Backupsy's rows); a second click folds them; the
+  // long list «Every wake» stays whole (no disk filter); «unfold all» unfolds every disk
   const disk = 'disk2';
-  const only = await visit(base.wakes, 'wakes', async (r) => {
+  const mine = all.filter((w) => w.disks.includes(disk));
+  let folds = [];
+  const once = await visit(base.wakes, 'wakes', async (r) => {
     const row = sectionOf(r, 'wakes.title').querySelectorAll('.wm-wake-disk').find((x) => tx(x.querySelector('.row-name')) === disk);
     row.click();
     await tick();
+    const f = row.parentNode.querySelector('.wm-wake-disk-fold');
+    folds.push(f ? f.querySelectorAll('.wm-wake').length : -1, row.getAttribute('aria-expanded'));
+    row.click();
+    await tick();
+    folds.push(row.parentNode.querySelector('.wm-wake-disk-fold') ? 'still' : 'folded');
   });
-  same('a disk\'s row: only its wakes, the note line names it', [only.rows, only.note.includes(disk)], [all.filter((w) => w.disks.includes(disk)).length, true]);
+  same('a disk\'s row: its wakes beneath it (at most 10, newest first), a second click folds them; the long list whole, no filter note',
+    [folds, once.rows, once.note], [[Math.min(mine.length, 10), 'true', 'folded'], all.length, '']);
+  let unfolded = -1;
+  await visit(base.wakes, 'wakes', async (r) => {
+    const sec = sectionOf(r, 'wakes.title');
+    const btn = sec.querySelectorAll('button').find((b) => tx(b) === T('unfold_all'));
+    if (btn) btn.click();
+    await tick();
+    unfolded = sec.querySelectorAll('.wm-wake-disk-fold').length;
+  });
+  same('«unfold all» unfolds every disk of «By disk»', unfolded, new Set(all.flatMap((w) => w.disks)).size);
 }
 
-run().then(() => { console.log(JSON.stringify(out)); process.exit(0); },
+// ------------------------------------------------------------------ exceptions on his page (1.96 step 4)
+async function rules() {
+  state = JSON.parse(JSON.stringify(base));
+  const r = new FakeNode('div');
+  desk.replaceChildren(r);
+  await wm.mount(r, 'login');
+  await tick();
+  await tick();
+  const sec = sectionOf(r, 'help.lights') || r;
+  const offer = r.all().find((n) => n.classList && n.classList.contains('wm-offer'));
+  const first = state.book.find((e) => e.open && e.cat === 'login');
+  // 1.96 «einfacher»: one button «Something like this is always all right …», its choice in whole sentences (the narrowest first)
+  same('exceptions: an open login has one button «… always all right …», no «more ▾»',
+    [offer && tx(offer), !!(offer && offer.parentNode.children.some((n) => tx(n) === T('rule.more')))], [T('rule.always'), false]);
+  offer.click();
+  await tick();
+  const d = dialogs[dialogs.length - 1];
+  const picks = d ? d.body.querySelectorAll('.wm-offer-pick').map(tx) : [];
+  same('exceptions: the choice — every offer a sentence, the narrowest first; what it covers, what a net never does, where it is lifted; the confirm names it; nothing sent yet',
+    [d && d.title, picks[0], picks.length, d && d.body.querySelectorAll('p').map(tx).filter((x) => x === T('rule.ask_where')).length,
+      d && d.buttons[0].text, posts.filter((p) => p[0] === 'watchman.rule_add').length],
+    [T('rule.always'), T('rule.offer.user_net', { user: first.offers[0].on.user, net: first.offers[0].on.net }), first.offers.length, 1,
+      T('rule.confirm', { what: T('rule.offer.user_net', { user: first.offers[0].on.user, net: first.offers[0].on.net }) }), 0]);
+  // 1.96 «einfacher»: each thing in one place — the watch page only jumps there; the lists stand in his setup
+  const jump = r.all().find((n) => n.classList && n.classList.contains('wm-jump') && n.tagName === 'A');
+  same('the tile jumps to its setup (what is always in order, what you had him remember) — no lists on the watch page',
+    [!!jump && String(jump.href || jump.getAttribute('href')).endsWith('/setup/login'), !!r.all().find((n) => n.classList && n.classList.contains('wm-rules'))], [true, false]);
+  wm.unmount();
+  desk.replaceChildren(r);
+  await wm.mount(r, 'setup/login');
+  await tick();
+  await tick();
+  const list = r.all().find((n) => n.classList && n.classList.contains('wm-rules'));
+  same('exceptions: the area lists its exceptions — what, since when, how often, «Lift»',
+    [list && tx(list.querySelector('.row-name')), !!(list && list.querySelectorAll('button').some((b) => tx(b) === T('rule.lift')))],
+    [T('rule.offer.net', { net: '192.168.178.0/24' }), true]);
+  // 4b: your lasting answers in the area, folded; unfolded each with «Take back»
+  const head = r.all().find((n) => n.classList && n.classList.contains('wm-known-head'));
+  same('answers: «Noted (n)» in the area, folded', [head && tx(head).includes(T('known.list', { n: 1 })), head && head.getAttribute('aria-expanded')], [true, 'false']);
+  head.click();
+  await tick();
+  const known = r.all().find((n) => n.classList && n.classList.contains('wm-known'));
+  same('answers: unfolded — the address, known since, «Take back»', [!!(known && known.querySelectorAll('.row-name').length === 1),
+    !!(known && known.querySelectorAll('button').some((b) => tx(b) === T('known.take_back')))], [true, true]);
+  void sec;
+  wm.unmount();
+}
+
+// ------------------------------------------------------------------ «Add something that is always all right…» (1.96)
+/*
+ * The dialog by hand: the newer container types listed; the names he knows suggested (a datalist, the placeholder its
+ * first name); a wide one's note; a typo in a full list gets its calm line; SMB or NFS a choice, sent as the agent takes it.
+ */
+async function handDialog() {
+  state = JSON.parse(JSON.stringify(base));
+  const open = async (sub) => {
+    const r = new FakeNode('div');
+    desk.replaceChildren(r);
+    await wm.mount(r, `setup/${sub}`);
+    await tick();
+    await tick();
+    const btn = r.all().find((n) => n.tagName === 'BUTTON' && tx(n) === T('setup.add'));
+    if (btn) btn.click();
+    return dialogs[dialogs.length - 1];
+  };
+  const pick = (sel, v) => { sel.value = v; sel.dispatch('change'); };
+  let d = await open('container');
+  const [type] = d.body.querySelectorAll('select');
+  const [value] = d.body.querySelectorAll('input');
+  pick(type, 'container|new');
+  const names = d.body.querySelectorAll('datalist').find((x) => x.id === value.getAttribute('list'));
+  const shown = (c) => d.body.querySelectorAll(c).filter((x) => !x.hidden).map(tx);
+  same('hand dialog: the container types; «a new container of this name» — its names suggested, the first as the example, its note',
+    [['container|privileged', 'container|host', 'container|new'].every((x) => type.options.some((o) => o.val === x)), value.placeholder, names && names.children.length,
+      shown('p.callout.wm-hand-note')],
+    [true, 'EmbyServer', 9, [T('setup.add_wide.new')]]);
+  value.value = 'Grafanna';
+  value.dispatch('input');
+  const notYet = shown('p.role.wm-hand-note');       // «may appear»: it isn't there yet — no line
+  pick(type, 'container|privileged');
+  value.value = 'Grafanna';
+  value.dispatch('input');
+  const typo = shown('p.role.wm-hand-note');
+  value.value = 'graf';
+  value.dispatch('input');
+  const typing = shown('p.role.wm-hand-note');      // still the start of a name he knows — no line
+  value.value = 'grafana';
+  value.dispatch('input');
+  const cased = shown('p.role.wm-hand-note');       // another case is another name: the line
+  value.value = 'Grafana';
+  value.dispatch('input');
+  same('hand dialog: a name he doesn\'t know — a calm line (not for «may appear», not while still typing a known one); one he knows — none',
+    [notYet, typo, typing, cased, shown('p.role.wm-hand-note')], [[], [T('setup.add_unknown')], [], [T('setup.add_unknown')], []]);
+  wm.unmount();
+  d = await open('access');
+  const [t2, proto] = d.body.querySelectorAll('select');
+  pick(t2, 'share|guest_write');
+  pick(proto, 'nfs');
+  const [v2] = d.body.querySelectorAll('input');
+  v2.value = 'media';
+  const n = posts.length;
+  d.buttons[0].act();
+  await tick();
+  const sent = posts.slice(n).find((x) => x[0] === 'watchman.rule_hand');
+  same('hand dialog: guests writing — SMB or NFS a choice, its value sent as the second field', [proto.options.map((o) => [o.val, o.text]), sent && sent[1]],
+    [[['smb', 'SMB'], ['nfs', 'NFS']], { cat: 'share', type: 'guest_write', value: 'media', user: 'nfs' }]);
+  wm.unmount();
+}
+
+// ------------------------------------------------------------------ «Known vulnerabilities»: what he looked at, one filter over all
+/*
+ * 2026-11-23 (nostromo: «php2shell» → «0 of 39»): the area says how many of the list's entries concern programs here, by
+ * product; its filter searches every list — what waits, «checked: doesn't concern you», «can't be checked for sure» —
+ * by CVE, product, name, where; a list holding hits stands open while the words are typed.
+ */
+async function vulnPage() {
+  state = JSON.parse(JSON.stringify(base));
+  const r = new FakeNode('div');
+  desk.replaceChildren(r);
+  await wm.mount(r, 'vuln');
+  await tick();
+  await tick();
+  const sec = sectionOf(r, 'area.vuln');
+  const counted = sec && sec.querySelector('.wm-vuln-counted');
+  same('vulnerabilities: how many of the list concern programs here, by product',
+    counted && tx(counted), T('vuln.counted', { n: 47, total: O.fmt.number(1484), list: 'Linux kernel 39 · PHP 5 · Bash 3' }));
+  // a source away for days (2026-11-23): a calm line in the area and in the help's «Known vulnerabilities», never a colour
+  const downs = r.all().filter((n) => n.classList && n.classList.contains('wm-vuln-down')).map(tx);
+  same('vulnerabilities: the NVD away for 3 days — one calm line in the area, the same in the help; the area stays green',
+    [downs.length, downs[0], downs[0] === downs[1], tileWords(r.all().find((n) => n.dataset && n.dataset.tile === 'vuln'))[0] !== undefined],
+    // (the fixture's vuln.unsure holds four rows — the kernel, Bash, the old PHP and DSM's build; the projects' advisories'
+    // unsure row is no NVD matter and isn't counted here)
+    [2, [T('vuln.down', { source: T('vuln.source.nvd'), n: 3, when: O.fmt.date(state.vuln.down[0].next) }), T('vuln.down_nvd', { n: 4 })].join(' '), true, true]);
+  // his limits (2026-11-25): one calm paragraph, always there while the area is on
+  same('vulnerabilities: the paragraph of his limits stands in the area', tx(sec.querySelector('.wm-vuln-limits')), T('vuln.limits'));
+  // «What he checked» (2026-11-25): folded; opened — this server, the containers (the fixture's ct_read 4 of ct_total 7:
+  // webapp, notes-db, nas, media; the others by reason), the
+  // routers by their log (no longer above the lists), and what he never looks at, the 2 VMs counted
+  same('vulnerabilities: no router line above the lists any more (they stand under «What he checked»)', sec.querySelectorAll('.wm-vuln-router').length, 0);
+  const lookHead = () => sectionOf(r, 'area.vuln').querySelectorAll('.wm-known-head').find((b) => tx(b).includes(T('vuln.look_title')));
+  same('vulnerabilities: «What he checked» folded, its head with the containers read', tx(lookHead()),
+    `▸ ${T('vuln.look_title')} · ${T('vuln.look_ct', { n: 7, read: 4 })}`);
+  lookHead().click();
+  await tick();
+  const look = sectionOf(r, 'area.vuln').querySelector('.wm-vuln-look');
+  const lookRows = look ? look.querySelectorAll('.row-name').map(tx) : [];
+  const lookText = look ? look.querySelectorAll('p').map(tx).concat(look.querySelectorAll('li').map(tx)) : [];
+  same('vulnerabilities: «What he checked» opened — the rows of this server, the containers, the routers by their log',
+    lookRows, ['Unraid 7.4.1', 'Linux kernel 6.12.54-Unraid', 'PHP 8.4.14', 'OpenSSH 10.0p2', 'Bash 4.3.011',
+      T('vuln.look_ct_row', { where: 'webapp', product: 'PHP', version: '7.2.20' }), T('vuln.look_ct_row', { where: 'webapp', product: 'nginx', version: '1.27.1' }),
+      T('vuln.look_ct_row', { where: 'notes-db', product: 'PostgreSQL', version: '17.12' }),
+      // 2026-11-26: DSM's value is a build; a linuxserver label shown as judged («12.4», not «12.4ubu2604-ls61»)
+      T('vuln.look_ct_row', { where: 'nas', product: 'Synology DSM', version: T('vuln.build', { build: '72806' }) }),
+      T('vuln.look_ct_row', { where: 'media', product: 'Jellyfin', version: '12.4' }),
+      T('vuln.router_seen', { product: 'MikroTik RouterOS', version: '7.24.5', date: O.fmt.date(state.vuln.routers[0].at) }), T('vuln.router_unknown', { product: 'MikroTik RouterOS' })]);
+  same('vulnerabilities: the containers he couldn\'t check by reason, that he never looks inside, the VMs counted, what he never looks at',
+    [T('vuln.look_unread_none', { n: 2, names: 'homevideos, photos' }), T('vuln.look_unread_unasked', { n: 1, names: 'wiki' }), T('vuln.look_inside'),
+      T('vuln.look_not_vm_n', { n: 2 }), T('vuln.look_not_net'), T('vuln.look_plugins')].map((x) => lookText.includes(x)), [true, true, true, true, true, true]);
+  lookHead().click();
+  await tick();
+  const typed = async (words) => {
+    const input = barIn(sectionOf(r, 'area.vuln')).querySelector('.filter-words');
+    input.value = words;
+    input.dispatch('input');
+    await tick();
+    const s2 = sectionOf(r, 'area.vuln');
+    return [s2.querySelectorAll('.wm-vuln-not').map((x) => tx(x.querySelector('.row-name'))).length,
+      tx(barIn(s2).querySelector('.filter-note') || new FakeNode('span'))];
+  };
+  const bash = await typed('bash');
+  const metas = sectionOf(r, 'area.vuln').querySelectorAll('.row-meta').map(tx);
+  const ssh = await typed('regreSSHion');
+  const cve = await typed('CVE-2016-5195');
+  const none = await typed('php2shell');
+  same('vulnerabilities: the filter searches the calm lists (product, name, CVE) and «What he checked» — Bash there and on this server; nothing found says so',
+    [bash[0], ssh[0], cve[0], none[0]], [2, 1, 1, 0]);
+  same('vulnerabilities: an unsure line says why — the list names the version only roughly', metas.some((m) => m.includes(T('vuln.unsure_why_rough', { bound: '4.3' }))), true);
+  const old = await typed('CVE-2010-3904');
+  same('vulnerabilities: the filter finds a line «long fixed» too (its own fold, open while it holds hits)', old[0], 1);
+  // the fixture: not 3 + unsure 4 + the projects' advisories 4 (Jellyfin's 2 affected and 1 unsure, PHP's one advisory in
+  // three containers: one row) = 11 in the lists; host 5 + containers 5 + unread 3 + routers 2 = 15 he checked
+  same('vulnerabilities: the filter\'s count is over all the lines (26 here: 11 in the lists, 15 he checked)', /\b26\b/.test(none[1]), true);
+  // the projects' own advisories (2026-11-26): their fold critical first, each row its severity, summary and the advisory's
+  // link built from its id; the unsure one under «Can't be checked for sure» with the advisory's own words
+  const gh = await typed('Jellyfin');
+  const ghSec = sectionOf(r, 'area.vuln');
+  const ghHead = ghSec.querySelectorAll('.wm-known-head').map(tx).find((x) => x.includes(T('vuln.ghsa_title', { n: 2 })));
+  const ghRows = ghSec.querySelectorAll('.wm-vuln-not').map((x) => tx(x.querySelector('.row-name')));
+  const links = ghSec.querySelectorAll('.wm-vuln-link').map((a) => a.href);
+  same('vulnerabilities: the projects\' advisories — their fold, critical first, the link to each; the unsure one with its words; «What he checked» finds the container',
+    [!!ghHead, ghRows.slice(0, 3), links, ghSec.querySelectorAll('.row-meta').map(tx).some((m) => m.includes(T('vuln.sev_critical')) && m.includes('Path traversal')),
+      ghSec.querySelectorAll('.row-meta').map(tx).some((m) => m.includes(T('vuln.unsure_why_ghsa', { range: '> main@4ffa26c9' }))), gh[0]],
+    [true, [T('vuln.ghsa_row', { id: 'GHSA-x4m2-9qrc-7hvp', product: 'Jellyfin', where: T('vuln.not_in', { where: 'media' }), have: '12.4', fixed: '12.5' }),
+      T('vuln.ghsa_row', { id: 'CVE-2026-90011', product: 'Jellyfin', where: T('vuln.not_in', { where: 'media' }), have: '12.4', fixed: '12.4.2' }),
+      T('vuln.unsure_row', { product: 'Jellyfin', cve: 'GHSA-r9vw-3mqx-hc5f', have: '12.4', where: T('vuln.not_in', { where: 'media' }) })],
+    ['https://github.com/advisories/GHSA-x4m2-9qrc-7hvp', 'https://github.com/advisories/GHSA-p7c3-w2jf-q8mx'], true, true, 4]);
+  const ghLine = ghSec.querySelectorAll('.wm-vuln-counted').map(tx);
+  same('vulnerabilities: what he read of the projects\' advisories, one calm line', ghLine.includes(T('vuln.ghsa_line', { list: 'Jellyfin 7' })), true);
+  await typed('nas');
+  same('vulnerabilities: DSM\'s unsure row says its build as a build', sectionOf(r, 'area.vuln').querySelectorAll('.wm-vuln-not').map((x) => tx(x.querySelector('.row-name')))
+    .includes(T('vuln.unsure_row', { product: 'Synology DSM', cve: 'CVE-2024-10441', have: T('vuln.build', { build: '72806' }), where: T('vuln.not_in', { where: 'nas' }) })), true);
+  const ct = await typed('webapp');
+  const ctMetas = sectionOf(r, 'area.vuln').querySelectorAll('.row-meta').map(tx);
+  same('vulnerabilities: a container\'s name finds its unsure line (its why: the line past its end) and its rows under «What he checked»',
+    [ct[0], ctMetas.some((m) => m.includes(T('vuln.unsure_why_eol', { line: '7.2' })))], [4, true]);     // (round 2: and PHP's advisory row)
+  // (round 2) one advisory of one program and version in three containers: one row naming them, counted once
+  const php = await typed('GHSA-qc49');
+  const phpSec = sectionOf(r, 'area.vuln');
+  same('vulnerabilities: the same advisory in three containers — one row naming them all',
+    [php[0], phpSec.querySelectorAll('.wm-vuln-not').map((x) => tx(x.querySelector('.row-name')))[0]],
+    [1, T('vuln.ghsa_row', { id: 'CVE-2026-129289', product: 'PHP', where: T('vuln.not_in_many', { where: 'webapp, wiki-php, shop-php' }), have: '8.5.12', fixed: '8.5.13' })]);
+  await typed('');
+  same('vulnerabilities: the fold\'s head counts advisories, not containers (Jellyfin 2, PHP 1)',
+    sectionOf(r, 'area.vuln').querySelectorAll('.wm-known-head').map(tx).some((x) => x.includes(T('vuln.ghsa_title', { n: 3 }))), true);
+  await typed('homevideos');
+  same('vulnerabilities: a container he couldn\'t check is found by its name too', (sectionOf(r, 'area.vuln').querySelector('.wm-vuln-look') || new FakeNode('div')).querySelectorAll('p').map(tx)
+    .includes(T('vuln.look_unread_none', { n: 1, names: 'homevideos' })), true);
+  wm.unmount();
+}
+
+// ------------------------------------------------------------------ a data folder as the 1.96 test stand left it (5th argument «stand»)
+/*
+ * tests/run.php testWatchmanStandRender hands in the page state the messenger made from a data folder with what the
+ * 1.96 test stand has (rules.json with exceptions, lasting answers, settings, an area off): the new page («einfacher»)
+ * draws every tile, the book, the schedule and every tile of his setup without an error; the exception and the answer
+ * stand in the setup of their tile; the area switched off says so there.
+ */
+async function stand() {
+  state = JSON.parse(JSON.stringify(base));
+  const errs = [];
+  const visitAll = async (subs) => {
+    for (const sub of subs) {
+      const r = new FakeNode('div');
+      desk.replaceChildren(r);
+      try { await wm.mount(r, sub); await tick(); await tick(); } catch (e) { errs.push(`${sub}: ${String(e && e.stack || e).slice(0, 300)}`); }
+      wm.unmount();
+    }
+  };
+  const TILES = ['login', 'access', 'container', 'plugins', 'server', 'data', 'snap', 'net', 'hw', 'vuln', 'array', 'wakes'];
+  await visitAll(['', ...TILES, 'book', 'schedule', 'incidents', 'posture', 'pull', 'hold', 'setup', 'setup/changed', ...TILES.map((t) => `setup/${t}`)]);
+  same('stand: every tile, the book, the schedule, the old places and every tile of his setup drawn without an error', errs, []);
+  const r = new FakeNode('div');
+  desk.replaceChildren(r);
+  await wm.mount(r, 'setup/login');
+  await tick();
+  await tick();
+  const rules = r.all().find((n) => n.classList && n.classList.contains('wm-rules'));
+  const known = r.all().find((n) => n.classList && n.classList.contains('wm-known-head'));
+  same('stand: its exception and its answer in the setup of «Logins»', [!!rules, !!known], [true, true]);
+  wm.unmount();
+  desk.replaceChildren(r);
+  await wm.mount(r, 'setup/snap');
+  await tick();
+  await tick();
+  same('stand: the area switched off says so in its tile\'s setup', r.all().some((n) => n.classList && n.classList.contains('callout') && /off|aus/i.test(tx(n))), true);
+  wm.unmount();
+}
+
+(process.argv[5] === 'stand' ? stand() : run().then(rules).then(handDialog).then(vulnPage)).then(() => { console.log(JSON.stringify(out)); process.exit(0); },
   (e) => { out.fail.push(['ran', String(e && e.stack || e).slice(0, 600), 'no error']); console.log(JSON.stringify(out)); process.exit(0); });

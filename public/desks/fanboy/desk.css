@@ -371,6 +371,13 @@
   .fb-zone-fan-name{display:flex; flex-direction:column}
   .fb-zone-fan-out{font-size:12px; font-weight:400; color:var(--muted)}
   .fb-row-out{color:var(--muted)}
+  /* 2026-11-27: a sensor row's labels and, under them, a line that says what it is (a drive's further sensor) */
+  .fb-row-says{display:flex; flex-direction:column; gap:2px; min-width:0}
+  .fb-row-note{margin:0; font-size:12.5px; line-height:1.4; color:var(--muted); max-width:80ch; overflow-wrap:anywhere}
+  /* a heat source the user set aside («Nicht beachten»): greyed, still read and shown; in a zone's chips likewise */
+  .fb-aside .row-name, .fb-aside .fb-value{color:var(--muted)}
+  .fb-aside .row-meta, .fb-aside .fb-value{opacity:.7}
+  .fb-src.fb-src-aside:not(.on){color:var(--muted); border-style:dashed}
   .fb-stand-no{font-size:12.5px; color:var(--ink2)}
   .fb-panel-acts > .fb-wait{margin:0; font-size:13.5px; color:var(--ink)}
   /* a clicked button carries the wave until the agent has answered (a click answers within a blink) */

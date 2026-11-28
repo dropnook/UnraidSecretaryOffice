@@ -98,9 +98,14 @@ require __DIR__ . '/lib/import.php';        // taking over an earlier install: t
 require __DIR__ . '/lib/missedruns.php';    // scheduled runs that did not start because the array wasn't started (job.sh's marks)
 require __DIR__ . '/lib/holdsnothing.php';   // «holds nothing»: the self-check of what outlives the array's stop
 require __DIR__ . '/lib/rundir.php';        // the RAM folder: a real folder, nothing left behind, within its budget (/run is shared)
-foreach (glob(__DIR__ . '/desks/*.php') ?: [] as $deskFile) {
-    require $deskFile;
+// require_once: a desk's parts (watchman-rules.php …) are require_once'd by its main file too, and glob's order follows
+// the locale's collation — Unraid's ignores '-' and '.', so watchman.php may come before watchman-rules.php; a plain
+// require then declared its functions twice (1.96 on test4). OFFICE_TEST_DESK_ORDER=reverse: the tests' check of exactly that.
+$deskFiles = glob(__DIR__ . '/desks/*.php') ?: [];
+foreach (getenv('OFFICE_TEST_DESK_ORDER') === 'reverse' ? array_reverse($deskFiles) : $deskFiles as $deskFile) {
+    require_once $deskFile;
 }
+unset($deskFiles);
 
 $GLOBALS['started'] = time();
 

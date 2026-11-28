@@ -855,7 +855,10 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   the tile always — without a rotating disk it says there is none (all flash); machine names and paths on his page
   only, never in the agent's log. **Unraid's own look after a wake** (emhttpd's smartctl/hdparm, `hdparm -C`,
   smartctl in standby mode; `sensors` unless a `drivetemp` hwmon exists: `watchmanWakeReaction()`) is never a
-  cause, only said apart (`unraid`; 1.68.0's records read the same way). Writes don't wait (page cache, the kernel's
+  cause, only said apart (`unraid`; 1.68.0's records read the same way). Who reads only what never reaches a rotating
+  disk is left out, said nowhere (`watchmanWakeBystander()`: Fanboy's control unless a drivetemp hwmon exists — a slow
+  NVMe sensor keeps it in state D —, the `nvme` tool; older records too); somebody merely waiting (`maybe`) never hides
+  shfs or the open-files fallback, it ranks last. Writes don't wait (page cache, the kernel's
   flush): a writers' list while a disk sleeps (files open for writing there, every `WATCH_WAKE_HOLD` s, budgeted; their
   write counters every look) gives «wrote to it»; a user share's file by the disk shfs holds it on; a plain program by who
   started it (`by`: Unraid, its web page, a plugin, a user script, a terminal); a capture that found nobody looks again
@@ -867,6 +870,89 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   changed; read-only snapshots and `.btrfs-snap` left out); XFS/ZFS: `find -xdev` over the disk's own mounts for folders
   changed since it slept (`.zfs` pruned), then their files — bounded (`WATCH_WAKE_TRAIL_*`), `cut` said. The office's data
   folder is left out. Folders only on his page.
+  **His page (1.96 «einfacher», Fable's nw196-einfacher.md):** 12 tiles over the 19 areas (`WATCH_TILES`,
+  `WATCH_TILE_KINDS` in watchman-cats.php; page state `tiles`, each entry/tip/rule/answer its `tile`) + «Watch book»
+  (everything done, «Only incidents») + «Schedule». One meaning per colour (`WATCH_TILE_WHY`: red/yellow what waits,
+  green «!» an advice, green learning, grey can't look); «Only what waits for you» = red and yellow. Each thing in one
+  place: what waits, advice and «Known: …» in its tile; what is always in order and what you had him remember in the
+  setup of its tile; done in the watch book. Answers: «All right, remember this» / «… this time» · «Something like this
+  is always all right …» (one button, a choice) · «That was an incident …», each followed by an undo line (`ack_undo`,
+  `rule_remove` undo, `serious_undo`). A tile's switch and re-learn act on all its areas (`tile_off`, `relearn {tile}`).
+  Old routes redirect (`TILE_ROUTE`).
+  **Areas, settings, exceptions (1.96, the concept «Der Nachtwächter in 1.96»).** Every kind and posture tip has exactly one
+  of 19 areas (`WATCH_CATS`, agent/desks/watchman-cats.php; `watchmanCats()` makes each area's light from his state — level,
+  reasons `cat.why.*`); the page: `Office.light()` tiles in `Office.sections({filter})`, an area's section, a second page
+  «Setup» (`#/watchman/setup/<area>`). **data/watchman/rules.json** (agent/desks/watchman-rules.php; written only by the
+  user's clicks, tolerant — unknown keys and rules kept, only exactly-shaped ones applied): `set` (only what differs from
+  `WATCH_SETTINGS`: numbers with bounds and unit, switches, choices — a choice with `kinds` makes new entries told or normal at
+  once), `rules` (≤ 300, ≤ 50 an area; `on` in one of its shapes — key, ip, net, user+net, machine, source, file, cmd,
+  share, disk, open, prog, tunnel, pair/admin + ip|net, vpn, sender (+iface), network, series (+dataset), dataset, vm, script,
+  cause, thing (+max_c: the new abilities' thing across days and boots, below); `opt` makes it a threshold where the data flow is judged), `off` (areas switched off: what comes there is made
+  normal; listed in «Everything changed» — since 1.96 the Team Lead shows nothing of his book but the router's log gone
+  silent and the posture tips' count: no «n open incidents», no areas off), `known` (your lasting answers, a fingerprint each, 3.4). **Re-learn** (step 17,
+  agent/desks/watchman-relearn.php, actions `relearn` {cat|all, rules, settings} and `relearn_back` {name}): a take-over in
+  small, never keys simply deleted — what it takes is written to `data/watchman/aside/<Ymd-His>-<area|all>/relearn.json`
+  first (never deleted; brought back within 7 days, then renamed `…-back`); open entries of the area noted `by: relearn`
+  (they stay in the book, `WATCH_JOURNAL_HUMAN`); what needs a look is learned by the round it starts (`state.relearn_pending`
+  → `watchmanRelearnApply()` before anything is compared: logins from the syslog's start plus the partner doors' addresses,
+  the containers, the flash cut from the server itself's ld.so.preload, the host by sub-part …); the data flow's series and
+  marks, the router files' positions (read again in learning mode), the hardware (its round as at a take-over) by the action;
+  `state.relearn[cat].at` is each flow area's own learning start (its light `relearn_flow`), the mirror goes to the flash at
+  once (`by: relearn` counts like an ack). **One place lets
+  through:** `watchmanRulesApply()` in the round after the serious incidents, before anything is told — only new entries,
+  never one with `again` older than the decision, never one of a chain forming, never `_must` («always tell»: half a share,
+  200 000 files in an hour, `WATCH_FLOW_MUST_PART`/`WATCH_FILES_MUST`); a rule's line counts up (a state met again unchanged:
+  no hit). Where an entry joins many things the rule works at the source instead: thresholds in `watchmanFlowCompare(…,
+  &$judge)` (the six judge sites), snapshots in `watchmanSnapRuled()`, a network's new devices and the router's settings in
+  watchnet.php (`watchnetSet()`/`watchnetHits()`), hold and wakes by side kinds (`WATCH_RULE_SIDE`, their lights only). Offers
+  (`watchmanRuleOffers()`) are computed by the messenger and looked up anew on `rule_add` — the page never sends a net or a
+  name; the narrow ones only, broader ones by hand (`WATCH_HAND`; the dialog suggests the names he already has — page
+  state `hand_names`, `watchmanHandNames()`: no new read), more clearly asked for `WATCH_RULE_ASK` and
+  `watchmanRuleAskThis()`. Hits in state.json `rule_hits` (the night's added at the handover). The night shift reads a copy
+  (`RUN_DIR/watchman-rules.json`, the flash's after a reboot). An older office doesn't read rules.json: it tells again
+  (louder, never quieter); entries noted by a rule stay noted. **His history** (agent/desks/watchman-journal.php): lines
+  noted by himself or a rule go after a quiet week (or while the book is over its bound) into
+  `data/watchman/journal/YYYY-MM.jsonl` (append only, 13 months, 8 MB a month — what doesn't fit is counted and said); the
+  book keeps what is open and what a person answered; the page reads it on demand (action `journal`). No migration step:
+  everything new is a new file or key with a default.
+  **The new abilities (1.96, the concept's 11):** each in a file of its own — watchman-hw.php (B the hardware's counters:
+  hw_mce, hw_ecc, hw_aer, hw_throttle, hw_kernel from /proc and /sys, this boot's counts in `RUN_DIR/watchman-hw.json`
+  shared by day and night; C known CPU faults: watchman-cpu-faults.json, tips cpu_fault, old_microcode; E the disks' wear:
+  hw_wear from Unraid's SMART files via `waSmart()`, data/watchman/hw.json a point a day, 90 days), watchman-heat.php (D
+  hw_hot), agent/lib/logsigns.php + watchman-signs.php (H: host_oom, host_crash, host_flood, hw_io), watchman-boot.php (F
+  flash_boot, ld_preload) and watchnet.php (G net_gateway, net_dns), watchman-vuln.php (A vuln_known, tips unraid_eol,
+  software_eol; off until switched on; «maybe» is never an entry since 2026-11-23 — the page's list `vuln.unsure`, a CVE
+  record's ADP ranges read when its CNA named none; then NVD's CPE ranges (CVE API 2.0, no key, only the unsure CVEs, 40 a
+  day, one every 6.5 s: watchmanVulnNvdReduce(); one timeout is noted and the next id asked, two in a row or a 429/403/5xx
+  end the day's part, none starts past WATCH_VULN_NVD_TIME; 2026-11-26 the home server's software in the name table: a
+  product's version from its image's ENV (`env`, `image` to restrict it) or, for the images its `oci` names, the OCI version
+  label in its `oci_form` — cache `vuln_images` v 2; Synology DSM in virtual-dsm by its storage's dsm.ver (`file`,
+  watchmanVulnFiles(): every disk behind it awake, no link, state.json `vuln_files`), judged by build numbers; `self`: a
+  lower bound, never «affected» — unsure, reason `lower`; 2026-11-26 a second source in its own part file
+  watchman-vuln-advisories.php: the projects' GitHub repository advisories (api.github.com, no key, source `ghsa` with its
+  own status/back-off), asked only for the products found in a container here whose name table entry has `ghsa` (repo —
+  WATCH_VULN_GHSA_REPO before any URL —, package names, `unnamed`, `skip`), sorted by publication, at most
+  WATCH_VULN_GHSA_PAGES pages by the Link header's cursor, kept in feeds/ghsa/<product>.json (`v` 1: high and critical only,
+  at most WATCH_VULN_GHSA_KEEP; `cut` + `floor`: a version below it is «older than what he kept»), «only when newer» for a
+  one-page list, WATCH_VULN_GHSA_TIME; the maintainers' range read as one lower and one upper bound or a version alone
+  (`after` in watchmanVulnRange() for «> X»), anything else unsure (reason `ghsa`) unless past every fix; affected rows the
+  tip `software_vuln` (advice) and the fold `vuln.ghsa`, unsure rows join `vuln.unsure`; state.json vuln_look `ghsa`,
+  `ghsa_here` (additive); a CVE CISA's list has for the product is left to it. Round 2: «and below/above», «=>» read as
+  operators; a list with one bound per release line read per line (watchmanVulnGhsaLines(); line = major.minor, or the
+  one line the list names for the version's major); words still not comparable with a CVE decided by its CVE record, then
+  NVD (watchmanVulnGhsaByCve(); the job wants those CVEs after the exploited list's — watchmanVulnGhsaCves(), judged anew
+  from the files so a settled one stays wanted —, NVD after the list's unsure); the page shows one row per advisory,
+  program and version naming its containers. Same day: the CVE records' part bounded by
+  WATCH_VULN_CVE_TIME, status.json written at the job's start and after each part, a record that came in the job (`pending`
+  in the last look) asked of NVD the same day; the page shows a container's version as judged (`shown`, look rows `clean`)
+  and a `build` product's value as «Build …»); «long fixed» below WATCH_VULN_FLOOR — the kernel line of the .plg's min
+  Unraid; an older office's open vuln_maybe lines close quietly). Their entries live in **book-more.json** (`WATCH_KINDS_MORE`, every kind
+  newer than 1.95 — an older office never reads it, so never drops them; `watchmanLoad()`/`watchmanSave()` treat both as one
+  book). The hardware has no ATT&CK technique and never joins a chain. Settings (`WATCH_SETTINGS` hw, host, lan.dns,
+  vuln.maybe — kept in the file's shape, no longer shown or read; the defaults the constants the steps hard-coded — the heat reads its keys of set.hw itself); the rule shape
+  `{thing}` names what an entry is about across days and boots (`watchmanRuleThings()`: a sensor, disk, program, port,
+  module, device, the CPU, a CVE, a product), `{thing, max_c}` a sensor up to so many °C; asked more clearly: flash_boot,
+  ld_preload, net_gateway, vuln_known, hw_mce, hw_ecc, a whole product.
 * **`cleanup` — Ms. Dustdevil.** «Where is what» (operational advice, **never security**; read only) and «Tidying up» (what a
   drill or restore left: only what his journals name). **Her tour on schedule** (1.78, off by default): job `cleanup`
   (`job.sh cleanup` → `job cleanup-tour-due`, a mark in RAM); her tick (`clScheduledTick()`) tours as «Tour» does —
@@ -1017,7 +1103,9 @@ the last 60 history lines only for a source the file has none for. **The file
   in a session of its own (`setsid -f`): an agent restarting in place never touches it. It steers while
   he is hired, shown, set up and armed («take over») — whatever the array does —, and no known controller runs (FanCtrl Plus, its fork,
   Dynamix System Autofan, PWM Fan — WAZ Cooling Control steers shelf and IPMI fans: named as a hint only, `'hint_only'`, `fanboyBlocking()`); outputs looked up anew at every start through the identity;
-  zones (fans + heat sources: disks only from disks.ini — asleep is asleep, never cold —, hwmon sensors) with a goal per
+  zones (fans + heat sources: disks only from disks.ini — asleep is asleep, never cold —, hwmon sensors; read: a CPU every
+  round, every other sensor at most every `FANBOY_SLOW_EVERY` 15 s, its last value in between, at once when new, found
+  again or silent — one NVMe takes a second a read, 2026-11-25 —, disks.ini every `FANBOY_DISKS_EVERY` 10 s) with a goal per
   kind of heat source (quiet/normal/cool from one table per kind, `FANBOY_SOURCE_DEFAULTS`, or the owner's own points;
   percent or rpm by the measured table with a correction); the source asking the most leads; **the curve decides alone —
   no limit puts a zone to full** (2026-11-20); how it reacts (`FANBOY_DOWN_PROFILES`): «slowly» (stored `balanced`: up 2 %
@@ -1196,6 +1284,38 @@ the last 60 history lines only for a source the file has none for. **The file
   at a boot's first take where the chip's automatic stood before him. The plugin's removal takes both flash files.
   **Not built:** maintenance mode (the control steers there too; nobody restarts it after a death). Tests:
   tests/always-on-tests.php (part `alwayson`).
+  **A drive is judged by what it reports itself** (2026-11-27, a user's W680 board with two Kingston KC3000: «Sensor 2»
+  at 77 °C, the drive's own Composite at 33 — the net held every fan at 60 % for good and mailed at every start): a
+  drive's hwmon (`FANBOY_DRIVE_KINDS`: nvme — drivetemp is never read) has ONE main reading (`fanboyDriveMain()`: the
+  sensor labelled «Composite», else its first temperature); the others are its further sensors (`further` on each
+  source of `fanboySources()`). They are read and shown as before (the sensors' list says what they are: «weiterer
+  Fühler», a line naming the main reading) and count in a zone the user put them into — never in the net
+  (`$c['loose']`), `uncovered`, a proposal (`fanboyZonesPropose()`), the warmest spot (`fanboyHottest()`,
+  `fanboyHottestKinds()`: `fanboyHotSkip()`), the measuring's guard (`fanboyStepWarm()`) or the watch's «something
+  warm» (`fanboyWarmNow()`). The net's warm value and limit for a main reading: the kind's `high`/`limit`, Unraid's
+  warning/critical where the id is a disk's, and the drive's own `tempN_max` / `tempN_crit` (`fanboyDriveLimits()`:
+  the nvme driver's over-temperature threshold — WCTEMP unless set — and CCTEMP; 0 or outside `FANBOY_KIND_BOUNDS`
+  ignored; read once per path, kept in the loose entry as `max`/`crit`/`lim_path`) — the lowest of each wins. A net
+  whose source is still there but no longer the net's (`$c['net_out']`: put into a zone, a further sensor) ends at
+  that round and its notification is untold; one whose source went away waits `FANBOY_NET_CLEAR` as before. A settings
+  reload carries `net` and `loose` (before, a save dropped the net and its «told» stayed for good). Tests:
+  `testFanboyDriveMain`.
+  **«Nicht beachten»** (2026-11-27, the same user: no way to set a sensor aside): the heat sources the user set aside,
+  by the ids the zones use (`fanboySourceId()` — no hwmonN — or a disk's name), in this board's entry of settings.json
+  as `aside` [id…] (`fanboyAsideIds()`: only strings, at most `FANBOY_ASIDE_MAX`; additive — an older office keeps the
+  key on rewrite and reads nothing of it, a store without it has nothing set aside; a zones save drops from it what the
+  zones now hold and never adds the key). The mirror carries the entry whole (no new `v`): the control sees a change
+  as it sees a zone saved (`fanboyControlStamp()` → `fanboyControlReload()`, `$c['aside']`), and a net the source held
+  ends at the next round (`$c['net_out']`). Set aside: read and shown, greyed in the list with a line why — never the
+  net's, never `uncovered`, never proposed, never the warmest spot (`fanboyScan()` recomputes `hottest`,
+  `hottest_kinds`, `hottest_lead` without them), never «too warm» on the page; the measuring's guard and the watch still
+  see it (their own «Start anyway» stays the way past a guard). The action `aside {source, on, from_zones?}`
+  (`fanboyAside()`): on — only a source there now, one in a zone only with `from_zones` (the page's confirmation names
+  the zones) and then out of them in the same save, never a zone's only heat source (`fanboy_aside_last`); off — any id
+  on the list. The page: «Nicht beachten» / «Wieder beachten» in a sensor row's unfolded detail (fresh look first,
+  `asideAsk()`), «Nicht beachten:» per source in the zones step's «in no zone» box (only those in no saved zone), and a
+  set-aside chip in a zone's heat sources dashed — putting it into a zone and saving counts it again. Tests:
+  `testFanboyAside`, `testFanboyAsideControl` (the RAM job takes it without a restart).
 * **`caretaker` — The Team Lead** (id stays `caretaker`). Hires, fires (no «Hire» while a needed colleague can't come),
   suggests, collects all checks, reports new red findings once. «I know, thanks» puts aside recommended findings and hints —
   **never musts**; his notification history (`notify-log.json`) shows a counted decision's `times` and, for a run's very same
@@ -1243,7 +1363,8 @@ The same thing has the same word on every desk and text; grammar follows the wor
 | Thing | en | de | it | fr | es |
 |---|---|---|---|---|---|
 | a desk's look around · toast | Tour · Tour done | Rundgang · Rundgang fertig | Giro · Giro finito | Tournée · Tournée terminée | Ronda · Ronda terminada |
-| watchman's round · button · section · watch book · array stopped | round · A round now · The last round · watch book · night shift | der Rundgang · Jetzt Rundgang machen · Der letzte Rundgang · das Wachbuch · die Nachtschicht | il giro · Un giro adesso · L'ultimo giro · il registro di guardia · il turno di notte | la ronde · Une ronde maintenant · La dernière ronde · la main courante · le service de nuit | la ronda · Una ronda ahora · La última ronda · el libro de guardia · el turno de noche |
+| the watchman (1.96 «einfacher»): his check (only his bubble says «round») · button · watch book = everything done · array stopped | check · Check now · watch book · night shift | prüfen (die Prüfung; «Rundgang» nur in seiner Sprechblase) · Jetzt prüfen · das Wachbuch (alles Erledigte) · die Nachtschicht | controllare · Controlla ora · il registro di guardia · il turno di notte | vérifier · Vérifier maintenant · la main courante · le service de nuit | comprobar · Comprobar ahora · el libro de guardia · el turno de noche |
+| the watchman's answers on an entry · on an advice · his five words | All right, remember this · All right, this time · Something like this is always all right … · That was an incident … · I know, thanks (advice only) · area, entry (open/done), known, advice, watch book | In Ordnung, merk dir das · In Ordnung, dieses Mal · So etwas ist immer in Ordnung … · Das war ein Vorfall … · Weiss ich, danke (nur am Hinweis) · Bereich, Eintrag (offen/erledigt), bekannt, Hinweis, Wachbuch | Va bene, ricordatelo · Va bene, per questa volta · Una cosa così va sempre bene … · Era un incidente … · Lo so, grazie · area, voce (aperta/sbrigata), noto, indicazione, registro di guardia | D'accord, retiens-le · D'accord, pour cette fois · Ce genre de chose est toujours en ordre … · C'était un incident … · Je sais, merci · zone, entrée (ouverte/réglée), connu, indication, main courante | De acuerdo, recuérdalo · De acuerdo, esta vez · Algo así siempre está en orden … · Fue un incidente … · Ya lo sé, gracias · área, entrada (abierta/resuelta), conocido, indicación, libro de guardia |
 | a backup run · … in use | run · Start a run · last/next run · Stop the run · stopped | das Backup (verb sichern) · Backup starten · das letzte/nächste Backup · Backup abbrechen · abgebrochen | il backup · Avvia un backup · l'ultimo/il prossimo backup · Interrompi il backup · interrotto | la sauvegarde · Lancer une sauvegarde · la dernière/prochaine sauvegarde · Arrêter la sauvegarde · arrêtée | la copia de seguridad (la copia) · Iniciar una copia · la última/próxima copia · Detener la copia · detenida |
 | nightly (only the default schedule) · any other time · one run or what it left (never «a night») | the nightly backup · the scheduled backup · a backup · earlier backups · {nights} backups in a row | das nächtliche · das geplante Backup · das Backup · frühere Stände · {nights} Backups in Folge | il backup notturno · pianificato · il backup · i backup precedenti · {nights} backup di fila | la sauvegarde nocturne · planifiée · la sauvegarde · les sauvegardes précédentes · {nights} sauvegardes d'affilée | la copia nocturna · programada · la copia · las copias anteriores · {nights} copias seguidas |
 | per app / VM · ZFS/btrfs/VM · check mode (Tour button) · dry run · backup.sh & co. · where packages go | package · snapshot · tour · dry run · the (backup) engine · backup place | das Paket · der Snapshot · der Rundgang · der Probelauf · die (Backup-)Engine · die Backup-Ablage | il pacchetto · lo snapshot · il giro · la prova a secco · il motore (di backup) · il deposito dei backup | le paquet · le snapshot · la tournée · l'essai à blanc · le moteur (de sauvegarde) · l'emplacement des sauvegardes | el paquete · la instantánea · la ronda · la simulación · el motor (de copias) · el lugar de las copias |
@@ -1254,6 +1375,7 @@ The same thing has the same word on every desk and text; grammar follows the wor
 | Jack Streamer's run · Ms. Snapshotini's plan · its run | run · real run · dry run · schedule · run | der Lauf · echter Lauf · Probelauf · der Zeitplan · der Lauf | l'esecuzione · esecuzione vera · prova a secco · la pianificazione · l'esecuzione | l'exécution · exécution réelle · essai à blanc · la planification · l'exécution | la ejecución · ejecución real · simulación · la programación · la ejecución |
 | a ZFS hold | Hold · held · Release hold | Schützen · geschützt · Schutz aufheben | Proteggi · protetto · Togli la protezione | Protéger · protégé · Lever la protection | Proteger · protegida · Quitar la protección |
 | a small coloured mark on a row or card (the UI's «chip»; never the word chip in a text) | label | das Schildchen | l'etichetta | l'étiquette | la etiqueta |
+| the Night Watchman's area · its light · «always okay» · a threshold or switch · his second page · his history | area · light · exception · setting · Setup · history | der Bereich · die Ampel · die Ausnahme · die Einstellung · die Einrichtung · der Verlauf | l'area · il semaforo · l'eccezione · l'impostazione · Impostazioni · la cronologia | la zone · le feu · l'exception · le réglage · Réglages · l'historique | el área · el semáforo · la excepción · el ajuste · Ajustes · el historial |
 | thank-you levels | a coffee for the team · a round for everyone · cake for the whole office · a pay rise and the donations | ein Kaffee fürs Team · eine Runde für alle · Kuchen fürs ganze Büro (deliberately) · Lohnerhöhung und Spenden | un caffè per il team · un giro per tutti · una torta per tutta la segreteria · un aumento e le donazioni | un café pour l'équipe · une tournée pour tout le monde · du gâteau pour tout le secrétariat · une augmentation et les dons | un café para el equipo · una ronda para todos · pastel para toda la secretaría · un aumento de sueldo y las donaciones |
 | share · disk · /boot · Docker template · a log · dataset · Emby's key | share · disk · the flash (a physical stick stays a stick) · template · log · dataset · API key | der Share · die Disk (not Platte) · der Flash · das Template (not Vorlage) · das Protokoll (not Log) · das Dataset · der API-Schlüssel | la condivisione · il disco · l'unità flash · il template · il log (registro = watch book) · il dataset · la chiave API | le partage · le disque · la flash · le modèle · le journal · le dataset · la clé API | el recurso compartido · el disco · el flash · la plantilla · el registro · el dataset · la clave API |
 | Unraid's bell · user → makers · menu item | notifications · report · Report a problem or a wish… | die Benachrichtigungen (one sent: eine Meldung) · die Rückmeldung · Problem oder Wunsch mitteilen… | le notifiche · la segnalazione · Segnala un problema o un desiderio… | les notifications · le signalement · Signaler un problème ou un souhait… | las notificaciones · el comentario · Contar un problema o un deseo… |

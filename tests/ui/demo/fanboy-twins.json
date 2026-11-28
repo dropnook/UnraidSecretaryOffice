@@ -573,7 +573,7 @@
     "margin": -14,
     "over": null
    },
-   "count": 7,
+   "count": 4,
    "asleep": 0
   },
   {
@@ -707,23 +707,9 @@
    },
    {
     "kind": "nvme",
-    "id": "nvme@pci0000:00/0000:00:1b.4/0000:82:00.0/nvme#2",
-    "name": "Sensor 1",
-    "c": 31.9,
-    "asleep": false
-   },
-   {
-    "kind": "nvme",
     "id": "nvme@pci0000:00/0000:00:01.0/0000:01:00.0/nvme#1",
     "name": "Composite",
     "c": 25.9,
-    "asleep": false
-   },
-   {
-    "kind": "nvme",
-    "id": "nvme@pci0000:00/0000:00:01.0/0000:01:00.0/nvme#2",
-    "name": "Sensor 1",
-    "c": 27.9,
     "asleep": false
    },
    {
@@ -732,15 +718,9 @@
     "name": "Composite",
     "c": 27.9,
     "asleep": false
-   },
-   {
-    "kind": "nvme",
-    "id": "nvme@pci0000:00/0000:00:06.1/0000:03:00.0/nvme#2",
-    "name": "Sensor 1",
-    "c": 29.9,
-    "asleep": false
    }
   ],
+  "aside": [],
   "board": "Example Boards Inc. | EB-Z100 PRO",
   "others": 0,
   "fans": [],
@@ -792,7 +772,9 @@
     "asleep": false,
     "chip": "nvme",
     "hwmon": "hwmon0",
-    "n": 1
+    "n": 1,
+    "pool": null,
+    "further": false
    },
    {
     "kind": "nvme",
@@ -802,7 +784,9 @@
     "asleep": false,
     "chip": "nvme",
     "hwmon": "hwmon0",
-    "n": 2
+    "n": 2,
+    "pool": null,
+    "further": true
    },
    {
     "kind": "nvme",
@@ -812,7 +796,9 @@
     "asleep": false,
     "chip": "nvme",
     "hwmon": "hwmon1",
-    "n": 1
+    "n": 1,
+    "pool": null,
+    "further": false
    },
    {
     "kind": "nvme",
@@ -822,7 +808,9 @@
     "asleep": false,
     "chip": "nvme",
     "hwmon": "hwmon1",
-    "n": 2
+    "n": 2,
+    "pool": null,
+    "further": true
    },
    {
     "kind": "nvme",
@@ -832,7 +820,9 @@
     "asleep": false,
     "chip": "nvme",
     "hwmon": "hwmon2",
-    "n": 1
+    "n": 1,
+    "pool": null,
+    "further": false
    },
    {
     "kind": "nvme",
@@ -842,7 +832,9 @@
     "asleep": false,
     "chip": "nvme",
     "hwmon": "hwmon2",
-    "n": 2
+    "n": 2,
+    "pool": null,
+    "further": true
    },
    {
     "kind": "board",
@@ -852,7 +844,9 @@
     "asleep": false,
     "chip": "gigabyte_wmi",
     "hwmon": "hwmon4",
-    "n": 1
+    "n": 1,
+    "pool": null,
+    "further": false
    },
    {
     "kind": "board",
@@ -862,7 +856,9 @@
     "asleep": false,
     "chip": "gigabyte_wmi",
     "hwmon": "hwmon4",
-    "n": 2
+    "n": 2,
+    "pool": null,
+    "further": false
    },
    {
     "kind": "board",
@@ -872,7 +868,9 @@
     "asleep": false,
     "chip": "gigabyte_wmi",
     "hwmon": "hwmon4",
-    "n": 3
+    "n": 3,
+    "pool": null,
+    "further": false
    },
    {
     "kind": "board",
@@ -882,7 +880,9 @@
     "asleep": false,
     "chip": "gigabyte_wmi",
     "hwmon": "hwmon4",
-    "n": 4
+    "n": 4,
+    "pool": null,
+    "further": false
    },
    {
     "kind": "board",
@@ -892,7 +892,9 @@
     "asleep": false,
     "chip": "gigabyte_wmi",
     "hwmon": "hwmon4",
-    "n": 5
+    "n": 5,
+    "pool": null,
+    "further": false
    },
    {
     "kind": "board",
@@ -902,7 +904,9 @@
     "asleep": false,
     "chip": "gigabyte_wmi",
     "hwmon": "hwmon4",
-    "n": 6
+    "n": 6,
+    "pool": null,
+    "further": false
    },
    {
     "kind": "ram",
@@ -912,7 +916,9 @@
     "asleep": false,
     "chip": "spd5118",
     "hwmon": "hwmon5",
-    "n": 1
+    "n": 1,
+    "pool": null,
+    "further": false
    },
    {
     "kind": "ram",
@@ -922,7 +928,9 @@
     "asleep": false,
     "chip": "spd5118",
     "hwmon": "hwmon6",
-    "n": 1
+    "n": 1,
+    "pool": null,
+    "further": false
    },
    {
     "kind": "cpu",
@@ -932,7 +940,9 @@
     "asleep": false,
     "chip": "coretemp",
     "hwmon": "hwmon7",
-    "n": 1
+    "n": 1,
+    "pool": null,
+    "further": false
    },
    {
     "kind": "cpu",
@@ -942,7 +952,9 @@
     "asleep": false,
     "chip": "coretemp",
     "hwmon": "hwmon7",
-    "n": 2
+    "n": 2,
+    "pool": null,
+    "further": false
    },
    {
     "kind": "cpu",
@@ -952,7 +964,9 @@
     "asleep": false,
     "chip": "coretemp",
     "hwmon": "hwmon7",
-    "n": 6
+    "n": 6,
+    "pool": null,
+    "further": false
    },
    {
     "kind": "other",
@@ -962,7 +976,9 @@
     "asleep": false,
     "chip": "iwlwifi_1",
     "hwmon": "hwmon8",
-    "n": 1
+    "n": 1,
+    "pool": null,
+    "further": false
    },
    {
     "kind": "board",
@@ -972,7 +988,9 @@
     "asleep": false,
     "chip": "acpitz",
     "hwmon": "hwmon9",
-    "n": 1
+    "n": 1,
+    "pool": null,
+    "further": false
    },
    {
     "kind": "board",
@@ -982,7 +1000,9 @@
     "asleep": false,
     "chip": "acpitz",
     "hwmon": "hwmon9",
-    "n": 2
+    "n": 2,
+    "pool": null,
+    "further": false
    },
    {
     "kind": "board",
@@ -992,7 +1012,9 @@
     "asleep": false,
     "chip": "it8696_a0060607",
     "hwmon": "hwmon10",
-    "n": 1
+    "n": 1,
+    "pool": null,
+    "further": false
    },
    {
     "kind": "board",
@@ -1002,7 +1024,9 @@
     "asleep": false,
     "chip": "it8696_a0060607",
     "hwmon": "hwmon10",
-    "n": 2
+    "n": 2,
+    "pool": null,
+    "further": false
    },
    {
     "kind": "board",
@@ -1012,7 +1036,9 @@
     "asleep": false,
     "chip": "it8696_a0060607",
     "hwmon": "hwmon10",
-    "n": 3
+    "n": 3,
+    "pool": null,
+    "further": false
    },
    {
     "kind": "board",
@@ -1022,7 +1048,9 @@
     "asleep": false,
     "chip": "it8696_a0060607",
     "hwmon": "hwmon10",
-    "n": 4
+    "n": 4,
+    "pool": null,
+    "further": false
    },
    {
     "kind": "board",
@@ -1032,7 +1060,9 @@
     "asleep": false,
     "chip": "it8696_a0060607",
     "hwmon": "hwmon10",
-    "n": 5
+    "n": 5,
+    "pool": null,
+    "further": false
    },
    {
     "kind": "board",
@@ -1042,7 +1072,9 @@
     "asleep": false,
     "chip": "it8696_a0060607",
     "hwmon": "hwmon10",
-    "n": 6
+    "n": 6,
+    "pool": null,
+    "further": false
    }
   ],
   "curves": {},

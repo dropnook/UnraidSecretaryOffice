@@ -56,6 +56,10 @@ function ite(outs, rpms) {
   return c;
 }
 const devKey = (d) => d.replace(/\/([a-z]+)\/\1\d+$/, '/$1');
+/** A drive chip's main temperature as fanboyDriveMain() says (2026-11-27): «Composite», else the lowest — null: no drive */
+const driveMain = (c) => (c.kind !== 'nvme' || !c.temps.length ? null : (c.temps.find((t) => /^composite$/i.test((t.label || '').trim())) || { n: Math.min(...c.temps.map((t) => t.n)) }).n);
+/** A drive's further sensor (fanboyFurther()) */
+const further = (c, n) => driveMain(c) !== null && driveMain(c) !== n;
 /** Every heat source as fanboySources() lists them */
 function sources(chips, disks) {
   // (round 13b: a disk outside array and pools carries its group, the Unassigned Devices plugin's name or none, its size, «in use»)
@@ -63,14 +67,18 @@ function sources(chips, disks) {
     ...(d.type === 'unassigned' ? { group: 'unassigned', name: d.label || null, size: d.size || 0, in_use: !!d.in_use } : {}) }));
   for (const c of chips) {
     if (c.kind === 'disk') continue;
-    for (const t of c.temps) out.push({ kind: c.kind, id: `${c.name}@${devKey(c.device)}#${t.n}`, label: t.label || `${c.name} #${t.n}`, c: t.c, asleep: false, chip: c.name, hwmon: c.hwmon, n: t.n });
+    for (const t of c.temps) out.push({ kind: c.kind, id: `${c.name}@${devKey(c.device)}#${t.n}`, label: t.label || `${c.name} #${t.n}`, c: t.c, asleep: false, chip: c.name, hwmon: c.hwmon, n: t.n,
+      pool: null, further: further(c, t.n) });
   }
   return out;
 }
-/** The heat sources no zone has, as fanboyUncovered() lists them: disks, SSDs and NVMe (FANBOY_NET_KINDS) in none of the zones */
-function uncovered(zones, all) {
+/**
+ * The heat sources no zone has, as fanboyUncovered() lists them: disks, SSDs and NVMe (FANBOY_NET_KINDS) in none of the
+ * zones — never a drive's further sensor, never one set aside (2026-11-27)
+ */
+function uncovered(zones, all, aside = []) {
   const inZones = new Set((zones || []).flatMap((z) => (z.sources || []).map((x) => x.id)));
-  return all.filter((x) => ['disk', 'ssd', 'nvme'].includes(x.kind) && !inZones.has(x.id)).map((x) => ({ kind: x.kind, id: x.id, name: x.label, c: x.c, asleep: x.asleep }));
+  return all.filter((x) => ['disk', 'ssd', 'nvme'].includes(x.kind) && !inZones.has(x.id) && !x.further && !aside.includes(x.id)).map((x) => ({ kind: x.kind, id: x.id, name: x.label, c: x.c, asleep: x.asleep }));
 }
 // FANBOY_SOURCE_DEFAULTS of agent/desks/fanboy-control.php (2026-11-20, the owner's table): [low, high, limit, step]
 const DEFAULTS = { disk: [40, 50, 55, 5], ssd: [50, 70, 80, 10], nvme: [50, 70, 80, 10], cpu: [50, 80, 92, 10], ram: [50, 70, 75, 5], gpu: [50, 80, 90, 10], board: [45, 65, 70, 5], other: [50, 70, 75, 5] };
@@ -192,12 +200,12 @@ const OUTPUTS = [1, 2, 3, 4, 5, 6].map(P);
 const BEFORE = Object.fromEntries(OUTPUTS.map((id) => [id, { value: 128, pct: 50, enable: 1, mode: 'manual', fixed: true, auto: 2, from: 'journal' }]));
 
 /** fanboyHottestKinds() and fanboyHottestLead() of agent/desks/fanboy-detect.php, for the invented data */
-function hottestKinds(chips, disks) {
-  const cand = disks.map((d) => ({ kind: d.rotational ? 'hdd' : 'ssd', c: d.temp, label: '', disk: d.name, chip: null, n: null, asleep: d.asleep, warn: d.warn ?? null, crit: d.crit ?? null }));
+function hottestKinds(chips, disks, skip = []) {
+  const cand = disks.filter((d) => !skip.includes(d.name)).map((d) => ({ kind: d.rotational ? 'hdd' : 'ssd', c: d.temp, label: '', disk: d.name, chip: null, n: null, asleep: d.asleep, warn: d.warn ?? null, crit: d.crit ?? null }));
   for (const c of chips) {
     if (c.kind === 'disk') continue;
     const kind = { nvme: 'ssd', cpu: 'cpu', board: 'board', ram: 'ram' }[c.kind] || 'other';
-    for (const t of c.temps) cand.push({ kind, c: t.c, label: t.label, disk: null, chip: c.name, n: t.n, asleep: false, warn: null, crit: null });
+    for (const t of c.temps) if (!hotSkip(c, t.n, skip)) cand.push({ kind, c: t.c, label: t.label, disk: null, chip: c.name, n: t.n, asleep: false, warn: null, crit: null });
   }
   const out = [];
   for (const kind of ['hdd', 'ssd', 'cpu', 'board', 'ram', 'other']) {
@@ -213,6 +221,8 @@ function hottestKinds(chips, disks) {
   }
   return out;
 }
+/** fanboyHotSkip(): a drive's further sensor, a source set aside — never a warmest spot */
+const hotSkip = (c, n, skip) => further(c, n) || skip.includes(`${c.name}@${devKey(c.device)}#${n}`);
 const leadOf = (kinds) => kinds.reduce((l, k) => (k.near && (!l || k.near.margin > l.margin) ? k.near : l), null);
 
 /** A whole state: the look, then who/control/setup/step/drivers as fanboyScan() puts them on top */
@@ -233,9 +243,10 @@ function state(o) {
   const fans = (o.fans || []).map((f) => withPlan(clone(f)));
   const zones = clone(o.zones || []);
   let hottest = null;
-  for (const c of chips) for (const t of c.temps) if (t.c !== null && (!hottest || t.c > hottest.c)) hottest = { c: t.c, kind: c.kind, chip: c.name, label: t.label, n: t.n, disk: null };
-  for (const d of disks) if (d.temp !== null && (!hottest || d.temp > hottest.c)) hottest = { c: d.temp, kind: 'disk', chip: null, label: '', n: null, disk: d.name };
-  const kinds = hottestKinds(chips, disks);
+  const aside = o.aside || [];
+  for (const c of chips) for (const t of c.temps) if (t.c !== null && !hotSkip(c, t.n, aside) && (!hottest || t.c > hottest.c)) hottest = { c: t.c, kind: c.kind, chip: c.name, label: t.label, n: t.n, disk: null };
+  for (const d of disks) if (d.temp !== null && !aside.includes(d.name) && (!hottest || d.temp > hottest.c)) hottest = { c: d.temp, kind: 'disk', chip: null, label: '', n: null, disk: d.name };
+  const kinds = hottestKinds(chips, disks, aside);
   const s = {
     v: 1, time: T0, hwmon: true, board: base.board, kernel: '6.18.60-Unraid', unraid: '7.4.0', chips, disks, ipmi: o.ipmi || null,
     controllers: o.controllers || [], drivers_missing: o.drivers_missing || {}, situation: o.situation || { code: 'ok' }, tools: o.tools || TOOLS,
@@ -251,9 +262,9 @@ function state(o) {
     who: o.who || { who: 'bios', why: offered.length ? 'not_set_up' : 'no_output' },
     control: { running: false, armed: !!o.armed, who: 'bios', why: null, zones: [], alarm: null, missing: null, notes: [], watch: [], time: null, guard: null,
       // round 12 fix, the net: while he steers, the heat sources in none of his zones (what the net watches); the net itself off
-      loose: o.control && o.control.running ? uncovered(zones, sources(chips, disks)).filter((u) => !u.asleep).map((u) => ({ id: u.id, kind: u.kind, label: u.name, c: u.c })) : [], net: null, ...(o.control || {}) },
+      loose: o.control && o.control.running ? uncovered(zones, sources(chips, disks), aside).filter((u) => !u.asleep).map((u) => ({ id: u.id, kind: u.kind, label: u.name, c: u.c })) : [], net: null, ...(o.control || {}) },
     setup: {
-      auto_back_seen: null, uncovered: uncovered(zones, sources(chips, disks)), board: 'Example Boards Inc. | EB-Z100 PRO', others: 0, fans, zones, armed: !!o.armed, outputs: offered.length ? OUTPUTS : [], missing: [],
+      auto_back_seen: null, uncovered: uncovered(zones, sources(chips, disks), aside), aside, board: 'Example Boards Inc. | EB-Z100 PRO', others: 0, fans, zones, armed: !!o.armed, outputs: offered.length ? OUTPUTS : [], missing: [],
       sources: sources(chips, disks), curves: curves(zones), before: offered.length ? clone(BEFORE) : {}, back_default: 'auto',
       scales: SCALES, down: DOWN, round: 2, presets_of: PRESETS_OF,
       // the numbers the page's sentences state, as the agent's setup state gives them (fanboyTimes(); testFanboyTimes ties both)
@@ -321,7 +332,7 @@ function steering(more = {}) {
       fans: [{ id: P(5), name: 'Vorn', output: 5, pct: pc, rpm: rpm[5], held: true, foreign: false }, { id: P(2), name: 'Deckel', output: 2, pct: pc, rpm: null, held: true, foreign: false }] },
   ];
   if (more.zonesNow) zonesNow.push(...more.zonesNow);
-  return state({ ite: itec, fans: fansSet, zones: zonesSet, armed: true, who: more.who || { who: 'fanboy', why: 'steers', zones: 2 },
+  return state({ ite: itec, fans: fansSet, zones: zonesSet, armed: true, aside: more.aside, who: more.who || { who: 'fanboy', why: 'steers', zones: 2 },
     control: { running: true, armed: true, who: 'fanboy', why: more.why || null, phase: 'run', zones: zonesNow, alarm: more.alarm || null, notes: more.notes || NOTES,
       watch: more.watch || [{ id: P(1), name: 'CPU-Kühler', role: 'cpu', rpm: rpm[1] }], time: T0 } });
 }
@@ -673,6 +684,7 @@ write(path.join(DEMO, 'post'), 'fanboy.dry_run', dry);
 write(path.join(DEMO, 'post'), 'fanboy.history', { ok: true, state: histOf(72) });
 fs.mkdirSync(path.join(STATES, 'post'), { recursive: true });
 write(path.join(STATES, 'post'), 'fanboy.history', { ok: true, state: histOf(72) });
-// the click test's stub: the overview steering (every tile has its section), its history
-write(STATES, 'fanboy', files.fanboy);
+// the click test's stub: the overview steering (every tile has its section), its history — and (2026-11-27) one NVMe's
+// Composite set aside («Nicht beachten»; the drives' «Sensor 1» are their further sensors anyway)
+write(STATES, 'fanboy', steering({ aside: [`nvme@${devKey(base.chips.find((c) => c.address === 'nvme2').device)}#1`] }));
 write(STATES, 'fanboy-history', hist);

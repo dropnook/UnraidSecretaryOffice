@@ -294,15 +294,75 @@ When you hire him he learns what is normal. Then he walks his round every five m
   It goes to the notifications once, when it appears.
   A plugin's own job he notes himself. Removed while its job still waits or runs, the plugin leaves that job behind:
   he notes that too, as long as the job is unchanged. It ends with the next reboot.
+- The hardware, from what the kernel and Unraid already count (no tool, no disk woken): machine checks, memory errors
+  (ECC), PCIe errors, the CPU slowing down for heat, the kernel stumbling, a sensor too warm for hours, read or write
+  errors in the log, an SSD's wear and a disk's SMART values growing (one point a day, 90 days). A CPU with a known fault
+  and old microcode (Intel's 13th/14th Gen) is advice. What a server doesn't count is «not available», never «0 errors».
+- Signs in the log: a program ended because the memory was full, a service crashing again and again, a flood of
+  connection attempts.
+- What runs at the next start (a plugin file nothing installed, `stop`, modprobe.d, the start line, ld.so.preload) and the
+  router or DNS suddenly different (the gateway with another MAC).
+- Only if you switch on «Known vulnerabilities»: an actively exploited vulnerability that applies to a version running here
+  (only when the versions compare cleanly — what can't be compared stands calmly under «Can't be checked for sure», never
+  an entry or a notification), an Unraid or software without security updates. Here means Unraid, its kernel, PHP and
+  packages, and in containers what the image declares itself (its environment or its version label — the usual home
+  server software: databases, web servers, Nextcloud, Immich, Plex, Jellyfin, Home Assistant, Vaultwarden …), and
+  Synology DSM in virtual-dsm by the build its storage folder names (read only while its disks are awake). A version
+  that is only where the program started (Plex installing another at its start, DSM updating itself) is never called
+  affected. For the software he finds in containers he also reads the project's own security advisories on GitHub
+  (Vaultwarden, Paperless-ngx, Immich, Jellyfin, Home Assistant, Nextcloud, AdGuard Home, n8n, Valkey, Redis, PHP), only
+  those rated «high» or «critical»: one the version here lies in is a hint — «Paperless-ngx 2.1.3 (container paperless):
+  3 known serious vulnerabilities, closed from 2.14.7 — update the container» —, never an entry or a notification;
+  a list with one bound per release line is read for your line; what the maintainers' words still don't say cleanly
+  («All», «TBD», a commit) is asked of the vulnerability's CVE record and the NVD, and only what they can't settle either
+  stands under «Can't be checked for sure». One advisory in several containers is one row naming them. A build number shows as a build («Build 90080»), a container's version as he judged it («12.4», not
+  the image label's «12.4ubu2604-ls61»).
 
 **How:**
 
 - Each entry names its MITRE ATT&CK technique. The important ones go to Unraid's notifications.
 - Where he can't see who did it, he names who likely did, always as a guess.
-- *I know, thanks* makes it the new normal.
-- *This was a real incident…* keeps it with your note. As long as it is on that list, the same from the same source is
-  told at once and as important; *Not serious after all…* there takes it back.
+- Your answers on an entry: *All right, remember this* (or *… this time* for what happens once) — he no longer tells
+  it unless it changes; *Something like this is always all right …* — you choose, in whole sentences, what he no longer
+  tells; *That was an incident …* — he records it, and the same from the same source is told at once. A line at the
+  bottom then says what holds now, with *Undo*.
+- An advice keeps *I know, thanks*. Every answer can be taken back: in the setup of its area, an incident in the watch
+  book (*Not an incident after all …*).
 - While the array is stopped, his night shift keeps watch from RAM and the flash.
+
+**Areas and lights:** his page is a row of 12 tiles — Logins, Accounts and ways in, Containers, Plugins and scripts, The
+server, Data, Snapshots and backup, Network, Hardware, Known vulnerabilities, Array, Who woke my disks? — then the
+watch book (everything done) and his schedule. One meaning per colour: red — something waits for your answer and is
+urgent; yellow — something waits, not urgent; green — all quiet; green with «!» — quiet, with an advice; grey — not
+checked (switched off, not there, or he can't reach it now). *Only what waits for you* leaves red and yellow. Nothing
+chosen, the page shows every area: a quiet one in a line, one where something waits with its entries. A tile shows what
+waits, its advice, and folded what he knows there (*Known: 12 addresses* …); two lines jump to what is always all right
+or remembered there (his setup) and to what is done (the watch book); a third, *What he checks here and how he knows*,
+opens the page help at that area. There, under *The areas*, each area has its line and, folded, what he looks at, when he
+tells you (with a notification or only as an open entry), how often, and an example — its numbers are your settings in
+effect; the search finds each one.
+
+**Setup** (his second tab), the same 12 areas: when he tells (its settings — the default is always what he did before —
+for the hardware the degrees and hours a sensor may be warm, how many memory or PCIe errors count, an SSD's wear; a
+service's crashes an hour; whether out-of-memory, floods and DNS changes are told), *Always all right (n)*,
+*Remembered (n)*, and the switch to watch it at all — off only after one clear question naming what you won't see.
+*Only what is changed* over the row: the one place to see what he no longer says.
+*Re-learn this area…* (at the end of each area) and *Re-learn everything…* (at the top) make what is there now normal and
+let him learn what is usual anew (the data flow: its 7 days again) — after one clear question; the area's open entries are
+noted as done by it, your answers there go, and with its checkboxes its exceptions and settings too. Nothing is deleted: it
+is set aside first and *Bring back…* puts it back within 7 days.
+
+**Always all right:** *Something like this is always all right …* on an entry, or *Add…* in his setup — a net for logins, a container's ports,
+a share whose deletions aren't judged, a snapshot series that may be thinned, a router's admin from your net, a sensor
+that may get warm up to so many degrees, a service whose crashes you know, a vulnerability that doesn't apply here (a
+whole product only with a clear yes), a disk not to judge. What it
+names is noted, never told; lifted in his setup, the next round tells what is still different. Never let through: the same
+as a serious incident on your list (unless you decided after it), part of a chain forming, and — unless you switch it off —
+more than half of a share gone or 200 000 files deleted in one hour. For what an attacker does first he asks more clearly
+(two sentences, a button naming it); you decide.
+
+**His history:** what he notes himself (or an exception does) leaves the watch book after a quiet week: 13 months by
+month, under the book, loaded when you open it. The book keeps what is open and what you answered.
 
 **The router** (UniFi, MikroTik with RouterOS 7) sends its log to Unraid's syslog server; the Consultant shows how.
 He notes new logins, firewall and port-forwarding changes, intrusions, new devices, the log gone silent.
@@ -380,6 +440,15 @@ His fans' biggest fan: he steers the fans on the mainboard's fan connectors by w
   Every kind of heat source in a zone has its own curve: *Quiet*, *Normal*, *Cool* or your own (kept per kind). The zone
   runs at what the most demanding curve asks; the curve alone decides. Disks outside the array and pools count too; a
   sleeping disk is never woken.
+- **Heat sources in no zone** (disks, SSDs, NVMe): when one gets warm — its kind's full-speed temperature, Unraid's
+  warning for that disk or the drive's own warning, whichever is lowest — every fan he steers runs at least at 60 %, at
+  its limit at 100 %, and he tells you. A drive is judged by what it reports itself: an NVMe by its *Composite*
+  temperature. Its further sensors (*Sensor 1 … 8*) are shown and count in a zone you put them into, but never speed
+  the fans up on their own, are never proposed for a zone and are never the warmest spot.
+- **Ignore:** unfold a sensor under *Sensors* (or, for a heat source in no zone, in the zones step) and choose *Ignore*.
+  Fanboy keeps reading and showing it, greyed, but it never speeds the fans up, is never proposed for a zone and never
+  counts as the warmest spot. One in a zone asks first and leaves that zone; a zone's only heat source can't be ignored.
+  *Count again* undoes it, and so does putting it into a zone and saving the zones.
 - **How he reacts:** *React slowly* (up a little every 2 s, down only once it is 3 °C cooler and after 30 s) or *React
   quickly* (up at once, down soon).
 - **Take over** hands the fans to him. The CPU cooler and pumps stay with the BIOS, unless you give him the cooler at
@@ -481,6 +550,15 @@ You need Unraid **7.3.2 or a newer 7.x**. Nothing else to install.
 **Nothing leaves the server** unless you set it up: offsite to your storage, partner offices to the partner.
 
 - The office asks GitHub once a day for a new version and checks logo addresses for containers without a picture.
+- Only if you switch on the Night Watchman's «Known vulnerabilities» (off until you do): once a day public lists —
+  cisa.gov (actively exploited vulnerabilities), raw.githubusercontent.com (the CVE records of those), releases.unraid.net
+  (Unraid's releases and their support), endoflife.date (which release lines still get fixes). Every office asks the
+  same; nothing of your server goes along. Then services.nvd.nist.gov (NIST's NVD), only for the vulnerabilities that
+  concern a program here and that the CVE record can't settle: the request names the CVE id and nothing else, at most 40
+  a day, one every 6.5 seconds (NVD's limit without a key). This product uses the NVD API but is not endorsed or certified
+  by the NVD. And api.github.com, only for the programs found in a container here that publish their advisories there:
+  the request names the project and nothing else, at most three pages of 100 a program and day. Your router counts too, passively: MikroTik RouterOS and the UniFi Network Application by the version their
+  own log says (or a UniFi container's image) — the office never logs into a router; without a version it says so.
 - It sends a report only when you send one. No telemetry.
 - The desks never wake a sleeping disk unless you ask. The scheduled backup does, unless you leave sleeping pools out.
 

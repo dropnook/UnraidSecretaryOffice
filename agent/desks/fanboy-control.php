@@ -27,6 +27,19 @@ declare(strict_types=1);
  */
 
 const FANBOY_ROUND = 2.0;               // seconds between rounds
+/*
+ * How often a heat source is read (2026-11-25, the owner: «jede Runde ist nur für die CPU wichtig; alles andere reicht
+ * alle 15 Sekunden — auch NVMe und RAM brauchen viel länger zum Warmwerden»). Measured on nostromo: one NVMe (a Corsair MP600 PRO) takes 1.04 s for every hwmon read — the loop sat in it
+ * every round. A source of kind `cpu`: every round. Every other hwmon source (a zone's and the net's): at most every
+ * FANBOY_SLOW_EVERY s, its last value counts in between (fanboyReadDue()) — read at once when never read, when its path
+ * is new (found again, moved) and after a read that said nothing (no held value ever hides a silent sensor; its quiet
+ * clock starts at its last good read). Unraid's disks.ini (a file in RAM, it costs nothing) stays at every
+ * FANBOY_DISKS_EVERY s, 10 as before: that read is also where the control sees the array stop (fanboyDisksUnknown():
+ * the disks' values «unknown», a zone keeps its level) and a disk outside the array in use by its I/O counters moving
+ * (fanboyDisks(): the «in use» alarm after FANBOY_DISK_SENSOR_AFTER) — at 30 s both would come up to 20 s later.
+ */
+const FANBOY_SLOW_EVERY = 15.0;
+const FANBOY_DISKS_EVERY = 10.0;
 const FANBOY_FOREIGN_CONFIRM = 3.0;     // seconds someone else's write must be seen before he acts (one read can be wrong;
                                         // nct6775 keeps registers ~1.5 s): three looks over ~4 s at FANBOY_ROUND
 const FANBOY_GAP = 2.0;                 // °C below the temperature it went up at before it goes down
@@ -311,6 +324,9 @@ function fanboyNet(array &$c, float $now): int
         $disk = $c['disks'][$id] ?? null;
         $warm = (float) min($d['high'], is_int($disk['warn'] ?? null) ? $disk['warn'] : PHP_INT_MAX);
         $limit = (float) min($d['limit'], is_int($disk['crit'] ?? null) ? $disk['crit'] : PHP_INT_MAX);
+        // 2026-11-27: a drive's main reading — the drive's own warning and critical value too (fanboyDriveLimits()), the lower wins
+        $warm = is_float($l['max'] ?? null) ? min($warm, $l['max']) : $warm;
+        $limit = is_float($l['crit'] ?? null) ? min($limit, $l['crit']) : $limit;
         $t = (float) $l['c'];
         $here = $t >= $limit ? FANBOY_NET_HOT_PCT : ($t >= $warm ? FANBOY_NET_WARM_PCT : 0);
         if ($t > $warm - FANBOY_NET_GAP) {
@@ -335,6 +351,14 @@ function fanboyNet(array &$c, float $now): int
         return $c['net']['level'];
     }
     if ($n === null) {
+        return 0;
+    }
+    // 2026-11-27: the source that held it is still there but no longer the net's (put into a zone, a drive's further
+    // sensor, set aside): over at once — its zone or the user decides now. One that went away waits the clear time.
+    if (isset($c['net_out'][$n['source']['id'] ?? ''])) {
+        fanboyNote($c, 'net_over', ['source' => $n['source']['label'] ?? '']);
+        $c['net'] = null;
+        fanboyUntell($c, 'net');
         return 0;
     }
     if (!$calm) {
@@ -555,6 +579,84 @@ function fanboyDiskAllowance(?int $poll, array $disks): array
     return $out;
 }
 
+/*
+ * A drive is judged by what the drive itself reports (2026-11-27, a user's ASUS Pro WS W680-ACE IPMI with two Kingston
+ * KC3000: «Composite» 33 °C — what the drive goes by, its smart log without one minute over a warning —, «Sensor 2» 77 °C,
+ * no limits, the same to the hundredth for minutes. The net took «Sensor 2» for a warm drive: every fan at 60 % for good,
+ * a warning mail at every start, and no way out). A drive's hwmon (FANBOY_DRIVE_KINDS: NVMe — the drives Unraid's
+ * disks.ini says are never read through drivetemp) has ONE main reading: the sensor labelled «Composite» where there is
+ * one, else its first temperature (temp1, else the lowest number). Its further sensors (NVMe's «Sensor 1 … 8»: the
+ * controller's, the flash's — none of them what the drive itself judges by) are read and shown as before and count in a
+ * zone the user put them into on purpose — never in the net, a proposal, the warmest spot or the measuring's guard
+ * (`further` on the source). The main reading's own limits for the net: fanboyDriveLimits().
+ */
+const FANBOY_DRIVE_KINDS = ['nvme'];
+
+/** A drive chip's main temperature (its `n`): «Composite», else the first — null for a chip that is no drive or has none */
+function fanboyDriveMain(array $chip): ?int
+{
+    if (!in_array($chip['kind'] ?? null, FANBOY_DRIVE_KINDS, true) || !is_array($chip['temps'] ?? null) || !$chip['temps']) {
+        return null;
+    }
+    foreach ($chip['temps'] as $t) {
+        if (strcasecmp(trim((string) ($t['label'] ?? '')), 'Composite') === 0) {
+            return (int) $t['n'];
+        }
+    }
+    return (int) min(array_column($chip['temps'], 'n'));
+}
+
+/** Is temperature $n of this chip a drive's further sensor (one the drive itself doesn't judge by)? */
+function fanboyFurther(array $chip, int $n): bool
+{
+    $main = fanboyDriveMain($chip);
+    return $main !== null && $main !== $n;
+}
+
+/**
+ * A drive's own limits for its main reading, from the driver ($input: its `tempN_input`): `max` — for NVMe the
+ * over-temperature threshold the drive warns at (the nvme driver's temp1_max: WCTEMP unless someone set another) — and
+ * `crit` (temp1_crit: CCTEMP, where the drive protects itself). Each °C, or null where the driver gives none, says 0 or
+ * a value outside the kind's FANBOY_KIND_BOUNDS. Read once per path (the control keeps them): an NVMe answers slowly.
+ *
+ * @return array{max: ?float, crit: ?float}
+ */
+function fanboyDriveLimits(string $kind, string $input): array
+{
+    [$lo, $hi] = FANBOY_KIND_BOUNDS[$kind] ?? FANBOY_KIND_BOUNDS['other'];
+    $base = (string) preg_replace('/_input$/D', '', $input);
+    $one = function (string $file) use ($lo, $hi): ?float {
+        $m = fanboyReadInt($file);
+        if ($m === null || $m === 0) {
+            return null;
+        }
+        $c = round($m / 1000, 2);
+        return $c >= $lo && $c <= $hi ? $c : null;
+    };
+    return ['max' => $one("{$base}_max"), 'crit' => $one("{$base}_crit")];
+}
+
+/*
+ * «Nicht beachten» (2026-11-27, the same user: «there is no way to set a sensor aside»): the heat sources the user set
+ * aside, by the ids his zones use (fanboySourceId() — a chip's device without hwmonN, a disk by its name: steady across
+ * boots). Kept in this board's entry of settings.json as `aside` [id…] (new, additive: an older office never reads it and
+ * keeps it on rewrite, a store without it has nothing set aside); his mirror carries the entry whole, so the running
+ * control sees a change as it sees a zone saved (fanboyControlReload()). A source set aside is read and shown as before
+ * — it is never the net's, never proposed for a zone, never the warmest spot; setting it aside takes it out of every
+ * zone (fanboyAside()), putting it into a zone again counts it again (fanboyZonesSave()).
+ */
+const FANBOY_ASIDE_MAX = 256;
+
+/** The ids set aside in this board's settings — only strings in exactly that shape; none, or another shape: [] */
+function fanboyAsideIds(?array $settings): array
+{
+    $a = $settings['aside'] ?? null;
+    if (!is_array($a) || !array_is_list($a)) {
+        return [];
+    }
+    return array_slice(array_values(array_unique(array_filter($a, fn ($id) => is_string($id) && $id !== '' && strlen($id) <= 1000))), 0, FANBOY_ASIDE_MAX);
+}
+
 /** Every heat source the server offers now: Unraid's disks (by name) and every hwmon temperature (no drivetemp) */
 function fanboySources(array $scan): array
 {
@@ -571,10 +673,13 @@ function fanboySources(array $scan): array
         if ($c['kind'] === 'disk') {
             continue;               // drivetemp asks the disk: never (Unraid's disks.ini says it)
         }
+        $main = fanboyDriveMain($c);
         foreach ($c['temps'] as $t) {
             $out[] = ['kind' => $c['kind'], 'id' => fanboySourceId($c, $t['n']), 'label' => $t['label'] !== '' ? $t['label'] : $c['name'] . " #{$t['n']}",
                       'c' => $t['c'], 'asleep' => false, 'chip' => $c['name'], 'hwmon' => $c['hwmon'], 'n' => $t['n'],
-                      'pool' => $c['kind'] === 'nvme' ? fanboyNvmePool($c, $scan['disks'] ?? []) : null];
+                      'pool' => $c['kind'] === 'nvme' ? fanboyNvmePool($c, $scan['disks'] ?? []) : null,
+                      // 2026-11-27: a drive's further sensor — shown, never what the drive is judged by (above)
+                      'further' => $main !== null && $main !== $t['n']];
         }
     }
     return $out;
@@ -671,6 +776,8 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
         'missing' => null, 'started' => null, 'last_hist' => null, 'last_keep' => null, 'hist' => [], 'curves' => [], 'look_now' => false,
         'disks_at' => null, 'disks' => [], 'scan_at' => null, 'events' => [], 'poll' => null, 'allow' => 0, 'disks_unknown' => null,
         'loose' => [], 'net' => null,         // round 12 fix: the heat sources in none of his zones, and the net for them
+        'net_out' => [],                      // 2026-11-27: … those there that are not the net's (in a zone, a further sensor, set aside)
+        'aside' => array_fill_keys(fanboyAsideIds($settings), true),        // 2026-11-27: the sources the user set aside
     ];
 }
 
@@ -769,11 +876,40 @@ function fanboyTachs(?string $hwmon, array $tachs): array
     return array_map(fn ($n) => fanboySaneRpm(fanboyReadInt("$dir/fan{$n}_input")), $tachs);
 }
 
-/** The zones' sources now: [id => {c, asleep, label, kind}] — disks from disks.ini (every 10 s), sensors every round */
+/**
+ * Is a hwmon source's read due in this round (FANBOY_SLOW_EVERY above)? $s: its entry — kind, path and what the last read
+ * left (`read_at`, `read_path`, `c`)
+ */
+function fanboyReadDue(array $s, float $now): bool
+{
+    return ($s['kind'] ?? null) === 'cpu' || !is_float($s['read_at'] ?? null) || ($s['read_path'] ?? null) !== ($s['path'] ?? null)
+        || ($s['c'] ?? null) === null || $now - $s['read_at'] >= FANBOY_SLOW_EVERY;
+}
+
+/**
+ * A hwmon source read when due (fanboyReadDue()), else its last value kept: its entry with `c` and what the read left —
+ * `read_at`, `read_path`, `ok_at` (the last read that gave a value). No path: no value, nothing kept.
+ */
+function fanboyReadHeld(array $s, float $now): array
+{
+    if ($s['path'] === null) {
+        return ['c' => null, 'read_at' => null, 'read_path' => null] + $s;
+    }
+    if (!fanboyReadDue($s, $now)) {
+        return $s;
+    }
+    $v = fanboySaneTemp(fanboyReadInt($s['path']));
+    return ['c' => $v, 'read_at' => $now, 'read_path' => $s['path'], 'ok_at' => $v !== null ? $now : ($s['ok_at'] ?? null)] + $s;
+}
+
+/**
+ * The zones' sources now: [id => {c, asleep, label, kind}] — disks from disks.ini (every FANBOY_DISKS_EVERY s), a CPU
+ * every round, every other sensor at most every FANBOY_SLOW_EVERY s (fanboyReadHeld())
+ */
 function fanboyReadSources(array &$c, float $now): void
 {
     $p = fanboyPaths(fanboySysRoot() ?: null);
-    if ($c['disks_at'] === null || $now - $c['disks_at'] >= 10) {
+    if ($c['disks_at'] === null || $now - $c['disks_at'] >= FANBOY_DISKS_EVERY) {
         $c['disks'] = [];
         foreach (fanboyDisks($p['disks'], fanboyDiskLimits($p)) as $d) {      // round 12 fix: with Unraid's warning per disk (the net)
             $c['disks'][$d['name']] = $d;
@@ -795,8 +931,9 @@ function fanboyReadSources(array &$c, float $now): void
         }
     }
     if ($c['scan_at'] === null || $now - $c['scan_at'] >= 30 || array_filter($c['sources'], fn ($s) => $s['path'] === null && !in_array($s['kind'], FANBOY_DISK_KINDS, true))) {
-        // where each sensor is this boot (looked up anew every 30 s and while one is missing)
-        $chips = fanboyChips($p['hwmon']);
+        // where each sensor is this boot (looked up anew every 30 s and while one is missing) — names and paths only, no
+        // temperature read here (a slow sensor would cost its second once more)
+        $chips = fanboyChips($p['hwmon'], false);
         $where = [];
         $byName = [];
         foreach ($chips as $chip) {
@@ -834,25 +971,40 @@ function fanboyReadSources(array &$c, float $now): void
         }
         $all = fanboySources(['chips' => $chips, 'disks' => array_values($c['disks'])]);
         $loose = [];
+        $out = [];
         foreach ($all as $s) {
-            if (isset($inZones[$s['id']]) || !in_array($s['kind'], FANBOY_NET_KINDS, true)) {
+            if (!in_array($s['kind'], FANBOY_NET_KINDS, true)) {
+                continue;
+            }
+            // 2026-11-27: there now but not the net's — in a zone, a drive's further sensor (fanboyDriveMain()), set aside
+            // by the user (fanboyAsideIds()): a net it holds ends at once (fanboyNet()), never after the clear time
+            if (isset($inZones[$s['id']]) || !empty($s['further']) || isset($c['aside'][$s['id']])) {
+                $out[$s['id']] = true;
                 continue;
             }
             $w = $where[$s['id']] ?? null;
-            $loose[$s['id']] = ['kind' => $s['kind'], 'label' => $names[$s['id']] ?? $s['id'],
-                'path' => in_array($s['kind'], FANBOY_DISK_KINDS, true) ? null : ($w !== null && !$w['disk'] ? $w['path'] : null),
-                'c' => $c['loose'][$s['id']]['c'] ?? null];
+            $old = $c['loose'][$s['id']] ?? [];
+            $path = in_array($s['kind'], FANBOY_DISK_KINDS, true) ? null : ($w !== null && !$w['disk'] ? $w['path'] : null);
+            $loose[$s['id']] = ['kind' => $s['kind'], 'label' => $names[$s['id']] ?? $s['id'], 'path' => $path, 'c' => $old['c'] ?? null]
+                // when it was read last, where, and its last good read (fanboyReadHeld()): a rescan reads nothing anew by itself
+                + array_intersect_key($old, ['read_at' => 1, 'read_path' => 1, 'ok_at' => 1]);
+            // 2026-11-27: a drive's main reading with the drive's own limits (fanboyDriveLimits()), read once per path
+            if ($path !== null && in_array($s['kind'], FANBOY_DRIVE_KINDS, true)) {
+                $lim = ($old['lim_path'] ?? null) === $path ? ['max' => $old['max'] ?? null, 'crit' => $old['crit'] ?? null] : fanboyDriveLimits($s['kind'], $path);
+                $loose[$s['id']] += $lim + ['lim_path' => $path];
+            }
         }
         $c['loose'] = $loose;
+        $c['net_out'] = $out;
         $c['scan_at'] = $now;
     }
-    // round 12 fix: their temperatures now — hwmon every round, Unraid's disks as disks.ini says (asleep: none)
+    // round 12 fix: their temperatures now — hwmon when due (fanboyReadHeld()), Unraid's disks as disks.ini says (asleep: none)
     foreach ($c['loose'] as $id => $l) {
         if (in_array($l['kind'], FANBOY_DISK_KINDS, true)) {
             $d = ($c['disks_unknown'] ?? null) !== null ? null : ($c['disks'][$id] ?? null);      // unknown: no value for the net either
             $c['loose'][$id]['c'] = $d === null || $d['asleep'] || $d['temp'] === null ? null : $d['temp'] + ($c['allow'] ?? 0);
         } else {
-            $c['loose'][$id]['c'] = $l['path'] === null ? null : fanboySaneTemp(fanboyReadInt($l['path']));
+            $c['loose'][$id] = fanboyReadHeld($l, $now);
         }
     }
     foreach ($c['sources'] as $id => $s) {
@@ -867,15 +1019,15 @@ function fanboyReadSources(array &$c, float $now): void
             $c['sources'][$id]['there'] = $d !== null;
             $c['sources'][$id]['in_use'] = !$unknown && ($d['in_use'] ?? false) === true;       // round 13b: in use, no temperature
         } else {
-            $raw = $s['path'] === null ? null : fanboyReadInt($s['path']);
+            $c['sources'][$id] = fanboyReadHeld($s, $now);
             $c['sources'][$id]['unknown'] = false;
             $c['sources'][$id]['asleep'] = false;
-            $c['sources'][$id]['c'] = fanboySaneTemp($raw);
             $c['sources'][$id]['there'] = $s['path'] !== null;
         }
-        // since when it says nothing (an asleep disk says nothing on purpose; an unknown one can't say)
+        // since when it says nothing (an asleep disk says nothing on purpose; an unknown one can't say) — a sensor read
+        // every FANBOY_SLOW_EVERY s since its last good read: what it did in between nobody saw (never a later start)
         $quiet = $c['sources'][$id]['c'] === null && !$c['sources'][$id]['asleep'] && !$c['sources'][$id]['unknown'];
-        $c['sources'][$id]['quiet_since'] = $quiet ? ($s['quiet_since'] ?? $now) : null;
+        $c['sources'][$id]['quiet_since'] = $quiet ? ($s['quiet_since'] ?? (is_float($s['ok_at'] ?? null) ? $s['ok_at'] : $now)) : null;
     }
 }
 
@@ -2432,7 +2584,9 @@ function fanboyControlReload(array &$c, array $settings, string $key, array $own
             }
         }
     }
-    foreach (['hist', 'curves', 'alarm', 'reasons', 'clear_since', 'told', 'notes', 'full_since', 'started', 'last_hist', 'last_keep'] as $k) {
+    // 2026-11-27: the net and what it watches go on too (before, a save dropped the net and the next round raised it anew —
+    // what it had told stayed told for good); the rescan at the next round sees what no longer counts and ends it there
+    foreach (['hist', 'curves', 'alarm', 'reasons', 'clear_since', 'told', 'notes', 'full_since', 'started', 'last_hist', 'last_keep', 'net', 'loose'] as $k) {
         if (array_key_exists($k, $c)) {
             $new[$k] = $c[$k];
         }

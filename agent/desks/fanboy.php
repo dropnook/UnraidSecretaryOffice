@@ -38,7 +38,9 @@ declare(strict_types=1);
  *        "board": {"vendor": "…", "model": "…"},
  *        "fans": {                                keyed by fanboyFanId(): «chip:address:pwmN» (no hwmonN ever)
  *          "<fan id>": {"chip": "it8696", "address": "it87.2624", "output": 4, "tach": 4 | null, …part 2's keys}
- *        }}}}
+ *        },
+ *        "aside": ["<source id>", …]              2026-11-27: heat sources set aside («Nicht beachten», fanboyAsideIds())
+ *      }}}
  * Readers take only entries in exactly that shape and never rewrite or delete anything that doesn't match
  * (fanboyStoreRead(), fanboyResolve()): what fits nothing stays where it is, Fanboy says what is missing.
  */
@@ -96,6 +98,7 @@ desk('fanboy', [
         'fan_save'      => fn (array $r) => fanboyFanSave($r),         // 2026-11-20: an output's details in one request
         'zones_propose' => fn (array $r) => ['ok' => true, 'zones' => fanboyZonesPropose($scan = fanboyDetect(), fanboyBoardRaw($scan['board']) ?? [])],
         'zones_save'    => fn (array $r) => fanboyZonesSave($r),
+        'aside'         => fn (array $r) => fanboyAside($r),          // 2026-11-27: «Nicht beachten» / «Wieder beachten» per heat source
         'dry_run'       => fn (array $r) => fanboyDryRun(),
         'take_over'     => fn (array $r) => fanboyTakeOver($r) + ['state' => fanboyScan()],       // round 12 fix: uncovered_ok
         'hand_back'     => fn (array $r) => fanboyHandBack() + ['state' => fanboyScan()],
@@ -140,6 +143,12 @@ function fanboyScan(): array
     $state['restore'] = fanboyRestoreRead();            // round 9 (H2): «back to the value before» running or just done
     $state['idle'] = fanboyIdleState();                 // round 6: the fans he doesn't steer, watched (fanboy-watch.php)
     $state['disk_allow'] = fanboyPollAllowance($state['poll'] ?? null);      // round 6: °C the zone logic adds to an old disk value
+    // 2026-11-27: the warmest spots without the sources the user set aside (the look alone leaves out only a drive's further sensors)
+    if (($aside = fanboyAsideIds($settings)) !== []) {
+        $state['hottest'] = fanboyHottest($state['chips'], $state['disks'], $aside);
+        $state['hottest_kinds'] = fanboyHottestKinds($state['chips'], $state['disks'], $aside);
+        $state['hottest_lead'] = fanboyHottestLead($state['hottest_kinds']);
+    }
     writeAtomic(deskFile('fanboy'), jsonEncode($state));
     return $state;
 }
@@ -1045,6 +1054,8 @@ function fanboySetupState(array $scan, ?array $settings): array
         'auto_back_seen' => is_array($settings['auto_back_seen'] ?? null) && is_int($settings['auto_back_seen']['at'] ?? null) ? $settings['auto_back_seen'] : null,
         // round 12 fix: the heat sources in no zone — [{kind, id, name, c, asleep}] (the zones step and «take over» warn)
         'uncovered' => fanboyUncovered($scan, $settings),
+        // 2026-11-27: the heat sources he set aside («Nicht beachten») — ids as the zones keep them (fanboyAsideIds())
+        'aside' => fanboyAsideIds($settings),
         'board' => $key, 'others' => count(array_diff(array_keys($store['boards']), [$key])),
         'fans' => $fans, 'zones' => $zones, 'armed' => ($settings['armed'] ?? false) === true,
         'outputs' => array_keys(fanboyOutputs($scan)), 'missing' => $missing, 'sources' => fanboySources($scan),

@@ -1167,13 +1167,17 @@ function watchChoice() {
 function sensorRows() {
   const out = [];
   const src = setup().sources || [];
+  const aside = asideIds();
   chips().forEach((c) => c.temps.forEach((x) => {
-    const sid = (src.find((y) => y.chip === c.name && y.hwmon === c.hwmon && y.n === x.n) || {}).id || null;
-    out.push({ id: sid, name: sid ? srcLabel(src.find((y) => y.id === sid)) : x.label || T('sensors.row', { n: x.n }), label: x.label, chip: c, kind: c.kind, c: x.c,
-      key: `${c.address}:${x.n}`, feature: `temp${x.n}` });
+    const s = src.find((y) => y.chip === c.name && y.hwmon === c.hwmon && y.n === x.n) || {};
+    const sid = s.id || null;
+    // 2026-11-27: a drive's further sensor — and the drive's main reading it is not (the agent's fanboyDriveMain())
+    const main = s.further === true ? src.find((y) => y.chip === c.name && y.hwmon === c.hwmon && y.further === false) : null;
+    out.push({ id: sid, name: sid ? srcLabel(s) : x.label || T('sensors.row', { n: x.n }), label: x.label, chip: c, kind: c.kind, c: x.c,
+      key: `${c.address}:${x.n}`, feature: `temp${x.n}`, further: s.further === true, main: main ? srcLabel(main) : '', aside: !!sid && aside.has(sid) });
   }));
   (S().disks || []).forEach((d) => out.push({ id: d.name, name: srcLabel({ kind: 'disk', id: d.name }), chip: null, kind: 'disk', c: d.temp, asleep: d.asleep, in_use: d.in_use === true, key: `disk:${d.name}`, disk: d.name,
-    rot: d.rotational !== false, warn: num(d.warn), crit: num(d.crit) }));
+    rot: d.rotational !== false, warn: num(d.warn), crit: num(d.crit), aside: aside.has(d.name) }));
   out.forEach((x) => { x.zones = x.id ? (setup().zones || []).filter((z) => (z.sources || []).some((y) => y.id === x.id)) : []; });
   return out;
 }
@@ -1187,8 +1191,9 @@ function rowKind(x) {
   if (x.kind === 'disk') return x.rot === false ? 'ssd' : 'hdd';
   return { nvme: 'ssd', cpu: 'cpu', board: 'board', ram: 'ram' }[x.kind] || 'other';
 }
-/** A sensor to look at: a disk over Unraid's own warning, or the sensor the control's alarm names (no limit of Fanboy's) */
+/** A sensor to look at: a disk over Unraid's own warning, or the sensor the control's alarm names (no limit of Fanboy's) — never one set aside */
 function inAlarm(x) {
+  if (x.aside) return false;
   const a = control().running && control().alarm ? control().alarm : null;
   if (a && a.code === 'sensor' && a.params && a.params.source && [x.name, x.label, x.disk].includes(a.params.source)) return true;
   return num(x.c) !== null && num(x.warn) !== null && x.c >= x.warn;
@@ -1204,10 +1209,59 @@ function sensorRow(x, place) {
   else if (x.c === null || x.c === undefined) meta.appendChild(chipOfText('quiet', T('sensors.no_value'), T('sensors.no_value_title')));
   if (inAlarm(x)) meta.appendChild(chipOfText('warn', T('sensors.too_warm'), T('sensors.too_warm_title')));
   x.zones.forEach((z) => meta.appendChild(chipOfText('accent', z.name, T('sensors.in_zone'))));
+  if (x.further) meta.appendChild(chipOfText('quiet', T('sensors.further'), T('sensors.further_title')));
+  if (x.aside) meta.appendChild(chipOfText('quiet', T('sensors.aside'), T('sensors.aside_title')));
   const v = el('div', 'fb-value', x.c === null || x.c === undefined ? '–' : T('temp', { c: fmt.number(x.c) }));
-  return unfoldRow(`temp:${x.key}`, place ? { place: `temp:${x.key}` } : {}, x.name, meta, v,
+  // 2026-11-27: what a drive's further sensor is, and that one is set aside, said on the row itself (not only in a tip)
+  const lines = el('div', 'fb-row-says');
+  lines.appendChild(meta);
+  if (x.further) lines.appendChild(el('p', 'fb-row-note', T('sensors.further_line', { main: x.main || T('kind.nvme') })));
+  if (x.aside) lines.appendChild(el('p', 'fb-row-note', T('sensors.aside_line')));
+  const row = unfoldRow(`temp:${x.key}`, place ? { place: `temp:${x.key}` } : {}, x.name, lines, v,
     x.chip ? [[T('tech.chip'), `${x.chip.name} · ${x.chip.address}`], [T('tech.sensor'), `${x.feature}_input · ${x.chip.hwmon}`]]
       : [[T('tech.disk'), x.disk], [T('tech.from'), 'disks.ini']]);
+  if (x.aside) row.classList.add('fb-aside');
+  // «Nicht beachten» / «Wieder beachten» — in the unfolded detail, for every row that is a heat source of his
+  if (x.id) {
+    const box = row.querySelector('.fb-tech');
+    if (box) box.appendChild(bar(asideButton(x)));
+  }
+  return row;
+}
+/** The ids of the heat sources the user set aside (the agent's fanboyAsideIds(); an older agent: none) */
+const asideIds = () => new Set(Array.isArray(setup().aside) ? setup().aside : []);
+/** The zones (as saved) a heat source is in */
+const zonesWith = (id) => (setup().zones || []).filter((z) => (z.sources || []).some((y) => y.id === id));
+/**
+ * «Nicht beachten» or «Wieder beachten» for a sensor row (2026-11-27): setting aside one that is in a zone asks first and
+ * says it leaves those zones; the last heat source of a zone can't be — the button says why (offBtn()). Looked up again
+ * by its id after a fresh look (show first, then look).
+ */
+function asideButton(x) {
+  const on = !x.aside;
+  const b = button(T(on ? 'sensors.aside_go' : 'sensors.aside_back'), T(on ? 'sensors.aside_go_tip' : 'sensors.aside_back_tip'), (b2) => asideAsk(x.id, on, b2), 'btn small plain');
+  b.dataset.own = '1';
+  const last = on ? zonesWith(x.id).find((z) => (z.sources || []).length <= 1) : null;
+  if (last) offBtn(b, T('sensors.aside_last', { source: x.name, zone: last.name || last.id }));
+  return b;
+}
+async function asideAsk(id, on, b) {
+  if (!(await Office.freshState(ID))) return;
+  const known = (setup().sources || []).find((y) => y.id === id);
+  if (on && !known) { Office.toast(Office.errorText({ key: 'fanboy_aside_gone', params: { source: id } }, ID), true); return; }
+  const name = known ? srcLabel(known) : id;
+  const zs = on ? zonesWith(id) : [];
+  if (!zs.length) { await act('aside', { source: id, on }, b); return; }
+  const last = zs.find((z) => (z.sources || []).length <= 1);
+  if (last) { Office.toast(T('sensors.aside_last', { source: name, zone: last.name || last.id }), true); return; }
+  Office.dialog({
+    title: T('sensors.aside_confirm_title', { source: name }),
+    body: T('sensors.aside_confirm', { source: name, zones: zs.map((z) => `«${z.name || z.id}»`).join(', '), n: zs.length }),
+    buttons: [{ text: t('common.cancel') }, { text: T('sensors.aside_go'), kind: '', act: async () => {
+      await act('aside', { source: id, on: true, from_zones: true }, b);
+      return true;
+    } }],
+  });
 }
 /**
  * The heat sources: first those that count — grouped by zone, the warmest of each first (before the setup: Unraid's disks,
@@ -1241,7 +1295,7 @@ function sensorsSection() {
   if (zones.length) zones.forEach((z) => put(z.name, T('sensors.group_zone'), fits.filter((x) => x.zones.includes(z) && !first.has(x))));
   else {
     // before the setup: grouped by kind — hard disks, SSD/NVMe, CPU, RAM (the board's and the rest's many sensors folded)
-    ['hdd', 'ssd', 'cpu', 'ram'].forEach((k) => put(T(`hk.${k}`), '', fits.filter((x) => rowKind(x) === k && !first.has(x))));
+    ['hdd', 'ssd', 'cpu', 'ram'].forEach((k) => put(T(`hk.${k}`), '', fits.filter((x) => rowKind(x) === k && !first.has(x) && !x.aside)));
   }
   const rest = fits.filter((x) => !first.has(x)).map((x) => sensorRow(x, !placed.has(x.key)));
   if (!list.children.length) list.appendChild(el('p', 'empty', !all.length ? T('sensors.none') : fits.length ? T('sensors.none_first') : T('sensors.none_fit')));
@@ -3799,9 +3853,15 @@ function zonesStep() {
     if (loose.length) {
       const zn = i >= 0 ? zones[i].name || zones[i].id : '';
       const into = (ids) => changeZones((all) => { const z = all.find((x) => x.id === zsel); if (z) z.sources = [...(z.sources || []), ...ids.filter((sid) => !(z.sources || []).some((y) => y.id === sid)).map((sid) => ({ id: sid, kind: srcKind(sid) }))]; });
-      box.appendChild(uncoveredBox(loose, ...(i >= 0 ? [el('span', 'fb-what-label', T('zones.uncovered_into', { zone: zn })),
+      const ubox = uncoveredBox(loose, ...(i >= 0 ? [el('span', 'fb-what-label', T('zones.uncovered_into', { zone: zn })),
         ...loose.map((x) => btn(srcLabel(x), 'btn plain', () => into([x.id]), T('zones.uncovered_in_tip'))),
-        loose.length > 1 ? btn(T('zones.uncovered_all'), 'btn plain', () => into(loose.map((x) => x.id)), T('zones.uncovered_in_tip')) : null] : [])));
+        loose.length > 1 ? btn(T('zones.uncovered_all'), 'btn plain', () => into(loose.map((x) => x.id)), T('zones.uncovered_in_tip')) : null] : []));
+      // 2026-11-27: … or «Nicht beachten» — at once (an action, not the draft); only for one in none of the saved zones
+      const saved = new Set((setup().zones || []).flatMap((z) => (z.sources || []).map((y) => y.id)));
+      const free = loose.filter((x) => !saved.has(x.id));
+      if (free.length) ubox.appendChild(bar(el('span', 'fb-what-label', T('zones.uncovered_aside')),
+        ...free.map((x) => button(srcLabel(x), T('zones.uncovered_aside_tip'), (b2) => asideAsk(x.id, true, b2), 'btn plain'))));
+      box.appendChild(ubox);
     }
     two.append(side, slot);
     box.appendChild(two);
@@ -3847,7 +3907,8 @@ function uncoveredNow(zones) {
   const all = setup().sources || [];
   if (!zdraft || !zones) return (setup().uncovered || []).map((u) => all.find((x) => x.id === u.id) || { id: u.id, kind: u.kind, label: u.name, c: u.c, asleep: u.asleep });
   const inZones = new Set(zones.flatMap((z) => (z.sources || []).map((x) => x.id)));
-  return all.filter((x) => NET_KINDS.includes(x.kind) && !inZones.has(x.id));
+  const aside = asideIds();
+  return all.filter((x) => NET_KINDS.includes(x.kind) && !inZones.has(x.id) && x.further !== true && !aside.has(x.id));      // (never a drive's further sensor, never one set aside)
 }
 /** A heat source said in a sentence: its name and what it reads now (asleep: said, never a number) */
 const srcSay = (x) => `${srcLabel(x)}${num(x.c) !== null ? ` (${T('temp', { c: fmt.number(Math.round(x.c)) })})` : x.in_use ? ` (${T('src.in_use')})` : x.asleep ? ` (${T('pic.asleep')})` : ''}`;
@@ -4039,6 +4100,7 @@ function zoneSources(z, i) {
   const box = el('div', 'fb-sources');
   const kinds = ['disk', 'ssd', 'nvme', 'cpu', 'ram', 'board', 'gpu', 'other'];
   const inZone = new Set((z.sources || []).map((s) => s.id));
+  const aside = asideIds();
   const none = !inZone.size;
   if (none) box.appendChild(para(T('zones.sources_first'), 'fb-hint-text fb-src-first'));
   const multi = zoneKinds(z).length > 1;
@@ -4147,6 +4209,8 @@ function zoneSources(z, i) {
       b2.title = on ? T('zones.src_out') : T('zones.src_in');
       // 2026-11-22: AMD's two CPU values told apart (k10temp)
       if (s.chip === 'k10temp' && ['Tctl', 'Tdie'].includes(s.label)) b2.title += ` — ${T(s.label === 'Tctl' ? 'src.tctl' : 'src.tdie')}`;
+      if (s.further === true) b2.title += ` — ${T('sensors.further_title')}`;      // 2026-11-27: a drive's further sensor
+      if (aside.has(s.id)) { b2.classList.add('fb-src-aside'); b2.title += ` — ${T('zones.src_aside_tip')}`; }      // … one set aside
       b2.onclick = () => changeZones((all) => {
         const has2 = all[i].sources.some((x) => x.id === s.id);
         all[i].sources = has2 ? all[i].sources.filter((x) => x.id !== s.id) : [...all[i].sources, { id: s.id, kind: s.kind }];

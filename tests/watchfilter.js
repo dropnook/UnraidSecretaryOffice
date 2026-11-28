@@ -1,10 +1,10 @@
 /*
- * The night watchman's «What I keep an eye on» with its filter bar (public/desks/watchman/desk.js, under node): the pure
- * part — groupFit() (words in a group's head — title, summary, its extra words: «Docker» — keep the whole group; else
+ * The night watchman's folds «Known: …» in each area (public/desks/watchman/desk.js knownFolds(), under node; up to 1.96
+ * one tile «What I keep an eye on»): the pure part — groupFit() (words in a group's head — title, summary, its extra words: «Docker» — keep the whole group; else
  * each item on its own words with the head; notes go), fitTally(), groupOpen() (with words every group shown unfolded unless folded by
- * hand; without them as kept) — and watchSection() itself on a small stand-in DOM: words hit an item's name, a chip's
- * word, a sub line, a group's title; a group without hits is left out, the one with hits unfolded with «n of m fit» on
- * its summary; the bar told «n of m»; no hits at all: the empty line; no words: every group as before, folded as kept.
+ * hand; without them as kept) — and knownFolds() itself on a small stand-in DOM: each area its own groups; the area's
+ * words hit an item's name, a chip's word, a sub line; a group with hits unfolded with «n of m fit» beside what it is;
+ * no hits: no folds; no words: folded as kept.
  * Then the demo state of the click test (tests/ui/demo/watchman.json) once: drawn whole, and a container's name.
  *
  *   node tests/watchfilter.js public/desks/watchman/desk.js     → one JSON line {pass, fail: [[name, got, want], …]}
@@ -103,7 +103,7 @@ same('open: words — unfolded, unless folded by hand', [W.groupOpen('b', ['x'],
 
 // ------------------------------------------------------------------ the section on the stand-in DOM
 const state = {
-  book: [], open: {}, posture: null, net: null, snaps: null, flow: null,
+  book: [], open: {}, posture: null, net: null, snaps: null, flow: null, on_watch: 1,
   watch: {
     ips: [{ ip: '192.168.1.20', users: ['root'], services: ['ssh'], last: 1 }, { ip: '192.168.1.30', users: ['benj'], services: ['web'], last: 1 }],
     fail_ips: [],
@@ -128,73 +128,47 @@ kept = { 'watchman.groups': { plugins: true } };
 const V = OFFICE_DESK_TESTS.watchman;
 V.setState(state);
 bar.words = '';
-let sec = V.watchSection();
-same('section: the bar under the head, above the box', sec.children.map((c) => c.className), ['section-head', 'toolbar filterbar', 'box wm-watchlist']);
-same('section: no words — every group as before', groups(sec), ALL);
-same('section: no words — folded as kept (only «plugins» open)', closed(sec), ALL.filter((k) => k !== 'plugins'));
-const items = 2 + 3 + 2 + 4 + 1 + 2;          // ips, containers, plugins, flash (go, extra, users, keys), shares, sched (crontab line, script)
-same('section: no words — the bar told every item', bar.done, [items, items]);
-same('section: no words — summaries as they are', metaOf(sec, 'containers'), 'watchman.watch.containers_sum {"special":3,"count":33,"n":33}');
+// 1.96 (Benj): no tile «What I keep an eye on» any more — each area's section has its folds «Known: …» (knownFolds()),
+// found by the area's own filter words
+const folds = (id, w) => V.knownFolds(id, words(w || ''));
+const groupsOf = (box) => (box ? groups(box) : []);
+let sec = folds('container');
+same('area folds: the containers\' area — its one group, in a box of its own', [groupsOf(sec), sec.className], [['containers'], 'box wm-watchlist wm-known-inv']);
+same('area folds: the title says «Known: <its summary>», what it is beneath',
+  [sec.byClass('group-title')[0].textContent, metaOf(sec, 'containers')],
+  ['watchman.inv.title {"what":"watchman.watch.containers_sum {\\"special\\":3,\\"count\\":33,\\"n\\":33}"}', 'watchman.watch.containers']);
+same('area folds: each area its own groups (login: addresses — no failing ones, no data flow yet)',
+  [groupsOf(folds('login')), groupsOf(folds('plugin')), groupsOf(folds('flash')), groupsOf(folds('share')), groupsOf(folds('sched'))],
+  [['ips'], ['plugins'], ['flash'], ['shares'], ['sched']]);
+same('area folds: an area without any (array) or before his first look — none', [folds('array'), (() => { V.setState({ ...state, on_watch: null }); const x = folds('plugin'); V.setState(state); return x; })()], [null, null]);
+same('area folds: no words — folded as kept (only «plugins» open)', [closed(folds('plugin')), closed(folds('container'))], [[], ['containers']]);
 
-bar.words = 'tailscale';
-sec = V.watchSection();
-same('words «tailscale»: the groups with hits (a container\'s name, a User Script\'s name)', groups(sec), ['containers', 'sched']);
-same('words «tailscale»: only the fitting rows', [rowsOf(sec, 'containers'), rowsOf(sec, 'sched')], [['tailscale'], ['nightly-tailscale-check']]);
-same('words «tailscale»: the groups with hits unfolded', closed(sec), []);
-same('words «tailscale»: the summary followed by «n of m fit»', metaOf(sec, 'containers'), 'watchman.watch.containers_sum {"special":3,"count":33,"n":33} · common.filter_hits {"n":1,"total":3}');
-same('words «tailscale»: the bar «2 of all»', bar.done, [2, items]);
-same('words «tailscale»: no empty line', sec.byClass('empty').length, 0);
-
-bar.words = 'net_admin';
-sec = V.watchSection();
-same('words: a chip\'s word', [groups(sec), rowsOf(sec, 'containers')], [['containers'], ['tailscale']]);
-bar.words = 'dlandon';
-sec = V.watchSection();
-same('words: a sub line (a plugin\'s source)', [groups(sec), rowsOf(sec, 'plugins')], [['plugins'], ['unassigned.devices']]);
-bar.words = 'watch.plugins';
-sec = V.watchSection();
-same('words: a group\'s title — the whole group', [groups(sec), rowsOf(sec, 'plugins'), metaOf(sec, 'plugins')], [['plugins'], ['unassigned.devices', 'user.scripts'], 'watchman.watch.plugins_sum {"n":2}']);
-bar.words = 'wireguard';
-sec = V.watchSection();
-same('words: the flash\'s files', [groups(sec), rowsOf(sec, 'flash')], [['flash'], ['watchman.watch.extra']]);
-
-bar.words = 'tailscale';
-sec = V.watchSection();
-// fold a group by hand while the words are typed: for as long as they are; the kept state untouched
-sec.byClass('group').find((g) => g.dataset.place === 'watch:sched').byClass('group-head')[0].onclick({ detail: 0 });
-same('words: a group folded by hand stays folded while the words stay', closed(V.watchSection()), ['sched']);
+sec = folds('container', 'tailscale');
+same('words «tailscale» in the containers\' area: only the fitting row, unfolded, «n of m fit» beside what it is',
+  [rowsOf(sec, 'containers'), closed(sec), metaOf(sec, 'containers')],
+  [['tailscale'], [], 'watchman.watch.containers · common.filter_hits {"n":1,"total":3}']);
+same('words «tailscale» in the schedules\' area: the User Script', rowsOf(folds('sched', 'tailscale'), 'sched'), ['nightly-tailscale-check']);
+same('words: a chip\'s word, a sub line (a plugin\'s source), the flash\'s files',
+  [rowsOf(folds('container', 'net_admin'), 'containers'), rowsOf(folds('plugin', 'dlandon'), 'plugins'), rowsOf(folds('flash', 'wireguard'), 'flash')],
+  [['tailscale'], ['unassigned.devices'], ['watchman.watch.extra']]);
+same('words: an IP typed in the logins\' area finds the known address', rowsOf(folds('login', '192.168.1.30'), 'ips'), ['192.168.1.30']);
+same('words: no hits — no folds at all (the area\'s own line says so)', folds('container', 'zzz-nothing'), null);
+sec = folds('container', 'tailscale');
+sec.byClass('group').find((g) => g.dataset.place === 'watch:containers').byClass('group-head')[0].onclick({ detail: 0 });
+same('words: a group folded by hand stays folded while the words stay', closed(folds('container', 'tailscale')), ['containers']);
 same('words: … the kept groups untouched', kept['watchman.groups'], { plugins: true });
-
-bar.words = 'docker';
-sec = V.watchSection();
-same('words «docker»: the containers with special rights, whole', [groups(sec), rowsOf(sec, 'containers')], [['containers'], ['Plex', 'tailscale', 'Grafana']]);
-
-bar.words = 'zzz-nothing';
-sec = V.watchSection();
-same('no hits at all: no group, the empty line', [groups(sec), sec.byClass('empty').map((p) => p.textContent)], [[], ['watchman.watch.filter.none']]);
-same('no hits at all: the bar «0 of all»', bar.done, [0, items]);
-
-bar.words = '';               // «Show all» empties the words
-sec = V.watchSection();
-same('Show all: every group back', groups(sec), ALL);
-same('Show all: folded as they were', closed(sec), ALL.filter((k) => k !== 'plugins'));
-same('Show all: every row back', rowsOf(sec, 'containers'), ['Plex', 'tailscale', 'Grafana']);
 
 // ------------------------------------------------------------------ the demo state of the click test
 const demo = JSON.parse(fs.readFileSync(path.join(__dirname, 'ui/demo/watchman.json'), 'utf8'));
 V.setState(demo.state || demo);
-bar.words = '';
 let ok = true;
-try { sec = V.watchSection(); } catch (e) { ok = String(e && e.stack); }
-same('demo: drawn whole without words', ok, true);
-const whole = groups(sec).length;
-same('demo: every item counted', bar.done && bar.done[0] === bar.done[1] && bar.done[1] > 20, true);
-bar.words = 'immich_server';
-sec = V.watchSection();
-same('demo: a container\'s name — its special rights and its data flow', groups(sec), ['containers', 'flow_containers']);
-same('demo: fewer groups than without words', groups(sec).length < whole, true);
-bar.words = 'docker';
-sec = V.watchSection();
-same('demo: «docker» — both container groups, whole', [groups(sec), bar.done[0] === 5 + (demo.state || demo).flow.containers.length], [['containers', 'flow_containers'], true]);
+const AREAS = ['login', 'container', 'plugin', 'flash', 'share', 'sched', 'pull', 'data', 'snap', 'host', 'door', 'partner', 'router', 'lan'];
+let drawn = [];
+try { drawn = AREAS.map((id) => groupsOf(folds(id))); } catch (e) { ok = String(e && e.stack); }
+same('demo: every area\'s folds drawn without words', ok, true);
+same('demo: the server itself and its ways in apart; the data flow\'s areas — and its tile «Data» both (1.96 «einfacher»)', [drawn[9], drawn[10], drawn[6], groupsOf(folds('data'))],
+  [['host'], ['doors'], ['flow_clients', 'flow_containers'], ['flow_clients', 'flow_containers', 'flow_shares', 'flow_gone']]);
+same('demo: a container\'s name — its special rights in its area, its data flow in «who pulls»',
+  [groupsOf(folds('container', 'immich_server')), groupsOf(folds('pull', 'immich_server'))], [['containers'], ['flow_containers']]);
 
 console.log(JSON.stringify(out));
