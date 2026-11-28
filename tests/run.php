@@ -21943,7 +21943,8 @@ function testWatchmanVuln(): void
     watchmanVulnTips(['unraid' => ['version' => '7.2.3', 'status' => 'eol', 'newest' => '7.4.1']], $none);
     same('vuln tip: a newer Unraid by its own update check — the advice, its area, to Update OS; the old tip gone',
         [[['version' => '7.4.0', 'newer' => '7.4.1'], '7.4.0|7.4.1', '/Tools/Update'], 'advice', 'vuln', false],
-        [$tips['unraid_newer'] ?? null, WATCH_POSTURE['unraid_newer'], watchmanCatOfTip('unraid_newer'), isset(WATCH_POSTURE['unraid_eol'])]);
+        [$tips['unraid_newer'] ?? null, WATCH_POSTURE['unraid_newer'], watchmanCatOfTip('unraid_newer'),
+         isset(langFile(OFFICE_WEB . '/desks/watchman/lang/en.json')['posture.unraid_eol.title'])]);
 
     // the switch, due once a day, the light
     $wd = "$tmp/w";
@@ -23065,12 +23066,37 @@ function testWatchmanVulnAdvisoryLines(): void
  */
 function testWatchmanVulnPacing(): void
 {
-    same('vuln pacing: NVD — a gap of at least 6 s, at most 5 request starts in any 30 s', [true, true],
-        [WATCH_VULN_NVD_GAP >= 6, intdiv(300, (int) round(WATCH_VULN_NVD_GAP * 10)) + 1 <= 5]);
-    same('vuln pacing: GitHub — the hour\'s budget below its 60, the records\' share leaves room for the advisories', [true, true],
-        [WATCH_VULN_GH_HOUR <= 60 - 5, WATCH_VULN_CVE_RUN <= WATCH_VULN_GH_HOUR - 20]);
     $tmp = hardeningTmp('vuln-pacing');
     $t0 = strtotime('2026-11-28 12:00:00');
+    // NVD: eight unsure CVEs, answers that take no time — the requests' starts by the waits the job made; any 30 s at most 5
+    $nvdKev = [];
+    for ($i = 0; $i < 120; $i++) {
+        $nvdKev[] = ['cveID' => sprintf('CVE-2024-%05d', 60000 + $i), 'vendorProject' => 'Linux', 'product' => 'Kernel', 'vulnerabilityName' => 'x', 'dateAdded' => '2024-06-01'];
+    }
+    $nvdIds = array_slice(array_column($nvdKev, 'cveID'), 0, 8);
+    $clockNow = 0.0;
+    $starts = [];
+    $nvdDir = "$tmp/nvd";
+    @mkdir($nvdDir, 0700, true);
+    watchmanVulnFetch($nvdDir, ['now' => $t0, 'unsure' => $nvdIds, 'ghsa_products' => [], 'clock' => function () use (&$clockNow): float { return $clockNow; },
+        'sleep' => function (float $sec) use (&$clockNow): void { $clockNow += $sec; },
+        'get' => function (string $url) use (&$starts, &$clockNow, $nvdKev): array {
+            if ($url === WATCH_VULN_URLS['kev']) {
+                return ['code' => 200, 'body' => json_encode(['count' => count($nvdKev), 'vulnerabilities' => $nvdKev]), 'lm' => null, 'err' => null];
+            }
+            if (str_starts_with($url, WATCH_VULN_URLS['nvd'])) {
+                $starts[] = $clockNow;
+                $id = substr($url, strlen(WATCH_VULN_URLS['nvd']));
+                return ['code' => 200, 'body' => json_encode(['vulnerabilities' => [['cve' => ['id' => $id, 'configurations' => []]]]]), 'lm' => null, 'err' => null];
+            }
+            return ['code' => 404, 'body' => '', 'lm' => null, 'err' => 'HTTP 404'];
+        }]);
+    $most = 0;
+    foreach ($starts as $a) {
+        $most = max($most, count(array_filter($starts, fn ($b) => $b >= $a && $b <= $a + 30)));
+    }
+    same('vuln pacing: NVD — all eight asked, at most 5 starts in any 30 s (one every 6 s or more)', [8, true, true],
+        [count($starts), $most <= 5, count($starts) > 1 && min(array_map(fn ($i) => $starts[$i] - $starts[$i - 1], range(1, count($starts) - 1))) >= 6]);
     // a server with every product of the name table in a container, 200 records due, every advisory list three pages
     $kev = [];
     for ($i = 0; $i < 200; $i++) {
@@ -23110,6 +23136,7 @@ function testWatchmanVulnPacing(): void
     same('vuln pacing: one job on a server with everything — GitHub asked at most the hour\'s budget (records first, their share; the advisories the rest), each one counted',
         [WATCH_VULN_GH_HOUR, WATCH_VULN_CVE_RUN, WATCH_VULN_GH_HOUR - WATCH_VULN_CVE_RUN, WATCH_VULN_GH_HOUR],
         [$gh($asked), $cve, $gh($asked) - $cve, count($st['github']['at'] ?? [])]);
+    same('vuln pacing: … below GitHub\'s 60 with room to spare, and at least 20 left for the advisories', [true, true], [$gh($asked) <= 55, $gh($asked) - $cve >= 20]);
     $asked = [];
     watchmanVulnFetch($dir, $ctx + ['get' => $mk($asked), 'now' => $t0 + 600]);
     $again = $gh($asked);
