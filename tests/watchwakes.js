@@ -495,7 +495,7 @@ async function vulnPage() {
   const ghSec = sectionOf(r, 'area.vuln');
   const ghHead = ghSec.querySelectorAll('.wm-known-head').map(tx).find((x) => x.includes(T('vuln.ghsa_title', { n: 2 })));
   const ghRows = ghSec.querySelectorAll('.wm-vuln-not').map((x) => tx(x.querySelector('.row-name')));
-  const links = ghSec.querySelectorAll('.wm-vuln-link').map((a) => a.href);
+  const links = ghSec.querySelectorAll('.wm-vuln-link').map((a) => a.href).filter((h) => h.startsWith('https://github.com/advisories/GHSA-'));     // the sources' links (credits) apart
   same('vulnerabilities: the projects\' advisories — their fold, critical first, the link to each; the unsure one with its words; «What he checked» finds the container',
     [!!ghHead, ghRows.slice(0, 3), links, ghSec.querySelectorAll('.row-meta').map(tx).some((m) => m.includes(T('vuln.sev_critical')) && m.includes('Path traversal')),
       ghSec.querySelectorAll('.row-meta').map(tx).some((m) => m.includes(T('vuln.unsure_why_ghsa', { range: '> main@4ffa26c9' }))), gh[0]],
